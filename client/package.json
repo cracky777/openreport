@@ -15,8 +15,10 @@
     "echarts-for-react": "^3.0.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-draggable": "^4.5.0",
     "react-grid-layout": "^2.2.3",
     "react-router-dom": "^7.14.1",
+    "recharts": "^3.8.1",
     "uuid": "^13.0.0"
   },
   "devDependencies": {

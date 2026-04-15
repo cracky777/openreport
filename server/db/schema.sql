@@ -20,9 +20,27 @@ CREATE TABLE IF NOT EXISTS datasources (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS models (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  datasource_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  selected_tables TEXT NOT NULL DEFAULT '[]',
+  table_positions TEXT NOT NULL DEFAULT '{}',
+  dimensions TEXT NOT NULL DEFAULT '[]',
+  measures TEXT NOT NULL DEFAULT '[]',
+  joins TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (datasource_id) REFERENCES datasources(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS reports (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
+  model_id TEXT,
   title TEXT NOT NULL DEFAULT 'Untitled Report',
   layout TEXT NOT NULL DEFAULT '[]',
   widgets TEXT NOT NULL DEFAULT '{}',

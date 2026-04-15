@@ -7,9 +7,13 @@ const router = express.Router();
 
 // List reports for current user
 router.get('/', requireAuth, (req, res) => {
-  const reports = db.prepare(
-    'SELECT id, title, is_public, created_at, updated_at FROM reports WHERE user_id = ? ORDER BY updated_at DESC'
-  ).all(req.user.id);
+  const reports = db.prepare(`
+    SELECT r.id, r.title, r.model_id, r.is_public, r.created_at, r.updated_at, m.name as model_name
+    FROM reports r
+    LEFT JOIN models m ON m.id = r.model_id
+    WHERE r.user_id = ?
+    ORDER BY r.updated_at DESC
+  `).all(req.user.id);
   res.json({ reports });
 });
 
@@ -38,10 +42,14 @@ router.get('/:id', (req, res) => {
 // Create report
 router.post('/', requireAuth, (req, res) => {
   const id = uuidv4();
-  const { title } = req.body;
+  const { title, modelId } = req.body;
 
-  db.prepare('INSERT INTO reports (id, user_id, title) VALUES (?, ?, ?)').run(
-    id, req.user.id, title || 'Untitled Report'
+  if (!modelId) {
+    return res.status(400).json({ error: 'A data model is required' });
+  }
+
+  db.prepare('INSERT INTO reports (id, user_id, model_id, title) VALUES (?, ?, ?, ?)').run(
+    id, req.user.id, modelId, title || 'Untitled Report'
   );
 
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(id);

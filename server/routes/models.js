@@ -1,0 +1,222 @@
+const express = require('express');
+const { v4: uuidv4 } = require('uuid');
+const { requireAuth } = require('../middleware/auth');
+const db = require('../db');
+const { createConnection } = require('../utils/dbConnector');
+
+const router = express.Router();
+
+// Quote a table name, handling schema.table format
+// "datakhi_elections.d_population" → "datakhi_elections"."d_population"
+// "users" → "users"
+function quoteTable(name) {
+  if (name.includes('.')) {
+    return name.split('.').map((p) => `"${p}"`).join('.');
+  }
+  return `"${name}"`;
+}
+
+// List models for current user
+router.get('/', requireAuth, (req, res) => {
+  const models = db.prepare(`
+    SELECT m.id, m.name, m.description, m.datasource_id, d.name as datasource_name, m.created_at, m.updated_at
+    FROM models m
+    JOIN datasources d ON d.id = m.datasource_id
+    WHERE m.user_id = ?
+    ORDER BY m.updated_at DESC
+  `).all(req.user.id);
+  res.json({ models });
+});
+
+// Get single model with full details
+router.get('/:id', requireAuth, (req, res) => {
+  const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!model) return res.status(404).json({ error: 'Model not found' });
+
+  res.json({
+    model: {
+      ...model,
+      selected_tables: JSON.parse(model.selected_tables),
+      table_positions: JSON.parse(model.table_positions),
+      dimensions: JSON.parse(model.dimensions),
+      measures: JSON.parse(model.measures),
+      joins: JSON.parse(model.joins),
+    },
+  });
+});
+
+// Create model
+router.post('/', requireAuth, (req, res) => {
+  const { name, datasourceId, description } = req.body;
+  if (!name || !datasourceId) return res.status(400).json({ error: 'Name and datasourceId are required' });
+
+  const ds = db.prepare('SELECT id FROM datasources WHERE id = ? AND user_id = ?').get(datasourceId, req.user.id);
+  if (!ds) return res.status(404).json({ error: 'Datasource not found' });
+
+  const id = uuidv4();
+  db.prepare('INSERT INTO models (id, user_id, datasource_id, name, description) VALUES (?, ?, ?, ?, ?)').run(
+    id, req.user.id, datasourceId, name, description || ''
+  );
+
+  res.status(201).json({ model: { id, name, datasource_id: datasourceId, description: description || '' } });
+});
+
+// Update model (dimensions, measures, joins)
+router.put('/:id', requireAuth, (req, res) => {
+  const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!model) return res.status(404).json({ error: 'Model not found' });
+
+  const { name, description, selected_tables, table_positions, dimensions, measures, joins } = req.body;
+
+  db.prepare(`
+    UPDATE models SET
+      name = COALESCE(?, name),
+      description = COALESCE(?, description),
+      selected_tables = COALESCE(?, selected_tables),
+      table_positions = COALESCE(?, table_positions),
+      dimensions = COALESCE(?, dimensions),
+      measures = COALESCE(?, measures),
+      joins = COALESCE(?, joins),
+      updated_at = datetime('now')
+    WHERE id = ?
+  `).run(
+    name || null,
+    description !== undefined ? description : null,
+    selected_tables ? JSON.stringify(selected_tables) : null,
+    table_positions ? JSON.stringify(table_positions) : null,
+    dimensions ? JSON.stringify(dimensions) : null,
+    measures ? JSON.stringify(measures) : null,
+    joins ? JSON.stringify(joins) : null,
+    req.params.id
+  );
+
+  const updated = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
+  res.json({
+    model: {
+      ...updated,
+      selected_tables: JSON.parse(updated.selected_tables),
+      table_positions: JSON.parse(updated.table_positions),
+      dimensions: JSON.parse(updated.dimensions),
+      measures: JSON.parse(updated.measures),
+      joins: JSON.parse(updated.joins),
+    },
+  });
+});
+
+// Delete model
+router.delete('/:id', requireAuth, (req, res) => {
+  const result = db.prepare('DELETE FROM models WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Model not found' });
+  res.json({ message: 'Model deleted' });
+});
+
+// Query model: build SQL from selected dimensions + measures
+router.post('/:id/query', requireAuth, async (req, res) => {
+  const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!model) return res.status(404).json({ error: 'Model not found' });
+
+  const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
+  if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
+
+  const { dimensionNames, measureNames, limit, offset } = req.body;
+  // dimensionNames: ["orders.customer_name", "orders.status"]
+  // measureNames: ["orders.total_amount_sum", "orders.count"]
+
+  const allDimensions = JSON.parse(model.dimensions);
+  const allMeasures = JSON.parse(model.measures);
+  const allJoins = JSON.parse(model.joins);
+
+  // Preserve the order from the request (axis first, then legend)
+  const selectedDimensions = dimensionNames
+    ? dimensionNames.map((name) => allDimensions.find((d) => d.name === name)).filter(Boolean)
+    : [];
+  const selectedMeasures = measureNames
+    ? measureNames.map((name) => allMeasures.find((m) => m.name === name)).filter(Boolean)
+    : [];
+
+  if (selectedDimensions.length === 0 && selectedMeasures.length === 0) {
+    return res.status(400).json({ error: 'Select at least one dimension or measure' });
+  }
+
+  // Build SQL
+  const selectParts = [];
+  const groupByParts = [];
+  const tablesUsed = new Set();
+
+  selectedDimensions.forEach((d) => {
+    selectParts.push(`${quoteTable(d.table)}."${d.column}" AS "${d.label || d.name}"`);
+    groupByParts.push(`${quoteTable(d.table)}."${d.column}"`);
+    tablesUsed.add(d.table);
+  });
+
+  selectedMeasures.forEach((m) => {
+    if (m.table) tablesUsed.add(m.table);
+    if (m.aggregation === 'custom' && m.expression) {
+      // Custom SQL expression - force NUMERIC inside aggregates to avoid integer division truncation
+      // SUM(col) becomes SUM((col)::NUMERIC) so division preserves decimals
+      const numericExpr = m.expression.replace(
+        /\b(SUM|AVG|MIN|MAX)\(([^)]+)\)/gi,
+        (match, fn, col) => `${fn}((${col})::NUMERIC)`
+      );
+      selectParts.push(`(${numericExpr}) AS "${m.label || m.name}"`);
+      // Extract table references from expression for joins
+      // Check all dimensions and measures for column/table references
+      const allFieldsForLookup = [...allDimensions, ...allMeasures.filter((x) => x.table)];
+      for (const field of allFieldsForLookup) {
+        if (m.expression.includes(field.column) || m.expression.includes(field.table)) {
+          tablesUsed.add(field.table);
+        }
+      }
+    } else if (m.aggregation === 'count') {
+      selectParts.push(`COUNT(*) AS "${m.label || m.name}"`);
+    } else {
+      selectParts.push(`${m.aggregation.toUpperCase()}(${quoteTable(m.table)}."${m.column}") AS "${m.label || m.name}"`);
+    }
+  });
+
+  // Build FROM + JOINs
+  const tableList = Array.from(tablesUsed);
+  let fromClause = quoteTable(tableList[0]);
+
+  if (tableList.length > 1) {
+    for (let i = 1; i < tableList.length; i++) {
+      const join = allJoins.find(
+        (j) => (j.from_table === tableList[i] || j.to_table === tableList[i]) &&
+               (j.from_table === tableList[0] || j.to_table === tableList[0] ||
+                tableList.slice(0, i).some((t) => j.from_table === t || j.to_table === t))
+      );
+      if (join) {
+        const joinType = (join.type || 'LEFT').toUpperCase();
+        fromClause += ` ${joinType} JOIN ${quoteTable(tableList[i])} ON ${quoteTable(join.from_table)}."${join.from_column}" = ${quoteTable(join.to_table)}."${join.to_column}"`;
+      } else {
+        fromClause += `, ${quoteTable(tableList[i])}`;
+      }
+    }
+  }
+
+  let sql = `SELECT ${selectParts.join(', ')} FROM ${fromClause}`;
+
+  if (groupByParts.length > 0 && selectedMeasures.length > 0) {
+    sql += ` GROUP BY ${groupByParts.join(', ')}`;
+  }
+
+  const MAX_ROWS = 1000000;
+  const requestedLimit = Math.min(limit || 1000, MAX_ROWS);
+  sql += ` LIMIT ${requestedLimit}`;
+  if (offset) {
+    sql += ` OFFSET ${offset}`;
+  }
+
+  let conn;
+  try {
+    conn = createConnection(datasource);
+    const rows = await conn.query(sql);
+    res.json({ rows, rowCount: rows.length, maxReached: rows.length >= MAX_ROWS, sql });
+  } catch (err) {
+    res.status(500).json({ error: err.message, sql });
+  } finally {
+    conn?.close();
+  }
+});
+
+module.exports = router;

@@ -2,6 +2,7 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
+const { createConnection } = require('../utils/dbConnector');
 
 const router = express.Router();
 
@@ -11,6 +12,41 @@ router.get('/', requireAuth, (req, res) => {
     'SELECT id, name, db_type, host, port, db_name, created_at FROM datasources WHERE user_id = ? ORDER BY name'
   ).all(req.user.id);
   res.json({ datasources: sources });
+});
+
+// Get single datasource
+router.get('/:id', requireAuth, (req, res) => {
+  const source = db.prepare(
+    'SELECT id, name, db_type, host, port, db_name, db_user, created_at FROM datasources WHERE id = ? AND user_id = ?'
+  ).get(req.params.id, req.user.id);
+
+  if (!source) {
+    return res.status(404).json({ error: 'Datasource not found' });
+  }
+  res.json({ datasource: source });
+});
+
+// Test connection (without saving)
+router.post('/test', requireAuth, async (req, res) => {
+  const { dbType, host, port, dbName, dbUser, dbPassword } = req.body;
+
+  let conn;
+  try {
+    conn = createConnection({
+      db_type: dbType,
+      host,
+      port,
+      db_name: dbName,
+      db_user: dbUser,
+      db_password: dbPassword,
+    });
+    await conn.testConnection();
+    res.json({ success: true, message: 'Connection successful' });
+  } catch (err) {
+    res.json({ success: false, message: err.message });
+  } finally {
+    conn?.close();
+  }
 });
 
 // Create datasource
@@ -31,6 +67,82 @@ router.post('/', requireAuth, (req, res) => {
   res.status(201).json({
     datasource: { id, name, db_type: dbType, host, port: port || 5432, db_name: dbName },
   });
+});
+
+// List tables for a datasource
+router.get('/:id/tables', requireAuth, async (req, res) => {
+  const source = db.prepare(
+    'SELECT * FROM datasources WHERE id = ? AND user_id = ?'
+  ).get(req.params.id, req.user.id);
+
+  if (!source) {
+    return res.status(404).json({ error: 'Datasource not found' });
+  }
+
+  let conn;
+  try {
+    conn = createConnection(source);
+    const tables = await conn.getTables();
+    res.json({ tables });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn?.close();
+  }
+});
+
+// List columns for a table
+router.get('/:id/tables/:table/columns', requireAuth, async (req, res) => {
+  const source = db.prepare(
+    'SELECT * FROM datasources WHERE id = ? AND user_id = ?'
+  ).get(req.params.id, req.user.id);
+
+  if (!source) {
+    return res.status(404).json({ error: 'Datasource not found' });
+  }
+
+  let conn;
+  try {
+    conn = createConnection(source);
+    const columns = await conn.getColumns(req.params.table);
+    res.json({ columns });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn?.close();
+  }
+});
+
+// Execute query on a datasource
+router.post('/:id/query', requireAuth, async (req, res) => {
+  const source = db.prepare(
+    'SELECT * FROM datasources WHERE id = ? AND user_id = ?'
+  ).get(req.params.id, req.user.id);
+
+  if (!source) {
+    return res.status(404).json({ error: 'Datasource not found' });
+  }
+
+  const { sql } = req.body;
+  if (!sql) {
+    return res.status(400).json({ error: 'SQL query is required' });
+  }
+
+  // Basic safety: only allow SELECT
+  if (!/^\s*SELECT\b/i.test(sql)) {
+    return res.status(400).json({ error: 'Only SELECT queries are allowed' });
+  }
+
+  let conn;
+  try {
+    conn = createConnection(source);
+    const rows = await conn.query(sql);
+    res.json({ rows, rowCount: rows.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn?.close();
+  }
 });
 
 // Delete datasource

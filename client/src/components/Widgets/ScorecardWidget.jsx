@@ -1,7 +1,16 @@
+import formatNumber from '../../utils/formatNumber';
+
 export default function ScorecardWidget({ data, config }) {
-  const value = data?.value ?? '1,234';
-  const label = data?.label ?? 'Total';
+  const hasData = data?.value !== undefined && data?.value !== '';
+
+  if (!hasData) {
+    return <div style={emptyStyle}>Select a measure to display a scorecard</div>;
+  }
+
   const change = data?.change;
+  const fmt = Object.values(data?._measureFormats || {})[0];
+  const rawValue = typeof data.value === 'string' ? parseFloat(data.value.replace(/[^\d.-]/g, '')) : data.value;
+  const displayValue = fmt && !isNaN(rawValue) ? formatNumber(rawValue, fmt) : data.value;
 
   return (
     <div
@@ -22,7 +31,7 @@ export default function ScorecardWidget({ data, config }) {
           fontWeight: 500,
         }}
       >
-        {label}
+        {data?.label || ''}
       </div>
       <div
         style={{
@@ -31,7 +40,7 @@ export default function ScorecardWidget({ data, config }) {
           color: config?.valueColor || '#0f172a',
         }}
       >
-        {value}
+        {displayValue}
       </div>
       {change !== undefined && (
         <div
@@ -48,3 +57,8 @@ export default function ScorecardWidget({ data, config }) {
     </div>
   );
 }
+
+const emptyStyle = {
+  height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: 16,
+};
