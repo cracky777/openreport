@@ -214,7 +214,9 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       </div>
 
       <div style={headerStyle}>
-        <span>{widgetMeta?.icon} {widgetMeta?.label}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          {(() => { const I = widgetMeta?.icon; return I ? <I size={16} /> : null; })()} {widgetMeta?.label}
+        </span>
         <div style={{ display: 'flex', gap: 3 }}>
           <button onClick={() => onSendToBack(widgetId)} title="Send to back" style={layerBtn}>⇊</button>
           <button onClick={() => onSendBackward(widgetId)} title="Back one" style={layerBtn}>↓</button>

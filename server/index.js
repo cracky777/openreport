@@ -13,6 +13,8 @@ const authRoutes = require('./routes/auth');
 const reportRoutes = require('./routes/reports');
 const datasourceRoutes = require('./routes/datasources');
 const modelRoutes = require('./routes/models');
+const adminRoutes = require('./routes/admin');
+const workspaceRoutes = require('./routes/workspaces');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -46,6 +48,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/datasources', datasourceRoutes);
 app.use('/api/models', modelRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/workspaces', workspaceRoutes);
 
 // Cube.js semantic layer
 const { setupCube } = require('./cube/cubeSetup');

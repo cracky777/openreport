@@ -111,8 +111,19 @@ router.delete('/:id', requireAuth, (req, res) => {
 });
 
 // Query model: build SQL from selected dimensions + measures
-router.post('/:id/query', requireAuth, async (req, res) => {
-  const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+// Accessible if: user owns the model OR model is linked to a public report
+router.post('/:id/query', async (req, res) => {
+  let model;
+  if (req.isAuthenticated()) {
+    model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  }
+  if (!model) {
+    // Check if model belongs to a public report
+    const publicReport = db.prepare('SELECT id FROM reports WHERE model_id = ? AND is_public = 1').get(req.params.id);
+    if (publicReport) {
+      model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
+    }
+  }
   if (!model) return res.status(404).json({ error: 'Model not found' });
 
   const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);

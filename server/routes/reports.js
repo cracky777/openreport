@@ -1,6 +1,6 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireRole } = require('../middleware/auth');
 const db = require('../db');
 
 const router = express.Router();
@@ -8,7 +8,7 @@ const router = express.Router();
 // List reports for current user
 router.get('/', requireAuth, (req, res) => {
   const reports = db.prepare(`
-    SELECT r.id, r.title, r.model_id, r.is_public, r.created_at, r.updated_at, m.name as model_name
+    SELECT r.id, r.title, r.model_id, r.workspace_id, r.is_public, r.created_at, r.updated_at, m.name as model_name
     FROM reports r
     LEFT JOIN models m ON m.id = r.model_id
     WHERE r.user_id = ?
@@ -42,14 +42,14 @@ router.get('/:id', (req, res) => {
 // Create report
 router.post('/', requireAuth, (req, res) => {
   const id = uuidv4();
-  const { title, modelId } = req.body;
+  const { title, modelId, workspaceId } = req.body;
 
   if (!modelId) {
     return res.status(400).json({ error: 'A data model is required' });
   }
 
-  db.prepare('INSERT INTO reports (id, user_id, model_id, title) VALUES (?, ?, ?, ?)').run(
-    id, req.user.id, modelId, title || 'Untitled Report'
+  db.prepare('INSERT INTO reports (id, user_id, model_id, title, workspace_id) VALUES (?, ?, ?, ?, ?)').run(
+    id, req.user.id, modelId, title || 'Untitled Report', workspaceId || null
   );
 
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(id);
@@ -73,7 +73,7 @@ router.put('/:id', requireAuth, (req, res) => {
     return res.status(404).json({ error: 'Report not found' });
   }
 
-  const { title, layout, widgets, settings, is_public } = req.body;
+  const { title, layout, widgets, settings, is_public, workspace_id } = req.body;
 
   db.prepare(`
     UPDATE reports SET
@@ -82,6 +82,7 @@ router.put('/:id', requireAuth, (req, res) => {
       widgets = COALESCE(?, widgets),
       settings = COALESCE(?, settings),
       is_public = COALESCE(?, is_public),
+      workspace_id = CASE WHEN ? = 1 THEN ? ELSE workspace_id END,
       updated_at = datetime('now')
     WHERE id = ?
   `).run(
@@ -90,6 +91,8 @@ router.put('/:id', requireAuth, (req, res) => {
     widgets ? JSON.stringify(widgets) : null,
     settings ? JSON.stringify(settings) : null,
     is_public !== undefined ? (is_public ? 1 : 0) : null,
+    workspace_id !== undefined ? 1 : 0,
+    workspace_id !== undefined ? workspace_id : null,
     req.params.id
   );
 

@@ -553,6 +553,7 @@ export default function Editor() {
         canUndo={history.canUndo}
         canRedo={history.canRedo}
         onOpenSettings={() => setShowSettings(true)}
+        reportId={id}
       />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <ReportCanvas

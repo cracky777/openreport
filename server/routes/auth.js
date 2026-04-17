@@ -20,12 +20,15 @@ router.post('/register', (req, res) => {
 
   const id = uuidv4();
   const passwordHash = bcrypt.hashSync(password, 10);
+  // First user becomes admin
+  const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get();
+  const role = userCount.c === 0 ? 'admin' : 'viewer';
 
-  db.prepare('INSERT INTO users (id, email, password_hash, display_name) VALUES (?, ?, ?, ?)').run(
-    id, email, passwordHash, displayName || email.split('@')[0]
+  db.prepare('INSERT INTO users (id, email, password_hash, display_name, role) VALUES (?, ?, ?, ?, ?)').run(
+    id, email, passwordHash, displayName || email.split('@')[0], role
   );
 
-  const user = { id, email, display_name: displayName || email.split('@')[0] };
+  const user = { id, email, display_name: displayName || email.split('@')[0], role };
 
   req.login(user, (err) => {
     if (err) return res.status(500).json({ error: 'Login failed after registration' });

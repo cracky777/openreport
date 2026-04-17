@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, TABLE_SUB_TYPES } from '../Widgets';
+import { TbEye } from 'react-icons/tb';
 
-export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings }) {
+export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId }) {
   const navigate = useNavigate();
   const [openMenu, setOpenMenu] = useState(null); // 'bar' | 'line' | null
 
@@ -44,6 +45,18 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         placeholder="Report title"
       />
 
+      <button
+        onClick={() => window.open(`/view/${reportId}`, '_blank')}
+        title="Preview report"
+        style={{
+          padding: '4px 10px', border: '1px solid #e2e8f0',
+          borderRadius: 4, background: '#fff', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#475569',
+        }}
+      >
+        <TbEye size={16} /> Preview
+      </button>
+
       {modelName && (
         <span style={{ fontSize: 12, color: '#64748b', background: '#f1f5f9', padding: '4px 10px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           {modelName}
@@ -64,7 +77,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
       <div style={{ flex: 1 }} />
 
       <div style={{ display: 'flex', gap: 4 }}>
-        {Object.entries(WIDGET_TYPES).filter(([, meta]) => !meta.hidden).map(([type, { label, icon, hasSubTypes }]) => (
+        {Object.entries(WIDGET_TYPES).filter(([, meta]) => !meta.hidden).map(([type, { label, icon: Icon, hasSubTypes }]) => (
           <div key={type} style={{ position: 'relative' }}>
             <button
               onClick={() => {
@@ -80,10 +93,10 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                 padding: '6px 10px', fontSize: 13,
                 border: openMenu === type ? '1px solid #3b82f6' : '1px solid #e2e8f0',
                 borderRadius: 6, background: openMenu === type ? '#eff6ff' : '#fff',
-                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
               }}
             >
-              <span>{icon}</span>
+              <Icon size={16} />
               <span>{label}</span>
               {hasSubTypes && <span style={{ fontSize: 10, color: '#94a3b8' }}>▼</span>}
             </button>
@@ -91,29 +104,38 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             {/* Sub-type dropdown */}
             {openMenu === type && type === 'bar' && (
               <div style={dropdownStyle}>
-                {BAR_SUB_TYPES.map((st) => (
-                  <button key={st.value} onClick={() => handleAddWithSubType('bar', st.value)} style={dropdownItem}>
-                    {st.label}
-                  </button>
-                ))}
+                {BAR_SUB_TYPES.map((st) => {
+                  const StIcon = st.icon;
+                  return (
+                    <button key={st.value} onClick={() => handleAddWithSubType('bar', st.value)} style={dropdownItem}>
+                      <StIcon size={14} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                    </button>
+                  );
+                })}
               </div>
             )}
             {openMenu === type && type === 'line' && (
               <div style={dropdownStyle}>
-                {LINE_SUB_TYPES.map((st) => (
-                  <button key={st.value} onClick={() => handleAddWithSubType('line', st.value)} style={dropdownItem}>
-                    {st.label}
-                  </button>
-                ))}
+                {LINE_SUB_TYPES.map((st) => {
+                  const StIcon = st.icon;
+                  return (
+                    <button key={st.value} onClick={() => handleAddWithSubType('line', st.value)} style={dropdownItem}>
+                      <StIcon size={14} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                    </button>
+                  );
+                })}
               </div>
             )}
             {openMenu === type && type === 'table' && (
               <div style={dropdownStyle}>
-                {TABLE_SUB_TYPES.map((st) => (
-                  <button key={st.value} onClick={() => { onAddWidget(st.value); setOpenMenu(null); }} style={dropdownItem}>
-                    {st.label}
-                  </button>
-                ))}
+                {TABLE_SUB_TYPES.map((st) => {
+                  const StIcon = st.icon;
+                  return (
+                    <button key={st.value} onClick={() => { onAddWidget(st.value); setOpenMenu(null); }} style={dropdownItem}>
+                      <StIcon size={14} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>

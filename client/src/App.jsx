@@ -7,6 +7,7 @@ import Viewer from './pages/Viewer';
 import Datasources from './pages/Datasources';
 import Models from './pages/Models';
 import ModelEditor from './pages/ModelEditor';
+import Admin from './pages/Admin';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -31,6 +32,7 @@ function App() {
           <Route path="/datasources" element={<PrivateRoute><Datasources /></PrivateRoute>} />
           <Route path="/models" element={<PrivateRoute><Models /></PrivateRoute>} />
           <Route path="/models/:id" element={<PrivateRoute><ModelEditor /></PrivateRoute>} />
+          <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
           <Route path="/view/:id" element={<Viewer />} />
         </Routes>
       </BrowserRouter>
