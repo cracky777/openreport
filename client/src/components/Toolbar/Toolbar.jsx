@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES } from '../Widgets';
+import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, TABLE_SUB_TYPES } from '../Widgets';
 
 export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings }) {
   const navigate = useNavigate();
@@ -64,7 +64,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
       <div style={{ flex: 1 }} />
 
       <div style={{ display: 'flex', gap: 4 }}>
-        {Object.entries(WIDGET_TYPES).map(([type, { label, icon, hasSubTypes }]) => (
+        {Object.entries(WIDGET_TYPES).filter(([, meta]) => !meta.hidden).map(([type, { label, icon, hasSubTypes }]) => (
           <div key={type} style={{ position: 'relative' }}>
             <button
               onClick={() => {
@@ -102,6 +102,15 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
               <div style={dropdownStyle}>
                 {LINE_SUB_TYPES.map((st) => (
                   <button key={st.value} onClick={() => handleAddWithSubType('line', st.value)} style={dropdownItem}>
+                    {st.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {openMenu === type && type === 'table' && (
+              <div style={dropdownStyle}>
+                {TABLE_SUB_TYPES.map((st) => (
+                  <button key={st.value} onClick={() => { onAddWidget(st.value); setOpenMenu(null); }} style={dropdownItem}>
                     {st.label}
                   </button>
                 ))}

@@ -118,7 +118,7 @@ router.post('/:id/query', requireAuth, async (req, res) => {
   const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
   if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
 
-  const { dimensionNames, measureNames, limit, offset } = req.body;
+  const { dimensionNames, measureNames, limit, offset, filters, distinct } = req.body;
   // dimensionNames: ["orders.customer_name", "orders.status"]
   // measureNames: ["orders.total_amount_sum", "orders.count"]
 
@@ -142,6 +142,20 @@ router.post('/:id/query', requireAuth, async (req, res) => {
   const selectParts = [];
   const groupByParts = [];
   const tablesUsed = new Set();
+
+  // Pre-register filter tables so they get JOINed
+  const whereParts = [];
+  if (filters && typeof filters === 'object') {
+    for (const [dimName, values] of Object.entries(filters)) {
+      if (!Array.isArray(values) || values.length === 0) continue;
+      const dimDef = allDimensions.find((d) => d.name === dimName);
+      if (dimDef) {
+        tablesUsed.add(dimDef.table);
+        const escaped = values.map((v) => `'${String(v).replace(/'/g, "''")}'`).join(', ');
+        whereParts.push(`${quoteTable(dimDef.table)}."${dimDef.column}" IN (${escaped})`);
+      }
+    }
+  }
 
   selectedDimensions.forEach((d) => {
     selectParts.push(`${quoteTable(d.table)}."${d.column}" AS "${d.label || d.name}"`);
@@ -194,7 +208,11 @@ router.post('/:id/query', requireAuth, async (req, res) => {
     }
   }
 
-  let sql = `SELECT ${selectParts.join(', ')} FROM ${fromClause}`;
+  let sql = `SELECT ${distinct ? 'DISTINCT ' : ''}${selectParts.join(', ')} FROM ${fromClause}`;
+
+  if (whereParts.length > 0) {
+    sql += ` WHERE ${whereParts.join(' AND ')}`;
+  }
 
   if (groupByParts.length > 0 && selectedMeasures.length > 0) {
     sql += ` GROUP BY ${groupByParts.join(', ')}`;

@@ -1,9 +1,24 @@
-import { useRef, useState, useEffect, useCallback, memo } from 'react';
+import { useRef, useState, useEffect, useCallback, memo, useMemo } from 'react';
 import Draggable from 'react-draggable';
 import { WIDGET_TYPES } from '../Widgets';
 import MaxRowsWarning from '../Widgets/MaxRowsWarning';
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore }) {
+function buildGradientCSS(g) {
+  if (!g?.enabled) return null;
+  return `linear-gradient(${g.angle ?? 180}deg, ${g.color1 || '#ffffff'}, ${g.color2 || '#e2e8f0'})`;
+}
+
+function buildShadowCSS(s) {
+  if (!s?.enabled) return null;
+  const angleRad = ((s.angle ?? 135) * Math.PI) / 180;
+  const dist = (s.blur ?? 10) / 2;
+  const x = Math.round(Math.cos(angleRad) * dist);
+  const y = Math.round(Math.sin(angleRad) * dist);
+  const inset = s.type === 'inner' ? 'inset ' : '';
+  return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
+}
+
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onCrossFilter, crossHighlight }) {
   const nodeRef = useRef(null);
   const WidgetType = WIDGET_TYPES[widget.type];
   if (!WidgetType) return null;
@@ -35,16 +50,22 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           width: w,
           height: h,
           zIndex: Math.max(1, item.z || 1),
-          background: widget.config?.backgroundColor || '#ffffff',
+          background: widget.config?.transparentBg
+            ? 'transparent'
+            : (buildGradientCSS(widget.config?.gradientBg) || widget.config?.backgroundColor || '#ffffff'),
           borderRadius: widget.config?.borderRadius || 8,
           border: isSelected
             ? '2px solid #3b82f6'
-            : `1px solid ${widget.config?.borderColor || '#e2e8f0'}`,
-          boxShadow: isSelected
-            ? '0 0 0 3px rgba(59,130,246,0.15)'
-            : '0 1px 3px rgba(0,0,0,0.05)',
+            : (widget.config?.borderEnabled === false
+                ? 'none'
+                : `1px solid ${widget.config?.borderColor || '#e2e8f0'}`),
+          boxShadow: [
+            isSelected ? '0 0 0 3px rgba(59,130,246,0.15)' : null,
+            buildShadowCSS(widget.config?.shadow),
+            !isSelected && !widget.config?.shadow?.enabled && widget.config?.borderEnabled !== false ? '0 1px 3px rgba(0,0,0,0.05)' : null,
+          ].filter(Boolean).join(', ') || 'none',
           cursor: readOnly ? 'default' : 'move',
-          overflow: 'hidden',
+          overflow: widget.config?.shadow?.enabled ? 'visible' : 'hidden',
         }}
       >
         {widget.config?.title && (
@@ -66,6 +87,13 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             chartHeight={contentHeight}
             onAutoHeight={isAutoHeight ? (newH) => onAutoHeight(item.i, newH) : undefined}
             onLoadMore={widget.type === 'table' ? () => onLoadMore?.(item.i) : undefined}
+            onConfigUpdate={widget.type === 'table' ? (key, val) => onWidgetUpdate?.(item.i, { ...widget, config: { ...widget.config, [key]: val } }) : undefined}
+            onFilterChange={widget.type === 'filter' && onSlicerFilter ? (vals) => {
+              const dimName = widget.dataBinding?.selectedDimensions?.[0];
+              if (dimName) onSlicerFilter(item.i, dimName, vals);
+            } : undefined}
+            onDataClick={onCrossFilter ? (dimName, value) => onCrossFilter(item.i, dimName, value) : undefined}
+            highlightValue={crossHighlight?.widgetId === item.i ? crossHighlight.value : null}
           />
         </div>
 
@@ -81,27 +109,28 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
         {/* Max rows warning */}
         {widget.data?._maxReached && <MaxRowsWarning />}
 
-        {/* Resize handle - bottom right corner */}
-        {!readOnly && (
-          <div
-            className="resize-handle"
-            onMouseDown={(e) => onStartResize(e, item.i)}
-            style={{
-              position: 'absolute',
-              bottom: 0,
-              right: 0,
-              width: 20,
-              height: 20,
-              cursor: 'se-resize',
-              zIndex: 10,
-            }}
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10"
-              style={{ position: 'absolute', bottom: 4, right: 4 }}>
-              <line x1="9" y1="1" x2="1" y2="9" stroke={isSelected ? '#3b82f6' : '#94a3b8'} strokeWidth="1.5" />
-              <line x1="9" y1="5" x2="5" y2="9" stroke={isSelected ? '#3b82f6' : '#94a3b8'} strokeWidth="1.5" />
-            </svg>
-          </div>
+        {/* Resize handles — all edges and corners, only when selected */}
+        {!readOnly && isSelected && (
+          <>
+            {/* Edges */}
+            <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 'n')}
+              style={{ position: 'absolute', top: -3, left: 6, right: 6, height: 6, cursor: 'n-resize', zIndex: 10 }} />
+            <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 's')}
+              style={{ position: 'absolute', bottom: -3, left: 6, right: 6, height: 6, cursor: 's-resize', zIndex: 10 }} />
+            <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 'w')}
+              style={{ position: 'absolute', left: -3, top: 6, bottom: 6, width: 6, cursor: 'w-resize', zIndex: 10 }} />
+            <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 'e')}
+              style={{ position: 'absolute', right: -3, top: 6, bottom: 6, width: 6, cursor: 'e-resize', zIndex: 10 }} />
+            {/* Corners */}
+            <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 'nw')}
+              style={{ position: 'absolute', top: -3, left: -3, width: 8, height: 8, cursor: 'nw-resize', zIndex: 11 }} />
+            <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 'ne')}
+              style={{ position: 'absolute', top: -3, right: -3, width: 8, height: 8, cursor: 'ne-resize', zIndex: 11 }} />
+            <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 'sw')}
+              style={{ position: 'absolute', bottom: -3, left: -3, width: 8, height: 8, cursor: 'sw-resize', zIndex: 11 }} />
+            <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 'se')}
+              style={{ position: 'absolute', bottom: -3, right: -3, width: 8, height: 8, cursor: 'se-resize', zIndex: 11 }} />
+          </>
         )}
       </div>
     </Draggable>
@@ -117,24 +146,47 @@ export default function ReportCanvas({
   readOnly,
   settings = {},
   onLoadMore,
+  onWidgetUpdate,
+  reportFilters,
+  onSlicerFilter,
+  onCrossFilter,
+  crossHighlight,
 }) {
   const [resizing, setResizing] = useState(null);
+  const containerRef = useRef(null);
+  const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
+
+  // Track container size for fit modes
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => setContainerSize({ w: el.clientWidth - 40, h: el.clientHeight - 40 });
+    update(); // Initial measurement
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const pageWidth = settings.pageWidth || 1140;
   const pageHeight = settings.pageHeight || 800;
+  const viewMode = settings.viewMode || 'fitToWidth';
 
-  const canvasHeight = (() => {
-    const maxBottom = layout.length > 0
-      ? Math.max(...layout.map((item) => (item.y || 0) + (item.h || 300)))
-      : 0;
-    return Math.max(pageHeight, maxBottom + 300);
-  })();
+  const canvasHeight = pageHeight;
+
+  const scale = useMemo(() => {
+    if (viewMode === 'actual' || containerSize.w <= 0) return 1;
+    if (viewMode === 'fitToWidth') return Math.min(1, containerSize.w / pageWidth);
+    if (viewMode === 'fitToPage') return Math.min(1, containerSize.w / pageWidth, containerSize.h / canvasHeight);
+    return 1;
+  }, [viewMode, containerSize, pageWidth, canvasHeight]);
 
   const handleDragStop = useCallback((id, data) => {
+    const gridSize = settings.snapToGrid ? (settings.gridSize || 20) : 1;
+    const snap = (v) => Math.round(v / gridSize) * gridSize;
     onLayoutChange(layout.map((item) =>
-      item.i === id ? { ...item, x: Math.max(0, data.x), y: Math.max(0, data.y) } : item
+      item.i === id ? { ...item, x: Math.max(0, snap(data.x)), y: Math.max(0, snap(data.y)) } : item
     ));
-  }, [layout, onLayoutChange]);
+  }, [layout, onLayoutChange, settings.snapToGrid, settings.gridSize]);
 
   const handleAutoHeight = useCallback((id, newH) => {
     onLayoutChange(layout.map((item) =>
@@ -144,15 +196,23 @@ export default function ReportCanvas({
 
   useEffect(() => {
     if (!resizing) return;
+    const { dir } = resizing;
 
     const handleMouseMove = (e) => {
       const dx = e.clientX - resizing.startX;
       const dy = e.clientY - resizing.startY;
-      const newW = Math.max(80, resizing.startW + dx);
-      const newH = Math.max(40, resizing.startH + dy);
+      const updates = {};
+
+      // Width changes
+      if (dir.includes('e')) updates.w = Math.max(80, resizing.startW + dx);
+      if (dir.includes('w')) { updates.w = Math.max(80, resizing.startW - dx); updates.x = resizing.startPosX + dx; if (updates.w <= 80) updates.x = resizing.startPosX + resizing.startW - 80; }
+
+      // Height changes
+      if (dir.includes('s')) updates.h = Math.max(40, resizing.startH + dy);
+      if (dir.includes('n')) { updates.h = Math.max(40, resizing.startH - dy); updates.y = resizing.startPosY + dy; if (updates.h <= 40) updates.y = resizing.startPosY + resizing.startH - 40; }
 
       onLayoutChange(layout.map((item) =>
-        item.i === resizing.id ? { ...item, w: newW, h: newH } : item
+        item.i === resizing.id ? { ...item, ...updates } : item
       ));
     };
 
@@ -166,46 +226,68 @@ export default function ReportCanvas({
     };
   }, [resizing, layout, onLayoutChange]);
 
-  const startResize = useCallback((e, id) => {
+  const startResize = useCallback((e, id, dir = 'se') => {
     e.stopPropagation();
     e.preventDefault();
     const item = layout.find((l) => l.i === id);
     if (!item) return;
     setResizing({
-      id,
+      id, dir,
       startW: item.w || 400,
       startH: item.h || 300,
       startX: e.clientX,
       startY: e.clientY,
+      startPosX: item.x || 0,
+      startPosY: item.y || 0,
     });
   }, [layout]);
 
   return (
     <div
+      ref={containerRef}
       onClick={() => onSelectWidget?.(null)}
       style={{
         flex: 1,
         backgroundColor: '#f1f5f9',
-        overflow: 'auto',
+        overflow: viewMode === 'fitToPage' ? 'hidden' : 'auto',
         padding: 20,
+        minWidth: 0, minHeight: 0,
       }}
     >
-      <div
-        style={{
-          width: pageWidth,
-          minWidth: pageWidth,
-          margin: '0 auto',
-          minHeight: canvasHeight,
-          backgroundColor: settings.backgroundColor || '#ffffff',
-          backgroundImage: settings.backgroundImage ? `url(${settings.backgroundImage})` : 'none',
-          backgroundSize: settings.backgroundSize || 'cover',
-          backgroundPosition: 'center',
-          backgroundRepeat: settings.backgroundSize === 'repeat' ? 'repeat' : 'no-repeat',
-          borderRadius: 8,
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-          position: 'relative',
-        }}
-      >
+      {/* Scale wrapper — takes the visual size in the layout */}
+      <div style={{
+        width: scale < 1 ? pageWidth * scale : pageWidth,
+        minHeight: scale < 1 ? canvasHeight * scale : canvasHeight,
+        margin: '0 auto',
+        overflow: 'visible',
+      }}>
+        <div
+          style={{
+            width: pageWidth,
+            minWidth: pageWidth,
+            minHeight: canvasHeight,
+            transform: scale < 1 ? `scale(${scale})` : undefined,
+            transformOrigin: 'top left',
+            backgroundColor: settings.transparentBg ? 'transparent' : (settings.backgroundColor || '#ffffff'),
+            backgroundImage: !settings.transparentBg && settings.backgroundImage ? `url(${settings.backgroundImage})` : 'none',
+            backgroundSize: settings.backgroundSize || 'cover',
+            backgroundPosition: 'center',
+            backgroundRepeat: settings.backgroundSize === 'repeat' ? 'repeat' : 'no-repeat',
+            borderRadius: settings.borderRadius ?? 8,
+            boxShadow: (settings.showShadow ?? true) ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+            border: (settings.showBorder ?? true) ? undefined : 'none',
+            position: 'relative',
+          }}
+        >
+        {/* Grid overlay */}
+        {settings.showGrid && !readOnly && (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundImage: `linear-gradient(rgba(0,0,0,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.05) 1px, transparent 1px)`,
+            backgroundSize: `${settings.gridSize || 20}px ${settings.gridSize || 20}px`,
+            pointerEvents: 'none', zIndex: 0, borderRadius: settings.borderRadius ?? 8,
+          }} />
+        )}
         {layout.map((item) => {
           const widget = widgets[item.i];
           if (!widget) return null;
@@ -223,9 +305,14 @@ export default function ReportCanvas({
               onStartResize={startResize}
               onAutoHeight={handleAutoHeight}
               onLoadMore={onLoadMore}
+              onWidgetUpdate={onWidgetUpdate}
+              onSlicerFilter={onSlicerFilter}
+              onCrossFilter={onCrossFilter}
+              crossHighlight={crossHighlight}
             />
           );
         })}
+        </div>
       </div>
     </div>
   );

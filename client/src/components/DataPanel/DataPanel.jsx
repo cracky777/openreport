@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../../utils/api';
 import SqlExpressionInput from '../SqlExpressionInput/SqlExpressionInput';
 
-export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUpdate }) {
+export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUpdate, reportFilters }) {
   const [status, setStatus] = useState(null);
   const [showCalcForm, setShowCalcForm] = useState(false);
   const [calcLabel, setCalcLabel] = useState('');
@@ -34,10 +34,13 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
   const selectedDims = binding.selectedDimensions || [];
   const selectedMeass = binding.selectedMeasures || [];
   const groupBy = binding.groupBy || [];
+  const columnDims = binding.columnDimensions || [];
 
-  // Key based on binding + model version — widgetId not included so switching widgets doesn't refetch
+  // Key based on binding + model version + filters (slicers don't include filters)
   const modelVersion = (model?.measures?.length || 0) + ':' + (model?.dimensions?.length || 0);
-  const bindingKey = hasWidget ? `${selectedDims.join(',')}:${selectedMeass.join(',')}:${groupBy.join(',')}:${modelVersion}` : '';
+  const isFilterWidget = widget?.type === 'filter';
+  const filtersKey = !isFilterWidget && reportFilters ? JSON.stringify(reportFilters) : '';
+  const bindingKey = hasWidget ? `${selectedDims.join(',')}:${selectedMeass.join(',')}:${groupBy.join(',')}:${columnDims.join(',')}:${modelVersion}:${filtersKey}` : '';
   // Full key including widgetId to detect widget switch
   const selectionKey = hasWidget ? `${widgetId}:${bindingKey}` : '';
 
@@ -87,13 +90,16 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
       }
 
       try {
-        // Include groupBy dimensions in the query
-        const allDims = [...dims, ...grpBy.filter((g) => !dims.includes(g))];
+        // Include groupBy and column dimensions in the query
+        const colDimsBinding = capturedWidget.dataBinding?.columnDimensions || [];
+        const allDims = [...dims, ...grpBy.filter((g) => !dims.includes(g)), ...colDimsBinding.filter((g) => !dims.includes(g) && !grpBy.includes(g))];
 
         const res = await api.post(`/models/${model.id}/query`, {
           dimensionNames: allDims,
           measureNames: meass,
-          limit: capturedWidget.config?.dataLimit || 1000,
+          limit: isFilterWidget ? 1000000 : (capturedWidget.config?.dataLimit || 1000),
+          filters: isFilterWidget ? {} : (reportFilters || {}),
+          distinct: isFilterWidget || undefined,
         }, { signal: abortController.signal });
 
         if (cancelled) return;
@@ -104,11 +110,37 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
         // Use latest widget type (not captured) to handle type changes during fetch
         const currentType = widgetRef.current?.type || capturedWidget.type;
 
-        if (currentType === 'filter') {
+        if (currentType === 'pivotTable') {
+          if (rows.length > 0) {
+            // Pass raw rows + metadata for client-side pivoting
+            const rowDimNames = dims.filter((d) => !colDimsBinding.includes(d));
+            const measNames = meass.map((m) => {
+              const measDef = (model.measures || []).find((x) => x.name === m);
+              return measDef?.label || measDef?.name || m;
+            });
+            const dimLabels = dims.map((d) => {
+              const dimDef = (model.dimensions || []).find((x) => x.name === d);
+              return dimDef?.label || dimDef?.name || d;
+            });
+            const colDimLabels = colDimsBinding.map((d) => {
+              const dimDef = (model.dimensions || []).find((x) => x.name === d);
+              return dimDef?.label || dimDef?.name || d;
+            });
+            newData = {
+              rawRows: rows,
+              _rowDims: rowDimNames.map((d) => {
+                const dimDef = (model.dimensions || []).find((x) => x.name === d);
+                return dimDef?.label || dimDef?.name || d;
+              }),
+              _colDims: colDimLabels,
+              _measures: measNames,
+            };
+          }
+        } else if (currentType === 'filter') {
           if (rows.length > 0) {
             const keys = Object.keys(rows[0]);
             newData = {
-              values: rows.map((r) => r[keys[0]]).filter((v) => v != null),
+              values: [...new Set(rows.map((r) => r[keys[0]]).filter((v) => v != null))],
               label: dims[0] || '',
             };
           }
@@ -176,6 +208,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
         if (cancelled) return;
         newData._maxReached = maxReached;
         newData._fetchedBinding = bindingKey;
+        // Attach primary dimension name for cross-filtering
+        if (dims.length > 0) {
+          const dimDef = (model.dimensions || []).find((x) => x.name === dims[0]);
+          newData._dimName = dimDef?.name || dims[0];
+        }
         // Attach measure formats for widget rendering
         const measureFormats = {};
         for (const measName of meass) {
