@@ -2,6 +2,7 @@ import { useRef, useEffect, memo, useMemo, useState, useCallback } from 'react';
 import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import ChartLegend from './ChartLegend';
+import { sortDateLabels, sortDateSeries, formatDateLabel } from '../../utils/dateHelpers';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -83,6 +84,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
 
     let labels = [...data.labels];
     let sortedIndices = labels.map((_, i) => i);
+    const datePart = data._datePart;
 
     if (sortOrder !== 'none') {
       const totals = labels.map((_, i) => {
@@ -95,6 +97,17 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
       });
       sortedIndices.sort((a, b) => sortOrder === 'desc' ? totals[b] - totals[a] : totals[a] - totals[b]);
       labels = sortedIndices.map((i) => labels[i]);
+    } else if (datePart) {
+      // Auto-sort chronologically for date dimensions
+      const { labels: sorted, indices } = sortDateLabels(labels, null, datePart);
+      // Remap sortedIndices through the date sort
+      sortedIndices = indices.map((i) => sortedIndices[i]);
+      labels = sorted;
+    }
+
+    // Format date labels
+    if (datePart) {
+      labels = labels.map((l) => formatDateLabel(l, datePart));
     }
 
     const series = [];
@@ -140,6 +153,8 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
 
         for (let i = 0; i < seriesData.length; i++) {
           const s = seriesData[i];
+          const origIdx = allSeriesForLegend ? allSeriesForLegend.findIndex((o) => o.name === s.name) : i;
+          const colorIdx = origIdx >= 0 ? origIdx : i;
           const values = sortedIndices.map((idx) => s.values[idx] || 0);
           const nzCounts = nonZeroCounts;
           const nzIndices = seriesNonZeroIndex[i];
@@ -148,7 +163,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
             type: 'custom',
             name: s.name,
             data: values.map((v, ci) => [ci, v]),
-            itemStyle: { color: COLORS[i % COLORS.length] },
+            itemStyle: { color: COLORS[colorIdx % COLORS.length] },
             emphasis: { disabled: true },
             renderItem: (params, api) => {
               const catIdx = api.value(0);
@@ -174,7 +189,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
               const rect = {
                 type: 'rect',
                 shape: { x, y: top[1], width: barWidth, height: base[1] - top[1] },
-                style: { ...api.style(), fill: COLORS[i % COLORS.length], opacity: dimmed ? 0.3 : 1 },
+                style: { ...api.style(), fill: COLORS[colorIdx % COLORS.length], opacity: dimmed ? 0.3 : 1 },
                 styleEmphasis: api.styleEmphasis(),
               };
               if (!showDataLabels) return rect;
@@ -239,10 +254,11 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
               return total > 0 ? Math.round((val / total) * 10000) / 100 : 0;
             });
           }
+          const origIdx2 = allSeriesForLegend ? allSeriesForLegend.findIndex((o) => o.name === s.name) : i;
           series.push({
             type: 'bar', name: s.name, data: values,
             stack: 'total',
-            itemStyle: { color: COLORS[i % COLORS.length] },
+            itemStyle: { color: COLORS[(origIdx2 >= 0 ? origIdx2 : i) % COLORS.length] },
             emphasis: { focus: 'series' },
             label: { show: showDataLabels, position: dataLabelPosition, fontSize: 10,
               rotate: dataLabelRotate, color: dataLabelColor,

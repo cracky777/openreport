@@ -59,4 +59,13 @@ router.get('/me', requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
 
+// Search users by email (for autocomplete)
+router.get('/users/search', requireAuth, (req, res) => {
+  const q = req.query.q || '';
+  if (q.length < 2) return res.json({ users: [] });
+  const users = db.prepare("SELECT id, email, display_name FROM users WHERE email LIKE ? OR display_name LIKE ? LIMIT 10")
+    .all(`%${q}%`, `%${q}%`);
+  res.json({ users });
+});
+
 module.exports = router;

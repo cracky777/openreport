@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import SchemaCanvas from '../components/SchemaCanvas/SchemaCanvas';
 import SqlExpressionInput from '../components/SqlExpressionInput/SqlExpressionInput';
 import api from '../utils/api';
+import { TbArrowLeft } from 'react-icons/tb';
 
 const AGG_OPTIONS = [
   { value: 'sum', label: 'Sum' },
@@ -126,6 +127,19 @@ export default function ModelEditor() {
       'float', 'int', 'smallint', 'tinyint', 'mediumint', 'double', 'serial', 'bigserial'].includes(t);
   };
 
+  const isDateType = (dataType) => {
+    const t = dataType.toLowerCase();
+    return ['date', 'timestamp', 'timestamptz', 'timestamp with time zone',
+      'timestamp without time zone', 'datetime', 'time', 'interval',
+      'smalldatetime', 'datetime2', 'datetimeoffset'].includes(t);
+  };
+
+  const getColumnType = (dataType) => {
+    if (isNumeric(dataType)) return 'number';
+    if (isDateType(dataType)) return 'date';
+    return 'string';
+  };
+
   const addDimension = (table, column) => {
     const col = typeof column === 'string' ? { column_name: column, data_type: 'string' } : column;
     const dimName = `${table}.${col.column_name}`;
@@ -135,7 +149,7 @@ export default function ModelEditor() {
     }
     setDimensions((prev) => [...prev, {
       name: dimName, table, column: col.column_name,
-      type: isNumeric(col.data_type) ? 'number' : 'string',
+      type: getColumnType(col.data_type),
       label: col.column_name,
     }]);
   };
@@ -170,6 +184,7 @@ export default function ModelEditor() {
   const removeDimension = (dimName) => setDimensions((prev) => prev.filter((d) => d.name !== dimName));
   const removeMeasure = (measName) => setMeasures((prev) => prev.filter((m) => m.name !== measName));
 
+  const [saveMsg, setSaveMsg] = useState(null);
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -177,8 +192,12 @@ export default function ModelEditor() {
         name, description, selected_tables: selectedTables,
         table_positions: tablePositions, dimensions, measures, joins,
       });
+      setSaveMsg('Saved');
+      setTimeout(() => setSaveMsg(null), 2000);
     } catch (err) {
       console.error('Save failed:', err);
+      setSaveMsg('Save failed');
+      setTimeout(() => setSaveMsg(null), 3000);
     } finally {
       setSaving(false);
     }
@@ -201,7 +220,7 @@ export default function ModelEditor() {
       {/* Header */}
       <header style={headerStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => navigate('/models')} style={backStyle}>← Back</button>
+          <button onClick={() => navigate('/models')} style={backStyle}><TbArrowLeft size={16} /> Back</button>
           <input
             type="text" value={name} onChange={(e) => setName(e.target.value)}
             style={{ fontSize: 18, fontWeight: 600, border: 'none', outline: 'none', background: 'transparent', color: '#0f172a' }}
@@ -312,6 +331,7 @@ export default function ModelEditor() {
             onAddMeasure={addMeasure}
             datasourceId={model?.datasource_id}
             isNumeric={isNumeric}
+            isDateType={isDateType}
           />
         </div>
       )}
@@ -482,6 +502,14 @@ export default function ModelEditor() {
           </div>
         </div>
       )}
+      {saveMsg && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 9999,
+          backgroundColor: saveMsg === 'Saved' ? '#22c55e' : '#ef4444', color: '#fff',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        }}>{saveMsg === 'Saved' ? '✓ Model saved' : '✗ Save failed'}</div>
+      )}
     </div>
   );
 }
@@ -490,7 +518,7 @@ const headerStyle = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
   padding: '10px 20px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0,
 };
-const backStyle = { background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 14 };
+const backStyle = { display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 500 };
 const primaryBtn = {
   padding: '8px 16px', fontSize: 14, fontWeight: 600, border: 'none',
   borderRadius: 6, background: '#3b82f6', color: '#fff', cursor: 'pointer',

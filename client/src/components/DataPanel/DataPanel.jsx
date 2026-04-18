@@ -139,9 +139,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
         } else if (currentType === 'filter') {
           if (rows.length > 0) {
             const keys = Object.keys(rows[0]);
+            const dimDef = (model.dimensions || []).find((x) => x.name === dims[0]);
             newData = {
               values: [...new Set(rows.map((r) => r[keys[0]]).filter((v) => v != null))],
               label: dims[0] || '',
+              _isDate: dimDef?.type === 'date',
             };
           }
         } else if (currentType === 'table') {
@@ -220,6 +222,12 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
           if (measDef?.format) measureFormats[measDef.label || measDef.name] = measDef.format;
         }
         newData._measureFormats = measureFormats;
+        // Attach date part info for chronological sorting in charts
+        if (dims.length > 0) {
+          const axisDim = (model.dimensions || []).find((x) => x.name === dims[0]);
+          if (axisDim?.datePart) newData._datePart = axisDim.datePart;
+          else if (axisDim?.type === 'date') newData._datePart = 'full_date';
+        }
         const latestWidget = widgetRef.current;
         if (latestWidget && widgetIdRef.current === capturedWidgetId) {
           onUpdateRef.current(capturedWidgetId, { ...latestWidget, data: newData, _loading: false });
@@ -411,14 +419,72 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
         );
       })()}
 
-      {/* Dimensions grouped by table — 75% */}
+      {/* Date table — only shown when a dateColumn is set */}
+      {model.dateColumn && (() => {
+        const dateCol = (model.dimensions || []).find((d) => d.name === model.dateColumn);
+        if (!dateCol) return null;
+        const dateParts = (model.dimensions || []).filter((d) => d.datePartOf === model.dateColumn);
+        return (
+          <FieldSection label={
+            <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <span>📅 Date Table</span>
+              <button onClick={async (e) => {
+                e.stopPropagation();
+                // Remove date column and all its parts
+                const newDims = (model.dimensions || []).filter((x) => x.datePartOf !== model.dateColumn);
+                await api.put(`/models/${model.id}`, { dateColumn: '', dimensions: newDims });
+                if (onModelUpdate) onModelUpdate();
+              }} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#fef3c7', color: '#d97706', fontWeight: 600, border: 'none', cursor: 'pointer' }}>✕ remove</button>
+            </span>
+          } style={{ flex: '0 0 auto', maxHeight: '30%' }}>
+            <div style={listBox}>
+              {/* Main date column */}
+              <div
+                draggable
+                onDragStart={(e) => handleDragStart(e, dateCol.name, 'dimension')}
+                title={`${dateCol.table}.${dateCol.column}`}
+                style={{
+                  ...dragItem, paddingLeft: 8,
+                  backgroundColor: selectedDims.includes(dateCol.name) ? '#fef3c7' : 'transparent',
+                  borderLeft: selectedDims.includes(dateCol.name) ? '3px solid #d97706' : '3px solid transparent',
+                }}
+              >
+                <span style={dragHandle}>⠿</span>
+                <span style={{ flex: 1, fontSize: 12, fontWeight: 600 }}>{dateCol.label || dateCol.column}</span>
+                <span style={dateTag}>📅</span>
+              </div>
+              {/* Date parts */}
+              {dateParts.map((dp) => (
+                <div
+                  key={dp.name}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, dp.name, 'dimension')}
+                  title={dp.datePart}
+                  style={{
+                    ...dragItem, paddingLeft: 20,
+                    backgroundColor: selectedDims.includes(dp.name) ? '#fef3c7' : 'transparent',
+                    borderLeft: selectedDims.includes(dp.name) ? '3px solid #d97706' : '3px solid transparent',
+                  }}
+                >
+                  <span style={dragHandle}>⠿</span>
+                  <span style={{ flex: 1, fontSize: 11, color: '#78716c' }}>{dp.label}</span>
+                  <span style={{ fontSize: 8, color: '#a8a29e' }}>{dp.datePart}</span>
+                </div>
+              ))}
+            </div>
+          </FieldSection>
+        );
+      })()}
+
+      {/* Dimensions grouped by table */}
       {model.dimensions?.length > 0 && (
         <FieldSection label="Dimensions" style={{ flex: '1 1 75%' }}>
           <div style={listBoxLarge}>
             {(() => {
-              // Group dimensions by table
+              // Group dimensions by table (exclude the active dateColumn)
               const groups = {};
               for (const d of model.dimensions) {
+                if (d.name === model.dateColumn || d.datePartOf) continue; // shown in Date Table section
                 const table = shortTable(d.table);
                 if (!groups[table]) groups[table] = [];
                 groups[table].push(d);
@@ -437,7 +503,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
                           setEditingDim(null);
                         } else {
                           setEditingDim(d.name);
-                          setDimEditForm({ label: d.label || d.column });
+                          setDimEditForm({ label: d.label || d.column, type: d.type || 'string' });
                           setEditingField(null); // close measure edit if open
                         }
                       }}
@@ -451,6 +517,17 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
                     >
                       <span style={dragHandle}>⠿</span>
                       <span style={{ flex: 1, fontSize: 12 }}>{d.label || d.column}</span>
+                      {d.type === 'date' && (
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            await api.put(`/models/${model.id}`, { dateColumn: d.name });
+                            if (onModelUpdate) onModelUpdate();
+                          }}
+                          title="Set as date table"
+                          style={{ ...dateTag, cursor: 'pointer', border: 'none', padding: '1px 4px', fontSize: 8 }}
+                        >📅</button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -475,14 +552,75 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
                 onChange={(e) => setDimEditForm({ ...dimEditForm, label: e.target.value })}
                 style={editInput} />
             </div>
+            <div style={editRow}>
+              <span style={editLabel}>Type</span>
+              <select value={dimEditForm.type || 'string'}
+                onChange={(e) => setDimEditForm({ ...dimEditForm, type: e.target.value })}
+                style={{ ...editInput, width: 90 }}>
+                <option value="string">Text</option>
+                <option value="number">Number</option>
+                <option value="date">Date</option>
+              </select>
+            </div>
+            {dimEditForm.type === 'date' && !model.dateColumn && (
+              <>
+                <div style={editRow}>
+                  <span style={editLabel}>Date table</span>
+                  <input type="checkbox" checked={dimEditForm.setAsDateTable ?? false}
+                    onChange={(e) => setDimEditForm({ ...dimEditForm, setAsDateTable: e.target.checked, generateParts: e.target.checked ? (dimEditForm.generateParts ?? true) : false })} />
+                </div>
+                {dimEditForm.setAsDateTable && (
+                  <div style={editRow}>
+                    <span style={editLabel}>Date parts</span>
+                    <input type="checkbox" checked={dimEditForm.generateParts ?? true}
+                      onChange={(e) => setDimEditForm({ ...dimEditForm, generateParts: e.target.checked })} />
+                  </div>
+                )}
+              </>
+            )}
+            {dimEditForm.type === 'date' && model.dateColumn === d.name && !model.dimensions?.some((x) => x.name.startsWith('_date.')) && (
+              <div style={editRow}>
+                <span style={editLabel}>Date parts</span>
+                <input type="checkbox" checked={dimEditForm.generateParts ?? false}
+                  onChange={(e) => setDimEditForm({ ...dimEditForm, generateParts: e.target.checked })} />
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 }}>
               <button onClick={() => setEditingDim(null)} style={editCancelBtn}>Close</button>
               <button onClick={async () => {
                 try {
-                  const newDimensions = (model.dimensions || []).map((x) => x.name === d.name
-                    ? { ...x, label: dimEditForm.label }
+                  let newDimensions = (model.dimensions || []).map((x) => x.name === d.name
+                    ? { ...x, label: dimEditForm.label, type: dimEditForm.type }
                     : x);
-                  await api.put(`/models/${model.id}`, { dimensions: newDimensions });
+
+                  // Generate date part dimensions
+                  if (dimEditForm.generateParts) {
+                    // Remove existing date parts first
+                    newDimensions = newDimensions.filter((x) => !x.name.startsWith('_date.'));
+                    const dateParts = [
+                      { suffix: 'year', label: 'Year', expr: 'num_year' },
+                      { suffix: 'month_num', label: 'Month Number', expr: 'num_month' },
+                      { suffix: 'month_name', label: 'Month Name', expr: 'name_month' },
+                      { suffix: 'week', label: 'Week', expr: 'num_week' },
+                      { suffix: 'day_of_week', label: 'Day of Week', expr: 'num_day_of_week' },
+                      { suffix: 'day_name', label: 'Day Name', expr: 'name_day' },
+                    ];
+                    dateParts.forEach((p) => {
+                      newDimensions.push({
+                        name: `_date.${p.suffix}`,
+                        table: d.table,
+                        column: d.column,
+                        type: p.expr.startsWith('name') ? 'string' : 'number',
+                        label: p.label,
+                        datePartOf: d.name,
+                        datePart: p.expr,
+                      });
+                    });
+                  }
+
+                  const updates = { dimensions: newDimensions };
+                  if (dimEditForm.setAsDateTable) updates.dateColumn = d.name;
+                  await api.put(`/models/${model.id}`, updates);
                   if (onModelUpdate) onModelUpdate();
                   setEditingDim(null);
                 } catch (err) { console.error(err); }
@@ -550,6 +688,9 @@ const dimTag = {
 };
 const measTag = {
   fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#f0fdf4', color: '#16a34a', fontWeight: 600,
+};
+const dateTag = {
+  fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#fef3c7', color: '#d97706', fontWeight: 600,
 };
 const customTag = {
   fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#f5f3ff', color: '#8b5cf6', fontWeight: 700,

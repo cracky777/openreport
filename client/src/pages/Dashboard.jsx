@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight } from 'react-icons/tb';
+import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbTableOptions } from 'react-icons/tb';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -21,9 +21,37 @@ export default function Dashboard() {
   const [showMembers, setShowMembers] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newModelId, setNewModelId] = useState('');
+  const [createMode, setCreateMode] = useState(null); // null | 'model' | 'file' | 'connection'
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const createFileRef = useRef(null);
   const [newWsName, setNewWsName] = useState('');
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [newMemberRole, setNewMemberRole] = useState('viewer');
+  const [userSuggestions, setUserSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchTimer = useRef(null);
+
+  const searchUsers = (query) => {
+    setNewMemberEmail(query);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (query.length < 2) { setUserSuggestions([]); setShowSuggestions(false); return; }
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const res = await api.get(`/auth/users/search?q=${encodeURIComponent(query)}`);
+        // Filter out existing members and owner
+        const existing = new Set([...(wsMembers || []).map((m) => m.id), wsOwner?.id].filter(Boolean));
+        setUserSuggestions((res.data.users || []).filter((u) => !existing.has(u.id)));
+        setShowSuggestions(true);
+      } catch { setUserSuggestions([]); }
+    }, 200);
+  };
+
+  const selectSuggestion = (u) => {
+    setNewMemberEmail(u.email);
+    setShowSuggestions(false);
+    setUserSuggestions([]);
+  };
 
   const canEdit = user?.role !== 'viewer';
 
@@ -62,6 +90,67 @@ export default function Dashboard() {
     }).catch(() => {});
   }, [selectedWs, reports]);
 
+  const handleFileForReport = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingFile(true);
+    setUploadError('');
+    try {
+      // 1. Upload file → creates DuckDB datasource (or reuses existing)
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('name', file.name.replace(/\.[^.]+$/, ''));
+      const uploadRes = await api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const ds = uploadRes.data.datasource;
+
+      // If reused, check if a model already exists for this datasource
+      let modelId;
+      if (uploadRes.data.reused) {
+        const existingModel = models.find((m) => m.datasource_id === ds.id);
+        if (existingModel) {
+          modelId = existingModel.id;
+        }
+      }
+
+      if (!modelId) {
+        // 2. Create a model from the datasource
+        const modelRes = await api.post('/models', { name: ds.name, datasourceId: ds.id });
+        modelId = modelRes.data.model.id;
+
+        // 3. Load columns for the table and auto-add all as dimensions
+        const colRes = await api.get(`/datasources/${ds.id}/tables/${ds.tableName}/columns`);
+        const cols = colRes.data.columns || [];
+        const numericTypes = ['integer', 'bigint', 'numeric', 'decimal', 'real', 'double', 'float', 'int', 'smallint', 'double precision'];
+        const dateTypes = ['date', 'timestamp', 'timestamptz', 'timestamp with time zone', 'timestamp without time zone', 'datetime', 'time', 'smalldatetime', 'datetime2'];
+        const dimensions = [];
+        const measures = [];
+        cols.forEach((c) => {
+          const dimName = `${ds.tableName}.${c.column_name}`;
+          const dt = c.data_type?.toLowerCase() || '';
+          const colType = numericTypes.includes(dt) ? 'number' : dateTypes.includes(dt) ? 'date' : 'string';
+          dimensions.push({ name: dimName, table: ds.tableName, column: c.column_name, type: colType, label: c.column_name });
+          if (numericTypes.includes(dt)) {
+            measures.push({ name: `${ds.tableName}.${c.column_name}_sum`, table: ds.tableName, column: c.column_name, aggregation: 'sum', label: c.column_name });
+          }
+        });
+        await api.put(`/models/${modelId}`, { selected_tables: [ds.tableName], dimensions, measures });
+      }
+
+      // 4. Create report with this model
+      const reportRes = await api.post('/reports', {
+        title: newTitle || ds.name,
+        modelId,
+        ...(selectedWs ? { workspaceId: selectedWs } : {}),
+      });
+      navigate(`/edit/${reportRes.data.report.id}`);
+    } catch (err) {
+      setUploadError(err.response?.data?.error || err.message);
+    } finally {
+      setUploadingFile(false);
+      if (createFileRef.current) createFileRef.current.value = '';
+    }
+  };
+
   const handleCreate = async () => {
     if (!newModelId) return;
     const res = await api.post('/reports', {
@@ -72,6 +161,7 @@ export default function Dashboard() {
   };
 
   const deleteReport = async (id) => {
+    if (!confirm('Are you sure you want to delete this report?')) return;
     await api.delete(`/reports/${id}`);
     setReports((p) => p.filter((r) => r.id !== id));
     setWsReports((p) => p.filter((r) => r.id !== id));
@@ -142,22 +232,31 @@ export default function Dashboard() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#f1f5f9' }}>
       {/* Header */}
       <header style={headerStyle}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, color: '#0f172a' }}>Open Report</h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <h1 style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', letterSpacing: -0.5 }}>Open Report</h1>
+        <nav style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           {canEdit && (
             <>
-              <button onClick={() => navigate('/datasources')} style={navBtn}>Data Sources</button>
-              <button onClick={() => navigate('/models')} style={navBtn}>Models</button>
+              <button onClick={() => navigate('/datasources')} style={navBtnStyled}>
+                <TbDatabase size={15} /> <span>Data Sources</span>
+              </button>
+              <button onClick={() => navigate('/models')} style={navBtnStyled}>
+                <TbTableOptions size={15} /> <span>Models</span>
+              </button>
             </>
           )}
           {user?.role === 'admin' && (
-            <button onClick={() => navigate('/admin')} style={{ ...navBtn, display: 'flex', alignItems: 'center', gap: 4 }}>
-              <TbShield size={14} /> Admin
+            <button onClick={() => navigate('/admin')} style={navBtnStyled}>
+              <TbShield size={15} /> <span>Admin</span>
             </button>
           )}
-          <span style={{ fontSize: 13, color: '#64748b' }}>{user?.email}</span>
-          <button onClick={logout} style={navBtn}>Logout</button>
-        </div>
+          <div style={{ width: 1, height: 20, backgroundColor: '#e2e8f0', margin: '0 6px' }} />
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: '#64748b', padding: '0 6px' }}>
+            <TbUser size={15} /> {user?.display_name || user?.email}
+          </span>
+          <button onClick={logout} style={{ ...navBtnStyled, color: '#94a3b8' }}>
+            <TbLogout size={15} /> <span>Logout</span>
+          </button>
+        </nav>
       </header>
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
@@ -218,7 +317,7 @@ export default function Dashboard() {
                 </>
               )}
             </div>
-            {canEdit && <button onClick={() => { setNewTitle(''); setNewModelId(models[0]?.id || ''); setShowCreate(true); }} style={primaryBtn}>+ New Report</button>}
+            {canEdit && <button onClick={() => { setNewTitle(''); setNewModelId(''); setCreateMode(null); setUploadError(''); setShowCreate(true); }} style={primaryBtn}>+ New Report</button>}
           </div>
 
           {/* Members panel */}
@@ -252,9 +351,27 @@ export default function Dashboard() {
                 </div>
               ))}
               {wsUserRole === 'admin' && (
-                <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
-                  <input placeholder="Email" value={newMemberEmail} onChange={(e) => setNewMemberEmail(e.target.value)}
-                    style={{ flex: 1, padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12, outline: 'none' }} />
+                <div style={{ display: 'flex', gap: 4, marginTop: 8, position: 'relative' }}>
+                  <div style={{ flex: 1, position: 'relative' }}>
+                    <input placeholder="Search user..." value={newMemberEmail}
+                      onChange={(e) => searchUsers(e.target.value)}
+                      onFocus={() => userSuggestions.length > 0 && setShowSuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                      style={{ width: '100%', padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
+                    {showSuggestions && userSuggestions.length > 0 && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 20, maxHeight: 150, overflow: 'auto' }}>
+                        {userSuggestions.map((u) => (
+                          <div key={u.id} onClick={() => selectSuggestion(u)}
+                            style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f8fafc', display: 'flex', justifyContent: 'space-between' }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = '#eff6ff'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                            <span style={{ fontWeight: 500 }}>{u.display_name || u.email.split('@')[0]}</span>
+                            <span style={{ color: '#94a3b8' }}>{u.email}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <select value={newMemberRole} onChange={(e) => setNewMemberRole(e.target.value)}
                     style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 11 }}>
                     <option value="viewer">Viewer</option>
@@ -269,26 +386,95 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Create report modal */}
+          {/* Create report modal — wizard */}
           {showCreate && (
-            <div style={modalOverlay} onClick={() => setShowCreate(false)}>
-              <div style={modalCard} onClick={(e) => e.stopPropagation()}>
-                <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>New Report{selectedWs ? ` in ${wsName}` : ''}</h3>
+            <div style={modalOverlay} onClick={() => { setShowCreate(false); setCreateMode(null); setUploadError(''); }}>
+              <div style={{ ...modalCard, width: 480 }} onClick={(e) => e.stopPropagation()}>
+                <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>New Report{selectedWs ? ` in ${wsName}` : ''}</h3>
+
+                {/* Title — always visible */}
                 <div style={{ marginBottom: 12 }}>
                   <label style={labelStyle}>Title</label>
                   <input style={inputStyle} value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Report title" />
                 </div>
-                <div style={{ marginBottom: 16 }}>
-                  <label style={labelStyle}>Model</label>
-                  <select style={inputStyle} value={newModelId} onChange={(e) => setNewModelId(e.target.value)}>
-                    <option value="">Select a model...</option>
-                    {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                  </select>
-                </div>
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                  <button onClick={() => setShowCreate(false)} style={secondaryBtn}>Cancel</button>
-                  <button onClick={handleCreate} disabled={!newModelId} style={{ ...primaryBtn, opacity: newModelId ? 1 : 0.5 }}>Create</button>
-                </div>
+
+                {/* Step 1: Choose source type */}
+                {!createMode && (
+                  <div>
+                    <label style={{ ...labelStyle, marginBottom: 10 }}>Data source</label>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      {models.length > 0 && (
+                        <button onClick={() => setCreateMode('model')} style={sourceCard}>
+                          <TbLayoutDashboard size={28} color="#3b82f6" />
+                          <span style={{ fontWeight: 600, fontSize: 13 }}>Existing Model</span>
+                          <span style={{ fontSize: 11, color: '#94a3b8' }}>Use a data model already configured</span>
+                        </button>
+                      )}
+                      <button onClick={() => setCreateMode('file')} style={sourceCard}>
+                        <TbUpload size={28} color="#16a34a" />
+                        <span style={{ fontWeight: 600, fontSize: 13 }}>Import File</span>
+                        <span style={{ fontSize: 11, color: '#94a3b8' }}>CSV, Excel, Parquet, JSON</span>
+                      </button>
+                      <button onClick={() => { setShowCreate(false); navigate('/datasources'); }} style={sourceCard}>
+                        <TbDatabase size={28} color="#f59e0b" />
+                        <span style={{ fontWeight: 600, fontSize: 13 }}>Database</span>
+                        <span style={{ fontSize: 11, color: '#94a3b8' }}>Connect to a database</span>
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                      <button onClick={() => { setShowCreate(false); setCreateMode(null); }} style={secondaryBtn}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 2a: Choose existing model */}
+                {createMode === 'model' && (
+                  <div>
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={labelStyle}>Model</label>
+                      <select style={inputStyle} value={newModelId} onChange={(e) => setNewModelId(e.target.value)}>
+                        <option value="">Select a model...</option>
+                        {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
+                      <button onClick={() => setCreateMode(null)} style={secondaryBtn}>← Back</button>
+                      <button onClick={handleCreate} disabled={!newModelId} style={{ ...primaryBtn, opacity: newModelId ? 1 : 0.5 }}>Create Report</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 2b: Upload file */}
+                {createMode === 'file' && (
+                  <div>
+                    <input ref={createFileRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv" style={{ display: 'none' }}
+                      onChange={handleFileForReport} />
+                    <div
+                      onClick={() => !uploadingFile && createFileRef.current?.click()}
+                      style={{
+                        border: '2px dashed #cbd5e1', borderRadius: 8, padding: '32px 20px', textAlign: 'center',
+                        cursor: uploadingFile ? 'wait' : 'pointer', marginBottom: 12,
+                        background: '#fafbfc', transition: 'border-color 0.15s',
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
+                      onMouseLeave={(e) => e.currentTarget.style.borderColor = '#cbd5e1'}
+                    >
+                      {uploadingFile ? (
+                        <div style={{ color: '#3b82f6', fontSize: 14 }}>Importing data...</div>
+                      ) : (
+                        <>
+                          <TbUpload size={32} color="#94a3b8" />
+                          <div style={{ fontSize: 14, color: '#475569', marginTop: 8 }}>Click to select a file</div>
+                          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>CSV, Excel, Parquet, JSON (max 500 Mo)</div>
+                        </>
+                      )}
+                    </div>
+                    {uploadError && <div style={{ color: '#dc2626', fontSize: 12, marginBottom: 8 }}>{uploadError}</div>}
+                    <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                      <button onClick={() => { setCreateMode(null); setUploadError(''); }} style={secondaryBtn}>← Back</button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -340,8 +526,13 @@ export default function Dashboard() {
   );
 }
 
-const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 24px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0 };
-const navBtn = { background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 13 };
+const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 20px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0 };
+const navBtnStyled = {
+  display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px',
+  background: 'none', border: '1px solid transparent', borderRadius: 6,
+  color: '#475569', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+  transition: 'all 0.15s',
+};
 const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: '#3b82f6', color: '#fff', cursor: 'pointer' };
 const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer' };
 const iconBtn = { background: 'none', border: '1px solid', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
@@ -350,6 +541,11 @@ const inputStyle = { width: '100%', padding: '8px 10px', border: '1px solid #e2e
 const labelStyle = { display: 'block', fontSize: 13, color: '#475569', marginBottom: 4, fontWeight: 500 };
 const modalOverlay = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 };
 const modalCard = { backgroundColor: '#fff', borderRadius: 12, padding: 24, width: 400, maxWidth: '90vw', boxShadow: '0 8px 30px rgba(0,0,0,0.12)' };
+const sourceCard = {
+  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+  padding: '20px 12px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff',
+  cursor: 'pointer', textAlign: 'center', transition: 'all 0.15s',
+};
 const sidebarStyle = { width: 240, backgroundColor: '#fff', borderRight: '1px solid #e2e8f0', overflow: 'auto', flexShrink: 0 };
 const wsItemStyle = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 16px', border: 'none', cursor: 'pointer', fontSize: 13, textAlign: 'left' };
 const membersPanel = { backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 16, marginBottom: 20 };

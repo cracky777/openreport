@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import { TbShield, TbEdit, TbEye, TbTrash, TbUserPlus, TbKey } from 'react-icons/tb';
+import { TbShield, TbEdit, TbEye, TbTrash, TbUserPlus, TbKey, TbArrowLeft } from 'react-icons/tb';
 
 const ROLES = [
   { value: 'admin', label: 'Admin', color: '#dc2626', icon: TbShield, desc: 'Full access + user management' },
@@ -72,7 +72,7 @@ export default function Admin() {
     <div style={{ minHeight: '100vh', backgroundColor: '#f1f5f9' }}>
       <header style={headerStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => navigate('/')} style={backBtn}>← Back</button>
+          <button onClick={() => navigate('/')} style={backBtn}><TbArrowLeft size={16} /> Back</button>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
             <TbShield size={22} /> Admin Console
           </h1>
@@ -176,7 +176,7 @@ export default function Admin() {
 }
 
 const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0' };
-const backBtn = { background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 14 };
+const backBtn = { display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 500 };
 const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: '#3b82f6', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center' };
 const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer' };
 const inputStyle = { padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box' };

@@ -1,21 +1,55 @@
-import { useState, useMemo, memo } from 'react';
+import { useState, useMemo, memo, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import MiniCalendar from './MiniCalendar';
 
 /**
  * Power BI-style Slicer widget.
- * Modes: list (checkboxes), dropdown, buttons, range (for numbers/dates)
+ * Modes: list, dropdown, buttons, range, dateRange, dateBetween, dateRelative
  */
 export default memo(function FilterWidget({ data, config, onFilterChange }) {
   const [selected, setSelected] = useState(config?.selectedValues || []);
   const [search, setSearch] = useState('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [relValue, setRelValue] = useState(config?.relativeValue || 7);
+  const [relUnit, setRelUnit] = useState(config?.relativeUnit || 'days');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [calendarTarget, setCalendarTarget] = useState(null); // null | 'from' | 'to'
+  const fromRef = useRef(null);
+  const toRef = useRef(null);
+  const dropdownRef = useRef(null);
+  const [popupPos, setPopupPos] = useState({ top: 0, left: 0 });
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 200 });
+  const relAppliedRef = useRef(false);
+
+  // Update popup position when target changes
+  useEffect(() => {
+    const el = calendarTarget === 'from' ? fromRef.current : calendarTarget === 'to' ? toRef.current : null;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      setPopupPos({ top: rect.bottom + 4, left: rect.left });
+    }
+  }, [calendarTarget]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handleClick = (e) => {
+      if (dropdownRef.current && dropdownRef.current.contains(e.target)) return;
+      setDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [dropdownOpen]);
 
   const values = data?.values || [];
+  const isDate = data?._isDate || false;
   const label = data?.label || config?.title || 'Filter';
   const multiSelect = config?.multiSelect ?? true;
-  const slicerStyle = config?.slicerStyle || 'list'; // 'list' | 'dropdown' | 'buttons' | 'range'
+  const slicerStyle = config?.slicerStyle || (isDate ? 'dateRange' : 'list');
   const showSearch = config?.showSearch ?? true;
   const showSelectAll = config?.showSelectAll ?? true;
-  const orientation = config?.orientation || 'vertical'; // 'vertical' | 'horizontal'
+  const orientation = config?.orientation || 'vertical';
   const fontSize = config?.slicerFontSize || 12;
   const fontColor = config?.slicerFontColor || '#0f172a';
   const selectedColor = config?.slicerSelectedColor || '#3b82f6';
@@ -26,8 +60,12 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
     return values.filter((v) => String(v).toLowerCase().includes(search.toLowerCase()));
   }, [values, search]);
 
-  // selected = [] means no filter (all data shown, nothing checked)
-  // selected = ["Paris"] means filter on Paris only (Paris checked)
+  // Sort dates chronologically
+  const sortedValues = useMemo(() => {
+    if (!isDate) return filteredValues;
+    return [...filteredValues].sort((a, b) => new Date(a) - new Date(b));
+  }, [filteredValues, isDate]);
+
   const handleToggle = (val) => {
     let next;
     if (multiSelect) {
@@ -39,47 +77,211 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
     onFilterChange?.(next);
   };
 
-  const handleSelectAll = () => {
-    // Check all = filter on all values (same as no filter)
-    setSelected([]);
-    onFilterChange?.([]);
-  };
-
-  const handleClearAll = () => {
-    setSelected([]);
-    onFilterChange?.([]);
-  };
+  const handleSelectAll = () => { setSelected([]); onFilterChange?.([]); };
+  const handleClearAll = () => { setSelected([]); onFilterChange?.([]); };
 
   const isChecked = (val) => selected.includes(val);
   const selectedCount = selected.length;
+
+  const formatDate = (val) => {
+    if (!isDate) return String(val);
+    const d = new Date(val);
+    if (isNaN(d)) return String(val);
+    return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
 
   if (values.length === 0) {
     return <div style={emptyStyle}>Select a dimension to create a slicer</div>;
   }
 
+  // ─── DATE RANGE MODE (Between) ───
+  if (slicerStyle === 'dateRange' || slicerStyle === 'dateBetween') {
+    const dateValues = sortedValues.map((v) => new Date(v)).filter((d) => !isNaN(d));
+    const minDate = dateValues.length > 0 ? dateValues[0] : new Date();
+    const maxDate = dateValues.length > 0 ? dateValues[dateValues.length - 1] : new Date();
+
+    const startDate = dateFrom;
+    const endDate = dateTo;
+
+    const applyRange = (start, end) => {
+      setDateFrom(start || '');
+      setDateTo(end || '');
+      if (!start && !end) { setSelected([]); onFilterChange?.([]); return; }
+      const filtered = values.filter((v) => {
+        const d = new Date(v);
+        if (isNaN(d)) return false;
+        if (start && d < new Date(start)) return false;
+        if (end && d > new Date(end + 'T23:59:59')) return false;
+        return true;
+      });
+      setSelected(filtered);
+      onFilterChange?.(filtered);
+    };
+
+    const dateLayout = config?.dateLayout || 'vertical'; // 'vertical' | 'horizontal'
+    const isHoriz = dateLayout === 'horizontal';
+
+    return (
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 10, gap: 8 }}>
+        {/* Date inputs */}
+        <div style={{ display: 'flex', flexDirection: isHoriz ? 'row' : 'column', gap: 6, flexShrink: 0, alignItems: isHoriz ? 'flex-end' : 'stretch' }}>
+          <div style={{ flex: isHoriz ? 1 : undefined }}>
+            <label style={{ fontSize: 10, color: '#94a3b8', display: 'block', marginBottom: 2 }}>From</label>
+            <input ref={fromRef} type="text" value={startDate ? formatDate(startDate) : ''}
+              readOnly placeholder="Select date"
+              onClick={() => setCalendarTarget(calendarTarget === 'from' ? null : 'from')}
+              style={{ ...dateInputStyle, cursor: 'pointer', backgroundColor: calendarTarget === 'from' ? '#eff6ff' : '#fff' }} />
+          </div>
+          {isHoriz && <span style={{ fontSize: 12, color: '#94a3b8', paddingBottom: 6 }}>→</span>}
+          <div style={{ flex: isHoriz ? 1 : undefined }}>
+            <label style={{ fontSize: 10, color: '#94a3b8', display: 'block', marginBottom: 2 }}>To</label>
+            <input ref={toRef} type="text" value={endDate ? formatDate(endDate) : ''}
+              readOnly placeholder="Select date"
+              onClick={() => setCalendarTarget(calendarTarget === 'to' ? null : 'to')}
+              style={{ ...dateInputStyle, cursor: 'pointer', backgroundColor: calendarTarget === 'to' ? '#eff6ff' : '#fff' }} />
+          </div>
+        </div>
+        {/* Calendar popup — rendered in body via portal */}
+        {calendarTarget && createPortal(
+          <div style={{
+            position: 'fixed', zIndex: 9999,
+            top: popupPos.top, left: popupPos.left,
+            border: '1px solid #e2e8f0', borderRadius: 8, padding: 8,
+            backgroundColor: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+            minWidth: 230,
+          }}>
+            <MiniCalendar
+              value={calendarTarget === 'from' ? startDate : endDate}
+              min={calendarTarget === 'to' && startDate ? startDate : toInputDate(minDate)}
+              max={calendarTarget === 'from' && endDate ? endDate : toInputDate(maxDate)}
+              rangeStart={startDate} rangeEnd={endDate}
+              onChange={(v) => {
+                if (calendarTarget === 'from') {
+                  applyRange(v, endDate);
+                  setCalendarTarget('to');
+                } else {
+                  applyRange(startDate, v);
+                  setCalendarTarget(null);
+                }
+              }}
+            />
+          </div>,
+          document.body
+        )}
+        {(selectedCount > 0 || dateFrom || dateTo) && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6, flexShrink: 0 }}>
+            <button onClick={() => { setDateFrom(''); setDateTo(''); setSelected([]); onFilterChange?.([]); }}
+              style={linkBtn}>Clear</button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ─── DATE RELATIVE MODE ───
+  if (slicerStyle === 'dateRelative') {
+    const computeCutoff = (val, unit) => {
+      // Use start of today (midnight) for clean date comparison
+      const now = new Date();
+      const cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if (unit === 'days') cutoff.setDate(cutoff.getDate() - val);
+      else if (unit === 'weeks') cutoff.setDate(cutoff.getDate() - val * 7);
+      else if (unit === 'months') cutoff.setMonth(cutoff.getMonth() - val);
+      else if (unit === 'years') cutoff.setFullYear(cutoff.getFullYear() - val);
+      return cutoff;
+    };
+
+    const applyRelative = (val, unit) => {
+      const cutoff = computeCutoff(val, unit);
+      const filtered = values.filter((v) => {
+        const d = new Date(v);
+        if (isNaN(d)) return false;
+        // Compare date-only (strip time component)
+        const dDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        return dDate >= cutoff;
+      });
+      setSelected(filtered);
+      onFilterChange?.(filtered);
+    };
+
+    // Auto-apply filter on first render in this mode
+    if (!relAppliedRef.current && values.length > 0) {
+      relAppliedRef.current = true;
+      // Defer to avoid updating state during render
+      setTimeout(() => applyRelative(relValue, relUnit), 0);
+    }
+
+    const cutoff = computeCutoff(relValue, relUnit);
+    const cutoffStr = cutoff.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+
+    return (
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 12, justifyContent: 'center' }}>
+        <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8, fontWeight: 600 }}>Relative Date</div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+          <span style={{ fontSize: 12, color: '#475569' }}>Last</span>
+          <input type="number" min={0} max={365} value={relValue}
+            onChange={(e) => {
+              const raw = e.target.value;
+              if (raw === '') { setRelValue(''); return; }
+              const v = parseInt(raw, 10);
+              if (isNaN(v) || v < 0) return;
+              setRelValue(v); applyRelative(v, relUnit);
+            }}
+            onBlur={() => { if (relValue === '' || relValue === null) { setRelValue(0); applyRelative(0, relUnit); } }}
+            style={{ ...dateInputStyle, width: 50, textAlign: 'center' }} />
+          <select value={relUnit}
+            onChange={(e) => { setRelUnit(e.target.value); applyRelative(relValue, e.target.value); }}
+            style={{ ...dateInputStyle, width: 90 }}>
+            <option value="days">days</option>
+            <option value="weeks">weeks</option>
+            <option value="months">months</option>
+            <option value="years">years</option>
+          </select>
+        </div>
+        <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>
+          {selectedCount > 0
+            ? `${selectedCount} date(s) from ${cutoffStr}`
+            : `No dates found after ${cutoffStr}`}
+        </div>
+        {selectedCount > 0 && (
+          <button onClick={() => { setSelected([]); onFilterChange?.([]); relAppliedRef.current = false; }}
+            style={{ ...linkBtn, alignSelf: 'flex-start', marginTop: 4 }}>Clear filter</button>
+        )}
+      </div>
+    );
+  }
+
   // ─── DROPDOWN MODE ───
   if (slicerStyle === 'dropdown') {
     const displayText = selected.length === 0 ? 'All'
-      : selected.length === 1 ? String(selected[0])
+      : selected.length === 1 ? (isDate ? formatDate(selected[0]) : String(selected[0]))
       : `${selected.length} selected`;
+
+    const openDropdown = () => {
+      if (dropdownRef.current) {
+        const rect = dropdownRef.current.getBoundingClientRect();
+        setDropdownPos({ top: rect.bottom + 2, left: rect.left, width: rect.width });
+      }
+      setDropdownOpen(!dropdownOpen);
+    };
 
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 8 }}>
-        <div
-          onClick={() => setDropdownOpen(!dropdownOpen)}
+        <div ref={dropdownRef} onClick={openDropdown}
           style={{
             padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6,
             cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             fontSize, color: fontColor, backgroundColor: '#fff',
-          }}
-        >
+          }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayText}</span>
           <span style={{ fontSize: 10, color: '#94a3b8', flexShrink: 0 }}>{dropdownOpen ? '▲' : '▼'}</span>
         </div>
-        {dropdownOpen && (
-          <div style={{
-            border: '1px solid #e2e8f0', borderRadius: 6, marginTop: 4, overflow: 'auto',
-            flex: 1, backgroundColor: '#fff', boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+        {dropdownOpen && createPortal(
+          <div onClick={(e) => e.stopPropagation()} style={{
+            position: 'fixed', zIndex: 9999,
+            top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width,
+            border: '1px solid #e2e8f0', borderRadius: 6, overflow: 'auto',
+            maxHeight: 300, backgroundColor: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
           }}>
             {showSearch && (
               <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
@@ -90,14 +292,15 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
                 <button onClick={handleSelectAll} style={linkBtn}>Select all</button>
               </div>
             )}
-            {filteredValues.map((val, i) => (
-              <label key={i} style={{ ...listRowStyle, fontSize, color: isChecked(val) ? fontColor : '#94a3b8' }}>
+            {sortedValues.map((val, i) => (
+              <label key={i} style={{ ...listRowStyle, fontSize, color: isChecked(val) ? fontColor : '#94a3b8', padding: '4px 10px' }}>
                 <input type={multiSelect ? 'checkbox' : 'radio'} checked={isChecked(val)}
                   onChange={() => handleToggle(val)} style={{ marginRight: 6, accentColor: selectedColor }} />
-                {String(val)}
+                {isDate ? formatDate(val) : String(val)}
               </label>
             ))}
-          </div>
+          </div>,
+          document.body
         )}
       </div>
     );
@@ -117,7 +320,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
           flexDirection: orientation === 'horizontal' ? 'row' : 'column',
           alignContent: 'flex-start',
         }}>
-          {filteredValues.map((val, i) => {
+          {sortedValues.map((val, i) => {
             const active = isChecked(val);
             return (
               <button key={i} onClick={() => handleToggle(val)}
@@ -127,11 +330,9 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
                   backgroundColor: active ? selectedBg : '#fff',
                   color: active ? selectedColor : fontColor,
                   fontWeight: active ? 600 : 400,
-                  whiteSpace: 'nowrap', flexShrink: 0,
-                  transition: 'all 0.1s',
-                }}
-              >
-                {String(val)}
+                  whiteSpace: 'nowrap', flexShrink: 0, transition: 'all 0.1s',
+                }}>
+                {isDate ? formatDate(val) : String(val)}
               </button>
             );
           })}
@@ -151,56 +352,34 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 12, justifyContent: 'center' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#64748b', marginBottom: 8 }}>
-          <span>{rangeMin}</span>
-          <span>{rangeMax}</span>
+          <span>{rangeMin}</span><span>{rangeMax}</span>
         </div>
         <input type="range" min={min} max={max} value={rangeMin}
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            const next = [v, rangeMax];
-            setSelected(next);
-            onFilterChange?.(next);
-          }}
+          onChange={(e) => { const v = Number(e.target.value); setSelected([v, rangeMax]); onFilterChange?.([v, rangeMax]); }}
           style={{ width: '100%', marginBottom: 4 }} />
         <input type="range" min={min} max={max} value={rangeMax}
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            const next = [rangeMin, v];
-            setSelected(next);
-            onFilterChange?.(next);
-          }}
+          onChange={(e) => { const v = Number(e.target.value); setSelected([rangeMin, v]); onFilterChange?.([rangeMin, v]); }}
           style={{ width: '100%' }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, gap: 8 }}>
           <input type="number" min={min} max={max} value={rangeMin}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              const next = [v, rangeMax];
-              setSelected(next);
-              onFilterChange?.(next);
-            }}
+            onChange={(e) => { const v = Number(e.target.value); setSelected([v, rangeMax]); onFilterChange?.([v, rangeMax]); }}
             style={{ ...numInputStyle, flex: 1 }} />
           <span style={{ color: '#94a3b8', fontSize: 12, alignSelf: 'center' }}>—</span>
           <input type="number" min={min} max={max} value={rangeMax}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              const next = [rangeMin, v];
-              setSelected(next);
-              onFilterChange?.(next);
-            }}
+            onChange={(e) => { const v = Number(e.target.value); setSelected([rangeMin, v]); onFilterChange?.([rangeMin, v]); }}
             style={{ ...numInputStyle, flex: 1 }} />
         </div>
       </div>
     );
   }
 
-  // ─── LIST MODE (default, Power BI-style) ───
+  // ─── LIST MODE (default) ───
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 8 }}>
       {showSearch && (
         <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
           placeholder="Search..." style={searchInputStyle} />
       )}
-
       {showSelectAll && multiSelect && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
           <label style={{ ...listRowStyle, fontWeight: 500, fontSize }}>
@@ -208,8 +387,8 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
               checked={selected.length > 0}
               ref={(el) => { if (el) el.indeterminate = selected.length > 0 && selected.length < values.length; }}
               onChange={() => {
-                if (selected.length > 0) { handleClearAll(); } // Uncheck all = clear filter
-                else { setSelected([...values]); onFilterChange?.([...values]); } // Check all = filter on all
+                if (selected.length > 0) { handleClearAll(); }
+                else { setSelected([...values]); onFilterChange?.([...values]); }
               }}
               style={{ marginRight: 6, accentColor: selectedColor }} />
             {selected.length === 0 ? 'Select all' : 'Clear all'}
@@ -219,14 +398,13 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
           </span>
         </div>
       )}
-
       <div style={{
         flex: 1, overflow: 'auto',
         display: orientation === 'horizontal' ? 'flex' : 'block',
         flexWrap: orientation === 'horizontal' ? 'wrap' : undefined,
         gap: orientation === 'horizontal' ? 4 : undefined,
       }}>
-        {filteredValues.map((val, i) => {
+        {sortedValues.map((val, i) => {
           const checked = isChecked(val);
           return (
             <label key={i} style={{
@@ -239,7 +417,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
                 onChange={() => handleToggle(val)}
                 style={{ marginRight: 6, accentColor: selectedColor }} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {String(val)}
+                {isDate ? formatDate(val) : String(val)}
               </span>
             </label>
           );
@@ -249,6 +427,11 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
   );
 });
 
+function toInputDate(d) {
+  if (!d || isNaN(d)) return '';
+  return d.toISOString().split('T')[0];
+}
+
 const emptyStyle = {
   height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
   color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: 16,
@@ -256,8 +439,7 @@ const emptyStyle = {
 
 const searchInputStyle = {
   width: '100%', padding: '5px 8px', border: '1px solid #e2e8f0',
-  borderRadius: 4, fontSize: 12, outline: 'none', marginBottom: 6,
-  boxSizing: 'border-box',
+  borderRadius: 4, fontSize: 12, outline: 'none', marginBottom: 6, boxSizing: 'border-box',
 };
 
 const linkBtn = {
@@ -273,4 +455,15 @@ const listRowStyle = {
 const numInputStyle = {
   padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4,
   fontSize: 12, outline: 'none', textAlign: 'center', boxSizing: 'border-box',
+};
+
+const dateInputStyle = {
+  width: '100%', padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6,
+  fontSize: 13, outline: 'none', boxSizing: 'border-box', color: '#334155',
+};
+
+const calendarStyle = {
+  width: '100%', padding: '4px', border: '1px solid #e2e8f0', borderRadius: 6,
+  fontSize: 13, outline: 'none', boxSizing: 'border-box', color: '#334155',
+  minHeight: 40,
 };

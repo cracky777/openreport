@@ -3,11 +3,44 @@ import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, TABLE_SUB_TYPES } from '..
 import DataPanel from '../DataPanel/DataPanel';
 import DropZone from '../DropZone/DropZone';
 import TablePropertySections from './TablePropertySections';
+import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash } from 'react-icons/tb';
+
+function getWidgetDisplayInfo(widget) {
+  if (!widget) return { label: '', icon: null };
+  const meta = WIDGET_TYPES[widget.type];
+  if (!meta) return { label: widget.type, icon: null };
+
+  // Check sub-types for specific label/icon
+  const subType = widget.config?.subType;
+  if (widget.type === 'bar' && subType) {
+    const st = BAR_SUB_TYPES.find((s) => s.value === subType);
+    if (st) return { label: st.label, icon: st.icon || meta.icon };
+  }
+  if (widget.type === 'line' && subType) {
+    const st = LINE_SUB_TYPES.find((s) => s.value === subType);
+    if (st) return { label: st.label, icon: st.icon || meta.icon };
+  }
+  if (widget.type === 'table' || widget.type === 'pivotTable') {
+    const st = TABLE_SUB_TYPES.find((s) => s.value === widget.type);
+    if (st) return { label: st.label, icon: st.icon || meta.icon };
+  }
+  return { label: meta.label, icon: meta.icon };
+}
 
 // Track which sections are collapsed
+// Persisted across widget changes — sections stay open/closed
+let _sectionState = {};
 const useSectionState = () => {
-  const [collapsed, setCollapsed] = useState({});
-  const toggle = useCallback((key) => setCollapsed((p) => ({ ...p, [key]: !p[key] })), []);
+  const [collapsed, setCollapsed] = useState(_sectionState);
+  const toggle = useCallback((key) => {
+    setCollapsed((p) => {
+      // Default state is collapsed (true) when key is not yet set
+      const current = p[key] ?? true;
+      const next = { ...p, [key]: !current };
+      _sectionState = next;
+      return next;
+    });
+  }, []);
   return { collapsed, toggle };
 };
 
@@ -213,35 +246,31 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
         <button onClick={() => setCollapsed(true)} style={chevronBtn} title="Collapse panel">»</button>
       </div>
 
-      <div style={headerStyle}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          {(() => { const I = widgetMeta?.icon; return I ? <I size={16} /> : null; })()} {widgetMeta?.label}
-        </span>
-        <div style={{ display: 'flex', gap: 3 }}>
-          <button onClick={() => onSendToBack(widgetId)} title="Send to back" style={layerBtn}>⇊</button>
-          <button onClick={() => onSendBackward(widgetId)} title="Back one" style={layerBtn}>↓</button>
-          <button onClick={() => onBringForward(widgetId)} title="Forward one" style={layerBtn}>↑</button>
-          <button onClick={() => onBringToFront(widgetId)} title="Bring to front" style={layerBtn}>⇈</button>
-          <button onClick={() => onDelete(widgetId)} style={deleteStyle}>Del</button>
-        </div>
-      </div>
+      {(() => {
+        const info = getWidgetDisplayInfo(widget);
+        const Icon = info.icon;
+        return (
+          <>
+            <div style={headerStyle}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
+                {Icon && <Icon size={18} />} {info.label}
+              </span>
+              <button onClick={() => onDelete(widgetId)} style={deleteStyle} title="Delete widget">
+                <TbTrash size={14} />
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: 3, marginBottom: 12 }}>
+              <button onClick={() => onSendToBack(widgetId)} title="Send to back" style={layerBtn}><TbLayersSubtract size={14} /></button>
+              <button onClick={() => onSendBackward(widgetId)} title="Back one" style={layerBtn}><TbArrowBigDown size={14} /></button>
+              <button onClick={() => onBringForward(widgetId)} title="Forward one" style={layerBtn}><TbArrowBigUp size={14} /></button>
+              <button onClick={() => onBringToFront(widgetId)} title="Bring to front" style={layerBtn}><TbLayersLinked size={14} /></button>
+            </div>
+          </>
+        );
+      })()}
 
       {/* Field wells - drag & drop zones */}
       {renderFieldWells()}
-
-      {widget.type === 'bar' && (
-        <Section title="Chart Type">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {BAR_SUB_TYPES.map((st) => (
-              <label key={st.value} style={radioRow}>
-                <input type="radio" name="barSubType" checked={(widget.config?.subType || 'grouped') === st.value}
-                  onChange={() => updateConfig('subType', st.value)} />
-                {st.label}
-              </label>
-            ))}
-          </div>
-        </Section>
-      )}
 
       {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie') && (
         <Section title="Sort">
@@ -262,77 +291,68 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
         </Section>
       )}
 
-      {widget.type === 'line' && (
-        <Section title="Chart Type">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {LINE_SUB_TYPES.map((st) => (
-              <label key={st.value} style={radioRow}>
-                <input type="radio" name="lineSubType" checked={(widget.config?.subType || 'line') === st.value}
-                  onChange={() => updateConfig('subType', st.value)} />
-                {st.label}
-              </label>
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {(widget.type === 'table' || widget.type === 'pivotTable') && (
-        <Section title="Table Type">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {TABLE_SUB_TYPES.map((st) => (
-              <label key={st.value} style={radioRow}>
-                <input type="radio" name="tableSubType" checked={widget.type === st.value}
-                  onChange={() => {
-                    if (widget.type !== st.value) {
-                      onUpdate(widgetId, { ...widget, type: st.value, data: {} });
-                    }
-                  }} />
-                {st.label}
-              </label>
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {widget.type === 'filter' && (
-        <Section title="Slicer Options" sectionState={sections}>
+      {widget.type === 'filter' && (() => {
+        const effStyle = widget.config?.slicerStyle || (widget.data?._isDate ? 'dateRange' : 'list');
+        const isDateRange = effStyle === 'dateRange' || effStyle === 'dateBetween';
+        const isDateAny = isDateRange || effStyle === 'dateRelative';
+        const isListLike = !isDateAny && effStyle !== 'range';
+        return (
+        <Section title="Slicer Options">
           <Field label="Style">
-            <select value={widget.config?.slicerStyle || 'list'}
+            <select value={effStyle}
               onChange={(e) => updateConfig('slicerStyle', e.target.value)}
-              style={{ ...inputStyle, width: 95, marginBottom: 0 }}>
+              style={{ ...inputStyle, width: 140, marginBottom: 0 }}>
               <option value="list">List</option>
               <option value="dropdown">Dropdown</option>
               <option value="buttons">Buttons</option>
               <option value="range">Range</option>
+              {widget.data?._isDate && (
+                <>
+                  <option value="dateRange">📅 Date Range</option>
+                  <option value="dateRelative">📅 Relative Date</option>
+                </>
+              )}
             </select>
           </Field>
-          {widget.config?.slicerStyle !== 'range' && (
-            <Field label="Multi-select">
-              <input type="checkbox" checked={widget.config?.multiSelect ?? true}
-                onChange={(e) => updateConfig('multiSelect', e.target.checked)} />
-            </Field>
-          )}
-          {(widget.config?.slicerStyle === 'list' || !widget.config?.slicerStyle) && (
-            <>
-              <Field label="Search bar">
-                <input type="checkbox" checked={widget.config?.showSearch ?? true}
-                  onChange={(e) => updateConfig('showSearch', e.target.checked)} />
-              </Field>
-              <Field label="Select all">
-                <input type="checkbox" checked={widget.config?.showSelectAll ?? true}
-                  onChange={(e) => updateConfig('showSelectAll', e.target.checked)} />
-              </Field>
-            </>
-          )}
-          {(widget.config?.slicerStyle === 'list' || widget.config?.slicerStyle === 'buttons' || !widget.config?.slicerStyle) && (
-            <Field label="Orientation">
-              <select value={widget.config?.orientation || 'vertical'}
-                onChange={(e) => updateConfig('orientation', e.target.value)}
-                style={{ ...inputStyle, width: 90, marginBottom: 0 }}>
+          {isDateRange && (
+            <Field label="Layout">
+              <select value={widget.config?.dateLayout || 'vertical'}
+                onChange={(e) => updateConfig('dateLayout', e.target.value)}
+                style={{ ...inputStyle, width: 100, marginBottom: 0 }}>
                 <option value="vertical">Vertical</option>
                 <option value="horizontal">Horizontal</option>
               </select>
             </Field>
+          )}
+          {isListLike && (
+            <>
+              <Field label="Multi-select">
+                <input type="checkbox" checked={widget.config?.multiSelect ?? true}
+                  onChange={(e) => updateConfig('multiSelect', e.target.checked)} />
+              </Field>
+              {(effStyle === 'list' || effStyle === 'dropdown') && (
+                <Field label="Search bar">
+                  <input type="checkbox" checked={widget.config?.showSearch ?? true}
+                    onChange={(e) => updateConfig('showSearch', e.target.checked)} />
+                </Field>
+              )}
+              {(effStyle === 'list') && (
+                <Field label="Select all">
+                  <input type="checkbox" checked={widget.config?.showSelectAll ?? true}
+                    onChange={(e) => updateConfig('showSelectAll', e.target.checked)} />
+                </Field>
+              )}
+              {(effStyle === 'list' || effStyle === 'buttons') && (
+                <Field label="Orientation">
+                  <select value={widget.config?.orientation || 'vertical'}
+                    onChange={(e) => updateConfig('orientation', e.target.value)}
+                    style={{ ...inputStyle, width: 90, marginBottom: 0 }}>
+                    <option value="vertical">Vertical</option>
+                    <option value="horizontal">Horizontal</option>
+                  </select>
+                </Field>
+              )}
+            </>
           )}
           <Field label="Font size">
             <input type="number" min={8} max={24} value={widget.config?.slicerFontSize || 12}
@@ -352,7 +372,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               onChange={(v) => updateConfig('slicerSelectedBg', v)} />
           </Field>
         </Section>
-      )}
+        );
+      })()}
 
       <Section title="Title">
         <input type="text" value={widget.config?.title || ''} onChange={(e) => updateConfig('title', e.target.value)}
@@ -706,12 +727,14 @@ export function DataModelPanel({ widgetId, widget, onUpdate, model, onModelUpdat
   );
 }
 
-function Section({ title, children, defaultOpen = true, sectionState, bare }) {
+function Section({ title, children, defaultOpen, sectionState, bare }) {
   if (bare) {
     return <div style={{ marginBottom: 8 }}>{children}</div>;
   }
 
-  const isCollapsed = sectionState ? sectionState.collapsed[title] ?? !defaultOpen : false;
+  // Default: closed for collapsible sections, open for non-collapsible
+  const defOpen = defaultOpen ?? (sectionState ? false : true);
+  const isCollapsed = sectionState ? sectionState.collapsed[title] ?? !defOpen : false;
   const toggle = sectionState ? () => sectionState.toggle(title) : undefined;
 
   return (
@@ -946,13 +969,13 @@ const headerStyle = {
 const radioRow = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' };
 
 const layerBtn = {
-  fontSize: 14, color: '#475569', background: 'none', border: '1px solid #e2e8f0',
-  borderRadius: 4, padding: '2px 6px', cursor: 'pointer', lineHeight: 1,
+  color: '#475569', background: 'none', border: '1px solid #e2e8f0',
+  borderRadius: 4, padding: '4px 6px', cursor: 'pointer', display: 'flex', alignItems: 'center',
 };
 
 const deleteStyle = {
-  fontSize: 12, color: '#dc2626', background: 'none', border: '1px solid #fca5a5',
-  borderRadius: 4, padding: '4px 8px', cursor: 'pointer',
+  color: '#dc2626', background: 'none', border: '1px solid #fca5a5',
+  borderRadius: 4, padding: '4px 6px', cursor: 'pointer', display: 'flex', alignItems: 'center',
 };
 
 const inputStyle = {

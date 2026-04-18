@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, TABLE_SUB_TYPES } from '../Widgets';
-import { TbEye } from 'react-icons/tb';
+import { TbEye, TbArrowLeft } from 'react-icons/tb';
 
 export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId }) {
   const navigate = useNavigate();
@@ -26,9 +26,9 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
     >
       <button
         onClick={() => navigate('/')}
-        style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 14, padding: '4px 0' }}
+        style={backBtnStyle}
       >
-        ← Back
+        <TbArrowLeft size={16} /> Back
       </button>
       <div style={{ display: 'flex', gap: 2 }}>
         <button onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl+Z)" style={{ ...undoBtn, opacity: canUndo ? 1 : 0.3 }}>↩</button>
@@ -78,14 +78,14 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
 
       <div style={{ display: 'flex', gap: 4 }}>
         {Object.entries(WIDGET_TYPES).filter(([, meta]) => !meta.hidden).map(([type, { label, icon: Icon, hasSubTypes }]) => (
-          <div key={type} style={{ position: 'relative' }}>
+          <div key={type} style={{ position: 'relative' }}
+            onMouseEnter={() => hasSubTypes && setOpenMenu(type)}
+            onMouseLeave={() => hasSubTypes && setOpenMenu(null)}
+          >
             <button
               onClick={() => {
-                if (hasSubTypes) {
-                  setOpenMenu(openMenu === type ? null : type);
-                } else {
+                if (!hasSubTypes) {
                   onAddWidget(type);
-                  setOpenMenu(null);
                 }
               }}
               title={`Add ${label}`}
@@ -94,7 +94,10 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                 border: openMenu === type ? '1px solid #3b82f6' : '1px solid #e2e8f0',
                 borderRadius: 6, background: openMenu === type ? '#eff6ff' : '#fff',
                 cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+                transition: 'all 0.12s',
               }}
+              onMouseEnter={(e) => { if (openMenu !== type) { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#cbd5e1'; } }}
+              onMouseLeave={(e) => { if (openMenu !== type) { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; } }}
             >
               <Icon size={16} />
               <span>{label}</span>
@@ -103,40 +106,46 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
 
             {/* Sub-type dropdown */}
             {openMenu === type && type === 'bar' && (
-              <div style={dropdownStyle}>
+              <div style={dropdownStyle}><div style={dropdownInner}>
                 {BAR_SUB_TYPES.map((st) => {
                   const StIcon = st.icon;
                   return (
-                    <button key={st.value} onClick={() => handleAddWithSubType('bar', st.value)} style={dropdownItem}>
+                    <button key={st.value} onClick={() => handleAddWithSubType('bar', st.value)} style={dropdownItem}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
                       <StIcon size={14} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
                     </button>
                   );
                 })}
-              </div>
+              </div></div>
             )}
             {openMenu === type && type === 'line' && (
-              <div style={dropdownStyle}>
+              <div style={dropdownStyle}><div style={dropdownInner}>
                 {LINE_SUB_TYPES.map((st) => {
                   const StIcon = st.icon;
                   return (
-                    <button key={st.value} onClick={() => handleAddWithSubType('line', st.value)} style={dropdownItem}>
+                    <button key={st.value} onClick={() => handleAddWithSubType('line', st.value)} style={dropdownItem}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
                       <StIcon size={14} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
                     </button>
                   );
                 })}
-              </div>
+              </div></div>
             )}
             {openMenu === type && type === 'table' && (
-              <div style={dropdownStyle}>
+              <div style={dropdownStyle}><div style={dropdownInner}>
                 {TABLE_SUB_TYPES.map((st) => {
                   const StIcon = st.icon;
                   return (
-                    <button key={st.value} onClick={() => { onAddWidget(st.value); setOpenMenu(null); }} style={dropdownItem}>
+                    <button key={st.value} onClick={() => { onAddWidget(st.value); setOpenMenu(null); }} style={dropdownItem}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
                       <StIcon size={14} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
                     </button>
                   );
                 })}
-              </div>
+              </div></div>
             )}
           </div>
         ))}
@@ -168,15 +177,23 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
   );
 }
 
+const backBtnStyle = {
+  display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px',
+  background: 'none', border: '1px solid #e2e8f0', borderRadius: 6,
+  color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+};
+
 const undoBtn = {
   padding: '4px 8px', fontSize: 16, border: '1px solid #e2e8f0',
   borderRadius: 4, background: '#fff', cursor: 'pointer', color: '#475569',
 };
 
 const dropdownStyle = {
-  position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 50,
+  position: 'absolute', top: '100%', left: 0, paddingTop: 4, zIndex: 50, minWidth: 180,
+};
+const dropdownInner = {
   backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 6,
-  boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 180, overflow: 'hidden',
+  boxShadow: '0 4px 12px rgba(0,0,0,0.1)', overflow: 'hidden',
 };
 
 const dropdownItem = {

@@ -37,6 +37,7 @@ export default function SchemaCanvas({
   onAddMeasure,
   datasourceId,
   isNumeric,
+  isDateType,
 }) {
   const svgRef = useRef(null);
   const containerRef = useRef(null);
@@ -520,13 +521,14 @@ export default function SchemaCanvas({
                   const isDim = isDimension(tableName, col.column_name);
                   const isMeas = isMeasure(tableName, col.column_name);
                   const numeric = isNumeric(col.data_type);
+                  const isDate = isDateType?.(col.data_type);
                   const isId = col.column_name.toLowerCase().startsWith('id');
 
                   return (
                     <g key={col.column_name}>
                       {(isDim || isMeas) && (
                         <rect x={1} y={HEADER_HEIGHT + TYPE_BAR_HEIGHT + ci * ROW_HEIGHT} width={TABLE_WIDTH - 2} height={ROW_HEIGHT}
-                          fill={isDim ? '#eff6ff' : '#f0fdf4'} />
+                          fill={isDim && isDate ? '#fef3c7' : isDim ? '#eff6ff' : '#f0fdf4'} />
                       )}
                       {/* Key icon for id columns */}
                       {isId && (
@@ -535,8 +537,8 @@ export default function SchemaCanvas({
                       <text x={isId ? 18 : 8} y={cy + 4} fontSize={11} fill="#334155" style={{ fontWeight: isId ? 600 : 400 }}>
                         {col.column_name}
                       </text>
-                      <text x={TABLE_WIDTH - 48} y={cy + 4} fontSize={9} fill="#94a3b8" textAnchor="end">
-                        {col.data_type}
+                      <text x={TABLE_WIDTH - (isDate ? 56 : 48)} y={cy + 4} fontSize={9} fill={isDate ? '#d97706' : '#94a3b8'} textAnchor="end">
+                        {isDate ? '📅 ' : ''}{col.data_type}
                       </text>
 
                       {/* D / M buttons */}

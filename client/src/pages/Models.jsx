@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import { TbArrowLeft } from 'react-icons/tb';
 
 export default function Models() {
   const navigate = useNavigate();
@@ -27,15 +28,20 @@ export default function Models() {
   };
 
   const handleDelete = async (id) => {
-    await api.delete(`/models/${id}`);
-    setModels((prev) => prev.filter((m) => m.id !== id));
+    if (!confirm('Are you sure you want to delete this model?')) return;
+    try {
+      await api.delete(`/models/${id}`);
+      setModels((prev) => prev.filter((m) => m.id !== id));
+    } catch (err) {
+      alert(err.response?.data?.error || 'Delete failed');
+    }
   };
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f1f5f9' }}>
       <header style={headerStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => navigate('/')} style={backStyle}>← Back</button>
+          <button onClick={() => navigate('/')} style={backStyle}><TbArrowLeft size={16} /> Back</button>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: '#0f172a' }}>Data Models</h1>
         </div>
         <button onClick={() => setShowForm(true)} style={primaryBtn}>+ New Model</button>
@@ -129,7 +135,7 @@ const headerStyle = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
   padding: '12px 24px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0',
 };
-const backStyle = { background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 14 };
+const backStyle = { display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 500 };
 const primaryBtn = {
   padding: '8px 16px', fontSize: 14, fontWeight: 600, border: 'none',
   borderRadius: 6, background: '#3b82f6', color: '#fff', cursor: 'pointer',

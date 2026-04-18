@@ -189,7 +189,12 @@ export default function Editor() {
           const mf = {};
           meass.forEach((mn) => { const md = (model.measures || []).find((x) => x.name === mn); if (md?.format) mf[md.label || md.name] = md.format; });
           newData._measureFormats = mf;
-          if (dims.length > 0) newData._dimName = dims[0];
+          if (dims.length > 0) {
+            newData._dimName = dims[0];
+            const axisDim = (model.dimensions || []).find((x) => x.name === dims[0]);
+            if (axisDim?.datePart) newData._datePart = axisDim.datePart;
+            else if (axisDim?.type === 'date') newData._datePart = 'full_date';
+          }
           return { wId, data: newData };
         }).catch(() => ({ wId, data: null }));
       });
@@ -523,12 +528,17 @@ export default function Editor() {
     }
   }, [report?.model_id, setWidgets]);
 
+  const [saveMsg, setSaveMsg] = useState(null);
   const handleSave = async () => {
     setSaving(true);
     try {
       await api.put(`/reports/${id}`, { title, layout, widgets, settings });
+      setSaveMsg('Saved');
+      setTimeout(() => setSaveMsg(null), 2000);
     } catch (err) {
       console.error('Save failed:', err);
+      setSaveMsg('Save failed');
+      setTimeout(() => setSaveMsg(null), 3000);
     } finally {
       setSaving(false);
     }
@@ -597,6 +607,14 @@ export default function Editor() {
           onSettingsChange={setSettings}
           onClose={() => setShowSettings(false)}
         />
+      )}
+      {saveMsg && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 9999,
+          backgroundColor: saveMsg === 'Saved' ? '#22c55e' : '#ef4444', color: '#fff',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)', animation: 'fadeIn 0.2s',
+        }}>{saveMsg === 'Saved' ? '✓ Report saved' : '✗ Save failed'}</div>
       )}
     </div>
   );

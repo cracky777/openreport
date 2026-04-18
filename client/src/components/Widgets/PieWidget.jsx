@@ -75,13 +75,17 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
         type: 'pie',
         radius: config?.donut ? ['30%', '65%'] : '65%',
         center: ['50%', '50%'],
-        data: visibleItems.map((it) => ({
-          ...it,
-          itemStyle: {
-            ...it.itemStyle,
-            opacity: highlightValue ? (it.name === highlightValue ? 1 : 0.3) : 1,
-          },
-        })),
+        data: visibleItems.map((it) => {
+          const colorIdx = data.items.findIndex((orig) => orig.name === it.name);
+          return {
+            ...it,
+            itemStyle: {
+              ...it.itemStyle,
+              color: COLORS[(colorIdx >= 0 ? colorIdx : 0) % COLORS.length],
+              opacity: highlightValue ? (it.name === highlightValue ? 1 : 0.3) : 1,
+            },
+          };
+        }),
         emphasis: { disabled: true },
         label: {
           show: showDataLabels,

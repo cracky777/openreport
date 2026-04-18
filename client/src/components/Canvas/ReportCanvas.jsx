@@ -249,7 +249,8 @@ export default function ReportCanvas({
       style={{
         flex: 1,
         backgroundColor: '#f1f5f9',
-        overflow: viewMode === 'fitToPage' ? 'hidden' : 'auto',
+        overflowX: 'hidden',
+        overflowY: viewMode === 'fitToPage' ? 'hidden' : 'auto',
         padding: 20,
         minWidth: 0, minHeight: 0,
       }}

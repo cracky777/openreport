@@ -23,6 +23,8 @@ db.exec(schema);
 // Migrations for existing DBs
 try { db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE reports ADD COLUMN workspace_id TEXT"); } catch { /* already exists */ }
+try { db.exec("ALTER TABLE datasources ADD COLUMN extra_config TEXT DEFAULT '{}'"); } catch { /* already exists */ }
+try { db.exec("ALTER TABLE models ADD COLUMN date_column TEXT DEFAULT ''"); } catch { /* already exists */ }
 
 // Promote first user to admin if no admin exists
 const adminCount = db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'admin'").get();

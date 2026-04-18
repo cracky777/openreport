@@ -41,6 +41,7 @@ router.get('/:id', requireAuth, (req, res) => {
       dimensions: JSON.parse(model.dimensions),
       measures: JSON.parse(model.measures),
       joins: JSON.parse(model.joins),
+      dateColumn: model.date_column || null,
     },
   });
 });
@@ -66,7 +67,7 @@ router.put('/:id', requireAuth, (req, res) => {
   const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!model) return res.status(404).json({ error: 'Model not found' });
 
-  const { name, description, selected_tables, table_positions, dimensions, measures, joins } = req.body;
+  const { name, description, selected_tables, table_positions, dimensions, measures, joins, dateColumn } = req.body;
 
   db.prepare(`
     UPDATE models SET
@@ -77,6 +78,7 @@ router.put('/:id', requireAuth, (req, res) => {
       dimensions = COALESCE(?, dimensions),
       measures = COALESCE(?, measures),
       joins = COALESCE(?, joins),
+      date_column = CASE WHEN ? = 1 THEN ? ELSE date_column END,
       updated_at = datetime('now')
     WHERE id = ?
   `).run(
@@ -87,6 +89,8 @@ router.put('/:id', requireAuth, (req, res) => {
     dimensions ? JSON.stringify(dimensions) : null,
     measures ? JSON.stringify(measures) : null,
     joins ? JSON.stringify(joins) : null,
+    dateColumn !== undefined ? 1 : 0,
+    dateColumn !== undefined ? (dateColumn || '') : '',
     req.params.id
   );
 
@@ -99,12 +103,19 @@ router.put('/:id', requireAuth, (req, res) => {
       dimensions: JSON.parse(updated.dimensions),
       measures: JSON.parse(updated.measures),
       joins: JSON.parse(updated.joins),
+      dateColumn: updated.date_column || null,
     },
   });
 });
 
 // Delete model
 router.delete('/:id', requireAuth, (req, res) => {
+  // Check if any reports use this model
+  const reportCount = db.prepare('SELECT COUNT(*) as count FROM reports WHERE model_id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (reportCount && reportCount.count > 0) {
+    return res.status(409).json({ error: `This model is used by ${reportCount.count} report(s). Delete them first.` });
+  }
+
   const result = db.prepare('DELETE FROM models WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
   if (result.changes === 0) return res.status(404).json({ error: 'Model not found' });
   res.json({ message: 'Model deleted' });
@@ -168,10 +179,63 @@ router.post('/:id/query', async (req, res) => {
     }
   }
 
+  const dbType = datasource.db_type;
+
   selectedDimensions.forEach((d) => {
-    selectParts.push(`${quoteTable(d.table)}."${d.column}" AS "${d.label || d.name}"`);
-    groupByParts.push(`${quoteTable(d.table)}."${d.column}"`);
-    tablesUsed.add(d.table);
+    if (d.datePart) {
+      // Date part derived column — generate SQL expression per DB type
+      const col = `${quoteTable(d.table)}."${d.column}"`;
+      let expr;
+      if (dbType === 'duckdb') {
+        switch (d.datePart) {
+          case 'num_year': expr = `EXTRACT(YEAR FROM CAST(${col} AS DATE))`; break;
+          case 'num_month': expr = `EXTRACT(MONTH FROM CAST(${col} AS DATE))`; break;
+          case 'name_month': expr = `STRFTIME(CAST(${col} AS DATE), '%B')`; break;
+          case 'num_week': expr = `EXTRACT(WEEK FROM CAST(${col} AS DATE))`; break;
+          case 'num_day_of_week': expr = `EXTRACT(DOW FROM CAST(${col} AS DATE))`; break;
+          case 'name_day': expr = `STRFTIME(CAST(${col} AS DATE), '%A')`; break;
+          default: expr = col;
+        }
+      } else if (dbType === 'mysql') {
+        switch (d.datePart) {
+          case 'num_year': expr = `YEAR(${col})`; break;
+          case 'num_month': expr = `MONTH(${col})`; break;
+          case 'name_month': expr = `MONTHNAME(${col})`; break;
+          case 'num_week': expr = `WEEK(${col})`; break;
+          case 'num_day_of_week': expr = `DAYOFWEEK(${col})`; break;
+          case 'name_day': expr = `DAYNAME(${col})`; break;
+          default: expr = col;
+        }
+      } else if (dbType === 'azure_sql' || dbType === 'mssql') {
+        switch (d.datePart) {
+          case 'num_year': expr = `YEAR(${col})`; break;
+          case 'num_month': expr = `MONTH(${col})`; break;
+          case 'name_month': expr = `DATENAME(MONTH, ${col})`; break;
+          case 'num_week': expr = `DATEPART(WEEK, ${col})`; break;
+          case 'num_day_of_week': expr = `DATEPART(WEEKDAY, ${col})`; break;
+          case 'name_day': expr = `DATENAME(WEEKDAY, ${col})`; break;
+          default: expr = col;
+        }
+      } else {
+        // PostgreSQL / Azure PostgreSQL / BigQuery
+        switch (d.datePart) {
+          case 'num_year': expr = `EXTRACT(YEAR FROM ${col}::DATE)`; break;
+          case 'num_month': expr = `EXTRACT(MONTH FROM ${col}::DATE)`; break;
+          case 'name_month': expr = `TO_CHAR(${col}::DATE, 'Month')`; break;
+          case 'num_week': expr = `EXTRACT(WEEK FROM ${col}::DATE)`; break;
+          case 'num_day_of_week': expr = `EXTRACT(DOW FROM ${col}::DATE)`; break;
+          case 'name_day': expr = `TO_CHAR(${col}::DATE, 'Day')`; break;
+          default: expr = col;
+        }
+      }
+      selectParts.push(`${expr} AS "${d.label || d.name}"`);
+      groupByParts.push(expr);
+      tablesUsed.add(d.table);
+    } else {
+      selectParts.push(`${quoteTable(d.table)}."${d.column}" AS "${d.label || d.name}"`);
+      groupByParts.push(`${quoteTable(d.table)}."${d.column}"`);
+      tablesUsed.add(d.table);
+    }
   });
 
   selectedMeasures.forEach((m) => {
@@ -219,7 +283,8 @@ router.post('/:id/query', async (req, res) => {
     }
   }
 
-  let sql = `SELECT ${distinct ? 'DISTINCT ' : ''}${selectParts.join(', ')} FROM ${fromClause}`;
+  const useDistinct = distinct || (selectedDimensions.length > 0 && selectedMeasures.length === 0);
+  let sql = `SELECT ${useDistinct ? 'DISTINCT ' : ''}${selectParts.join(', ')} FROM ${fromClause}`;
 
   if (whereParts.length > 0) {
     sql += ` WHERE ${whereParts.join(' AND ')}`;

@@ -2,6 +2,7 @@ import { useRef, useEffect, memo, useMemo, useState, useCallback } from 'react';
 import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import ChartLegend from './ChartLegend';
+import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -68,6 +69,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
     const series = [];
     let labels = [...data.labels];
     let sortedIndices = labels.map((_, i) => i);
+    const datePart = data._datePart;
 
     // Sort labels by total values
     if (sortOrder !== 'none') {
@@ -82,6 +84,16 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
       });
       sortedIndices.sort((a, b) => sortOrder === 'desc' ? totals[b] - totals[a] : totals[a] - totals[b]);
       labels = sortedIndices.map((i) => labels[i]);
+    } else if (datePart) {
+      // Auto-sort chronologically for date dimensions
+      const { labels: sorted, indices } = sortDateLabels(labels, null, datePart);
+      sortedIndices = indices.map((i) => sortedIndices[i]);
+      labels = sorted;
+    }
+
+    // Format date labels
+    if (datePart) {
+      labels = labels.map((l) => formatDateLabel(l, datePart));
     }
 
     let rawSeries = data.series && data.series.length > 0 ? [...data.series] : null;
@@ -103,6 +115,8 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
 
     if (visibleSeries && visibleSeries.length > 0) {
       visibleSeries.forEach((s, i) => {
+        const origIdx = allSeriesForLegend ? allSeriesForLegend.findIndex((o) => o.name === s.name) : i;
+        const colorIdx = origIdx >= 0 ? origIdx : i;
         let values = sortedIndices.map((idx) => s.values[idx] || 0);
         if (subType === 'stackedArea100') {
           values = values.map((val, vi) => {
@@ -114,7 +128,9 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
         series.push({
           type: 'line', name: s.name || `Series ${i + 1}`, data: values,
           smooth: config?.smooth ?? true,
-          areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15 } : undefined,
+          lineStyle: { color: COLORS[colorIdx % COLORS.length] },
+          itemStyle: { color: COLORS[colorIdx % COLORS.length] },
+          areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15, color: COLORS[colorIdx % COLORS.length] } : undefined,
           stack: isStacked ? 'total' : undefined,
           label: { ...labelOpts, formatter: (p) => {
             if (hideZeros && (p.value == null || p.value === 0)) return '';

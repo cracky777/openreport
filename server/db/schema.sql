@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS datasources (
   db_name TEXT NOT NULL,
   db_user TEXT NOT NULL,
   db_password TEXT NOT NULL,
+  extra_config TEXT DEFAULT '{}',
   created_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

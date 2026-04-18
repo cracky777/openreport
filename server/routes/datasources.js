@@ -28,17 +28,18 @@ router.get('/:id', requireAuth, (req, res) => {
 
 // Test connection (without saving)
 router.post('/test', requireAuth, async (req, res) => {
-  const { dbType, host, port, dbName, dbUser, dbPassword } = req.body;
+  const { dbType, host, port, dbName, dbUser, dbPassword, extraConfig } = req.body;
 
   let conn;
   try {
     conn = createConnection({
       db_type: dbType,
-      host,
+      host: host || '',
       port,
       db_name: dbName,
-      db_user: dbUser,
-      db_password: dbPassword,
+      db_user: dbUser || '',
+      db_password: dbPassword || '',
+      extra_config: extraConfig || {},
     });
     await conn.testConnection();
     res.json({ success: true, message: 'Connection successful' });
@@ -51,21 +52,23 @@ router.post('/test', requireAuth, async (req, res) => {
 
 // Create datasource
 router.post('/', requireAuth, (req, res) => {
-  const { name, dbType, host, port, dbName, dbUser, dbPassword } = req.body;
+  const { name, dbType, host, port, dbName, dbUser, dbPassword, extraConfig } = req.body;
 
-  if (!name || !dbType || !host || !dbName || !dbUser) {
+  // BigQuery and DuckDB don't need host/user
+  const needsHost = !['bigquery', 'duckdb'].includes(dbType);
+  if (!name || !dbType || (needsHost && !host) || !dbName) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
   const id = uuidv4();
 
   db.prepare(`
-    INSERT INTO datasources (id, user_id, name, db_type, host, port, db_name, db_user, db_password)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, req.user.id, name, dbType, host, port || 5432, dbName, dbUser, dbPassword || '');
+    INSERT INTO datasources (id, user_id, name, db_type, host, port, db_name, db_user, db_password, extra_config)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, req.user.id, name, dbType, host || '', port || 5432, dbName, dbUser || '', dbPassword || '', JSON.stringify(extraConfig || {}));
 
   res.status(201).json({
-    datasource: { id, name, db_type: dbType, host, port: port || 5432, db_name: dbName },
+    datasource: { id, name, db_type: dbType, host: host || '', port: port || 5432, db_name: dbName },
   });
 });
 
@@ -147,6 +150,12 @@ router.post('/:id/query', requireAuth, async (req, res) => {
 
 // Delete datasource
 router.delete('/:id', requireAuth, (req, res) => {
+  // Check if any models use this datasource
+  const modelCount = db.prepare('SELECT COUNT(*) as count FROM models WHERE datasource_id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (modelCount && modelCount.count > 0) {
+    return res.status(409).json({ error: `This datasource is used by ${modelCount.count} model(s). Delete them first.` });
+  }
+
   const result = db.prepare('DELETE FROM datasources WHERE id = ? AND user_id = ?').run(
     req.params.id, req.user.id
   );
