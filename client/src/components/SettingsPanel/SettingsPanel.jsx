@@ -89,30 +89,32 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
         </Section>
 
         <Section title="Canvas">
-          <Field label="Show grid">
-            <input
-              type="checkbox"
-              checked={settings.showGrid ?? false}
-              onChange={(e) => update('showGrid', e.target.checked)}
-            />
-          </Field>
-          {settings.showGrid && (
-            <Field label="Grid size (px)">
-              <input
-                type="number" min={5} max={100}
-                value={settings.gridSize || 20}
-                onChange={(e) => update('gridSize', parseInt(e.target.value) || 20)}
-                style={inputStyle}
-              />
-            </Field>
-          )}
           <Field label="Snap to grid">
             <input
               type="checkbox"
-              checked={settings.snapToGrid ?? false}
+              checked={settings.snapToGrid ?? true}
               onChange={(e) => update('snapToGrid', e.target.checked)}
             />
           </Field>
+          {settings.snapToGrid && (
+            <>
+              <Field label="Grid size (px)">
+                <input
+                  type="number" min={5} max={100}
+                  value={settings.gridSize || 20}
+                  onChange={(e) => update('gridSize', parseInt(e.target.value) || 20)}
+                  style={inputStyle}
+                />
+              </Field>
+              <Field label="Show grid">
+                <input
+                  type="checkbox"
+                  checked={settings.showGrid ?? false}
+                  onChange={(e) => update('showGrid', e.target.checked)}
+                />
+              </Field>
+            </>
+          )}
         </Section>
 
         <Section title="Background">

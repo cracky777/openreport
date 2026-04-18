@@ -380,7 +380,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           placeholder="Widget title" style={inputStyle} />
       </Section>
 
-      {widget.type !== 'text' && (
+      {widget.type !== 'text' && widget.type !== 'shape' && (
         <Section title="Data" sectionState={sections}>
           {widget.type === 'scorecard' && (
             <>
@@ -418,8 +418,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           </>
         )}
         <Field label="Border radius" vertical>
-          <RangeInput min={0} max={24} value={widget.config?.borderRadius || 8}
-            onChange={(e) => updateConfig('borderRadius', parseInt(e.target.value))} />
+          <RangeInput min={0} max={24} value={widget.config?.borderRadius ?? 8}
+            onChange={(e) => updateConfig('borderRadius', parseInt(e.target.value) || 0)} />
         </Field>
         <Field label="Transparent bg">
           <input type="checkbox" checked={widget.config?.transparentBg ?? false}
@@ -486,6 +486,10 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             </Field>
           </SubSection>
         )}
+        <Field label="Rotation" vertical>
+          <RangeInput min={0} max={360} value={widget.config?.rotation ?? 0} suffix="°"
+            onChange={(e) => updateConfig('rotation', parseInt(e.target.value))} />
+        </Field>
       </Section>
 
       {/* ── Chart options ── */}
@@ -662,6 +666,57 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             sections={sections}
           />
         </>
+      )}
+
+      {widget.type === 'shape' && (widget.config?.shape === 'arrow' || widget.config?.shape === 'line') && (
+        <Section title="Shape">
+          {widget.config?.shape === 'line' && (
+            <>
+              <Field label="Color">
+                <ColorInput value={widget.config?.lineColor || '#1e40af'}
+                  onChange={(v) => updateConfig('lineColor', v)} />
+              </Field>
+              <Field label="Thickness" vertical>
+                <RangeInput min={1} max={20} value={widget.config?.lineThickness ?? 2}
+                  onChange={(e) => updateConfig('lineThickness', parseInt(e.target.value))} suffix="px" />
+              </Field>
+            </>
+          )}
+          {widget.config?.shape === 'arrow' && (
+            <>
+              <Field label="Fill">
+                <ColorInput value={widget.config?.shapeFill || '#3b82f6'}
+                  onChange={(v) => updateConfig('shapeFill', v)} />
+              </Field>
+              <Field label="Stroke">
+                <ColorInput value={widget.config?.shapeStroke || '#1e40af'}
+                  onChange={(v) => updateConfig('shapeStroke', v)} />
+              </Field>
+              <Field label="Stroke width">
+                <input type="number" min={0} max={20} value={widget.config?.shapeStrokeWidth ?? 2}
+                  onChange={(e) => updateConfig('shapeStrokeWidth', parseInt(e.target.value) || 0)}
+                  style={{ ...inputStyle, width: 55, marginBottom: 0 }} />
+              </Field>
+              <Field label="Opacity (%)">
+                <input type="number" min={0} max={100} value={widget.config?.shapeOpacity ?? 100}
+                  onChange={(e) => updateConfig('shapeOpacity', parseInt(e.target.value) || 0)}
+                  style={{ ...inputStyle, width: 55, marginBottom: 0 }} />
+              </Field>
+            </>
+          )}
+          {widget.config?.shape === 'arrow' && (
+            <Field label="Direction">
+              <select value={widget.config?.arrowDirection || 'right'}
+                onChange={(e) => updateConfig('arrowDirection', e.target.value)}
+                style={{ ...inputStyle, width: 100, marginBottom: 0 }}>
+                <option value="right">Right →</option>
+                <option value="down">Down ↓</option>
+                <option value="left">Left ←</option>
+                <option value="up">Up ↑</option>
+              </select>
+            </Field>
+          )}
+        </Section>
       )}
 
       {widget.type === 'text' && (

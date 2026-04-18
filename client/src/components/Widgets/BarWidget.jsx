@@ -105,7 +105,8 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
       labels = sorted;
     }
 
-    // Format date labels
+    // Keep raw labels for cross-filter, format display labels separately
+    const rawLabels = [...labels];
     if (datePart) {
       labels = labels.map((l) => formatDateLabel(l, datePart));
     }
@@ -340,7 +341,8 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
       if (s.type === 'bar' && s.data) {
         s.data = s.data.map((val, i) => {
           const v = typeof val === 'object' ? val.value ?? val : val;
-          const o = hl && labels ? (labels[i] === hl ? 1 : 0.3) : 1;
+          // Compare highlight against raw labels (not formatted)
+          const o = hl && rawLabels ? (rawLabels[i] === hl ? 1 : 0.3) : 1;
           return { value: v, itemStyle: { opacity: o } };
         });
       }
@@ -349,7 +351,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
     // Legend items for HTML legend
     const legendItems = (allSeriesForLegend || []).map((s, i) => ({ name: s.name, color: COLORS[i % COLORS.length] }));
 
-    return { option: opt, legendItems };
+    return { option: opt, legendItems, rawLabels };
   }, [data, subType, showLabels, hideZeros, showLegend, legendPosition, sortOrder, hasData, config?.color,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue]);
@@ -368,8 +370,8 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
   onDataClickRef.current = onDataClick;
   const dimNameRef = useRef(data?._dimName);
   dimNameRef.current = data?._dimName;
-  const labelsRef = useRef(data?.labels);
-  labelsRef.current = data?.labels;
+  const rawLabelsRef = useRef(memoResult?.rawLabels);
+  rawLabelsRef.current = memoResult?.rawLabels;
 
   useEffect(() => {
     const el = chartRef.current;
@@ -384,15 +386,18 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
         instanceRef.current = echarts.init(el, null, { width: cw, height: ch });
         // Attach click handler once on init
         instanceRef.current.on('click', (params) => {
-          // For standard bar: params.name is the category label
-          // For custom bar: params.data is [categoryIndex, value], resolve via labels
-          let name = params.name;
-          if (!name && Array.isArray(params.data)) {
-            const labels = labelsRef.current;
-            if (labels) name = labels[params.data[0]];
+          // Resolve to raw (unformatted) label value for cross-filtering
+          const rawLabels = rawLabelsRef.current;
+          let rawValue;
+          if (params.dataIndex != null && rawLabels) {
+            rawValue = rawLabels[params.dataIndex];
+          } else if (Array.isArray(params.data) && rawLabels) {
+            rawValue = rawLabels[params.data[0]];
+          } else {
+            rawValue = params.name;
           }
-          if (name && onDataClickRef.current) {
-            onDataClickRef.current(dimNameRef.current || 'dimension', String(name));
+          if (rawValue != null && onDataClickRef.current) {
+            onDataClickRef.current(dimNameRef.current || 'dimension', String(rawValue));
           }
         });
       } else if (prevSizeRef.current.w !== cw || prevSizeRef.current.h !== ch) {

@@ -91,7 +91,8 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
       labels = sorted;
     }
 
-    // Format date labels
+    // Keep raw labels for cross-filter, format display labels separately
+    const rawLabels = [...labels];
     if (datePart) {
       labels = labels.map((l) => formatDateLabel(l, datePart));
     }
@@ -195,14 +196,14 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
       if (s.data) {
         s.data = s.data.map((val, i) => {
           const v = typeof val === 'object' && val !== null ? val.value ?? val : val;
-          const o = hl && labels ? (labels[i] === hl ? 1 : 0.3) : 1;
+          const o = hl && rawLabels ? (rawLabels[i] === hl ? 1 : 0.3) : 1;
           return { value: v, itemStyle: { opacity: o } };
         });
       }
     });
 
     const legendItems = (allSeriesForLegend || []).map((s, i) => ({ name: s.name, color: COLORS[i % COLORS.length] }));
-    return { option: opt, legendItems };
+    return { option: opt, legendItems, rawLabels };
   }, [data, subType, showLabels, showLegend, legendPosition, hasData, config?.smooth, config?.color, isArea, isStacked, hideZeros, sortOrder,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue]);
@@ -221,6 +222,8 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
   onDataClickRef.current = onDataClick;
   const dimNameRef = useRef(data?._dimName);
   dimNameRef.current = data?._dimName;
+  const rawLabelsRef = useRef(memoResult?.rawLabels);
+  rawLabelsRef.current = memoResult?.rawLabels;
 
   useEffect(() => {
     const el = chartRef.current;
@@ -234,8 +237,10 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
       if (!instanceRef.current) {
         instanceRef.current = echarts.init(el, null, { width: cw, height: ch });
         instanceRef.current.on('click', (params) => {
-          if (params.name && onDataClickRef.current) {
-            onDataClickRef.current(dimNameRef.current || 'dimension', params.name);
+          const rawLabels = rawLabelsRef.current;
+          const rawValue = (params.dataIndex != null && rawLabels) ? rawLabels[params.dataIndex] : params.name;
+          if (rawValue != null && onDataClickRef.current) {
+            onDataClickRef.current(dimNameRef.current || 'dimension', String(rawValue));
           }
         });
       } else if (prevSizeRef.current.w !== cw || prevSizeRef.current.h !== ch) {

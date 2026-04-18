@@ -32,10 +32,12 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
   }, [calendarTarget]);
 
   // Close dropdown on outside click
+  const dropdownPopupRef = useRef(null);
   useEffect(() => {
     if (!dropdownOpen) return;
     const handleClick = (e) => {
       if (dropdownRef.current && dropdownRef.current.contains(e.target)) return;
+      if (dropdownPopupRef.current && dropdownPopupRef.current.contains(e.target)) return;
       setDropdownOpen(false);
     };
     document.addEventListener('mousedown', handleClick);
@@ -277,7 +279,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
           <span style={{ fontSize: 10, color: '#94a3b8', flexShrink: 0 }}>{dropdownOpen ? '▲' : '▼'}</span>
         </div>
         {dropdownOpen && createPortal(
-          <div onClick={(e) => e.stopPropagation()} style={{
+          <div ref={dropdownPopupRef} onClick={(e) => e.stopPropagation()} style={{
             position: 'fixed', zIndex: 9999,
             top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width,
             border: '1px solid #e2e8f0', borderRadius: 6, overflow: 'auto',

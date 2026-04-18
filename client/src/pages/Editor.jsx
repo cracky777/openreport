@@ -98,7 +98,8 @@ export default function Editor() {
     const prev = crossHighlightRef.current;
     const isSame = prev && prev.widgetId === sourceWidgetId && prev.value === value;
     if (isSame) {
-      crossFilterSourceRef.current = null;
+      // Deselect: mark source so it is NOT refetched (keeps its colors stable)
+      crossFilterSourceRef.current = sourceWidgetId;
       setCrossHighlight(null);
       setReportFilters((p) => { const n = { ...p }; delete n[dimensionName]; return n; });
     } else {
@@ -339,12 +340,12 @@ export default function Editor() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedWidget, history, clipboard, widgets, layout, setLayoutAndWidgets]);
 
-  const handleAddWidget = useCallback((type, subType) => {
+  const handleAddWidget = useCallback((type, subType, extraConfig, customSize) => {
     const widgetId = uuidv4();
-    const defaultSize = WIDGET_TYPES[type]?.defaultSize || { w: 24, h: 16 };
+    const defaultSize = customSize || WIDGET_TYPES[type]?.defaultSize || { w: 24, h: 16 };
 
-    // If a widget is selected, transform it instead of adding a new one
-    if (selectedWidget && widgets[selectedWidget]) {
+    // If a widget is selected and not adding a shape/object, transform it
+    if (selectedWidget && widgets[selectedWidget] && type !== 'shape') {
       const existing = widgets[selectedWidget];
       const convertedData = convertData(existing.data, existing.type, type);
 
@@ -372,8 +373,8 @@ export default function Editor() {
 
     const pw = settings.pageWidth || 1140;
     const ph = settings.pageHeight || 800;
-    const ww = defaultSize.w * 20;
-    const wh = defaultSize.h * 20;
+    const ww = defaultSize.w > 100 ? defaultSize.w : defaultSize.w * 20;
+    const wh = defaultSize.h > 100 ? defaultSize.h : defaultSize.h * 20;
 
     setLayoutAndWidgets(
       (prevLayout) => [
@@ -391,7 +392,7 @@ export default function Editor() {
         [widgetId]: {
           type,
           data: {},
-          config: subType ? { subType } : {},
+          config: { ...(subType ? { subType } : {}), ...extraConfig },
         },
       })
     );

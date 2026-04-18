@@ -6,8 +6,9 @@ import ScorecardWidget from './ScorecardWidget';
 import TextWidget from './TextWidget';
 import FilterWidget from './FilterWidget';
 import PivotTableWidget from './PivotTableWidget';
+import ShapeWidget from './ShapeWidget';
 
-import { TbChartBar, TbChartLine, TbChartPie, TbTable, TbLayoutGrid, TbHash, TbFilter, TbTypography, TbChartAreaLine, TbChartColumn, TbChartHistogram } from 'react-icons/tb';
+import { TbChartBar, TbChartLine, TbChartPie, TbTable, TbLayoutGrid, TbHash, TbFilter, TbTypography, TbChartAreaLine, TbChartColumn, TbChartHistogram, TbShape, TbTypography as TbText, TbMinus, TbSquare, TbCircle, TbArrowRight } from 'react-icons/tb';
 
 export const WIDGET_TYPES = {
   bar: { component: BarWidget, label: 'Bar Chart', icon: TbChartBar, defaultSize: { w: 24, h: 16 }, hasSubTypes: true },
@@ -18,7 +19,16 @@ export const WIDGET_TYPES = {
   scorecard: { component: ScorecardWidget, label: 'Scorecard', icon: TbHash, defaultSize: { w: 12, h: 8 } },
   filter: { component: FilterWidget, label: 'Filter', icon: TbFilter, defaultSize: { w: 10, h: 16 } },
   text: { component: TextWidget, label: 'Text', icon: TbTypography, defaultSize: { w: 16, h: 6 } },
+  shape: { component: ShapeWidget, label: 'Shape', icon: TbShape, defaultSize: { w: 200, h: 200 }, hidden: true },
 };
+
+export const OBJECT_SUB_TYPES = [
+  { value: 'obj_text', label: 'Text', icon: TbText, type: 'text' },
+  { value: 'obj_line', label: 'Line', icon: TbMinus, type: 'shape', size: { w: 300, h: 30 }, config: { shape: 'line', transparentBg: true, borderEnabled: false, borderRadius: 0 } },
+  { value: 'obj_square', label: 'Square', icon: TbSquare, type: 'shape', config: { shape: 'square', backgroundColor: '#3b82f6', borderColor: '#1e40af' } },
+  { value: 'obj_round', label: 'Round', icon: TbCircle, type: 'shape', config: { shape: 'round', backgroundColor: '#3b82f6', borderColor: '#1e40af' } },
+  { value: 'obj_arrow', label: 'Arrow', icon: TbArrowRight, type: 'shape', config: { shape: 'arrow', transparentBg: true, borderEnabled: false } },
+];
 
 export const BAR_SUB_TYPES = [
   { value: 'grouped', label: 'Clustered Bar', icon: TbChartBar },

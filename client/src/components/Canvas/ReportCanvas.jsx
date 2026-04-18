@@ -18,7 +18,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onCrossFilter, crossHighlight }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onCrossFilter, crossHighlight, snapGrid }) {
   const nodeRef = useRef(null);
   const WidgetType = WIDGET_TYPES[widget.type];
   if (!WidgetType) return null;
@@ -38,6 +38,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
       onStop={(e, data) => onDragStop(item.i, data)}
       disabled={readOnly}
       cancel=".widget-content, .resize-handle"
+      grid={snapGrid}
     >
       <div
         ref={nodeRef}
@@ -50,10 +51,17 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           width: w,
           height: h,
           zIndex: Math.max(1, item.z || 1),
+          cursor: readOnly ? 'default' : 'move',
+        }}
+      >
+        <div style={{
+          width: '100%', height: '100%',
+          transform: widget.config?.rotation ? `rotate(${widget.config.rotation}deg)` : undefined,
+          transformOrigin: 'center center',
           background: widget.config?.transparentBg
             ? 'transparent'
             : (buildGradientCSS(widget.config?.gradientBg) || widget.config?.backgroundColor || '#ffffff'),
-          borderRadius: widget.config?.borderRadius || 8,
+          borderRadius: (widget.type === 'shape' && widget.config?.shape === 'round') ? '50%' : (widget.config?.borderRadius ?? 8),
           border: isSelected
             ? '2px solid #3b82f6'
             : (widget.config?.borderEnabled === false
@@ -64,10 +72,8 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             buildShadowCSS(widget.config?.shadow),
             !isSelected && !widget.config?.shadow?.enabled && widget.config?.borderEnabled !== false ? '0 1px 3px rgba(0,0,0,0.05)' : null,
           ].filter(Boolean).join(', ') || 'none',
-          cursor: readOnly ? 'default' : 'move',
           overflow: widget.config?.shadow?.enabled ? 'visible' : 'hidden',
-        }}
-      >
+        }}>
         {widget.config?.title && (
           <div style={{ padding: '8px 12px 0', fontSize: 13, fontWeight: 600, color: '#475569' }}>
             {widget.config.title}
@@ -108,6 +114,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
 
         {/* Max rows warning */}
         {widget.data?._maxReached && <MaxRowsWarning />}
+        </div>{/* end rotation wrapper */}
 
         {/* Resize handles — all edges and corners, only when selected */}
         {!readOnly && isSelected && (
@@ -180,13 +187,15 @@ export default function ReportCanvas({
     return 1;
   }, [viewMode, containerSize, pageWidth, canvasHeight]);
 
+  const gridSize = (settings.snapToGrid ?? true) ? (settings.gridSize || 20) : 1;
+  const snap = useCallback((v) => Math.round(v / gridSize) * gridSize, [gridSize]);
+  const snapGrid = (settings.snapToGrid ?? true) ? [gridSize, gridSize] : undefined;
+
   const handleDragStop = useCallback((id, data) => {
-    const gridSize = settings.snapToGrid ? (settings.gridSize || 20) : 1;
-    const snap = (v) => Math.round(v / gridSize) * gridSize;
     onLayoutChange(layout.map((item) =>
       item.i === id ? { ...item, x: Math.max(0, snap(data.x)), y: Math.max(0, snap(data.y)) } : item
     ));
-  }, [layout, onLayoutChange, settings.snapToGrid, settings.gridSize]);
+  }, [layout, onLayoutChange, snap]);
 
   const handleAutoHeight = useCallback((id, newH) => {
     onLayoutChange(layout.map((item) =>
@@ -203,13 +212,13 @@ export default function ReportCanvas({
       const dy = e.clientY - resizing.startY;
       const updates = {};
 
-      // Width changes
-      if (dir.includes('e')) updates.w = Math.max(80, resizing.startW + dx);
-      if (dir.includes('w')) { updates.w = Math.max(80, resizing.startW - dx); updates.x = resizing.startPosX + dx; if (updates.w <= 80) updates.x = resizing.startPosX + resizing.startW - 80; }
+      // Width changes (snap to grid)
+      if (dir.includes('e')) updates.w = Math.max(80, snap(resizing.startW + dx));
+      if (dir.includes('w')) { updates.w = Math.max(80, snap(resizing.startW - dx)); updates.x = snap(resizing.startPosX + dx); if (updates.w <= 80) updates.x = resizing.startPosX + resizing.startW - 80; }
 
-      // Height changes
-      if (dir.includes('s')) updates.h = Math.max(40, resizing.startH + dy);
-      if (dir.includes('n')) { updates.h = Math.max(40, resizing.startH - dy); updates.y = resizing.startPosY + dy; if (updates.h <= 40) updates.y = resizing.startPosY + resizing.startH - 40; }
+      // Height changes (snap to grid)
+      if (dir.includes('s')) updates.h = Math.max(40, snap(resizing.startH + dy));
+      if (dir.includes('n')) { updates.h = Math.max(40, snap(resizing.startH - dy)); updates.y = snap(resizing.startPosY + dy); if (updates.h <= 40) updates.y = resizing.startPosY + resizing.startH - 40; }
 
       onLayoutChange(layout.map((item) =>
         item.i === resizing.id ? { ...item, ...updates } : item
@@ -310,6 +319,7 @@ export default function ReportCanvas({
               onSlicerFilter={onSlicerFilter}
               onCrossFilter={onCrossFilter}
               crossHighlight={crossHighlight}
+              snapGrid={snapGrid}
             />
           );
         })}

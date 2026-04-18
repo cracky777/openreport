@@ -173,8 +173,15 @@ router.post('/:id/query', async (req, res) => {
       const dimDef = allDimensions.find((d) => d.name === dimName);
       if (dimDef) {
         tablesUsed.add(dimDef.table);
+        const col = `${quoteTable(dimDef.table)}."${dimDef.column}"`;
         const escaped = values.map((v) => `'${String(v).replace(/'/g, "''")}'`).join(', ');
-        whereParts.push(`${quoteTable(dimDef.table)}."${dimDef.column}" IN (${escaped})`);
+        if (dimDef.type === 'date') {
+          // Date columns: cast to DATE so timestamps like "2024-04-30 10:30:00" match "2024-04-30"
+          whereParts.push(`CAST(${col} AS DATE) IN (${escaped})`);
+        } else {
+          // Non-date columns: cast to VARCHAR for consistent comparison across all DB types
+          whereParts.push(`CAST(${col} AS VARCHAR) IN (${escaped})`);
+        }
       }
     }
   }
@@ -294,6 +301,13 @@ router.post('/:id/query', async (req, res) => {
     sql += ` GROUP BY ${groupByParts.join(', ')}`;
   }
 
+  // Stable ordering: ORDER BY the first dimension to keep consistent colors across refetches
+  if (groupByParts.length > 0) {
+    sql += ` ORDER BY ${groupByParts[0]}`;
+  } else if (selectParts.length > 0) {
+    sql += ` ORDER BY 1`;
+  }
+
   const MAX_ROWS = 1000000;
   const requestedLimit = Math.min(limit || 1000, MAX_ROWS);
   sql += ` LIMIT ${requestedLimit}`;
@@ -304,7 +318,16 @@ router.post('/:id/query', async (req, res) => {
   let conn;
   try {
     conn = createConnection(datasource);
-    const rows = await conn.query(sql);
+    const rawRows = await conn.query(sql);
+    // Normalize Date objects to ISO date strings for all DB types
+    const rows = rawRows.map((r) => {
+      const obj = {};
+      for (const [k, v] of Object.entries(r)) {
+        if (v instanceof Date) obj[k] = v.toISOString().split('T')[0];
+        else obj[k] = v;
+      }
+      return obj;
+    });
     res.json({ rows, rowCount: rows.length, maxReached: rows.length >= MAX_ROWS, sql });
   } catch (err) {
     res.status(500).json({ error: err.message, sql });

@@ -154,14 +154,18 @@ function createConnection(datasource) {
       }
       return global._duckdbInstances[dbPath];
     };
-    // Convert BigInt values to Number in all results
-    const convertBigInt = (rows) => rows.map((r) => {
+    // Convert BigInt to Number and Date to ISO string in all results
+    const convertValues = (rows) => rows.map((r) => {
       const obj = {};
-      for (const [k, v] of Object.entries(r)) obj[k] = typeof v === 'bigint' ? Number(v) : v;
+      for (const [k, v] of Object.entries(r)) {
+        if (typeof v === 'bigint') obj[k] = Number(v);
+        else if (v instanceof Date) obj[k] = v.toISOString().split('T')[0];
+        else obj[k] = v;
+      }
       return obj;
     });
     return {
-      query: async (q) => { const db = await getDb(); return convertBigInt(await db.all(q)); },
+      query: async (q) => { const db = await getDb(); return convertValues(await db.all(q)); },
       testConnection: async () => { const db = await getDb(); await db.all('SELECT 1'); return true; },
       getTables: async () => {
         const db = await getDb();
@@ -171,7 +175,7 @@ function createConnection(datasource) {
       getColumns: async (tableName) => {
         const db = await getDb();
         const rows = await db.all(`SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = ? ORDER BY ordinal_position`, tableName);
-        return convertBigInt(rows);
+        return convertValues(rows);
       },
       close: () => { /* keep cached instance alive */ },
     };

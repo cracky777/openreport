@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, TABLE_SUB_TYPES } from '../Widgets';
-import { TbEye, TbArrowLeft } from 'react-icons/tb';
+import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, TABLE_SUB_TYPES, OBJECT_SUB_TYPES } from '../Widgets';
+import { TbEye, TbArrowLeft, TbAdjustments, TbShape } from 'react-icons/tb';
 
 export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId }) {
   const navigate = useNavigate();
@@ -77,7 +77,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
       <div style={{ flex: 1 }} />
 
       <div style={{ display: 'flex', gap: 4 }}>
-        {Object.entries(WIDGET_TYPES).filter(([, meta]) => !meta.hidden).map(([type, { label, icon: Icon, hasSubTypes }]) => (
+        {Object.entries(WIDGET_TYPES).filter(([type, meta]) => !meta.hidden && type !== 'text').map(([type, { label, icon: Icon, hasSubTypes }]) => (
           <div key={type} style={{ position: 'relative' }}
             onMouseEnter={() => hasSubTypes && setOpenMenu(type)}
             onMouseLeave={() => hasSubTypes && setOpenMenu(null)}
@@ -149,6 +149,43 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             )}
           </div>
         ))}
+
+        {/* Objects group */}
+        <div style={{ position: 'relative' }}
+          onMouseEnter={() => setOpenMenu('objects')}
+          onMouseLeave={() => setOpenMenu(null)}
+        >
+          <button
+            title="Add object"
+            style={{
+              padding: '6px 10px', fontSize: 13,
+              border: openMenu === 'objects' ? '1px solid #3b82f6' : '1px solid #e2e8f0',
+              borderRadius: 6, background: openMenu === 'objects' ? '#eff6ff' : '#fff',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+              transition: 'all 0.12s',
+            }}
+            onMouseEnter={(e) => { if (openMenu !== 'objects') { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#cbd5e1'; } }}
+            onMouseLeave={(e) => { if (openMenu !== 'objects') { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; } }}
+          >
+            <TbShape size={16} />
+            <span>Objects</span>
+            <span style={{ fontSize: 10, color: '#94a3b8' }}>▼</span>
+          </button>
+          {openMenu === 'objects' && (
+            <div style={dropdownStyle}><div style={dropdownInner}>
+              {OBJECT_SUB_TYPES.map((st) => {
+                const StIcon = st.icon;
+                return (
+                  <button key={st.value} onClick={() => { onAddWidget(st.type, null, st.config, st.size); setOpenMenu(null); }} style={dropdownItem}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                    <StIcon size={14} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                  </button>
+                );
+              })}
+            </div></div>
+          )}
+        </div>
       </div>
 
       <button
@@ -157,9 +194,10 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         style={{
           padding: '6px 10px', fontSize: 18, border: '1px solid #e2e8f0',
           borderRadius: 6, background: '#fff', cursor: 'pointer', lineHeight: 1,
+          display: 'flex', alignItems: 'center',
         }}
       >
-        ⚙
+        <TbAdjustments size={18} />
       </button>
 
       <button
