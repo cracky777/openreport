@@ -1,7 +1,6 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
-const { checkQuota } = require('../middleware/quotas');
 const db = require('../db');
 
 const router = express.Router();
@@ -41,7 +40,7 @@ router.get('/', requireAuth, (req, res) => {
 });
 
 // Create workspace
-router.post('/', requireAuth, checkQuota('workspace'), (req, res) => {
+router.post('/', requireAuth, (req, res) => {
   const { name, description } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   const id = uuidv4();

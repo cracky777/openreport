@@ -56,10 +56,7 @@ router.post('/logout', (req, res) => {
 });
 
 router.get('/me', requireAuth, (req, res) => {
-  const { getLimits, getUserCounts } = require('../middleware/quotas');
-  const limits = getLimits(req.user.id);
-  const usage = getUserCounts(req.user.id);
-  res.json({ user: { ...req.user, plan: limits.plan }, limits, usage });
+  res.json({ user: req.user });
 });
 
 // Search users by email (for autocomplete)

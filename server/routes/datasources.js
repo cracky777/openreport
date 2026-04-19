@@ -1,7 +1,6 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
-const { checkQuota } = require('../middleware/quotas');
 const db = require('../db');
 const { createConnection } = require('../utils/dbConnector');
 
@@ -52,7 +51,7 @@ router.post('/test', requireAuth, async (req, res) => {
 });
 
 // Create datasource
-router.post('/', requireAuth, checkQuota('datasource'), (req, res) => {
+router.post('/', requireAuth, (req, res) => {
   const { name, dbType, host, port, dbName, dbUser, dbPassword, extraConfig } = req.body;
 
   // BigQuery and DuckDB don't need host/user

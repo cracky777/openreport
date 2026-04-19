@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.\\(jsx?|css\\)$\")",
+      "Bash(npx vite *)",
+      "Bash(node -e ' *)",
+      "Bash(npx -y acorn-jsx)",
+      "Bash(node -e \"console.log\\([null, 'dimension', 'fact'].indexOf\\(null\\)\\); console.log\\([null, 'dimension', 'fact'].indexOf\\(undefined\\)\\)\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}
