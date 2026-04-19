@@ -139,4 +139,4 @@ This project is licensed under the [GNU Affero General Public License v3.0](LICE
 
 ## Author
 
-**Jonathan Fritsch** — [GitHub](https://github.com/DataKhi)
+**David Sesmat** — [GitHub](https://github.com/cracky777)
