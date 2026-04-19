@@ -29,8 +29,8 @@ function convertData(data, fromType, toType) {
     // table format
     labels = data.rows.map((r) => r[0]);
     values = data.rows.map((r) => parseFloat(r[r.length - 1]) || 0);
-  } else if (data.rawRows || data.points) {
-    // pivotTable / scatter format — clear data, will need refetch
+  } else if (data.rawRows || data.points || data.barSeries || data.lineSeries) {
+    // pivotTable / scatter / combo format — clear data, will need refetch
     return {};
   } else if (data.value !== undefined) {
     // scorecard format - can't meaningfully convert
@@ -58,6 +58,7 @@ function convertData(data, fromType, toType) {
       };
     case 'pivotTable':
     case 'scatter':
+    case 'combo':
       // Needs specific data format — clear data to force a refetch
       return {};
     default:
@@ -134,7 +135,9 @@ export default function Editor() {
       if (!w || w.type === 'filter' || w.type === 'text') return false;
       if (wId === sourceId) return false;
       const b = w.dataBinding || {};
-      const hasMeas = w.type === 'scatter' ? !!(b.scatterMeasures?.x && b.scatterMeasures?.y) : b.selectedMeasures?.length > 0;
+      const hasMeas = w.type === 'scatter' ? !!(b.scatterMeasures?.x && b.scatterMeasures?.y)
+        : w.type === 'combo' ? (b.comboBarMeasures?.length > 0 || b.comboLineMeasures?.length > 0)
+        : b.selectedMeasures?.length > 0;
       return (b.selectedDimensions?.length > 0 || hasMeas);
     });
 
@@ -158,9 +161,13 @@ export default function Editor() {
         const binding = w.dataBinding || {};
         const dims = binding.selectedDimensions || [];
         const sm = binding.scatterMeasures || {};
+        const cbm = binding.comboBarMeasures || [];
+        const clm = binding.comboLineMeasures || [];
         const meass = w.type === 'scatter'
           ? [sm.x, sm.y, sm.size].filter(Boolean)
-          : (binding.selectedMeasures || []);
+          : w.type === 'combo'
+            ? [...new Set([...cbm, ...clm])]
+            : (binding.selectedMeasures || []);
         const grpBy = binding.groupBy || [];
         const colDimsB = binding.columnDimensions || [];
         const allDims = [...dims, ...grpBy.filter((g) => !dims.includes(g)), ...colDimsB.filter((g) => !dims.includes(g) && !grpBy.includes(g))];
@@ -207,6 +214,30 @@ export default function Editor() {
                 newData._hasSize = !!sk;
                 if (sk) newData._sizeLabel = sizeLbl;
               }
+            }
+          } else if (w.type === 'combo') {
+            if (rows.length > 0) {
+              const gl = (name, list) => { const d = list.find((x) => x.name === name); return d?.label || d?.name || name; };
+              const fk = (label) => keys.find((k) => k === label) || null;
+              const axisKey = dims.length > 0 ? fk(gl(dims[0], model.dimensions || [])) || keys[0] : keys[0];
+              const grpLabel = grpBy.length > 0 ? gl(grpBy[0], model.dimensions || []) : null;
+              const grpKey = grpLabel ? fk(grpLabel) : null;
+              const labels = [...new Set(rows.map((r) => String(r[axisKey] ?? '')))];
+              // Bar series: split by legend
+              let barSeries = [];
+              if (grpKey) {
+                const ug = [...new Set(rows.map((r) => String(r[grpKey] ?? '')))].sort();
+                cbm.forEach((mn) => { const ml = gl(mn, model.measures || []); const mk = fk(ml); if (!mk) return;
+                  ug.forEach((gv) => { barSeries.push({ name: cbm.length === 1 ? gv : `${gv} - ${ml}`, values: labels.map((l) => { const row = rows.find((r) => String(r[axisKey] ?? '') === l && String(r[grpKey] ?? '') === gv); return row ? Number(row[mk]) || 0 : 0; }) }); });
+                });
+              } else {
+                cbm.forEach((mn) => { const ml = gl(mn, model.measures || []); const mk = fk(ml); if (!mk) return; barSeries.push({ name: ml, values: labels.map((l) => { const row = rows.find((r) => String(r[axisKey] ?? '') === l); return row ? Number(row[mk]) || 0 : 0; }) }); });
+              }
+              // Line series: aggregate across legend
+              const lineSeries = clm.map((mn) => { const ml = gl(mn, model.measures || []); const mk = fk(ml); if (!mk) return null;
+                return { name: ml, values: labels.map((l) => rows.filter((r) => String(r[axisKey] ?? '') === l).reduce((s, r) => s + (Number(r[mk]) || 0), 0)) };
+              }).filter(Boolean);
+              newData = { labels, barSeries, lineSeries };
             }
           } else if (w.type === 'table') {
             newData = { columns: keys, rows: rows.map((r) => Object.values(r).map((v) => v != null ? String(v) : '')) };

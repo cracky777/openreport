@@ -8,16 +8,18 @@ import FilterWidget from './FilterWidget';
 import PivotTableWidget from './PivotTableWidget';
 import ShapeWidget from './ShapeWidget';
 import ScatterWidget from './ScatterWidget';
+import ComboWidget from './ComboWidget';
 
-import { TbChartBar, TbChartLine, TbChartPie, TbChartDots, TbTable, TbLayoutGrid, TbHash, TbFilter, TbTypography, TbChartAreaLine, TbChartColumn, TbChartHistogram, TbShape, TbTypography as TbText, TbMinus, TbSquare, TbCircle, TbArrowRight } from 'react-icons/tb';
+import { TbChartBar, TbChartLine, TbChartPie, TbChartBubble, TbTable, TbLayoutGrid, TbHash, TbFilter, TbTypography, TbChartAreaLine, TbChartColumn, TbChartHistogram, TbChartBarPopular, TbShape, TbTypography as TbText, TbMinus, TbSquare, TbCircle, TbArrowRight } from 'react-icons/tb';
 
 export const WIDGET_TYPES = {
   bar: { component: BarWidget, label: 'Bar Chart', icon: TbChartBar, defaultSize: { w: 24, h: 16 }, hasSubTypes: true },
   line: { component: LineWidget, label: 'Line Chart', icon: TbChartLine, defaultSize: { w: 24, h: 16 }, hasSubTypes: true },
+  combo: { component: ComboWidget, label: 'Combo Chart', icon: TbChartHistogram, defaultSize: { w: 24, h: 16 }, hasSubTypes: true },
   pie: { component: PieWidget, label: 'Pie Chart', icon: TbChartPie, defaultSize: { w: 16, h: 16 } },
   table: { component: TableWidget, label: 'Table', icon: TbTable, defaultSize: { w: 24, h: 16 }, hasSubTypes: true },
   pivotTable: { component: PivotTableWidget, label: 'Pivot Table', icon: TbLayoutGrid, defaultSize: { w: 28, h: 18 }, hidden: true },
-  scatter: { component: ScatterWidget, label: 'Scatter Chart', icon: TbChartDots, defaultSize: { w: 24, h: 16 } },
+  scatter: { component: ScatterWidget, label: 'Scatter Chart', icon: TbChartBubble, defaultSize: { w: 24, h: 16 } },
   scorecard: { component: ScorecardWidget, label: 'Scorecard', icon: TbHash, defaultSize: { w: 12, h: 8 } },
   filter: { component: FilterWidget, label: 'Filter', icon: TbFilter, defaultSize: { w: 10, h: 16 } },
   text: { component: TextWidget, label: 'Text', icon: TbTypography, defaultSize: { w: 16, h: 6 } },
@@ -35,12 +37,17 @@ export const OBJECT_SUB_TYPES = [
 export const BAR_SUB_TYPES = [
   { value: 'grouped', label: 'Clustered Bar', icon: TbChartBar },
   { value: 'stacked', label: 'Stacked Bar', icon: TbChartColumn },
-  { value: 'stacked100', label: '100% Stacked Bar', icon: TbChartHistogram },
+  { value: 'stacked100', label: '100% Stacked Bar', icon: TbChartBarPopular },
 ];
 
 export const TABLE_SUB_TYPES = [
   { value: 'table', label: 'Table', icon: TbTable },
   { value: 'pivotTable', label: 'Pivot Table', icon: TbLayoutGrid },
+];
+
+export const COMBO_SUB_TYPES = [
+  { value: 'stackedCombo', label: 'Line + Stacked Bar', icon: TbChartHistogram },
+  { value: 'clusteredCombo', label: 'Line + Clustered Bar', icon: TbChartHistogram },
 ];
 
 export const LINE_SUB_TYPES = [
@@ -50,4 +57,4 @@ export const LINE_SUB_TYPES = [
   { value: 'stackedArea100', label: '100% Stacked Area', icon: TbChartAreaLine },
 ];
 
-export { BarWidget, LineWidget, PieWidget, ScatterWidget, TableWidget, ScorecardWidget, TextWidget, FilterWidget, PivotTableWidget };
+export { BarWidget, LineWidget, PieWidget, ScatterWidget, ComboWidget, TableWidget, ScorecardWidget, TextWidget, FilterWidget, PivotTableWidget };

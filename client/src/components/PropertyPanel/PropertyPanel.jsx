@@ -1,9 +1,9 @@
 import { useState, useCallback } from 'react';
-import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, TABLE_SUB_TYPES } from '../Widgets';
+import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB_TYPES } from '../Widgets';
 import DataPanel from '../DataPanel/DataPanel';
 import DropZone from '../DropZone/DropZone';
 import TablePropertySections from './TablePropertySections';
-import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash } from 'react-icons/tb';
+import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar } from 'react-icons/tb';
 
 function getWidgetDisplayInfo(widget) {
   if (!widget) return { label: '', icon: null };
@@ -18,6 +18,10 @@ function getWidgetDisplayInfo(widget) {
   }
   if (widget.type === 'line' && subType) {
     const st = LINE_SUB_TYPES.find((s) => s.value === subType);
+    if (st) return { label: st.label, icon: st.icon || meta.icon };
+  }
+  if (widget.type === 'combo' && subType) {
+    const st = COMBO_SUB_TYPES.find((s) => s.value === subType);
     if (st) return { label: st.label, icon: st.icon || meta.icon };
   }
   if (widget.type === 'table' || widget.type === 'pivotTable') {
@@ -276,6 +280,27 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       );
     }
 
+    if (type === 'combo') {
+      const comboBarMeas = binding.comboBarMeasures || [];
+      const comboLineMeas = binding.comboLineMeasures || [];
+      const addComboBar = (fieldName) => updateBinding({ comboBarMeasures: [...comboBarMeas, fieldName] });
+      const removeComboBar = (fieldName) => updateBinding({ comboBarMeasures: comboBarMeas.filter((m) => m !== fieldName) });
+      const addComboLine = (fieldName) => updateBinding({ comboLineMeasures: [...comboLineMeas, fieldName] });
+      const removeComboLine = (fieldName) => updateBinding({ comboLineMeasures: comboLineMeas.filter((m) => m !== fieldName) });
+      return (
+        <Section title="" bare>
+          <DropZone label="Axis" accepts={['dimension']} fields={selectedDims} zoneName="axis"
+            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
+          <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
+            onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
+          <DropZone label="Bar values" accepts={['measure']} fields={comboBarMeas} zoneName="comboBar"
+            onDrop={(fn) => addComboBar(fn)} onRemove={removeComboBar} onReorder={(arr) => updateBinding({ comboBarMeasures: arr })} multiple fieldInfos={fieldInfos} />
+          <DropZone label="Line values" accepts={['measure']} fields={comboLineMeas} zoneName="comboLine"
+            onDrop={(fn) => addComboLine(fn)} onRemove={removeComboLine} onReorder={(arr) => updateBinding({ comboLineMeasures: arr })} multiple fieldInfos={fieldInfos} />
+        </Section>
+      );
+    }
+
     if (type === 'pie') {
       return (
         <Section title="" bare>
@@ -358,7 +383,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 <TbTrash size={14} />
               </button>
             </div>
-            <div style={{ display: 'flex', gap: 3, marginBottom: 12 }}>
+            <div style={{ display: 'flex', gap: 3, marginBottom: 12, justifyContent: 'center' }}>
               <button onClick={() => onSendToBack(widgetId)} title="Send to back" style={layerBtn}><TbLayersSubtract size={14} /></button>
               <button onClick={() => onSendBackward(widgetId)} title="Back one" style={layerBtn}><TbArrowBigDown size={14} /></button>
               <button onClick={() => onBringForward(widgetId)} title="Forward one" style={layerBtn}><TbArrowBigUp size={14} /></button>
@@ -371,13 +396,48 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       {/* Field wells - drag & drop zones */}
       {renderFieldWells()}
 
+      {(widget.type === 'bar' || widget.type === 'combo') && (() => {
+        const dir = widget.config?.barDirection || 'vertical';
+        const dirs = [
+          { value: 'vertical', rotate: 0, title: 'Bottom to top' },
+          { value: 'verticalInverse', rotate: 180, title: 'Top to bottom' },
+          { value: 'horizontal', rotate: 90, title: 'Left to right' },
+          { value: 'horizontalInverse', rotate: -90, title: 'Right to left' },
+        ];
+        return (
+          <div style={{ display: 'flex', gap: 2, marginBottom: 6, justifyContent: 'center' }}>
+            {dirs.map((d) => (
+              <button key={d.value} title={d.title}
+                onClick={() => updateConfig('barDirection', d.value)}
+                style={{
+                  padding: '5px 7px', border: '1px solid',
+                  borderColor: dir === d.value ? '#3b82f6' : '#e2e8f0',
+                  borderRadius: 4, cursor: 'pointer',
+                  background: dir === d.value ? '#eff6ff' : '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <TbChartBar size={16} style={{ transform: `rotate(${d.rotate}deg)`, color: dir === d.value ? '#3b82f6' : '#94a3b8' }} />
+              </button>
+            ))}
+          </div>
+        );
+      })()}
+
+      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'combo') && (
+        <Field label="Hide zero values">
+          <input type="checkbox" checked={widget.config?.hideZeros ?? false}
+            onChange={(e) => updateConfig('hideZeros', e.target.checked)} />
+        </Field>
+      )}
+
       {widget.type === 'pie' && (
         <Field label="Donut">
           <input type="checkbox" checked={widget.config?.donut || false} onChange={(e) => updateConfig('donut', e.target.checked)} />
         </Field>
       )}
 
-      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie') && (
+      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'combo') && (
         <Section title="Sort">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {[
@@ -598,9 +658,9 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       </Section>
 
       {/* ── Chart options ── */}
-      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'scatter') && (
+      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'scatter' || widget.type === 'combo') && (
         <Section title="Chart" sectionState={sections}>
-          {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'scatter') && (
+          {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'scatter' || widget.type === 'combo') && (
             <Field label="Color">
               <ColorInput value={widget.config?.color || '#5470c6'}
                 onChange={(v) => updateConfig('color', v)} />
@@ -690,10 +750,6 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <input type="checkbox" checked={widget.config?.showColumnNames ?? true}
               onChange={(e) => updateConfig('showColumnNames', e.target.checked)} />
           </Field>
-          <Field label="Hide zero values">
-            <input type="checkbox" checked={widget.config?.hideZeros ?? false}
-              onChange={(e) => updateConfig('hideZeros', e.target.checked)} />
-          </Field>
           <Field label="Show legend">
             <input type="checkbox" checked={widget.config?.showLegend ?? false}
               onChange={(e) => updateConfig('showLegend', e.target.checked)} />
@@ -718,7 +774,19 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 onChange={(e) => updateConfig('symbolSize', parseInt(e.target.value))} suffix="px" />
             </Field>
           )}
-          {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'scatter') && (
+          {widget.type === 'combo' && (
+            <>
+              <Field label="Smooth lines">
+                <input type="checkbox" checked={widget.config?.smooth ?? true}
+                  onChange={(e) => updateConfig('smooth', e.target.checked)} />
+              </Field>
+              <Field label="Secondary Y axis">
+                <input type="checkbox" checked={widget.config?.showSecondaryAxis ?? false}
+                  onChange={(e) => updateConfig('showSecondaryAxis', e.target.checked)} />
+              </Field>
+            </>
+          )}
+          {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'scatter' || widget.type === 'combo') && (
             <>
               <Field label="Show X axis">
                 <input type="checkbox" checked={widget.config?.showXAxis ?? true}
@@ -753,11 +821,55 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
         </Section>
       )}
 
+      {/* Scatter Headers */}
+      {widget.type === 'scatter' && (
+        <Section title="Headers" sectionState={sections}>
+          <Field label="Show X header">
+            <input type="checkbox" checked={widget.config?.showXHeader ?? true}
+              onChange={(e) => updateConfig('showXHeader', e.target.checked)} />
+          </Field>
+          {(widget.config?.showXHeader ?? true) && (
+            <Field label="X axis title">
+              <input type="text" value={widget.config?.xAxisTitle ?? ''}
+                placeholder={widget.data?._xLabel || 'X'}
+                onChange={(e) => updateConfig('xAxisTitle', e.target.value)}
+                style={{ ...inputStyle, marginBottom: 0 }} />
+            </Field>
+          )}
+          <Field label="Show Y header">
+            <input type="checkbox" checked={widget.config?.showYHeader ?? true}
+              onChange={(e) => updateConfig('showYHeader', e.target.checked)} />
+          </Field>
+          {(widget.config?.showYHeader ?? true) && (
+            <Field label="Y axis title">
+              <input type="text" value={widget.config?.yAxisTitle ?? ''}
+                placeholder={widget.data?._yLabel || 'Y'}
+                onChange={(e) => updateConfig('yAxisTitle', e.target.value)}
+                style={{ ...inputStyle, marginBottom: 0 }} />
+            </Field>
+          )}
+          <Field label="Font size">
+            <input type="number" min={8} max={24} value={widget.config?.headerFontSize ?? 12}
+              onChange={(e) => updateConfig('headerFontSize', parseInt(e.target.value) || 12)}
+              style={{ ...inputStyle, width: 50, marginBottom: 0 }} />
+          </Field>
+          <Field label="Color">
+            <ColorInput value={widget.config?.headerColor || '#475569'}
+              onChange={(v) => updateConfig('headerColor', v)} />
+          </Field>
+          <Field label="Bold">
+            <input type="checkbox" checked={widget.config?.headerBold ?? false}
+              onChange={(e) => updateConfig('headerBold', e.target.checked)} />
+          </Field>
+        </Section>
+      )}
+
       {/* Legend Colors */}
-      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'scatter') && (() => {
+      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'scatter' || widget.type === 'combo') && (() => {
         // Extract legend values from data
         let legendValues = [];
-        if (widget.data?.series) legendValues = widget.data.series.map((s) => s.name);
+        if (widget.data?.barSeries || widget.data?.lineSeries) legendValues = [...(widget.data.barSeries || []), ...(widget.data.lineSeries || [])].map((s) => s.name);
+        else if (widget.data?.series) legendValues = widget.data.series.map((s) => s.name);
         else if (widget.data?.items) legendValues = widget.data.items.map((it) => it.name);
         else if (widget.data?.seriesGroups) legendValues = widget.data.seriesGroups.map((g) => g.name);
         if (legendValues.length === 0) return null;

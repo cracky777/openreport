@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, TABLE_SUB_TYPES, OBJECT_SUB_TYPES } from '../Widgets';
+import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB_TYPES, OBJECT_SUB_TYPES } from '../Widgets';
 import { TbEye, TbArrowLeft, TbAdjustments, TbShape } from 'react-icons/tb';
 
 export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId }) {
@@ -124,6 +124,20 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                   const StIcon = st.icon;
                   return (
                     <button key={st.value} onClick={() => handleAddWithSubType('line', st.value)} style={dropdownItem}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                      <StIcon size={14} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                    </button>
+                  );
+                })}
+              </div></div>
+            )}
+            {openMenu === type && type === 'combo' && (
+              <div style={dropdownStyle}><div style={dropdownInner}>
+                {COMBO_SUB_TYPES.map((st) => {
+                  const StIcon = st.icon;
+                  return (
+                    <button key={st.value} onClick={() => handleAddWithSubType('combo', st.value)} style={dropdownItem}
                       onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
                       onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
                       <StIcon size={14} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}

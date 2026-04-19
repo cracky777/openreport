@@ -35,19 +35,25 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
   const groupBy = binding.groupBy || [];
   const columnDims = binding.columnDimensions || [];
 
-  // For scatter, build measures from scatterMeasures config; for others, use selectedMeasures
+  // Build measures list based on widget type
   const isScatter = widget?.type === 'scatter';
+  const isCombo = widget?.type === 'combo';
   const scatterMeas = binding.scatterMeasures || {};
+  const comboBarMeas = binding.comboBarMeasures || [];
+  const comboLineMeas = binding.comboLineMeasures || [];
   const selectedMeass = isScatter
     ? [scatterMeas.x, scatterMeas.y, scatterMeas.size].filter(Boolean)
-    : (binding.selectedMeasures || []);
+    : isCombo
+      ? [...new Set([...comboBarMeas, ...comboLineMeas])]
+      : (binding.selectedMeasures || []);
 
   // Key based on binding + model version + filters (slicers don't include filters)
   const modelVersion = (model?.measures?.length || 0) + ':' + (model?.dimensions?.length || 0);
   const isFilterWidget = widget?.type === 'filter';
   const filtersKey = !isFilterWidget && reportFilters ? JSON.stringify(reportFilters) : '';
   const scatterKey = isScatter ? `${scatterMeas.x || ''}:${scatterMeas.y || ''}:${scatterMeas.size || ''}` : '';
-  const bindingKey = hasWidget ? `${selectedDims.join(',')}:${selectedMeass.join(',')}:${groupBy.join(',')}:${columnDims.join(',')}:${scatterKey}:${modelVersion}:${filtersKey}` : '';
+  const comboKey = isCombo ? `bar:${comboBarMeas.join(',')}|line:${comboLineMeas.join(',')}` : '';
+  const bindingKey = hasWidget ? `${selectedDims.join(',')}:${selectedMeass.join(',')}:${groupBy.join(',')}:${columnDims.join(',')}:${scatterKey}:${comboKey}:${modelVersion}:${filtersKey}` : '';
   // Full key including widgetId to detect widget switch
   const selectionKey = hasWidget ? `${widgetId}:${bindingKey}` : '';
 
@@ -192,6 +198,70 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
               newData._hasSize = !!sizeKey;
               if (sizeKey) newData._sizeLabel = gl(sm.size, model.measures || []);
             }
+          }
+        } else if (currentType === 'combo') {
+          if (rows.length > 0) {
+            const keys = Object.keys(rows[0]);
+            const gl = (name, list) => { const d = list.find((x) => x.name === name); return d?.label || d?.name || name; };
+            const fk = (label) => keys.find((k) => k === label) || null;
+
+            const cBarMeas = capturedWidget.dataBinding?.comboBarMeasures || [];
+            const cLineMeas = capturedWidget.dataBinding?.comboLineMeasures || [];
+            const axisKey = dims.length > 0 ? fk(gl(dims[0], model.dimensions || [])) || keys[0] : keys[0];
+            const grpLabel = grpBy.length > 0 ? gl(grpBy[0], model.dimensions || []) : null;
+            const grpKey = grpLabel ? fk(grpLabel) : null;
+
+            const labels = [...new Set(rows.map((r) => String(r[axisKey] ?? '')))];
+
+            // Bar series: split by legend (like bar chart)
+            let barSeries = [];
+            if (grpKey) {
+              const uniqueGroups = [...new Set(rows.map((r) => String(r[grpKey] ?? '')))].sort();
+              cBarMeas.forEach((mn) => {
+                const measLabel = gl(mn, model.measures || []);
+                const measKey = fk(measLabel);
+                if (!measKey) return;
+                uniqueGroups.forEach((gv) => {
+                  const seriesName = cBarMeas.length === 1 ? gv : `${gv} - ${measLabel}`;
+                  barSeries.push({
+                    name: seriesName,
+                    values: labels.map((l) => {
+                      const row = rows.find((r) => String(r[axisKey] ?? '') === l && String(r[grpKey] ?? '') === gv);
+                      return row ? Number(row[measKey]) || 0 : 0;
+                    }),
+                  });
+                });
+              });
+            } else {
+              cBarMeas.forEach((mn) => {
+                const measLabel = gl(mn, model.measures || []);
+                const measKey = fk(measLabel);
+                if (!measKey) return;
+                barSeries.push({
+                  name: measLabel,
+                  values: labels.map((l) => {
+                    const row = rows.find((r) => String(r[axisKey] ?? '') === l);
+                    return row ? Number(row[measKey]) || 0 : 0;
+                  }),
+                });
+              });
+            }
+
+            // Line series: aggregate across legend groups (one line per measure)
+            const lineSeries = cLineMeas.map((mn) => {
+              const measLabel = gl(mn, model.measures || []);
+              const measKey = fk(measLabel);
+              if (!measKey) return null;
+              return {
+                name: measLabel,
+                values: labels.map((l) => {
+                  const matchingRows = rows.filter((r) => String(r[axisKey] ?? '') === l);
+                  return matchingRows.reduce((sum, r) => sum + (Number(r[measKey]) || 0), 0);
+                }),
+              };
+            }).filter(Boolean);
+
+            newData = { labels, barSeries, lineSeries };
           }
         } else if (currentType === 'filter') {
           if (rows.length > 0) {

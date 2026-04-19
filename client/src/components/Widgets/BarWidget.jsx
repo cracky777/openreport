@@ -309,34 +309,51 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
         },
       },
       legend: { show: false },
-      xAxis: {
-        type: 'category', data: labels, show: showXAxis,
-        axisLabel: { show: showLabels, rotate: labels.length > 8 ? 30 : 0 },
-      },
-      yAxis: {
-        type: 'value', show: showYAxis,
-        axisLabel: {
-          show: showLabels,
-          formatter: (val) => {
-            const abbr = abbreviateNumber(val, valueAbbr);
-            if (abbr != null) return abbr;
-            const firstFmt = Object.values(data._measureFormats || {})[0];
-            return firstFmt ? formatNumber(val, firstFmt) : val.toLocaleString();
-          },
+    };
+
+    const barDir = config?.barDirection || 'vertical';
+    const isHoriz = barDir === 'horizontal' || barDir === 'horizontalInverse';
+    const isInverse = barDir === 'verticalInverse' || barDir === 'horizontalInverse';
+
+    const categoryAxis = {
+      type: 'category', data: labels, show: showXAxis,
+      axisLabel: { show: showLabels, rotate: !isHoriz && labels.length > 8 ? 30 : 0 },
+      position: barDir === 'verticalInverse' ? 'top' : barDir === 'horizontalInverse' ? 'right' : undefined,
+      inverse: barDir === 'horizontalInverse',
+    };
+    const valueAxis = {
+      type: 'value', show: showYAxis,
+      axisLabel: {
+        show: showLabels,
+        formatter: (val) => {
+          const abbr = abbreviateNumber(val, valueAbbr);
+          if (abbr != null) return abbr;
+          const firstFmt = Object.values(data._measureFormats || {})[0];
+          return firstFmt ? formatNumber(val, firstFmt) : val.toLocaleString();
         },
-        max: subType === 'stacked100' ? 100 : customYMax ? Math.ceil(customYMax * 1.1) : undefined,
-        interval: yAxisInterval || undefined,
-        splitLine: {
-          lineStyle: { type: gridLineStyle, width: gridLineWidth },
-        },
       },
-      series,
-      grid: {
-        top: 15, right: 15,
-        bottom: showXAxis ? 35 : 15,
-        left: showYAxis ? 50 : 15,
-        containLabel: false,
-      },
+      max: subType === 'stacked100' ? 100 : customYMax ? Math.ceil(customYMax * 1.1) : undefined,
+      interval: yAxisInterval || undefined,
+      splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth } },
+      inverse: barDir === 'verticalInverse' || barDir === 'horizontalInverse',
+      position: barDir === 'horizontalInverse' ? 'right' : undefined,
+    };
+
+    if (isHoriz) {
+      opt.xAxis = valueAxis;
+      opt.yAxis = categoryAxis;
+    } else {
+      opt.xAxis = categoryAxis;
+      opt.yAxis = valueAxis;
+    }
+
+    opt.series = series;
+    opt.grid = {
+      top: barDir === 'verticalInverse' ? 35 : 15,
+      right: barDir === 'horizontalInverse' ? 80 : 15,
+      bottom: barDir === 'verticalInverse' ? 15 : (showXAxis ? 35 : 15),
+      left: barDir === 'horizontalInverse' ? 15 : (isHoriz ? 80 : (showYAxis ? 50 : 15)),
+      containLabel: false,
     };
 
     // Power BI style: clicked bar = full color, all others = faded
@@ -359,7 +376,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
     return { option: opt, legendItems, rawLabels };
   }, [data, subType, showLabels, hideZeros, showLegend, legendPosition, sortOrder, hasData, config?.color,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
-      dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors]);
+      dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors, config?.barDirection]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];

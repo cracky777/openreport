@@ -1,46 +1,77 @@
 # Contributing to Open Report
 
-Thank you for your interest in contributing to Open Report!
+Thank you for your interest in contributing to Open Report! This document provides guidelines for contributing to the project.
 
 ## Getting Started
 
-1. Fork the repository
-2. Clone your fork: `git clone https://github.com/your-username/open-report.git`
-3. Create a branch: `git checkout -b feature/my-feature`
-4. Install dependencies: `npm install`
-5. Start dev servers: `npm run dev`
+1. **Fork** the repository on GitHub
+2. **Clone** your fork locally: `git clone https://github.com/your-username/open-report.git`
+3. **Create a branch** for your feature or fix: `git checkout -b feature/my-feature`
+4. **Install dependencies**:
+   ```bash
+   cd server && npm install
+   cd ../client && npm install
+   ```
+5. **Start dev servers**:
+   ```bash
+   # Terminal 1: server
+   cd server && node index.js
 
-## Development
+   # Terminal 2: client
+   cd client && npm run dev
+   ```
 
-### Project Structure
+## Development Guidelines
 
-- `client/` — React frontend (Vite)
-- `server/` — Express backend
+### Code Style
 
-### Commands
+- **Frontend**: React 19 with Vite, functional components with hooks
+- **Backend**: Express.js with better-sqlite3
+- **Styling**: Inline styles (no CSS frameworks)
+- **Language**: JavaScript only (no TypeScript)
+- **Icons**: [Tabler Icons](https://tabler-icons.io/) via `react-icons/tb`
+- **Charts**: ECharts via `echarts` package
 
-```bash
-npm run dev          # Start both client and server in dev mode
-npm run dev:client   # Start client only
-npm run dev:server   # Start server only
-npm run build        # Build for production
-```
+### Commit Messages
 
-## Pull Request Process
+- Use clear, concise commit messages
+- Start with a verb: `Add`, `Fix`, `Update`, `Remove`
+- Reference issues when applicable: `Fix #42: resolve cross-filter on dates`
 
-1. Ensure your code follows the existing style
-2. Update documentation if needed
-3. Test your changes locally
-4. Write a clear PR description explaining what and why
+### Pull Requests
 
-## Reporting Issues
+1. Ensure your code works locally (both server and client)
+2. Keep PRs focused on a single feature or fix
+3. Update documentation if needed
+4. Describe what your PR does and why
 
-Use GitHub Issues to report bugs or request features. Please include:
+## Reporting Bugs
 
-- Steps to reproduce (for bugs)
+Open a [GitHub Issue](https://github.com/DataKhi/open-report/issues) with:
+
+- Steps to reproduce
 - Expected vs actual behavior
+- Browser and OS information
 - Screenshots if applicable
+
+## Feature Requests
+
+Open a [GitHub Issue](https://github.com/DataKhi/open-report/issues) with the `enhancement` label. Describe:
+
+- The use case
+- How it should work
+- Reference to similar features in other tools (Power BI, Looker Studio, etc.)
+
+## Contributor License Agreement
+
+By submitting a pull request, you agree that your contributions are licensed under the same [AGPL-3.0 License](LICENSE) that covers the project, and you grant the project maintainer the right to relicense your contributions if needed for the project.
 
 ## Code of Conduct
 
-Be respectful, inclusive, and constructive. We're all here to build something great together.
+- Be respectful and constructive
+- Focus on the code, not the person
+- Welcome newcomers and help them get started
+
+## Questions?
+
+Open a discussion on [GitHub Issues](https://github.com/DataKhi/open-report/issues) or reach out to the maintainer.
