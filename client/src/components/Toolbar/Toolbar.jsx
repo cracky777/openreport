@@ -99,9 +99,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
               onMouseEnter={(e) => { if (openMenu !== type) { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#cbd5e1'; } }}
               onMouseLeave={(e) => { if (openMenu !== type) { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; } }}
             >
-              <Icon size={16} />
-              <span>{label}</span>
-              {hasSubTypes && <span style={{ fontSize: 10, color: '#94a3b8' }}>▼</span>}
+              <Icon size={18} />
+              {hasSubTypes && <span style={{ fontSize: 8, color: '#94a3b8' }}>▼</span>}
             </button>
 
             {/* Sub-type dropdown */}
@@ -167,9 +166,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             onMouseEnter={(e) => { if (openMenu !== 'objects') { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#cbd5e1'; } }}
             onMouseLeave={(e) => { if (openMenu !== 'objects') { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; } }}
           >
-            <TbShape size={16} />
-            <span>Objects</span>
-            <span style={{ fontSize: 10, color: '#94a3b8' }}>▼</span>
+            <TbShape size={18} />
+            <span style={{ fontSize: 8, color: '#94a3b8' }}>▼</span>
           </button>
           {openMenu === 'objects' && (
             <div style={dropdownStyle}><div style={dropdownInner}>

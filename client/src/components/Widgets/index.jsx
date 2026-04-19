@@ -7,8 +7,9 @@ import TextWidget from './TextWidget';
 import FilterWidget from './FilterWidget';
 import PivotTableWidget from './PivotTableWidget';
 import ShapeWidget from './ShapeWidget';
+import ScatterWidget from './ScatterWidget';
 
-import { TbChartBar, TbChartLine, TbChartPie, TbTable, TbLayoutGrid, TbHash, TbFilter, TbTypography, TbChartAreaLine, TbChartColumn, TbChartHistogram, TbShape, TbTypography as TbText, TbMinus, TbSquare, TbCircle, TbArrowRight } from 'react-icons/tb';
+import { TbChartBar, TbChartLine, TbChartPie, TbChartDots, TbTable, TbLayoutGrid, TbHash, TbFilter, TbTypography, TbChartAreaLine, TbChartColumn, TbChartHistogram, TbShape, TbTypography as TbText, TbMinus, TbSquare, TbCircle, TbArrowRight } from 'react-icons/tb';
 
 export const WIDGET_TYPES = {
   bar: { component: BarWidget, label: 'Bar Chart', icon: TbChartBar, defaultSize: { w: 24, h: 16 }, hasSubTypes: true },
@@ -16,6 +17,7 @@ export const WIDGET_TYPES = {
   pie: { component: PieWidget, label: 'Pie Chart', icon: TbChartPie, defaultSize: { w: 16, h: 16 } },
   table: { component: TableWidget, label: 'Table', icon: TbTable, defaultSize: { w: 24, h: 16 }, hasSubTypes: true },
   pivotTable: { component: PivotTableWidget, label: 'Pivot Table', icon: TbLayoutGrid, defaultSize: { w: 28, h: 18 }, hidden: true },
+  scatter: { component: ScatterWidget, label: 'Scatter Chart', icon: TbChartDots, defaultSize: { w: 24, h: 16 } },
   scorecard: { component: ScorecardWidget, label: 'Scorecard', icon: TbHash, defaultSize: { w: 12, h: 8 } },
   filter: { component: FilterWidget, label: 'Filter', icon: TbFilter, defaultSize: { w: 10, h: 16 } },
   text: { component: TextWidget, label: 'Text', icon: TbTypography, defaultSize: { w: 16, h: 6 } },
@@ -48,4 +50,4 @@ export const LINE_SUB_TYPES = [
   { value: 'stackedArea100', label: '100% Stacked Area', icon: TbChartAreaLine },
 ];
 
-export { BarWidget, LineWidget, PieWidget, TableWidget, ScorecardWidget, TextWidget, FilterWidget, PivotTableWidget };
+export { BarWidget, LineWidget, PieWidget, ScatterWidget, TableWidget, ScorecardWidget, TextWidget, FilterWidget, PivotTableWidget };

@@ -32,15 +32,22 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
   const hasWidget = widgetId && widget && widget.type !== 'text';
   const binding = hasWidget ? (widget.dataBinding || {}) : {};
   const selectedDims = binding.selectedDimensions || [];
-  const selectedMeass = binding.selectedMeasures || [];
   const groupBy = binding.groupBy || [];
   const columnDims = binding.columnDimensions || [];
+
+  // For scatter, build measures from scatterMeasures config; for others, use selectedMeasures
+  const isScatter = widget?.type === 'scatter';
+  const scatterMeas = binding.scatterMeasures || {};
+  const selectedMeass = isScatter
+    ? [scatterMeas.x, scatterMeas.y, scatterMeas.size].filter(Boolean)
+    : (binding.selectedMeasures || []);
 
   // Key based on binding + model version + filters (slicers don't include filters)
   const modelVersion = (model?.measures?.length || 0) + ':' + (model?.dimensions?.length || 0);
   const isFilterWidget = widget?.type === 'filter';
   const filtersKey = !isFilterWidget && reportFilters ? JSON.stringify(reportFilters) : '';
-  const bindingKey = hasWidget ? `${selectedDims.join(',')}:${selectedMeass.join(',')}:${groupBy.join(',')}:${columnDims.join(',')}:${modelVersion}:${filtersKey}` : '';
+  const scatterKey = isScatter ? `${scatterMeas.x || ''}:${scatterMeas.y || ''}:${scatterMeas.size || ''}` : '';
+  const bindingKey = hasWidget ? `${selectedDims.join(',')}:${selectedMeass.join(',')}:${groupBy.join(',')}:${columnDims.join(',')}:${scatterKey}:${modelVersion}:${filtersKey}` : '';
   // Full key including widgetId to detect widget switch
   const selectionKey = hasWidget ? `${widgetId}:${bindingKey}` : '';
 
@@ -48,7 +55,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
   const handleDragStart = (e, fieldName, fieldType) => {
     e.dataTransfer.setData('application/field-name', fieldName);
     e.dataTransfer.setData('application/field-type', fieldType); // 'dimension' or 'measure'
-    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.effectAllowed = 'copyMove';
   };
 
   // Auto-fetch when dimensions/measures selection changes
@@ -92,11 +99,19 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
       try {
         // Include groupBy and column dimensions in the query
         const colDimsBinding = capturedWidget.dataBinding?.columnDimensions || [];
-        const allDims = [...dims, ...grpBy.filter((g) => !dims.includes(g)), ...colDimsBinding.filter((g) => !dims.includes(g) && !grpBy.includes(g))];
+        // Build unique dimension list for SQL query (each dim appears once even if in both Rows and Columns)
+        const seen = new Set();
+        const allDims = [];
+        for (const d of [...dims, ...grpBy, ...colDimsBinding]) {
+          if (!seen.has(d)) { seen.add(d); allDims.push(d); }
+        }
+
+        // Deduplicate measures for SQL query (same measure in multiple scatter slots = one SQL column)
+        const uniqueMeass = [...new Set(meass)];
 
         const res = await api.post(`/models/${model.id}/query`, {
           dimensionNames: allDims,
-          measureNames: meass,
+          measureNames: uniqueMeass,
           limit: isFilterWidget ? 1000000 : (capturedWidget.config?.dataLimit || 1000),
           filters: isFilterWidget ? {} : (reportFilters || {}),
           distinct: isFilterWidget || undefined,
@@ -113,7 +128,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
         if (currentType === 'pivotTable') {
           if (rows.length > 0) {
             // Pass raw rows + metadata for client-side pivoting
-            const rowDimNames = dims.filter((d) => !colDimsBinding.includes(d));
+            const rowDimNames = [...dims];
             const measNames = meass.map((m) => {
               const measDef = (model.measures || []).find((x) => x.name === m);
               return measDef?.label || measDef?.name || m;
@@ -136,6 +151,48 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
               _measures: measNames,
             };
           }
+        } else if (currentType === 'scatter') {
+          const sm = capturedWidget.dataBinding?.scatterMeasures || {};
+          if (rows.length > 0 && sm.x && sm.y) {
+            const gl = (name, list) => { const d = list.find((x) => x.name === name); return d?.label || d?.name || name; };
+            const keys = Object.keys(rows[0]);
+            const fk = (label) => keys.find((k) => k === label) || null;
+
+            const dimKey = dims.length > 0 ? fk(gl(dims[0], model.dimensions || [])) : null;
+            const grpKey = grpBy.length > 0 ? fk(gl(grpBy[0], model.dimensions || [])) : null;
+            const xKey = fk(gl(sm.x, model.measures || []));
+            const yKey = fk(gl(sm.y, model.measures || []));
+            const sizeKey = sm.size ? fk(gl(sm.size, model.measures || [])) : null;
+
+            if (xKey && yKey) {
+              const buildPoint = (r) => ({
+                x: Number(r[xKey]) || 0,
+                y: Number(r[yKey]) || 0,
+                size: sizeKey ? Number(r[sizeKey]) || 0 : undefined,
+                label: dimKey ? String(r[dimKey] ?? '') : undefined,
+              });
+
+              if (grpKey) {
+                const groups = {};
+                rows.forEach((r) => {
+                  const g = String(r[grpKey] ?? '');
+                  if (!groups[g]) groups[g] = [];
+                  groups[g].push(buildPoint(r));
+                });
+                newData = {
+                  points: rows.map(buildPoint),
+                  seriesGroups: Object.entries(groups).map(([name, pts]) => ({ name, points: pts })),
+                };
+              } else {
+                newData = { points: rows.map(buildPoint) };
+              }
+
+              newData._xLabel = gl(sm.x, model.measures || []);
+              newData._yLabel = gl(sm.y, model.measures || []);
+              newData._hasSize = !!sizeKey;
+              if (sizeKey) newData._sizeLabel = gl(sm.size, model.measures || []);
+            }
+          }
         } else if (currentType === 'filter') {
           if (rows.length > 0) {
             const keys = Object.keys(rows[0]);
@@ -149,9 +206,23 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
         } else if (currentType === 'table') {
           if (rows.length > 0) {
             const dataLimit = capturedWidget.config?.dataLimit || 1000;
+            let columns = Object.keys(rows[0]);
+            // Reorder columns according to columnOrder if set
+            const colOrder = capturedWidget.dataBinding?.columnOrder;
+            if (colOrder && colOrder.length > 0) {
+              // Map dimension/measure names to their labels (column keys in the result)
+              const allFields = [...(model.dimensions || []), ...(model.measures || [])];
+              const nameToLabel = {};
+              for (const f of allFields) nameToLabel[f.name] = f.label || f.name;
+              const orderedLabels = colOrder.map((n) => nameToLabel[n]).filter(Boolean);
+              // Reorder: ordered labels first, then any remaining
+              const orderedCols = orderedLabels.filter((l) => columns.includes(l));
+              const rest = columns.filter((c) => !orderedCols.includes(c));
+              columns = [...orderedCols, ...rest];
+            }
             newData = {
-              columns: Object.keys(rows[0]),
-              rows: rows.map((r) => Object.values(r).map((v) => v != null ? String(v) : '')),
+              columns,
+              rows: rows.map((r) => columns.map((c) => r[c] != null ? String(r[c]) : '')),
               _hasMore: rows.length >= dataLimit,
               _loadingMore: false,
             };
@@ -445,8 +516,8 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
                 title={`${dateCol.table}.${dateCol.column}`}
                 style={{
                   ...dragItem, paddingLeft: 8,
-                  backgroundColor: selectedDims.includes(dateCol.name) ? '#fef3c7' : 'transparent',
-                  borderLeft: selectedDims.includes(dateCol.name) ? '3px solid #d97706' : '3px solid transparent',
+                  backgroundColor: (selectedDims.includes(dateCol.name) || columnDims.includes(dateCol.name) || groupBy.includes(dateCol.name)) ? '#fef3c7' : 'transparent',
+                  borderLeft: (selectedDims.includes(dateCol.name) || columnDims.includes(dateCol.name) || groupBy.includes(dateCol.name)) ? '3px solid #d97706' : '3px solid transparent',
                 }}
               >
                 <span style={dragHandle}>⠿</span>
@@ -462,8 +533,8 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
                   title={dp.datePart}
                   style={{
                     ...dragItem, paddingLeft: 20,
-                    backgroundColor: selectedDims.includes(dp.name) ? '#fef3c7' : 'transparent',
-                    borderLeft: selectedDims.includes(dp.name) ? '3px solid #d97706' : '3px solid transparent',
+                    backgroundColor: (selectedDims.includes(dp.name) || columnDims.includes(dp.name) || groupBy.includes(dp.name)) ? '#fef3c7' : 'transparent',
+                    borderLeft: (selectedDims.includes(dp.name) || columnDims.includes(dp.name) || groupBy.includes(dp.name)) ? '3px solid #d97706' : '3px solid transparent',
                   }}
                 >
                   <span style={dragHandle}>⠿</span>
@@ -511,8 +582,8 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
                       style={{
                         ...dragItem,
                         paddingLeft: 12,
-                        backgroundColor: editingDim === d.name ? '#eff6ff' : selectedDims.includes(d.name) ? '#eff6ff' : 'transparent',
-                        borderLeft: editingDim === d.name ? '3px solid #3b82f6' : selectedDims.includes(d.name) ? '3px solid #3b82f6' : '3px solid transparent',
+                        backgroundColor: editingDim === d.name ? '#eff6ff' : (selectedDims.includes(d.name) || columnDims.includes(d.name) || groupBy.includes(d.name)) ? '#eff6ff' : 'transparent',
+                        borderLeft: editingDim === d.name ? '3px solid #3b82f6' : (selectedDims.includes(d.name) || columnDims.includes(d.name) || groupBy.includes(d.name)) ? '3px solid #3b82f6' : '3px solid transparent',
                       }}
                     >
                       <span style={dragHandle}>⠿</span>

@@ -45,6 +45,8 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
     const fmt = Object.values(data._measureFormats || {})[0];
+    const customColors = config?.legendColors || {};
+    const getColor = (name, idx) => customColors[name] || COLORS[idx % COLORS.length];
 
     const buildLabel = (params) => {
       const val = abbreviateNumber(params.value, dataLabelAbbr) ?? formatNumber(params.value, fmt);
@@ -81,7 +83,7 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
             ...it,
             itemStyle: {
               ...it.itemStyle,
-              color: COLORS[(colorIdx >= 0 ? colorIdx : 0) % COLORS.length],
+              color: getColor(it.name, colorIdx >= 0 ? colorIdx : 0),
               opacity: highlightValue ? (it.name === highlightValue ? 1 : 0.3) : 1,
             },
           };
@@ -89,6 +91,8 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
         emphasis: { disabled: true },
         label: {
           show: showDataLabels,
+          position: config?.dataLabelPosition || 'outside',
+          fontSize: config?.dataLabelFontSize ?? 12,
           formatter: buildLabel,
           rotate: dataLabelRotate,
           color: dataLabelColor,
@@ -96,13 +100,19 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
           padding: dataLabelBgOpacity > 0 ? [2, 4] : 0,
           borderRadius: 2,
         },
+        labelLine: {
+          show: showDataLabels && (config?.dataLabelPosition || 'outside') === 'outside',
+          length: 15,
+          length2: 10,
+          smooth: true,
+        },
       }],
     };
 
-    const legendItems = data.items.map((item, i) => ({ name: item.name, color: COLORS[i % COLORS.length] }));
+    const legendItems = data.items.map((item, i) => ({ name: item.name, color: getColor(item.name, i) }));
     return { option: opt, legendItems };
   }, [data, hasData, showLegend, legendPosition, config?.donut, showDataLabels, dataLabelContent,
-      dataLabelAbbr, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, sortOrder, highlightValue]);
+      dataLabelAbbr, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, sortOrder, highlightValue, config?.legendColors, config?.dataLabelPosition]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
@@ -121,6 +131,12 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
   useEffect(() => {
     const el = chartRef.current;
     if (!el || !option) return;
+
+    if (instanceRef.current && instanceRef.current.getDom() !== el) {
+      instanceRef.current.dispose();
+      instanceRef.current = null;
+      prevSizeRef.current = { w: 0, h: 0 };
+    }
 
     const render = () => {
       const cw = el.clientWidth;

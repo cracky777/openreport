@@ -29,8 +29,8 @@ function convertData(data, fromType, toType) {
     // table format
     labels = data.rows.map((r) => r[0]);
     values = data.rows.map((r) => parseFloat(r[r.length - 1]) || 0);
-  } else if (data.rawRows) {
-    // pivotTable format — clear data, will need refetch
+  } else if (data.rawRows || data.points) {
+    // pivotTable / scatter format — clear data, will need refetch
     return {};
   } else if (data.value !== undefined) {
     // scorecard format - can't meaningfully convert
@@ -57,7 +57,8 @@ function convertData(data, fromType, toType) {
         label: 'Total',
       };
     case 'pivotTable':
-      // Pivot table needs raw rows — clear data to force a refetch
+    case 'scatter':
+      // Needs specific data format — clear data to force a refetch
       return {};
     default:
       return data;
@@ -133,7 +134,8 @@ export default function Editor() {
       if (!w || w.type === 'filter' || w.type === 'text') return false;
       if (wId === sourceId) return false;
       const b = w.dataBinding || {};
-      return (b.selectedDimensions?.length > 0 || b.selectedMeasures?.length > 0);
+      const hasMeas = w.type === 'scatter' ? !!(b.scatterMeasures?.x && b.scatterMeasures?.y) : b.selectedMeasures?.length > 0;
+      return (b.selectedDimensions?.length > 0 || hasMeas);
     });
 
     if (toFetch.length === 0) return;
@@ -155,13 +157,16 @@ export default function Editor() {
       const promises = toFetch.map(([wId, w]) => {
         const binding = w.dataBinding || {};
         const dims = binding.selectedDimensions || [];
-        const meass = binding.selectedMeasures || [];
+        const sm = binding.scatterMeasures || {};
+        const meass = w.type === 'scatter'
+          ? [sm.x, sm.y, sm.size].filter(Boolean)
+          : (binding.selectedMeasures || []);
         const grpBy = binding.groupBy || [];
         const colDimsB = binding.columnDimensions || [];
         const allDims = [...dims, ...grpBy.filter((g) => !dims.includes(g)), ...colDimsB.filter((g) => !dims.includes(g) && !grpBy.includes(g))];
 
         return api.post(`/models/${model.id}/query`, {
-          dimensionNames: allDims, measureNames: meass,
+          dimensionNames: allDims, measureNames: [...new Set(meass)],
           limit: w.config?.dataLimit || 1000, filters: reportFilters,
         }, { signal: controller.signal }).then((res) => {
           const rows = res.data?.rows;
@@ -175,6 +180,34 @@ export default function Editor() {
               _colDims: colDimsB.map((d) => { const def = (model.dimensions || []).find((x) => x.name === d); return def?.label || def?.name || d; }),
               _measures: meass.map((m) => { const def = (model.measures || []).find((x) => x.name === m); return def?.label || def?.name || m; }),
             };
+          } else if (w.type === 'scatter') {
+            if (sm.x && sm.y) {
+              const gl = (name, list) => { const d = list.find((x) => x.name === name); return d?.label || d?.name || name; };
+              const dimLbl = dims.length > 0 ? gl(dims[0], model.dimensions || []) : null;
+              const grpLbl = grpBy.length > 0 ? gl(grpBy[0], model.dimensions || []) : null;
+              const xLbl = gl(sm.x, model.measures || []);
+              const yLbl = gl(sm.y, model.measures || []);
+              const sizeLbl = sm.size ? gl(sm.size, model.measures || []) : null;
+              const fk = (l) => keys.find((k) => k === l) || null;
+              const dk = dimLbl ? fk(dimLbl) : null;
+              const gk = grpLbl ? fk(grpLbl) : null;
+              const xk = fk(xLbl), yk = fk(yLbl);
+              const sk = sizeLbl ? fk(sizeLbl) : null;
+              if (xk && yk) {
+                const bp = (r) => ({ x: Number(r[xk]) || 0, y: Number(r[yk]) || 0, size: sk ? Number(r[sk]) || 0 : undefined, label: dk ? String(r[dk] ?? '') : undefined });
+                if (gk) {
+                  const groups = {};
+                  rows.forEach((r) => { const g = String(r[gk] ?? ''); if (!groups[g]) groups[g] = []; groups[g].push(bp(r)); });
+                  newData = { points: rows.map(bp), seriesGroups: Object.entries(groups).map(([name, pts]) => ({ name, points: pts })) };
+                } else {
+                  newData = { points: rows.map(bp) };
+                }
+                newData._xLabel = xLbl;
+                newData._yLabel = yLbl;
+                newData._hasSize = !!sk;
+                if (sk) newData._sizeLabel = sizeLbl;
+              }
+            }
           } else if (w.type === 'table') {
             newData = { columns: keys, rows: rows.map((r) => Object.values(r).map((v) => v != null ? String(v) : '')) };
           } else if (w.type === 'pie') {

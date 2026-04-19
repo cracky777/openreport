@@ -92,6 +92,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             chartWidth={contentWidth}
             chartHeight={contentHeight}
             onAutoHeight={isAutoHeight ? (newH) => onAutoHeight(item.i, newH) : undefined}
+            columnOrder={widget.dataBinding?.columnOrder}
             onLoadMore={widget.type === 'table' ? () => onLoadMore?.(item.i) : undefined}
             onConfigUpdate={widget.type === 'table' ? (key, val) => onWidgetUpdate?.(item.i, { ...widget, config: { ...widget.config, [key]: val } }) : undefined}
             onFilterChange={widget.type === 'filter' && onSlicerFilter ? (vals) => {

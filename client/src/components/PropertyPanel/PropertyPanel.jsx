@@ -81,10 +81,11 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     onUpdate(widgetId, { ...widget, data: { ...widget.data, [key]: value } });
   };
 
-  // Build field info lookup for tooltips
+  // Build field info lookup for tooltips and type detection
   const fieldInfos = {};
+  const dimensionNames = new Set();
   if (model) {
-    for (const d of (model.dimensions || [])) fieldInfos[d.name] = { table: d.table, column: d.column };
+    for (const d of (model.dimensions || [])) { fieldInfos[d.name] = { table: d.table, column: d.column }; dimensionNames.add(d.name); }
     for (const m of (model.measures || [])) fieldInfos[m.name] = { table: m.table, column: m.column };
   }
 
@@ -134,25 +135,89 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     updateBinding({ columnDimensions: columnDims.filter((d) => d !== name) });
   };
 
-  const handleDrop = (zone) => (fieldName, fieldType) => {
+  const removeFromZone = (sourceZone, fieldName) => {
+    if (!sourceZone) return;
+    const updates = {};
+    if (sourceZone === 'axis' || sourceZone === 'category' || sourceZone === 'filter' || sourceZone === 'rows') {
+      updates.selectedDimensions = selectedDims.filter((d) => d !== fieldName);
+    } else if (sourceZone === 'values' || sourceZone === 'value') {
+      updates.selectedMeasures = selectedMeass.filter((m) => m !== fieldName);
+    } else if (sourceZone === 'groupBy') {
+      updates.groupBy = groupBy.filter((g) => g !== fieldName);
+    } else if (sourceZone === 'pivotColumns') {
+      updates.columnDimensions = columnDims.filter((d) => d !== fieldName);
+    } else if (sourceZone === 'columns') {
+      if (selectedDims.includes(fieldName)) updates.selectedDimensions = selectedDims.filter((d) => d !== fieldName);
+      if (selectedMeass.includes(fieldName)) updates.selectedMeasures = selectedMeass.filter((m) => m !== fieldName);
+      if (binding.columnOrder) updates.columnOrder = binding.columnOrder.filter((f) => f !== fieldName);
+    }
+    return updates;
+  };
+
+  const insertAt = (arr, item, idx) => {
+    if (idx == null || idx >= arr.length) return [...arr, item];
+    const copy = [...arr];
+    copy.splice(idx, 0, item);
+    return copy;
+  };
+
+  const handleDrop = (zone) => (fieldName, fieldType, sourceZone, dropIndex) => {
+    // Remove from source zone if cross-zone move
+    const removeUpdates = sourceZone && sourceZone !== zone ? removeFromZone(sourceZone, fieldName) : {};
+
+    const addUpdates = {};
     if (zone === 'groupBy') {
-      addGroupBy(fieldName);
+      addUpdates.groupBy = insertAt(removeUpdates.groupBy || groupBy, fieldName, dropIndex);
     } else if (zone === 'pivotColumns') {
-      addColumnDim(fieldName);
+      addUpdates.columnDimensions = insertAt(removeUpdates.columnDimensions || columnDims, fieldName, dropIndex);
+    } else if (zone === 'columns') {
+      // Table: add to both dims/measures lists and columnOrder
+      if (fieldType === 'dimension') addUpdates.selectedDimensions = [...(removeUpdates.selectedDimensions || selectedDims), fieldName];
+      else addUpdates.selectedMeasures = [...(removeUpdates.selectedMeasures || selectedMeass), fieldName];
+      const curOrder = (removeUpdates.columnOrder || binding.columnOrder || [...selectedDims, ...selectedMeass]).filter((f) => f !== fieldName);
+      addUpdates.columnOrder = insertAt(curOrder, fieldName, dropIndex);
     } else if (fieldType === 'dimension') {
-      addDimension(fieldName);
+      addUpdates.selectedDimensions = insertAt(removeUpdates.selectedDimensions || selectedDims, fieldName, dropIndex);
     } else if (fieldType === 'measure') {
-      addMeasure(fieldName);
+      addUpdates.selectedMeasures = insertAt(removeUpdates.selectedMeasures || selectedMeass, fieldName, dropIndex);
+    }
+
+    if (sourceZone && sourceZone !== zone) {
+      updateBinding({ ...removeUpdates, ...addUpdates });
+    } else {
+      updateBinding(addUpdates);
     }
   };
 
   const handleRemove = (fieldName) => {
-    if (selectedDims.includes(fieldName)) removeDimension(fieldName);
-    else if (selectedMeass.includes(fieldName)) removeMeasure(fieldName);
+    const updates = {};
+    if (selectedDims.includes(fieldName)) updates.selectedDimensions = selectedDims.filter((d) => d !== fieldName);
+    else if (selectedMeass.includes(fieldName)) updates.selectedMeasures = selectedMeass.filter((m) => m !== fieldName);
+    // Also clean columnOrder if present
+    if (binding.columnOrder) updates.columnOrder = binding.columnOrder.filter((f) => f !== fieldName);
+    updateBinding(updates);
   };
 
   const handleRemoveGroupBy = (fieldName) => {
     removeGroupBy(fieldName);
+  };
+
+  const handleReorder = (zone) => (newFields) => {
+    if (zone === 'dims') {
+      updateBinding({ selectedDimensions: newFields });
+    } else if (zone === 'measures') {
+      updateBinding({ selectedMeasures: newFields });
+    } else if (zone === 'groupBy') {
+      updateBinding({ groupBy: newFields });
+    } else if (zone === 'columnDims') {
+      updateBinding({ columnDimensions: newFields });
+    } else if (zone === 'columns') {
+      // Table columns: store explicit order to allow mixing dims and measures freely
+      const allDimNames = new Set((model?.dimensions || []).map((d) => d.name));
+      const dims = newFields.filter((f) => allDimNames.has(f));
+      const meass = newFields.filter((f) => !allDimNames.has(f));
+      updateBinding({ selectedDimensions: dims, selectedMeasures: meass, columnOrder: newFields });
+    }
   };
 
   // Build field wells per widget type
@@ -162,12 +227,12 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     if (type === 'bar') {
       return (
         <Section title="" bare>
-          <DropZone label="Axis" accepts={['dimension']} fields={selectedDims}
-            onDrop={handleDrop('axis')} onRemove={handleRemove} fieldInfos={fieldInfos} />
-          <DropZone label="Legend" accepts={['dimension']} fields={groupBy}
-            onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} fieldInfos={fieldInfos} />
-          <DropZone label="Values" accepts={['measure']} fields={selectedMeass}
-            onDrop={handleDrop('values')} onRemove={handleRemove} multiple fieldInfos={fieldInfos} />
+          <DropZone label="Axis" accepts={['dimension']} fields={selectedDims} zoneName="axis"
+            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
+          <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
+            onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
+          <DropZone label="Values" accepts={['measure']} fields={selectedMeass} zoneName="values"
+            onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos} />
         </Section>
       );
     }
@@ -175,12 +240,38 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     if (type === 'line') {
       return (
         <Section title="" bare>
-          <DropZone label="Axis" accepts={['dimension']} fields={selectedDims}
-            onDrop={handleDrop('axis')} onRemove={handleRemove} fieldInfos={fieldInfos} />
-          <DropZone label="Legend" accepts={['dimension']} fields={groupBy}
-            onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} fieldInfos={fieldInfos} />
-          <DropZone label="Values" accepts={['measure']} fields={selectedMeass}
-            onDrop={handleDrop('values')} onRemove={handleRemove} multiple fieldInfos={fieldInfos} />
+          <DropZone label="Axis" accepts={['dimension']} fields={selectedDims} zoneName="axis"
+            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
+          <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
+            onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
+          <DropZone label="Values" accepts={['measure']} fields={selectedMeass} zoneName="values"
+            onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos} />
+        </Section>
+      );
+    }
+
+    if (type === 'scatter') {
+      const scatter = binding.scatterMeasures || {};
+      const setScatterMeas = (role) => (fieldName) => {
+        onUpdate(widgetId, { ...widget, dataBinding: { ...binding, scatterMeasures: { ...scatter, [role]: fieldName } }, data: {} });
+      };
+      const removeScatterMeas = (role) => () => {
+        const next = { ...scatter };
+        delete next[role];
+        onUpdate(widgetId, { ...widget, dataBinding: { ...binding, scatterMeasures: next }, data: {} });
+      };
+      return (
+        <Section title="" bare>
+          <DropZone label="Details" accepts={['dimension']} fields={selectedDims} zoneName="axis"
+            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
+          <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
+            onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
+          <DropZone label="X Axis (measure)" accepts={['measure']} fields={scatter.x ? [scatter.x] : []} zoneName="scatterX"
+            onDrop={setScatterMeas('x')} onRemove={removeScatterMeas('x')} fieldInfos={fieldInfos} />
+          <DropZone label="Y Axis (measure)" accepts={['measure']} fields={scatter.y ? [scatter.y] : []} zoneName="scatterY"
+            onDrop={setScatterMeas('y')} onRemove={removeScatterMeas('y')} fieldInfos={fieldInfos} />
+          <DropZone label="Size (measure)" accepts={['measure']} fields={scatter.size ? [scatter.size] : []} zoneName="scatterSize"
+            onDrop={setScatterMeas('size')} onRemove={removeScatterMeas('size')} fieldInfos={fieldInfos} />
         </Section>
       );
     }
@@ -188,19 +279,27 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     if (type === 'pie') {
       return (
         <Section title="" bare>
-          <DropZone label="Category" accepts={['dimension']} fields={selectedDims}
-            onDrop={handleDrop('category')} onRemove={handleRemove} fieldInfos={fieldInfos} />
-          <DropZone label="Value" accepts={['measure']} fields={selectedMeass}
-            onDrop={handleDrop('value')} onRemove={handleRemove} fieldInfos={fieldInfos} />
+          <DropZone label="Category" accepts={['dimension']} fields={selectedDims} zoneName="category"
+            onDrop={handleDrop('category')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
+          <DropZone label="Value" accepts={['measure']} fields={selectedMeass} zoneName="value"
+            onDrop={handleDrop('value')} onRemove={handleRemove} onReorder={handleReorder('measures')} fieldInfos={fieldInfos} />
         </Section>
       );
     }
 
     if (type === 'table') {
+      // Use columnOrder if available, otherwise default to dims then measures
+      const allCols = [...selectedDims, ...selectedMeass];
+      const orderedCols = binding.columnOrder
+        ? binding.columnOrder.filter((f) => allCols.includes(f))
+        : allCols;
+      // Add any new fields not yet in columnOrder
+      const missingCols = allCols.filter((f) => !orderedCols.includes(f));
+      const tableFields = [...orderedCols, ...missingCols];
       return (
         <Section title="" bare>
-          <DropZone label="Columns" accepts={['dimension', 'measure']} fields={[...selectedDims, ...selectedMeass]}
-            onDrop={handleDrop('columns')} onRemove={handleRemove} multiple fieldInfos={fieldInfos} />
+          <DropZone label="Columns" accepts={['dimension', 'measure']} fields={tableFields} zoneName="columns"
+            onDrop={handleDrop('columns')} onRemove={handleRemove} onReorder={handleReorder('columns')} multiple fieldInfos={fieldInfos} dimensionNames={dimensionNames} />
         </Section>
       );
     }
@@ -208,7 +307,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     if (type === 'scorecard') {
       return (
         <Section title="" bare>
-          <DropZone label="Value" accepts={['measure']} fields={selectedMeass}
+          <DropZone label="Value" accepts={['measure']} fields={selectedMeass} zoneName="value"
             onDrop={handleDrop('value')} onRemove={handleRemove} fieldInfos={fieldInfos} />
         </Section>
       );
@@ -217,12 +316,12 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     if (type === 'pivotTable') {
       return (
         <Section title="" bare>
-          <DropZone label="Rows" accepts={['dimension']} fields={selectedDims}
-            onDrop={handleDrop('rows')} onRemove={handleRemove} multiple fieldInfos={fieldInfos} />
-          <DropZone label="Columns" accepts={['dimension']} fields={columnDims}
-            onDrop={handleDrop('pivotColumns')} onRemove={removeColumnDim} multiple fieldInfos={fieldInfos} />
-          <DropZone label="Values" accepts={['measure']} fields={selectedMeass}
-            onDrop={handleDrop('values')} onRemove={handleRemove} multiple fieldInfos={fieldInfos} />
+          <DropZone label="Rows" accepts={['dimension']} fields={selectedDims} zoneName="rows"
+            onDrop={handleDrop('rows')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos} />
+          <DropZone label="Columns" accepts={['dimension']} fields={columnDims} zoneName="pivotColumns"
+            onDrop={handleDrop('pivotColumns')} onRemove={removeColumnDim} onReorder={handleReorder('columnDims')} multiple fieldInfos={fieldInfos} />
+          <DropZone label="Values" accepts={['measure']} fields={selectedMeass} zoneName="values"
+            onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos} />
         </Section>
       );
     }
@@ -230,8 +329,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     if (type === 'filter') {
       return (
         <Section title="" bare>
-          <DropZone label="Filter field" accepts={['dimension']} fields={selectedDims}
-            onDrop={handleDrop('filter')} onRemove={handleRemove} fieldInfos={fieldInfos} />
+          <DropZone label="Filter field" accepts={['dimension']} fields={selectedDims} zoneName="filter"
+            onDrop={handleDrop('filter')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
         </Section>
       );
     }
@@ -272,13 +371,19 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       {/* Field wells - drag & drop zones */}
       {renderFieldWells()}
 
+      {widget.type === 'pie' && (
+        <Field label="Donut">
+          <input type="checkbox" checked={widget.config?.donut || false} onChange={(e) => updateConfig('donut', e.target.checked)} />
+        </Field>
+      )}
+
       {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie') && (
         <Section title="Sort">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {[
               { value: 'none', label: 'No sort' },
-              { value: 'desc', label: 'Descending (largest first)' },
-              { value: 'asc', label: 'Ascending (smallest first)' },
+              { value: 'desc', label: 'Descending' },
+              { value: 'asc', label: 'Ascending' },
             ].map((opt) => (
               <label key={opt.value} style={radioRow}>
                 <input type="radio" name="sortOrder"
@@ -301,7 +406,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <Field label="Style">
             <select value={effStyle}
               onChange={(e) => updateConfig('slicerStyle', e.target.value)}
-              style={{ ...inputStyle, width: 140, marginBottom: 0 }}>
+              style={{ ...inputStyle, marginBottom: 0 }}>
               <option value="list">List</option>
               <option value="dropdown">Dropdown</option>
               <option value="buttons">Buttons</option>
@@ -318,7 +423,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <Field label="Layout">
               <select value={widget.config?.dateLayout || 'vertical'}
                 onChange={(e) => updateConfig('dateLayout', e.target.value)}
-                style={{ ...inputStyle, width: 100, marginBottom: 0 }}>
+                style={{ ...inputStyle, marginBottom: 0 }}>
                 <option value="vertical">Vertical</option>
                 <option value="horizontal">Horizontal</option>
               </select>
@@ -346,7 +451,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 <Field label="Orientation">
                   <select value={widget.config?.orientation || 'vertical'}
                     onChange={(e) => updateConfig('orientation', e.target.value)}
-                    style={{ ...inputStyle, width: 90, marginBottom: 0 }}>
+                    style={{ ...inputStyle, marginBottom: 0 }}>
                     <option value="vertical">Vertical</option>
                     <option value="horizontal">Horizontal</option>
                   </select>
@@ -357,7 +462,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <Field label="Font size">
             <input type="number" min={8} max={24} value={widget.config?.slicerFontSize || 12}
               onChange={(e) => updateConfig('slicerFontSize', parseInt(e.target.value) || 12)}
-              style={{ ...inputStyle, width: 55, marginBottom: 0 }} />
+              style={{ ...inputStyle, marginBottom: 0 }} />
           </Field>
           <Field label="Font color">
             <ColorInput value={widget.config?.slicerFontColor || '#0f172a'}
@@ -397,7 +502,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <Field label="Row limit">
               <input type="number" min={1} max={10000} value={widget.config?.dataLimit || 1000}
                 onChange={(e) => updateConfig('dataLimit', parseInt(e.target.value) || 1000)}
-                style={{ ...inputStyle, width: 80, marginBottom: 0 }} />
+                style={{ ...inputStyle, marginBottom: 0 }} />
             </Field>
           )}
         </Section>
@@ -463,7 +568,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <Field label="Type">
               <select value={widget.config?.shadow?.type || 'outer'}
                 onChange={(e) => updateConfig('shadow', { ...widget.config?.shadow, type: e.target.value })}
-                style={{ ...inputStyle, width: 80, marginBottom: 0 }}>
+                style={{ ...inputStyle, marginBottom: 0 }}>
                 <option value="outer">Outer</option>
                 <option value="inner">Inner</option>
               </select>
@@ -493,9 +598,9 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       </Section>
 
       {/* ── Chart options ── */}
-      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie') && (
+      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'scatter') && (
         <Section title="Chart" sectionState={sections}>
-          {(widget.type === 'bar' || widget.type === 'line') && (
+          {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'scatter') && (
             <Field label="Color">
               <ColorInput value={widget.config?.color || '#5470c6'}
                 onChange={(v) => updateConfig('color', v)} />
@@ -504,7 +609,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <Field label="Value format">
             <select value={widget.config?.valueAbbreviation || 'none'}
               onChange={(e) => updateConfig('valueAbbreviation', e.target.value)}
-              style={{ ...inputStyle, width: 90, marginBottom: 0 }}>
+              style={{ ...inputStyle, marginBottom: 0 }}>
               <option value="none">Full</option>
               <option value="auto">Auto (K/M)</option>
               <option value="K">K (milliers)</option>
@@ -521,7 +626,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               <Field label="Label shows">
                 <select value={widget.config?.dataLabelContent || 'value'}
                   onChange={(e) => updateConfig('dataLabelContent', e.target.value)}
-                  style={{ ...inputStyle, width: 100, marginBottom: 0 }}>
+                  style={{ ...inputStyle, marginBottom: 0 }}>
                   <option value="value">Value</option>
                   <option value="name">Name</option>
                   <option value="percent">Percent</option>
@@ -531,7 +636,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               <Field label="Label format">
                 <select value={widget.config?.dataLabelAbbr || 'none'}
                   onChange={(e) => updateConfig('dataLabelAbbr', e.target.value)}
-                  style={{ ...inputStyle, width: 90, marginBottom: 0 }}>
+                  style={{ ...inputStyle, marginBottom: 0 }}>
                   <option value="none">Full</option>
                   <option value="auto">Auto (K/M)</option>
                   <option value="K">K (milliers)</option>
@@ -540,18 +645,32 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 </select>
               </Field>
               <Field label="Position">
-                <select value={widget.config?.dataLabelPosition || 'top'}
-                  onChange={(e) => updateConfig('dataLabelPosition', e.target.value)}
-                  style={{ ...inputStyle, width: 110, marginBottom: 0 }}>
-                  <option value="top">Au-dessus</option>
-                  <option value="inside">Int. milieu</option>
-                  <option value="insideTop">Int. haut</option>
-                  <option value="insideBottom">Int. bas</option>
-                </select>
+                {widget.type === 'pie' ? (
+                  <select value={widget.config?.dataLabelPosition || 'outside'}
+                    onChange={(e) => updateConfig('dataLabelPosition', e.target.value)}
+                    style={{ ...inputStyle, marginBottom: 0 }}>
+                    <option value="outside">Outside</option>
+                    <option value="inside">Inside</option>
+                  </select>
+                ) : (
+                  <select value={widget.config?.dataLabelPosition || 'top'}
+                    onChange={(e) => updateConfig('dataLabelPosition', e.target.value)}
+                    style={{ ...inputStyle, marginBottom: 0 }}>
+                    <option value="top">Au-dessus</option>
+                    <option value="inside">Int. milieu</option>
+                    <option value="insideTop">Int. haut</option>
+                    <option value="insideBottom">Int. bas</option>
+                  </select>
+                )}
               </Field>
               <Field label="Angle" vertical>
                 <RangeInput min={-90} max={90} value={widget.config?.dataLabelRotate ?? 0} suffix="°"
                   onChange={(e) => updateConfig('dataLabelRotate', parseInt(e.target.value))} />
+              </Field>
+              <Field label="Font size">
+                <input type="number" min={6} max={36} value={widget.config?.dataLabelFontSize ?? 10}
+                  onChange={(e) => updateConfig('dataLabelFontSize', parseInt(e.target.value) || 10)}
+                  style={{ ...inputStyle, width: 50, marginBottom: 0 }} />
               </Field>
               <Field label="Label color">
                 <ColorInput value={widget.config?.dataLabelColor || '#475569'}
@@ -584,7 +703,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               <Field label="Position">
                 <select value={widget.config?.legendPosition || 'top'}
                   onChange={(e) => updateConfig('legendPosition', e.target.value)}
-                  style={{ ...inputStyle, width: 90, marginBottom: 0 }}>
+                  style={{ ...inputStyle, marginBottom: 0 }}>
                   <option value="top">Top</option>
                   <option value="bottom">Bottom</option>
                   <option value="left">Left</option>
@@ -593,7 +712,13 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               </Field>
             </SubSection>
           )}
-          {(widget.type === 'bar' || widget.type === 'line') && (
+          {widget.type === 'scatter' && (
+            <Field label="Point size" vertical>
+              <RangeInput min={2} max={30} value={widget.config?.symbolSize ?? 10}
+                onChange={(e) => updateConfig('symbolSize', parseInt(e.target.value))} suffix="px" />
+            </Field>
+          )}
+          {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'scatter') && (
             <>
               <Field label="Show X axis">
                 <input type="checkbox" checked={widget.config?.showXAxis ?? true}
@@ -606,7 +731,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               <Field label="Grid style">
                 <select value={widget.config?.gridLineStyle || 'solid'}
                   onChange={(e) => updateConfig('gridLineStyle', e.target.value)}
-                  style={{ ...inputStyle, width: 90, marginBottom: 0 }}>
+                  style={{ ...inputStyle, marginBottom: 0 }}>
                   <option value="solid">Solid</option>
                   <option value="dashed">Dashed</option>
                   <option value="dotted">Dotted</option>
@@ -621,12 +746,74 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                   value={widget.config?.yAxisInterval ?? ''}
                   placeholder="Auto"
                   onChange={(e) => updateConfig('yAxisInterval', e.target.value ? parseFloat(e.target.value) : null)}
-                  style={{ ...inputStyle, width: 70, marginBottom: 0 }} />
+                  style={{ ...inputStyle, marginBottom: 0 }} />
               </Field>
             </>
           )}
         </Section>
       )}
+
+      {/* Legend Colors */}
+      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'scatter') && (() => {
+        // Extract legend values from data
+        let legendValues = [];
+        if (widget.data?.series) legendValues = widget.data.series.map((s) => s.name);
+        else if (widget.data?.items) legendValues = widget.data.items.map((it) => it.name);
+        else if (widget.data?.seriesGroups) legendValues = widget.data.seriesGroups.map((g) => g.name);
+        if (legendValues.length === 0) return null;
+
+        const COLORS = ['#5470c6','#91cc75','#fac858','#ee6666','#73c0de','#3ba272','#fc8452','#9a60b4','#ea7ccc','#5ab1ef'];
+        const customColors = widget.config?.legendColors || {};
+        const SCATTER_SYMBOLS = [
+          { value: 'circle', label: 'Circle' },
+          { value: 'rect', label: 'Square' },
+          { value: 'roundRect', label: 'Rounded Square' },
+          { value: 'triangle', label: 'Triangle' },
+          { value: 'diamond', label: 'Diamond' },
+          { value: 'pin', label: 'Pin' },
+          { value: 'arrow', label: 'Arrow' },
+          { value: 'star', label: 'Star' },
+        ];
+        const customSymbols = widget.config?.legendSymbols || {};
+        const customImages = widget.config?.legendImages || {};
+
+        return (
+          <Section title="Legend Colors" sectionState={sections}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {legendValues.map((name, i) => (
+                <div key={name} style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: 6 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#334155', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <ColorInput
+                      value={customColors[name] || COLORS[i % COLORS.length]}
+                      onChange={(v) => updateConfig('legendColors', { ...customColors, [name]: v })}
+                    />
+                    {widget.type === 'scatter' && (
+                      <select value={customSymbols[name] || 'circle'}
+                        onChange={(e) => updateConfig('legendSymbols', { ...customSymbols, [name]: e.target.value })}
+                        style={{ ...inputStyle, marginBottom: 0, fontSize: 10, padding: '2px 4px', flex: 1 }}>
+                        {SCATTER_SYMBOLS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                      </select>
+                    )}
+                  </div>
+                  {widget.type === 'scatter' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                      <input type="text" placeholder="Image URL"
+                        value={customImages[name] || ''}
+                        onChange={(e) => updateConfig('legendImages', { ...customImages, [name]: e.target.value })}
+                        style={{ ...inputStyle, flex: 1, fontSize: 10, marginBottom: 0, padding: '2px 4px' }} />
+                      {customImages[name] && (
+                        <button onClick={() => { const next = { ...customImages }; delete next[name]; updateConfig('legendImages', next); }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 12, padding: 0 }}>×</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Section>
+        );
+      })()}
 
       {/* Table full configuration */}
       {widget.type === 'table' && (
@@ -695,12 +882,12 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               <Field label="Stroke width">
                 <input type="number" min={0} max={20} value={widget.config?.shapeStrokeWidth ?? 2}
                   onChange={(e) => updateConfig('shapeStrokeWidth', parseInt(e.target.value) || 0)}
-                  style={{ ...inputStyle, width: 55, marginBottom: 0 }} />
+                  style={{ ...inputStyle, marginBottom: 0 }} />
               </Field>
               <Field label="Opacity (%)">
                 <input type="number" min={0} max={100} value={widget.config?.shapeOpacity ?? 100}
                   onChange={(e) => updateConfig('shapeOpacity', parseInt(e.target.value) || 0)}
-                  style={{ ...inputStyle, width: 55, marginBottom: 0 }} />
+                  style={{ ...inputStyle, marginBottom: 0 }} />
               </Field>
             </>
           )}
@@ -708,7 +895,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <Field label="Direction">
               <select value={widget.config?.arrowDirection || 'right'}
                 onChange={(e) => updateConfig('arrowDirection', e.target.value)}
-                style={{ ...inputStyle, width: 100, marginBottom: 0 }}>
+                style={{ ...inputStyle, marginBottom: 0 }}>
                 <option value="right">Right →</option>
                 <option value="down">Down ↓</option>
                 <option value="left">Left ←</option>
@@ -742,17 +929,6 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           </Field>
         </Section>
       )}
-
-      {widget.type === 'pie' && (
-        <Section title="Options" sectionState={sections}>
-          <Field label="Donut">
-            <input type="checkbox" checked={widget.config?.donut || false} onChange={(e) => updateConfig('donut', e.target.checked)} />
-          </Field>
-          <Field label="Show labels">
-            <input type="checkbox" checked={widget.config?.showLabels ?? true} onChange={(e) => updateConfig('showLabels', e.target.checked)} />
-          </Field>
-        </Section>
-      )}
     </div>
   );
 }
@@ -774,7 +950,7 @@ export function DataModelPanel({ widgetId, widget, onUpdate, model, onModelUpdat
   return (
     <div style={dataPanelStyle}>
       <div style={panelHeader}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>Données</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>Data</span>
         <button onClick={() => setCollapsed(true)} style={chevronBtn} title="Collapse panel">»</button>
       </div>
       <DataPanel widgetId={widgetId} widget={widget} onUpdate={onUpdate} model={model} onModelUpdate={onModelUpdate} reportFilters={reportFilters} />
@@ -831,8 +1007,8 @@ function Field({ label, children, vertical }) {
   }
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 6 }}>
-      <span style={{ fontSize: 12, color: '#475569', whiteSpace: 'nowrap' }}>{label}</span>
-      <div style={{ flexShrink: 1, minWidth: 0 }}>{children}</div>
+      <span style={{ fontSize: 12, color: '#475569', whiteSpace: 'nowrap', flexShrink: 0 }}>{label}</span>
+      <div style={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>{children}</div>
     </div>
   );
 }
@@ -940,7 +1116,7 @@ function PivotOptionsSection({ widget, updateConfig, Section, Field, inputStyle,
       <Field label="Value format">
         <select value={getVal('valueAbbreviation', 'none')}
           onChange={(e) => setVal('valueAbbreviation', e.target.value)}
-          style={{ ...inputStyle, width: 90, marginBottom: 0 }}>
+          style={{ ...inputStyle, marginBottom: 0 }}>
           <option value="none">Full</option>
           <option value="auto">Auto (K/M)</option>
           <option value="K">K</option>
@@ -951,7 +1127,7 @@ function PivotOptionsSection({ widget, updateConfig, Section, Field, inputStyle,
       <Field label="Aggregation">
         <select value={getVal('aggregation', 'sum')}
           onChange={(e) => setVal('aggregation', e.target.value)}
-          style={{ ...inputStyle, width: 90, marginBottom: 0 }}>
+          style={{ ...inputStyle, marginBottom: 0 }}>
           <option value="sum">Sum</option>
           <option value="avg">Average</option>
           <option value="count">Count</option>
@@ -988,8 +1164,8 @@ const subSectionStyle = {
 };
 
 const configPanelStyle = {
-  width: 250, maxWidth: 250, backgroundColor: '#fff', borderLeft: '1px solid #e2e8f0',
-  padding: 16, overflowY: 'auto', flexShrink: 0,
+  width: 210, maxWidth: 210, backgroundColor: '#fff', borderLeft: '1px solid #e2e8f0',
+  padding: 12, overflowY: 'auto', flexShrink: 0,
   transition: 'width 0.2s ease, max-width 0.2s ease, padding 0.2s ease',
 };
 
@@ -1011,8 +1187,8 @@ const chevronBtn = {
 };
 
 const dataPanelStyle = {
-  width: 260, maxWidth: 260, backgroundColor: '#fff', borderLeft: '1px solid #e2e8f0',
-  padding: 16, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+  width: 220, maxWidth: 220, backgroundColor: '#fff', borderLeft: '1px solid #e2e8f0',
+  padding: 12, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden',
   transition: 'width 0.2s ease, max-width 0.2s ease, padding 0.2s ease',
 };
 

@@ -7,9 +7,37 @@ import {
   computeTotal, getConditionalStyle,
 } from '../../utils/tableConfigHelpers';
 
-export default memo(function TableWidget({ data, config, onLoadMore, onConfigUpdate }) {
-  const columns = data?.columns;
-  const rows = data?.rows;
+export default memo(function TableWidget({ data, config, columnOrder, onLoadMore, onConfigUpdate }) {
+  const rawColumns = data?.columns;
+  const rawRows = data?.rows;
+
+  // Reorder columns according to columnOrder (allows mixing dims and measures)
+  const { columns, rows } = useMemo(() => {
+    if (!rawColumns || !rawRows || !columnOrder || columnOrder.length === 0) {
+      return { columns: rawColumns, rows: rawRows };
+    }
+    // columnOrder contains field names like "table.col", columns contains labels like "col"
+    // Match by suffix: columnOrder entry ends with the column label
+    const colIndices = [];
+    const newCols = [];
+    // Build a mapping: for each columnOrder entry, find matching column index
+    for (const orderName of columnOrder) {
+      const parts = orderName.split('.');
+      const suffix = parts[parts.length - 1].replace(/_sum$|_avg$|_count$|_min$|_max$/, '');
+      const idx = rawColumns.findIndex((c, i) => !colIndices.includes(i) && c === suffix);
+      if (idx !== -1) {
+        colIndices.push(idx);
+        newCols.push(rawColumns[idx]);
+      }
+    }
+    // Add remaining columns not in columnOrder
+    rawColumns.forEach((c, i) => {
+      if (!colIndices.includes(i)) { colIndices.push(i); newCols.push(c); }
+    });
+    const newRows = rawRows.map((row) => colIndices.map((i) => row[i]));
+    return { columns: newCols, rows: newRows };
+  }, [rawColumns, rawRows, columnOrder]);
+
   const hasData = columns?.length > 0 && rows?.length > 0;
   const scrollRef = useRef(null);
   const loadingMore = data?._loadingMore || false;
@@ -302,11 +330,6 @@ export default memo(function TableWidget({ data, config, onLoadMore, onConfigUpd
         {paginationMode === 'infinite' && loadingMore && (
           <div style={{ padding: 12, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
             Loading more rows...
-          </div>
-        )}
-        {paginationMode === 'infinite' && !hasMore && sortedRows.length > 0 && (
-          <div style={{ padding: 8, textAlign: 'center', color: '#cbd5e1', fontSize: 11 }}>
-            All {sortedRows.length} rows loaded
           </div>
         )}
       </div>

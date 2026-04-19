@@ -66,6 +66,9 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
 
+    const customColors = config?.legendColors || {};
+    const getColor = (name, idx) => customColors[name] || COLORS[idx % COLORS.length];
+
     const series = [];
     let labels = [...data.labels];
     let sortedIndices = labels.map((_, i) => i);
@@ -106,7 +109,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
     const visibleSeries = hasSeries ? rawSeries.filter((s) => !hiddenSeries.has(s.name)) : null;
 
     const labelOpts = {
-      show: showDataLabels, position: dataLabelPosition, fontSize: 10,
+      show: showDataLabels, position: dataLabelPosition, fontSize: config?.dataLabelFontSize ?? 10,
       rotate: dataLabelRotate, color: dataLabelColor,
       align: dataLabelRotate > 0 ? 'left' : dataLabelRotate < 0 ? 'right' : 'center',
       verticalAlign: Math.abs(dataLabelRotate) === 90 ? 'middle' : dataLabelPosition === 'top' ? 'bottom' : 'middle',
@@ -129,9 +132,9 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
         series.push({
           type: 'line', name: s.name || `Series ${i + 1}`, data: values,
           smooth: config?.smooth ?? true,
-          lineStyle: { color: COLORS[colorIdx % COLORS.length] },
-          itemStyle: { color: COLORS[colorIdx % COLORS.length] },
-          areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15, color: COLORS[colorIdx % COLORS.length] } : undefined,
+          lineStyle: { color: getColor(s.name, colorIdx) },
+          itemStyle: { color: getColor(s.name, colorIdx) },
+          areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15, color: getColor(s.name, colorIdx) } : undefined,
           stack: isStacked ? 'total' : undefined,
           label: { ...labelOpts, formatter: (p) => {
             if (hideZeros && (p.value == null || p.value === 0)) return '';
@@ -202,11 +205,11 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
       }
     });
 
-    const legendItems = (allSeriesForLegend || []).map((s, i) => ({ name: s.name, color: COLORS[i % COLORS.length] }));
+    const legendItems = (allSeriesForLegend || []).map((s, i) => ({ name: s.name, color: getColor(s.name, i) }));
     return { option: opt, legendItems, rawLabels };
   }, [data, subType, showLabels, showLegend, legendPosition, hasData, config?.smooth, config?.color, isArea, isStacked, hideZeros, sortOrder,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
-      dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue]);
+      dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
@@ -228,6 +231,12 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
   useEffect(() => {
     const el = chartRef.current;
     if (!el || !option) return;
+
+    if (instanceRef.current && instanceRef.current.getDom() !== el) {
+      instanceRef.current.dispose();
+      instanceRef.current = null;
+      prevSizeRef.current = { w: 0, h: 0 };
+    }
 
     const render = () => {
       const cw = el.clientWidth;

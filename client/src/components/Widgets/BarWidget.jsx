@@ -70,6 +70,9 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
 
+    const customColors = config?.legendColors || {};
+    const getColor = (name, idx) => customColors[name] || COLORS[idx % COLORS.length];
+
     let seriesData = data.series && data.series.length > 0 ? [...data.series] : null;
     if (seriesData && hideZeros) {
       seriesData = seriesData.filter((s) => s.values.some((v) => v !== 0 && v != null));
@@ -164,7 +167,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
             type: 'custom',
             name: s.name,
             data: values.map((v, ci) => [ci, v]),
-            itemStyle: { color: COLORS[colorIdx % COLORS.length] },
+            itemStyle: { color: getColor(s.name, colorIdx) },
             emphasis: { disabled: true },
             renderItem: (params, api) => {
               const catIdx = api.value(0);
@@ -190,7 +193,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
               const rect = {
                 type: 'rect',
                 shape: { x, y: top[1], width: barWidth, height: base[1] - top[1] },
-                style: { ...api.style(), fill: COLORS[colorIdx % COLORS.length], opacity: dimmed ? 0.3 : 1 },
+                style: { ...api.style(), fill: getColor(s.name, colorIdx), opacity: dimmed ? 0.3 : 1 },
                 styleEmphasis: api.styleEmphasis(),
               };
               if (!showDataLabels) return rect;
@@ -230,7 +233,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
                     style: {
                       text: labelText,
                       fill: dataLabelColor,
-                      fontSize: 10,
+                      fontSize: config?.dataLabelFontSize ?? 10,
                       align: lAlign,
                       verticalAlign: lVAlign,
                       backgroundColor: dataLabelBgOpacity > 0 ? hexToRgba(dataLabelBgColor, dataLabelBgOpacity) : undefined,
@@ -259,9 +262,9 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
           series.push({
             type: 'bar', name: s.name, data: values,
             stack: 'total',
-            itemStyle: { color: COLORS[(origIdx2 >= 0 ? origIdx2 : i) % COLORS.length] },
+            itemStyle: { color: getColor(s.name, origIdx2 >= 0 ? origIdx2 : i) },
             emphasis: { focus: 'series' },
-            label: { show: showDataLabels, position: dataLabelPosition, fontSize: 10,
+            label: { show: showDataLabels, position: dataLabelPosition, fontSize: config?.dataLabelFontSize ?? 10,
               rotate: dataLabelRotate, color: dataLabelColor,
               align: dataLabelRotate > 0 ? 'left' : dataLabelRotate < 0 ? 'right' : 'center',
               verticalAlign: Math.abs(dataLabelRotate) === 90 ? 'middle' : dataLabelPosition === 'top' ? 'bottom' : 'middle',
@@ -292,8 +295,10 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
         appendToBody: true,
         formatter: (params) => {
           const fmt = data._measureFormats?.[params.seriesName] || null;
+          // For custom series, params.value is [categoryIndex, value] — extract the actual value
+          const val = Array.isArray(params.value) ? params.value[1] : params.value;
           let result = `<b>${params.name}</b><br/>`;
-          result += `${params.marker} ${params.seriesName}: <b>${formatNumber(params.value, fmt)}</b>`;
+          result += `${params.marker} ${params.seriesName}: <b>${formatNumber(val, fmt)}</b>`;
           if (isStacked && hasSeries) {
             let total = 0;
             for (const sr of seriesData) total += sr.values[sortedIndices[params.dataIndex]] || 0;
@@ -349,12 +354,12 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
     });
 
     // Legend items for HTML legend
-    const legendItems = (allSeriesForLegend || []).map((s, i) => ({ name: s.name, color: COLORS[i % COLORS.length] }));
+    const legendItems = (allSeriesForLegend || []).map((s, i) => ({ name: s.name, color: getColor(s.name, i) }));
 
     return { option: opt, legendItems, rawLabels };
   }, [data, subType, showLabels, hideZeros, showLegend, legendPosition, sortOrder, hasData, config?.color,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
-      dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue]);
+      dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
@@ -376,6 +381,12 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
   useEffect(() => {
     const el = chartRef.current;
     if (!el || !option) return;
+
+    if (instanceRef.current && instanceRef.current.getDom() !== el) {
+      instanceRef.current.dispose();
+      instanceRef.current = null;
+      prevSizeRef.current = { w: 0, h: 0 };
+    }
 
     const render = () => {
       const cw = el.clientWidth;
