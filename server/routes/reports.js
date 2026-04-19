@@ -1,6 +1,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { checkQuota, requireFeature } = require('../middleware/quotas');
 const db = require('../db');
 
 const router = express.Router();
@@ -40,7 +41,7 @@ router.get('/:id', (req, res) => {
 });
 
 // Create report
-router.post('/', requireAuth, (req, res) => {
+router.post('/', requireAuth, checkQuota('report'), (req, res) => {
   const id = uuidv4();
   const { title, modelId, workspaceId } = req.body;
 

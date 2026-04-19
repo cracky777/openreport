@@ -1,6 +1,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
+const { checkQuota } = require('../middleware/quotas');
 const db = require('../db');
 const { createConnection } = require('../utils/dbConnector');
 
@@ -47,7 +48,7 @@ router.get('/:id', requireAuth, (req, res) => {
 });
 
 // Create model
-router.post('/', requireAuth, (req, res) => {
+router.post('/', requireAuth, checkQuota('model'), (req, res) => {
   const { name, datasourceId, description } = req.body;
   if (!name || !datasourceId) return res.status(400).json({ error: 'Name and datasourceId are required' });
 

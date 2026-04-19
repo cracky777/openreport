@@ -4,8 +4,11 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   display_name TEXT,
   role TEXT NOT NULL DEFAULT 'viewer',
+  plan TEXT NOT NULL DEFAULT 'free',
+  plan_expires_at TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
+-- plan: 'free' | 'pro' | 'enterprise'
 -- role: 'admin' | 'editor' | 'viewer'
 -- admin: full access + user management
 -- editor: create/edit reports, models, datasources

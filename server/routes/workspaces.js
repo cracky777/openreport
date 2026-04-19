@@ -1,6 +1,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
+const { checkQuota } = require('../middleware/quotas');
 const db = require('../db');
 
 const router = express.Router();
@@ -40,7 +41,7 @@ router.get('/', requireAuth, (req, res) => {
 });
 
 // Create workspace
-router.post('/', requireAuth, (req, res) => {
+router.post('/', requireAuth, checkQuota('workspace'), (req, res) => {
   const { name, description } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   const id = uuidv4();
@@ -139,6 +140,9 @@ router.delete('/:id/members/:userId', requireAuth, (req, res) => {
 router.put('/:id/reports/:reportId', requireAuth, (req, res) => {
   const access = getWorkspaceAccess(req.params.id, req.user.id);
   if (!access || (access.role !== 'admin' && access.role !== 'editor')) return res.status(403).json({ error: 'Editor access required' });
+  // Verify the report belongs to the requesting user
+  const report = db.prepare('SELECT id FROM reports WHERE id = ? AND user_id = ?').get(req.params.reportId, req.user.id);
+  if (!report) return res.status(404).json({ error: 'Report not found' });
   db.prepare('UPDATE reports SET workspace_id = ? WHERE id = ?').run(req.params.id, req.params.reportId);
   res.json({ message: 'Report moved' });
 });

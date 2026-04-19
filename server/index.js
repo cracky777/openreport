@@ -30,15 +30,19 @@ const sessionsDir = path.join(__dirname, 'data');
 if (!fs.existsSync(sessionsDir)) fs.mkdirSync(sessionsDir, { recursive: true });
 const sessionsDb = new Database(path.join(sessionsDir, 'sessions.db'));
 
+const isProduction = process.env.NODE_ENV === 'production';
+if (isProduction) app.set('trust proxy', 1);
+
 app.use(session({
   store: new SqliteStore({ client: sessionsDb, expired: { clear: true, intervalMs: 900000 } }),
   secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false,
+    secure: isProduction,
     httpOnly: true,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    sameSite: isProduction ? 'strict' : 'lax',
   },
 }));
 app.use(passport.initialize());
