@@ -1,5 +1,5 @@
 # Stage 1: Build the React frontend
-FROM node:20-alpine AS frontend-build
+FROM node:20-slim AS frontend-build
 WORKDIR /app/client
 COPY client/package*.json ./
 RUN npm ci
@@ -7,8 +7,11 @@ COPY client/ ./
 RUN npm run build
 
 # Stage 2: Production server
-FROM node:20-alpine AS production
+FROM node:20-slim AS production
 WORKDIR /app
+
+# Install build tools for native modules (better-sqlite3, duckdb)
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 # Install server dependencies
 COPY server/package*.json ./server/
