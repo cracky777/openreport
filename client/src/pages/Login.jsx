@@ -26,9 +26,9 @@ export default function Login() {
   return (
     <div style={containerStyle}>
       <div style={cardStyle}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
-          Open Report
-        </h1>
+        <div style={{ marginBottom: 4 }}>
+          <img src="/logo.svg" alt="Open Report" style={{ height: 36 }} />
+        </div>
         <p style={{ color: '#64748b', marginBottom: 24, fontSize: 14 }}>
           {isRegister ? 'Create your account' : 'Sign in to your account'}
         </p>

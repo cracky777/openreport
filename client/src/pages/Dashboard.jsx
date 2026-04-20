@@ -232,7 +232,9 @@ export default function Dashboard() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#f1f5f9' }}>
       {/* Header */}
       <header style={headerStyle}>
-        <h1 style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', letterSpacing: -0.5 }}>Open Report</h1>
+        <h1 style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', letterSpacing: -0.5, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <img src="/logo.svg" alt="Open Report" style={{ height: 28 }} />
+        </h1>
         <nav style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           {canEdit && (
             <>
