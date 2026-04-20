@@ -59,25 +59,29 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/workspaces', workspaceRoutes);
 app.use('/api/upload', fileUploadRoutes);
 
-// Cube.js semantic layer
-const { setupCube } = require('./cube/cubeSetup');
-setupCube(app);
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', version: '0.1.0' });
+});
 
-// Serve React frontend in production
+// Serve React frontend in production (BEFORE Cube.js to avoid route conflicts)
 const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
 if (fs.existsSync(clientDistPath)) {
   app.use(express.static(clientDistPath));
   app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api/')) {
+    if (!req.path.startsWith('/api/') && !req.path.startsWith('/cubejs-api/')) {
       res.sendFile(path.join(clientDistPath, 'index.html'));
     }
   });
 }
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', version: '0.1.0' });
-});
+// Cube.js semantic layer
+try {
+  const { setupCube } = require('./cube/cubeSetup');
+  setupCube(app);
+} catch (err) {
+  console.warn('Cube.js setup skipped:', err.message);
+}
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Open Report running on http://0.0.0.0:${PORT}`);
