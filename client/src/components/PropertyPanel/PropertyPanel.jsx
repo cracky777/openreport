@@ -88,10 +88,21 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
   // Build field info lookup for tooltips and type detection
   const fieldInfos = {};
   const dimensionNames = new Set();
+  const measureInfos = {};
   if (model) {
     for (const d of (model.dimensions || [])) { fieldInfos[d.name] = { table: d.table, column: d.column }; dimensionNames.add(d.name); }
-    for (const m of (model.measures || [])) fieldInfos[m.name] = { table: m.table, column: m.column };
+    for (const m of (model.measures || [])) {
+      fieldInfos[m.name] = { table: m.table, column: m.column };
+      // Get aggregation (from widget override or model default)
+      const aggOverrides = binding.measureAggOverrides || {};
+      measureInfos[m.name] = { aggregation: aggOverrides[m.name] || m.aggregation || 'sum' };
+    }
   }
+
+  const handleAggChange = (fieldName, newAgg) => {
+    const current = binding.measureAggOverrides || {};
+    updateBinding({ measureAggOverrides: { ...current, [fieldName]: newAgg } });
+  };
 
   const widgetMeta = WIDGET_TYPES[widget.type];
   const binding = widget.dataBinding || {};
@@ -235,7 +246,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
           <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
             onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
-          <DropZone label="Values" accepts={['measure']} fields={selectedMeass} zoneName="values"
+          <DropZone label="Values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="values"
             onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos} />
         </Section>
       );
@@ -248,7 +259,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
           <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
             onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
-          <DropZone label="Values" accepts={['measure']} fields={selectedMeass} zoneName="values"
+          <DropZone label="Values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="values"
             onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos} />
         </Section>
       );
@@ -270,11 +281,11 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
           <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
             onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
-          <DropZone label="X Axis (measure)" accepts={['measure']} fields={scatter.x ? [scatter.x] : []} zoneName="scatterX"
+          <DropZone label="X Axis (measure)" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={scatter.x ? [scatter.x] : []} zoneName="scatterX"
             onDrop={setScatterMeas('x')} onRemove={removeScatterMeas('x')} fieldInfos={fieldInfos} />
-          <DropZone label="Y Axis (measure)" accepts={['measure']} fields={scatter.y ? [scatter.y] : []} zoneName="scatterY"
+          <DropZone label="Y Axis (measure)" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={scatter.y ? [scatter.y] : []} zoneName="scatterY"
             onDrop={setScatterMeas('y')} onRemove={removeScatterMeas('y')} fieldInfos={fieldInfos} />
-          <DropZone label="Size (measure)" accepts={['measure']} fields={scatter.size ? [scatter.size] : []} zoneName="scatterSize"
+          <DropZone label="Size (measure)" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={scatter.size ? [scatter.size] : []} zoneName="scatterSize"
             onDrop={setScatterMeas('size')} onRemove={removeScatterMeas('size')} fieldInfos={fieldInfos} />
         </Section>
       );
@@ -293,9 +304,9 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
           <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
             onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
-          <DropZone label="Bar values" accepts={['measure']} fields={comboBarMeas} zoneName="comboBar"
+          <DropZone label="Bar values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={comboBarMeas} zoneName="comboBar"
             onDrop={(fn) => addComboBar(fn)} onRemove={removeComboBar} onReorder={(arr) => updateBinding({ comboBarMeasures: arr })} multiple fieldInfos={fieldInfos} />
-          <DropZone label="Line values" accepts={['measure']} fields={comboLineMeas} zoneName="comboLine"
+          <DropZone label="Line values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={comboLineMeas} zoneName="comboLine"
             onDrop={(fn) => addComboLine(fn)} onRemove={removeComboLine} onReorder={(arr) => updateBinding({ comboLineMeasures: arr })} multiple fieldInfos={fieldInfos} />
         </Section>
       );
@@ -306,7 +317,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
         <Section title="" bare>
           <DropZone label="Category" accepts={['dimension']} fields={selectedDims} zoneName="category"
             onDrop={handleDrop('category')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
-          <DropZone label="Value" accepts={['measure']} fields={selectedMeass} zoneName="value"
+          <DropZone label="Value" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="value"
             onDrop={handleDrop('value')} onRemove={handleRemove} onReorder={handleReorder('measures')} fieldInfos={fieldInfos} />
         </Section>
       );
@@ -332,7 +343,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     if (type === 'scorecard') {
       return (
         <Section title="" bare>
-          <DropZone label="Value" accepts={['measure']} fields={selectedMeass} zoneName="value"
+          <DropZone label="Value" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="value"
             onDrop={handleDrop('value')} onRemove={handleRemove} fieldInfos={fieldInfos} />
         </Section>
       );
@@ -345,7 +356,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             onDrop={handleDrop('rows')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos} />
           <DropZone label="Columns" accepts={['dimension']} fields={columnDims} zoneName="pivotColumns"
             onDrop={handleDrop('pivotColumns')} onRemove={removeColumnDim} onReorder={handleReorder('columnDims')} multiple fieldInfos={fieldInfos} />
-          <DropZone label="Values" accepts={['measure']} fields={selectedMeass} zoneName="values"
+          <DropZone label="Values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="values"
             onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos} />
         </Section>
       );

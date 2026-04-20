@@ -53,7 +53,9 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
   const filtersKey = !isFilterWidget && reportFilters ? JSON.stringify(reportFilters) : '';
   const scatterKey = isScatter ? `${scatterMeas.x || ''}:${scatterMeas.y || ''}:${scatterMeas.size || ''}` : '';
   const comboKey = isCombo ? `bar:${comboBarMeas.join(',')}|line:${comboLineMeas.join(',')}` : '';
-  const bindingKey = hasWidget ? `${selectedDims.join(',')}:${selectedMeass.join(',')}:${groupBy.join(',')}:${columnDims.join(',')}:${scatterKey}:${comboKey}:${modelVersion}:${filtersKey}` : '';
+  const aggOverrides = binding.measureAggOverrides || {};
+  const aggKey = Object.keys(aggOverrides).length > 0 ? JSON.stringify(aggOverrides) : '';
+  const bindingKey = hasWidget ? `${selectedDims.join(',')}:${selectedMeass.join(',')}:${groupBy.join(',')}:${columnDims.join(',')}:${scatterKey}:${comboKey}:${aggKey}:${modelVersion}:${filtersKey}` : '';
   // Full key including widgetId to detect widget switch
   const selectionKey = hasWidget ? `${widgetId}:${bindingKey}` : '';
 
@@ -118,6 +120,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
         const res = await api.post(`/models/${model.id}/query`, {
           dimensionNames: allDims,
           measureNames: uniqueMeass,
+          measureAggOverrides: Object.keys(aggOverrides).length > 0 ? aggOverrides : undefined,
           limit: isFilterWidget ? 1000000 : (capturedWidget.config?.dataLimit || 1000),
           filters: isFilterWidget ? {} : (reportFilters || {}),
           distinct: isFilterWidget || undefined,

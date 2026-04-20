@@ -3,6 +3,7 @@ import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
+import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -172,7 +173,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
       legend: { show: false },
       xAxis: {
         type: 'category', data: labels, show: showXAxis,
-        axisLabel: { show: showLabels, rotate: labels.length > 10 ? 30 : 0 },
+        axisLabel: { show: showLabels, rotate: calcLabelRotation(labels, w) },
       },
       yAxis: {
         type: 'value', show: showYAxis,
@@ -190,7 +191,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
         splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth } },
       },
       series,
-      grid: { top: 15, right: 20, bottom: showXAxis ? 40 : 15, left: showYAxis ? 50 : 15 },
+      grid: { top: 15, right: 20, bottom: showXAxis ? calcBottomMargin(calcLabelRotation(labels, w), labels) : 15, left: showYAxis ? 50 : 15 },
     };
 
     const hl = highlightValue;

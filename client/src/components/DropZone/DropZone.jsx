@@ -1,9 +1,18 @@
 import { useState, useRef } from 'react';
 
-export default function DropZone({ label, accepts, fields, onDrop, onRemove, onReorder, multiple = false, fieldInfos = {}, dimensionNames, zoneName }) {
+const AGG_OPTIONS = [
+  { value: 'sum', label: 'Sum' },
+  { value: 'avg', label: 'Avg' },
+  { value: 'count', label: 'Count' },
+  { value: 'min', label: 'Min' },
+  { value: 'max', label: 'Max' },
+];
+
+export default function DropZone({ label, accepts, fields, onDrop, onRemove, onReorder, multiple = false, fieldInfos = {}, dimensionNames, zoneName, measureInfos, onAggChange }) {
   const [dragIdx, setDragIdx] = useState(null);
   const [dropIdx, setDropIdx] = useState(null);
   const dropIdxRef = useRef(null);
+  const [aggMenuField, setAggMenuField] = useState(null);
 
   const setDrop = (v) => { setDropIdx(v); dropIdxRef.current = v; };
 
@@ -117,10 +126,44 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
                 }}
               >
                 <span style={{ fontSize: 9, color: '#94a3b8', marginRight: 2 }}>⠿</span>
+                {/* Aggregation badge for measures */}
+                {!isDim && measureInfos?.[field] && measureInfos[field].aggregation !== 'custom' && onAggChange && (
+                  <span
+                    onClick={(e) => { e.stopPropagation(); setAggMenuField(aggMenuField === field ? null : field); }}
+                    style={{
+                      fontSize: 8, fontWeight: 700, textTransform: 'uppercase',
+                      color: '#16a34a', cursor: 'pointer', marginRight: 2,
+                      padding: '0 3px', borderRadius: 2, background: '#dcfce7',
+                      flexShrink: 0, lineHeight: '14px', position: 'relative',
+                    }}
+                    title="Click to change aggregation"
+                  >
+                    {measureInfos[field].aggregation || 'sum'}
+                  </span>
+                )}
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{getDisplayName(field)}</span>
                 {missing && <span title="This field no longer exists in the data model" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, borderRadius: '50%', background: '#dc2626', color: '#fff', fontSize: 9, fontWeight: 700, flexShrink: 0 }}>!</span>}
                 <button onClick={() => onRemove(field)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: missing ? '#dc2626' : '#94a3b8', fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
               </span>
+              {/* Aggregation dropdown menu */}
+              {aggMenuField === field && (
+                <div style={{
+                  display: 'flex', gap: 2, padding: '3px 4px', background: '#f8fafc',
+                  borderRadius: 4, border: '1px solid #e2e8f0', marginTop: 2,
+                }}>
+                  {AGG_OPTIONS.map((opt) => (
+                    <button key={opt.value}
+                      onClick={(e) => { e.stopPropagation(); onAggChange(field, opt.value); setAggMenuField(null); }}
+                      style={{
+                        fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 3,
+                        border: 'none', cursor: 'pointer',
+                        background: measureInfos[field]?.aggregation === opt.value ? '#7c3aed' : '#fff',
+                        color: measureInfos[field]?.aggregation === opt.value ? '#fff' : '#475569',
+                      }}
+                    >{opt.label}</button>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}

@@ -140,7 +140,7 @@ router.post('/:id/query', async (req, res) => {
   const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
   if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
 
-  const { dimensionNames, measureNames, limit, offset, filters, distinct } = req.body;
+  const { dimensionNames, measureNames, limit, offset, filters, distinct, measureAggOverrides } = req.body;
   // dimensionNames: ["orders.customer_name", "orders.status"]
   // measureNames: ["orders.total_amount_sum", "orders.count"]
 
@@ -153,7 +153,15 @@ router.post('/:id/query', async (req, res) => {
     ? dimensionNames.map((name) => allDimensions.find((d) => d.name === name)).filter(Boolean)
     : [];
   const selectedMeasures = measureNames
-    ? measureNames.map((name) => allMeasures.find((m) => m.name === name)).filter(Boolean)
+    ? measureNames.map((name) => {
+        const m = allMeasures.find((mm) => mm.name === name);
+        if (!m) return null;
+        // Apply per-widget aggregation override if provided
+        if (measureAggOverrides && measureAggOverrides[name] && m.aggregation !== 'custom') {
+          return { ...m, aggregation: measureAggOverrides[name] };
+        }
+        return m;
+      }).filter(Boolean)
     : [];
 
   if (selectedDimensions.length === 0 && selectedMeasures.length === 0) {

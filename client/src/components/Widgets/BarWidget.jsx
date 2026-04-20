@@ -3,6 +3,7 @@ import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, sortDateSeries, formatDateLabel } from '../../utils/dateHelpers';
+import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -317,7 +318,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
 
     const categoryAxis = {
       type: 'category', data: labels, show: showXAxis,
-      axisLabel: { show: showLabels, rotate: !isHoriz && labels.length > 8 ? 30 : 0 },
+      axisLabel: { show: showLabels, rotate: isHoriz ? 0 : calcLabelRotation(labels, w) },
       position: barDir === 'verticalInverse' ? 'top' : barDir === 'horizontalInverse' ? 'right' : undefined,
       inverse: barDir === 'horizontalInverse',
     };
@@ -351,7 +352,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
     opt.grid = {
       top: barDir === 'verticalInverse' ? 35 : 15,
       right: barDir === 'horizontalInverse' ? 80 : 15,
-      bottom: barDir === 'verticalInverse' ? 15 : (showXAxis ? 35 : 15),
+      bottom: barDir === 'verticalInverse' ? 15 : (showXAxis ? calcBottomMargin(isHoriz ? 0 : calcLabelRotation(labels, w), labels) : 15),
       left: barDir === 'horizontalInverse' ? 15 : (isHoriz ? 80 : (showYAxis ? 50 : 15)),
       containLabel: false,
     };

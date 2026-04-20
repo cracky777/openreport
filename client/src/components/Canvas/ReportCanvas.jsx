@@ -79,6 +79,15 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             {widget.config.title}
           </div>
         )}
+        {/* Drag overlay: allows dragging from borders/edges of the widget */}
+        {!readOnly && (
+          <>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 8 + (widget.config?.title ? 30 : 0), cursor: 'move', zIndex: 2 }} />
+            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 8, cursor: 'move', zIndex: 2 }} />
+            <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: 8, cursor: 'move', zIndex: 2 }} />
+            <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 8, cursor: 'move', zIndex: 2 }} />
+          </>
+        )}
         <div className="widget-content" style={{
           padding: 8,
           width: contentWidth,
