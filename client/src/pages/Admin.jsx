@@ -7,7 +7,7 @@ import { TbShield, TbEdit, TbEye, TbTrash, TbUserPlus, TbKey, TbArrowLeft } from
 const ROLES = [
   { value: 'admin', label: 'Admin', color: '#dc2626', icon: TbShield, desc: 'Full access + user management' },
   { value: 'editor', label: 'Editor', color: '#f59e0b', icon: TbEdit, desc: 'Create/edit reports, models, datasources' },
-  { value: 'viewer', label: 'Viewer', color: '#3b82f6', icon: TbEye, desc: 'View reports only' },
+  { value: 'viewer', label: 'Viewer', color: '#7c3aed', icon: TbEye, desc: 'View reports only' },
 ];
 
 export default function Admin() {
@@ -177,7 +177,7 @@ export default function Admin() {
 
 const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0' };
 const backBtn = { display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 500 };
-const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: '#3b82f6', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center' };
+const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: '#7c3aed', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center' };
 const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer' };
 const inputStyle = { padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box' };
 const formCard = { backgroundColor: '#fff', padding: 20, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 20 };

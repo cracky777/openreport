@@ -267,13 +267,13 @@ export default function Dashboard() {
           <div style={{ padding: '12px 16px', fontWeight: 600, fontSize: 11, color: '#94a3b8', textTransform: 'uppercase' }}>Workspaces</div>
 
           <button onClick={() => setSelectedWs(null)}
-            style={{ ...wsItemStyle, fontWeight: !selectedWs ? 700 : 400, background: !selectedWs ? '#eff6ff' : 'transparent', color: !selectedWs ? '#3b82f6' : '#334155' }}>
+            style={{ ...wsItemStyle, fontWeight: !selectedWs ? 700 : 400, background: !selectedWs ? '#f5f3ff' : 'transparent', color: !selectedWs ? '#7c3aed' : '#334155' }}>
             <TbFolder size={16} /> My Reports
           </button>
 
           {workspaces.map((ws) => (
             <button key={ws.id} onClick={() => setSelectedWs(ws.id)}
-              style={{ ...wsItemStyle, fontWeight: selectedWs === ws.id ? 700 : 400, background: selectedWs === ws.id ? '#eff6ff' : 'transparent', color: selectedWs === ws.id ? '#3b82f6' : '#334155' }}>
+              style={{ ...wsItemStyle, fontWeight: selectedWs === ws.id ? 700 : 400, background: selectedWs === ws.id ? '#f5f3ff' : 'transparent', color: selectedWs === ws.id ? '#7c3aed' : '#334155' }}>
               <TbFolder size={16} />
               <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ws.name}</span>
               <span style={{ fontSize: 10, color: '#94a3b8' }}>{ws.report_count}</span>
@@ -287,13 +287,13 @@ export default function Dashboard() {
                   <input placeholder="Name" value={newWsName} onChange={(e) => setNewWsName(e.target.value)}
                     style={{ flex: 1, padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12, outline: 'none' }}
                     onKeyDown={(e) => e.key === 'Enter' && createWorkspace()} autoFocus />
-                  <button onClick={createWorkspace} style={{ fontSize: 11, padding: '4px 8px', border: 'none', borderRadius: 4, background: '#3b82f6', color: '#fff', cursor: 'pointer' }}>+</button>
+                  <button onClick={createWorkspace} style={{ fontSize: 11, padding: '4px 8px', border: 'none', borderRadius: 4, background: '#7c3aed', color: '#fff', cursor: 'pointer' }}>+</button>
                   <button onClick={() => setShowCreateWs(false)} style={{ fontSize: 11, padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, background: '#fff', cursor: 'pointer' }}>
                     <TbX size={12} />
                   </button>
                 </div>
               ) : (
-                <button onClick={() => setShowCreateWs(true)} style={{ ...wsItemStyle, color: '#3b82f6', fontSize: 12 }}>
+                <button onClick={() => setShowCreateWs(true)} style={{ ...wsItemStyle, color: '#7c3aed', fontSize: 12 }}>
                   <TbFolderPlus size={16} /> New workspace
                 </button>
               )}
@@ -365,7 +365,7 @@ export default function Dashboard() {
                         {userSuggestions.map((u) => (
                           <div key={u.id} onClick={() => selectSuggestion(u)}
                             style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f8fafc', display: 'flex', justifyContent: 'space-between' }}
-                            onMouseEnter={(e) => e.currentTarget.style.background = '#eff6ff'}
+                            onMouseEnter={(e) => e.currentTarget.style.background = '#f5f3ff'}
                             onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
                             <span style={{ fontWeight: 500 }}>{u.display_name || u.email.split('@')[0]}</span>
                             <span style={{ color: '#94a3b8' }}>{u.email}</span>
@@ -380,7 +380,7 @@ export default function Dashboard() {
                     <option value="editor">Editor</option>
                     <option value="admin">Admin</option>
                   </select>
-                  <button onClick={addMember} style={{ padding: '4px 8px', border: 'none', borderRadius: 4, background: '#3b82f6', color: '#fff', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center' }}>
+                  <button onClick={addMember} style={{ padding: '4px 8px', border: 'none', borderRadius: 4, background: '#7c3aed', color: '#fff', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center' }}>
                     <TbUserPlus size={14} />
                   </button>
                 </div>
@@ -407,7 +407,7 @@ export default function Dashboard() {
                     <div style={{ display: 'flex', gap: 10 }}>
                       {models.length > 0 && (
                         <button onClick={() => setCreateMode('model')} style={sourceCard}>
-                          <TbLayoutDashboard size={28} color="#3b82f6" />
+                          <TbLayoutDashboard size={28} color="#7c3aed" />
                           <span style={{ fontWeight: 600, fontSize: 13 }}>Existing Model</span>
                           <span style={{ fontSize: 11, color: '#94a3b8' }}>Use a data model already configured</span>
                         </button>
@@ -458,11 +458,11 @@ export default function Dashboard() {
                         cursor: uploadingFile ? 'wait' : 'pointer', marginBottom: 12,
                         background: '#fafbfc', transition: 'border-color 0.15s',
                       }}
-                      onMouseEnter={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
+                      onMouseEnter={(e) => e.currentTarget.style.borderColor = '#7c3aed'}
                       onMouseLeave={(e) => e.currentTarget.style.borderColor = '#cbd5e1'}
                     >
                       {uploadingFile ? (
-                        <div style={{ color: '#3b82f6', fontSize: 14 }}>Importing data...</div>
+                        <div style={{ color: '#7c3aed', fontSize: 14 }}>Importing data...</div>
                       ) : (
                         <>
                           <TbUpload size={32} color="#94a3b8" />
@@ -495,11 +495,11 @@ export default function Dashboard() {
                   <div onClick={() => window.open(`/view/${report.id}`, '_blank')}
                     style={{ cursor: 'pointer', padding: 20, flex: 1 }}>
                     <h3 style={{ fontSize: 16, fontWeight: 600, color: '#0f172a', marginBottom: 4 }}>{report.title}</h3>
-                    {report.model_name && <p style={{ fontSize: 12, color: '#3b82f6', marginBottom: 4 }}>{report.model_name}</p>}
+                    {report.model_name && <p style={{ fontSize: 12, color: '#7c3aed', marginBottom: 4 }}>{report.model_name}</p>}
                     <p style={{ fontSize: 12, color: '#94a3b8' }}>Updated {new Date(report.updated_at).toLocaleDateString()}</p>
                   </div>
                   <div style={{ padding: '8px 20px 16px', display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <button onClick={() => window.open(`/view/${report.id}`, '_blank')} title="View" style={{ ...iconBtn, color: '#3b82f6', borderColor: '#bfdbfe' }}><TbEye size={16} /></button>
+                    <button onClick={() => window.open(`/view/${report.id}`, '_blank')} title="View" style={{ ...iconBtn, color: '#7c3aed', borderColor: '#c4b5fd' }}><TbEye size={16} /></button>
                     {canEdit && <button onClick={() => navigate(`/edit/${report.id}`)} title="Edit" style={{ ...iconBtn, color: '#475569', borderColor: '#e2e8f0' }}><TbEdit size={16} /></button>}
                     {canEdit && (
                       <button onClick={() => togglePublic(report)} title={report.is_public ? 'Make private' : 'Share public link'}
@@ -535,7 +535,7 @@ const navBtnStyled = {
   color: '#475569', cursor: 'pointer', fontSize: 13, fontWeight: 500,
   transition: 'all 0.15s',
 };
-const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: '#3b82f6', color: '#fff', cursor: 'pointer' };
+const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: '#7c3aed', color: '#fff', cursor: 'pointer' };
 const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer' };
 const iconBtn = { background: 'none', border: '1px solid', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
 const cardStyle = { backgroundColor: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.15s', overflow: 'hidden' };

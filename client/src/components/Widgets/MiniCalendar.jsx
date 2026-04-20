@@ -71,8 +71,8 @@ export default memo(function MiniCalendar({ value, onChange, min, max, rangeStar
               style={{
                 textAlign: 'center', padding: '3px 0', borderRadius: sel ? 4 : 0,
                 cursor: day && !disabled ? 'pointer' : 'default',
-                backgroundColor: sel ? '#3b82f6' : inRange ? '#dbeafe' : 'transparent',
-                color: sel ? '#fff' : disabled ? '#d1d5db' : inRange ? '#1e40af' : '#334155',
+                backgroundColor: sel ? '#7c3aed' : inRange ? '#ede9fe' : 'transparent',
+                color: sel ? '#fff' : disabled ? '#d1d5db' : inRange ? '#6d28d9' : '#334155',
                 fontWeight: sel ? 600 : 400, fontSize: 11,
               }}
             >

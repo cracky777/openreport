@@ -1,7 +1,7 @@
 export default function ShapeWidget({ config }) {
   const shape = config?.shape || 'square';
-  const fill = config?.shapeFill || '#3b82f6';
-  const stroke = config?.shapeStroke || '#1e40af';
+  const fill = config?.shapeFill || '#7c3aed';
+  const stroke = config?.shapeStroke || '#6d28d9';
   const strokeWidth = config?.shapeStrokeWidth ?? 2;
   const opacity = config?.shapeOpacity ?? 100;
 
@@ -12,7 +12,7 @@ export default function ShapeWidget({ config }) {
         <div style={{
           width: '100%',
           height: thickness,
-          backgroundColor: config?.lineColor || '#1e40af',
+          backgroundColor: config?.lineColor || '#6d28d9',
         }} />
       </div>
     );

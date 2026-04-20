@@ -411,13 +411,13 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 onClick={() => updateConfig('barDirection', d.value)}
                 style={{
                   padding: '5px 7px', border: '1px solid',
-                  borderColor: dir === d.value ? '#3b82f6' : '#e2e8f0',
+                  borderColor: dir === d.value ? '#7c3aed' : '#e2e8f0',
                   borderRadius: 4, cursor: 'pointer',
-                  background: dir === d.value ? '#eff6ff' : '#fff',
+                  background: dir === d.value ? '#f5f3ff' : '#fff',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
               >
-                <TbChartBar size={16} style={{ transform: `rotate(${d.rotate}deg)`, color: dir === d.value ? '#3b82f6' : '#94a3b8' }} />
+                <TbChartBar size={16} style={{ transform: `rotate(${d.rotate}deg)`, color: dir === d.value ? '#7c3aed' : '#94a3b8' }} />
               </button>
             ))}
           </div>
@@ -529,11 +529,11 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               onChange={(v) => updateConfig('slicerFontColor', v)} />
           </Field>
           <Field label="Selected color">
-            <ColorInput value={widget.config?.slicerSelectedColor || '#3b82f6'}
+            <ColorInput value={widget.config?.slicerSelectedColor || '#7c3aed'}
               onChange={(v) => updateConfig('slicerSelectedColor', v)} />
           </Field>
           <Field label="Selected bg">
-            <ColorInput value={widget.config?.slicerSelectedBg || '#eff6ff'}
+            <ColorInput value={widget.config?.slicerSelectedBg || '#f5f3ff'}
               onChange={(v) => updateConfig('slicerSelectedBg', v)} />
           </Field>
         </Section>
@@ -972,7 +972,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           {widget.config?.shape === 'line' && (
             <>
               <Field label="Color">
-                <ColorInput value={widget.config?.lineColor || '#1e40af'}
+                <ColorInput value={widget.config?.lineColor || '#6d28d9'}
                   onChange={(v) => updateConfig('lineColor', v)} />
               </Field>
               <Field label="Thickness" vertical>
@@ -984,11 +984,11 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           {widget.config?.shape === 'arrow' && (
             <>
               <Field label="Fill">
-                <ColorInput value={widget.config?.shapeFill || '#3b82f6'}
+                <ColorInput value={widget.config?.shapeFill || '#7c3aed'}
                   onChange={(v) => updateConfig('shapeFill', v)} />
               </Field>
               <Field label="Stroke">
-                <ColorInput value={widget.config?.shapeStroke || '#1e40af'}
+                <ColorInput value={widget.config?.shapeStroke || '#6d28d9'}
                   onChange={(v) => updateConfig('shapeStroke', v)} />
               </Field>
               <Field label="Stroke width">
@@ -1152,7 +1152,7 @@ function ColorInput({ value, onChange }) {
           width: 22, height: 22, border: '1px solid #e2e8f0', borderRadius: 3,
           cursor: 'pointer', fontSize: 11, lineHeight: 1,
           background: isTransparent ? '#fff' : 'repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 50%/12px 12px',
-          color: isTransparent ? '#3b82f6' : '#94a3b8',
+          color: isTransparent ? '#7c3aed' : '#94a3b8',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           padding: 0, flexShrink: 0,
         }}

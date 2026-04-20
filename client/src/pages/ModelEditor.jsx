@@ -240,7 +240,7 @@ export default function ModelEditor() {
                 style={{
                   padding: '6px 14px', fontSize: 12, fontWeight: step === i ? 700 : 400,
                   border: '1px solid #e2e8f0', borderRadius: i === 0 ? '6px 0 0 6px' : i === 2 ? '0 6px 6px 0' : 0,
-                  background: step === i ? '#3b82f6' : '#fff',
+                  background: step === i ? '#7c3aed' : '#fff',
                   color: step === i ? '#fff' : '#475569', cursor: 'pointer',
                 }}
               >
@@ -373,7 +373,7 @@ export default function ModelEditor() {
                         <td style={tdStyle}>{d.table}</td>
                         <td style={tdStyle}>{d.column}</td>
                         <td style={tdStyle}>
-                          <span style={{ ...badge, background: '#eff6ff', color: '#3b82f6' }}>{d.type}</span>
+                          <span style={{ ...badge, background: '#f5f3ff', color: '#7c3aed' }}>{d.type}</span>
                         </td>
                         <td style={tdStyle}>
                           <input
@@ -490,7 +490,7 @@ export default function ModelEditor() {
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#f8fafc', borderRadius: 6, fontSize: 13 }}>
                       <span style={{ fontWeight: 600 }}>{j.from_table}</span>
                       <span style={{ color: '#64748b' }}>.{j.from_column}</span>
-                      <span style={{ ...badge, background: '#eff6ff', color: '#3b82f6' }}>{j.type}</span>
+                      <span style={{ ...badge, background: '#f5f3ff', color: '#7c3aed' }}>{j.type}</span>
                       <span style={{ fontWeight: 600 }}>{j.to_table}</span>
                       <span style={{ color: '#64748b' }}>.{j.to_column}</span>
                       <button onClick={() => setJoins((prev) => prev.filter((_, idx) => idx !== i))} style={{ ...removeBtn, marginLeft: 'auto' }}>x</button>
@@ -521,7 +521,7 @@ const headerStyle = {
 const backStyle = { display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 500 };
 const primaryBtn = {
   padding: '8px 16px', fontSize: 14, fontWeight: 600, border: 'none',
-  borderRadius: 6, background: '#3b82f6', color: '#fff', cursor: 'pointer',
+  borderRadius: 6, background: '#7c3aed', color: '#fff', cursor: 'pointer',
 };
 const cardStyle = { backgroundColor: '#fff', padding: 20, borderRadius: 8, border: '1px solid #e2e8f0' };
 const cardTitle = { fontSize: 15, fontWeight: 600, color: '#0f172a', marginBottom: 12 };

@@ -29,8 +29,8 @@ export const WIDGET_TYPES = {
 export const OBJECT_SUB_TYPES = [
   { value: 'obj_text', label: 'Text', icon: TbText, type: 'text' },
   { value: 'obj_line', label: 'Line', icon: TbMinus, type: 'shape', size: { w: 300, h: 30 }, config: { shape: 'line', transparentBg: true, borderEnabled: false, borderRadius: 0 } },
-  { value: 'obj_square', label: 'Square', icon: TbSquare, type: 'shape', config: { shape: 'square', backgroundColor: '#3b82f6', borderColor: '#1e40af' } },
-  { value: 'obj_round', label: 'Round', icon: TbCircle, type: 'shape', config: { shape: 'round', backgroundColor: '#3b82f6', borderColor: '#1e40af' } },
+  { value: 'obj_square', label: 'Square', icon: TbSquare, type: 'shape', config: { shape: 'square', backgroundColor: '#7c3aed', borderColor: '#6d28d9' } },
+  { value: 'obj_round', label: 'Round', icon: TbCircle, type: 'shape', config: { shape: 'round', backgroundColor: '#7c3aed', borderColor: '#6d28d9' } },
   { value: 'obj_arrow', label: 'Arrow', icon: TbArrowRight, type: 'shape', config: { shape: 'arrow', transparentBg: true, borderEnabled: false } },
 ];
 

@@ -75,7 +75,7 @@ export default function Models() {
               {datasources.length === 0 && (
                 <p style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>
                   No data sources configured.{' '}
-                  <button onClick={() => navigate('/datasources')} style={{ color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>
+                  <button onClick={() => navigate('/datasources')} style={{ color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>
                     Add one first
                   </button>
                 </p>
@@ -138,7 +138,7 @@ const headerStyle = {
 const backStyle = { display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 500 };
 const primaryBtn = {
   padding: '8px 16px', fontSize: 14, fontWeight: 600, border: 'none',
-  borderRadius: 6, background: '#3b82f6', color: '#fff', cursor: 'pointer',
+  borderRadius: 6, background: '#7c3aed', color: '#fff', cursor: 'pointer',
 };
 const secondaryBtn = {
   padding: '8px 16px', fontSize: 14, background: '#fff', color: '#475569',

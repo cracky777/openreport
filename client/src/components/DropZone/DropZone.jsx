@@ -85,10 +85,10 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
         onDrop={handleDrop}
         style={{
           minHeight: 36,
-          border: dropIdx != null ? '2px dashed #3b82f6' : '1px dashed #cbd5e1',
+          border: dropIdx != null ? '2px dashed #7c3aed' : '1px dashed #cbd5e1',
           borderRadius: 6,
           padding: 4,
-          backgroundColor: dropIdx != null ? '#eff6ff' : '#fafafa',
+          backgroundColor: dropIdx != null ? '#f5f3ff' : '#fafafa',
           display: 'flex',
           flexDirection: 'column',
           gap: 2,
@@ -105,13 +105,13 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
               onDragEnd={endItemDrag}
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDrop(i); }}
             >
-              {showBar && <div style={{ height: 2, background: '#3b82f6', borderRadius: 1, marginBottom: 2 }} />}
+              {showBar && <div style={{ height: 2, background: '#7c3aed', borderRadius: 1, marginBottom: 2 }} />}
               <span title={missing ? undefined : getTooltip(field)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 3,
                   fontSize: 11, padding: '3px 6px', borderRadius: 4,
-                  background: missing ? '#fef2f2' : isDim ? '#eff6ff' : '#f0fdf4',
-                  color: missing ? '#dc2626' : isDim ? '#3b82f6' : '#16a34a',
+                  background: missing ? '#fef2f2' : isDim ? '#f5f3ff' : '#f0fdf4',
+                  color: missing ? '#dc2626' : isDim ? '#7c3aed' : '#16a34a',
                   fontWeight: 500, opacity: isDragging ? 0.4 : 1,
                   cursor: 'grab', userSelect: 'none',
                 }}
@@ -126,7 +126,7 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
         })}
         {/* Drop indicator at end */}
         {dropIdx === fields.length && !(draggedField && dragIdx === fields.length - 1) && (
-          <div style={{ height: 2, background: '#3b82f6', borderRadius: 1 }} />
+          <div style={{ height: 2, background: '#7c3aed', borderRadius: 1 }} />
         )}
         {/* Empty zone placeholder */}
         {fields.length === 0 && dropIdx == null && (

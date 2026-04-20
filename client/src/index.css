@@ -38,8 +38,8 @@ body {
 }
 
 .react-grid-item:hover > .react-resizable-handle::after {
-  border-right-color: #3b82f6;
-  border-bottom-color: #3b82f6;
+  border-right-color: #7c3aed;
+  border-bottom-color: #7c3aed;
 }
 
 @keyframes pulse {

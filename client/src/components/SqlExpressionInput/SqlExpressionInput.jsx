@@ -159,14 +159,14 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
               onMouseEnter={() => setSelectedIdx(i)}
               style={{
                 ...suggestionItem,
-                backgroundColor: i === selectedIdx ? '#eff6ff' : 'transparent',
+                backgroundColor: i === selectedIdx ? '#f5f3ff' : 'transparent',
               }}
             >
               <span style={{
                 fontSize: 9, fontWeight: 700, marginRight: 6, padding: '0 3px',
                 borderRadius: 2,
-                backgroundColor: s.type === 'dim' ? '#dbeafe' : '#dcfce7',
-                color: s.type === 'dim' ? '#3b82f6' : '#16a34a',
+                backgroundColor: s.type === 'dim' ? '#ede9fe' : '#dcfce7',
+                color: s.type === 'dim' ? '#7c3aed' : '#16a34a',
               }}>
                 {s.type === 'dim' ? 'DIM' : 'MES'}
               </span>

@@ -33,9 +33,9 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
                 onClick={() => update('viewMode', mode.value)}
                 style={{
                   ...presetBtn,
-                  background: (settings.viewMode || 'fitToWidth') === mode.value ? '#eff6ff' : '#fff',
-                  borderColor: (settings.viewMode || 'fitToWidth') === mode.value ? '#3b82f6' : '#e2e8f0',
-                  color: (settings.viewMode || 'fitToWidth') === mode.value ? '#3b82f6' : '#475569',
+                  background: (settings.viewMode || 'fitToWidth') === mode.value ? '#f5f3ff' : '#fff',
+                  borderColor: (settings.viewMode || 'fitToWidth') === mode.value ? '#7c3aed' : '#e2e8f0',
+                  color: (settings.viewMode || 'fitToWidth') === mode.value ? '#7c3aed' : '#475569',
                   fontWeight: (settings.viewMode || 'fitToWidth') === mode.value ? 600 : 400,
                 }}
               >
@@ -78,8 +78,8 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
                 onClick={() => { update('pageWidth', preset.w); update('pageHeight', preset.h); }}
                 style={{
                   ...presetBtn,
-                  background: settings.pageWidth === preset.w && settings.pageHeight === preset.h ? '#eff6ff' : '#fff',
-                  borderColor: settings.pageWidth === preset.w && settings.pageHeight === preset.h ? '#3b82f6' : '#e2e8f0',
+                  background: settings.pageWidth === preset.w && settings.pageHeight === preset.h ? '#f5f3ff' : '#fff',
+                  borderColor: settings.pageWidth === preset.w && settings.pageHeight === preset.h ? '#7c3aed' : '#e2e8f0',
                 }}
               >
                 {preset.label}
@@ -157,8 +157,8 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
                         onClick={() => update('backgroundSize', mode)}
                         style={{
                           ...presetBtn,
-                          background: (settings.backgroundSize || 'cover') === mode ? '#eff6ff' : '#fff',
-                          borderColor: (settings.backgroundSize || 'cover') === mode ? '#3b82f6' : '#e2e8f0',
+                          background: (settings.backgroundSize || 'cover') === mode ? '#f5f3ff' : '#fff',
+                          borderColor: (settings.backgroundSize || 'cover') === mode ? '#7c3aed' : '#e2e8f0',
                         }}
                       >
                         {mode}

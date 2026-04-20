@@ -136,7 +136,7 @@ export default function Datasources() {
           <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv"
             style={{ display: 'none' }} onChange={handleFileUpload} />
           <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
-            style={{ ...secondaryBtn, display: 'flex', alignItems: 'center', gap: 4, color: '#3b82f6', borderColor: '#bfdbfe' }}>
+            style={{ ...secondaryBtn, display: 'flex', alignItems: 'center', gap: 4, color: '#7c3aed', borderColor: '#c4b5fd' }}>
             <TbUpload size={16} /> {uploading ? 'Uploading...' : 'Upload File'}
           </button>
           <button onClick={() => setShowForm(true)} style={primaryBtn}>+ New Connection</button>
@@ -236,7 +236,7 @@ export default function Datasources() {
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => { setShowForm(false); setTestResult(null); }} style={secondaryBtn}>Cancel</button>
-              <button onClick={handleTest} disabled={testing} style={{ ...secondaryBtn, color: '#3b82f6', borderColor: '#bfdbfe' }}>
+              <button onClick={handleTest} disabled={testing} style={{ ...secondaryBtn, color: '#7c3aed', borderColor: '#c4b5fd' }}>
                 {testing ? 'Testing...' : 'Test Connection'}
               </button>
               <button onClick={handleSave} disabled={saving} style={primaryBtn}>
@@ -312,7 +312,7 @@ const backStyle = {
 
 const primaryBtn = {
   padding: '8px 16px', fontSize: 14, fontWeight: 600, border: 'none',
-  borderRadius: 6, background: '#3b82f6', color: '#fff', cursor: 'pointer',
+  borderRadius: 6, background: '#7c3aed', color: '#fff', cursor: 'pointer',
 };
 
 const secondaryBtn = {

@@ -199,7 +199,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                       <span style={{ position: 'relative', paddingRight: 14 }}>
                         {displayName}
                         {sortCol === col && (
-                          <span style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: '#3b82f6' }}>
+                          <span style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: '#7c3aed' }}>
                             {sortDir === 'asc' ? '▲' : '▼'}
                           </span>
                         )}

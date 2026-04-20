@@ -652,8 +652,8 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
                       style={{
                         ...dragItem,
                         paddingLeft: 12,
-                        backgroundColor: editingDim === d.name ? '#eff6ff' : (selectedDims.includes(d.name) || columnDims.includes(d.name) || groupBy.includes(d.name)) ? '#eff6ff' : 'transparent',
-                        borderLeft: editingDim === d.name ? '3px solid #3b82f6' : (selectedDims.includes(d.name) || columnDims.includes(d.name) || groupBy.includes(d.name)) ? '3px solid #3b82f6' : '3px solid transparent',
+                        backgroundColor: editingDim === d.name ? '#f5f3ff' : (selectedDims.includes(d.name) || columnDims.includes(d.name) || groupBy.includes(d.name)) ? '#f5f3ff' : 'transparent',
+                        borderLeft: editingDim === d.name ? '3px solid #7c3aed' : (selectedDims.includes(d.name) || columnDims.includes(d.name) || groupBy.includes(d.name)) ? '3px solid #7c3aed' : '3px solid transparent',
                       }}
                     >
                       <span style={dragHandle}>⠿</span>
@@ -684,7 +684,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
         if (!d) return null;
         return (
           <div style={{ ...editPanelStyle, flexShrink: 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#3b82f6', marginBottom: 6 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#7c3aed', marginBottom: 6 }}>
               Edit: {d.label || d.column}
             </div>
             <div style={editRow}>
@@ -765,7 +765,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
                   if (onModelUpdate) onModelUpdate();
                   setEditingDim(null);
                 } catch (err) { console.error(err); }
-              }} style={{ ...editSaveBtn, background: '#3b82f6' }}>Save</button>
+              }} style={{ ...editSaveBtn, background: '#7c3aed' }}>Save</button>
             </div>
           </div>
         );
@@ -803,7 +803,7 @@ const sectionTitle = {
   fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 0,
 };
 const loadingDot = {
-  width: 8, height: 8, borderRadius: '50%', background: '#3b82f6',
+  width: 8, height: 8, borderRadius: '50%', background: '#7c3aed',
   animation: 'pulse 1s infinite',
 };
 const listBox = {
@@ -825,7 +825,7 @@ const dragHandle = {
   fontSize: 10, color: '#cbd5e1', cursor: 'grab',
 };
 const dimTag = {
-  fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#eff6ff', color: '#3b82f6', fontWeight: 600,
+  fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#f5f3ff', color: '#7c3aed', fontWeight: 600,
 };
 const measTag = {
   fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#f0fdf4', color: '#16a34a', fontWeight: 600,

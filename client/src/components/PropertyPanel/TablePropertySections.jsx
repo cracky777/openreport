@@ -90,7 +90,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
           <div style={{ display: 'flex', gap: 2 }}>
             {[['left', 'L'], ['center', 'C'], ['right', 'R']].map(([v, l]) => (
               <button key={v} onClick={() => update('header.alignment', v)}
-                style={{ ...toggleBtn, background: get('header', 'alignment', 'left') === v ? '#3b82f6' : '#fff', color: get('header', 'alignment', 'left') === v ? '#fff' : '#475569' }}>
+                style={{ ...toggleBtn, background: get('header', 'alignment', 'left') === v ? '#7c3aed' : '#fff', color: get('header', 'alignment', 'left') === v ? '#fff' : '#475569' }}>
                 {l}
               </button>
             ))}
@@ -138,7 +138,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
           <div style={{ display: 'flex', gap: 2 }}>
             {[['auto', 'Auto'], ['left', 'L'], ['center', 'C'], ['right', 'R']].map(([v, l]) => (
               <button key={v} onClick={() => update('values.alignment', v)}
-                style={{ ...toggleBtn, background: get('values', 'alignment', 'auto') === v ? '#3b82f6' : '#fff', color: get('values', 'alignment', 'auto') === v ? '#fff' : '#475569' }}>
+                style={{ ...toggleBtn, background: get('values', 'alignment', 'auto') === v ? '#7c3aed' : '#fff', color: get('values', 'alignment', 'auto') === v ? '#fff' : '#475569' }}>
                 {l}
               </button>
             ))}
@@ -404,7 +404,7 @@ function ConditionalFormatEditor({ rules, onChange, inputStyle, Field, SubSectio
   const ColorInput = CI || (({ value, onChange: oc }) => <input type="color" value={value} onChange={(e) => oc(e.target.value)} />);
   const addRule = (type) => {
     const defaults = {
-      dataBar: { type: 'dataBar', dataBarColor: '#3b82f6', dataBarBgColor: '#eff6ff' },
+      dataBar: { type: 'dataBar', dataBarColor: '#7c3aed', dataBarBgColor: '#f5f3ff' },
       colorScale: { type: 'colorScale', minColor: '#dcfce7', maxColor: '#dc2626' },
       textColor: { type: 'textColor', minColor: '#dc2626', maxColor: '#16a34a', minValue: null, maxValue: null },
       icon: { type: 'icon', lowIcon: '↓', lowColor: '#dc2626', lowValue: null, midIcon: '→', midColor: '#f59e0b', midValue: null, highIcon: '↑', highColor: '#16a34a', highValue: null },
@@ -425,7 +425,7 @@ function ConditionalFormatEditor({ rules, onChange, inputStyle, Field, SubSectio
           {rule.type === 'dataBar' && (
             <>
               <Field label="Bar color">
-                <ColorInput value={rule.dataBarColor || '#3b82f6'}
+                <ColorInput value={rule.dataBarColor || '#7c3aed'}
                   onChange={(v) => updateRule(i, 'dataBarColor', v)} />
               </Field>
             </>
@@ -532,7 +532,7 @@ function IconLevelEditor({ label, icon, color, value, valuePlaceholder, onIconCh
             <div style={presetDropdown}>
               {ICON_PRESETS.map((ic) => (
                 <button key={ic} onClick={() => { onIconChange(ic); setShowPresets(false); }}
-                  style={{ width: 26, height: 26, border: 'none', background: icon === ic ? '#eff6ff' : '#fff', cursor: 'pointer', fontSize: 14, borderRadius: 3 }}>
+                  style={{ width: 26, height: 26, border: 'none', background: icon === ic ? '#f5f3ff' : '#fff', cursor: 'pointer', fontSize: 14, borderRadius: 3 }}>
                   {ic}
                 </button>
               ))}

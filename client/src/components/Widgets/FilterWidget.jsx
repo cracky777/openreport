@@ -54,8 +54,8 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
   const orientation = config?.orientation || 'vertical';
   const fontSize = config?.slicerFontSize || 12;
   const fontColor = config?.slicerFontColor || '#0f172a';
-  const selectedColor = config?.slicerSelectedColor || '#3b82f6';
-  const selectedBg = config?.slicerSelectedBg || '#eff6ff';
+  const selectedColor = config?.slicerSelectedColor || '#7c3aed';
+  const selectedBg = config?.slicerSelectedBg || '#f5f3ff';
 
   const filteredValues = useMemo(() => {
     if (!search) return values;
@@ -132,7 +132,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
             <input ref={fromRef} type="text" value={startDate ? formatDate(startDate) : ''}
               readOnly placeholder="Select date"
               onClick={() => setCalendarTarget(calendarTarget === 'from' ? null : 'from')}
-              style={{ ...dateInputStyle, cursor: 'pointer', backgroundColor: calendarTarget === 'from' ? '#eff6ff' : '#fff' }} />
+              style={{ ...dateInputStyle, cursor: 'pointer', backgroundColor: calendarTarget === 'from' ? '#f5f3ff' : '#fff' }} />
           </div>
           {isHoriz && <span style={{ fontSize: 12, color: '#94a3b8', paddingBottom: 6 }}>→</span>}
           <div style={{ flex: isHoriz ? 1 : undefined }}>
@@ -140,7 +140,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
             <input ref={toRef} type="text" value={endDate ? formatDate(endDate) : ''}
               readOnly placeholder="Select date"
               onClick={() => setCalendarTarget(calendarTarget === 'to' ? null : 'to')}
-              style={{ ...dateInputStyle, cursor: 'pointer', backgroundColor: calendarTarget === 'to' ? '#eff6ff' : '#fff' }} />
+              style={{ ...dateInputStyle, cursor: 'pointer', backgroundColor: calendarTarget === 'to' ? '#f5f3ff' : '#fff' }} />
           </div>
         </div>
         {/* Calendar popup — rendered in body via portal */}
@@ -445,7 +445,7 @@ const searchInputStyle = {
 };
 
 const linkBtn = {
-  background: 'none', border: 'none', color: '#3b82f6',
+  background: 'none', border: 'none', color: '#7c3aed',
   fontSize: 11, cursor: 'pointer', padding: 0,
 };
 

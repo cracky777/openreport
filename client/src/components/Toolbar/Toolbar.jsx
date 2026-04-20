@@ -66,7 +66,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
               target="_blank"
               rel="noopener noreferrer"
               title="Edit model (new tab)"
-              style={{ color: '#3b82f6', fontSize: 13, lineHeight: 1, textDecoration: 'none' }}
+              style={{ color: '#7c3aed', fontSize: 13, lineHeight: 1, textDecoration: 'none' }}
             >
               ✎
             </a>
@@ -91,8 +91,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
               title={`Add ${label}`}
               style={{
                 padding: '6px 10px', fontSize: 13,
-                border: openMenu === type ? '1px solid #3b82f6' : '1px solid #e2e8f0',
-                borderRadius: 6, background: openMenu === type ? '#eff6ff' : '#fff',
+                border: openMenu === type ? '1px solid #7c3aed' : '1px solid #e2e8f0',
+                borderRadius: 6, background: openMenu === type ? '#f5f3ff' : '#fff',
                 cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
                 transition: 'all 0.12s',
               }}
@@ -172,8 +172,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             title="Add object"
             style={{
               padding: '6px 10px', fontSize: 13,
-              border: openMenu === 'objects' ? '1px solid #3b82f6' : '1px solid #e2e8f0',
-              borderRadius: 6, background: openMenu === 'objects' ? '#eff6ff' : '#fff',
+              border: openMenu === 'objects' ? '1px solid #7c3aed' : '1px solid #e2e8f0',
+              borderRadius: 6, background: openMenu === 'objects' ? '#f5f3ff' : '#fff',
               cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
               transition: 'all 0.12s',
             }}
@@ -217,7 +217,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         disabled={saving}
         style={{
           padding: '8px 20px', fontSize: 14, fontWeight: 600, border: 'none',
-          borderRadius: 6, background: '#3b82f6', color: '#fff',
+          borderRadius: 6, background: '#7c3aed', color: '#fff',
           cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1,
         }}
       >

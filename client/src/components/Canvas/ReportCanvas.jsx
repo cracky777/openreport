@@ -63,12 +63,12 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             : (buildGradientCSS(widget.config?.gradientBg) || widget.config?.backgroundColor || '#ffffff'),
           borderRadius: (widget.type === 'shape' && widget.config?.shape === 'round') ? '50%' : (widget.config?.borderRadius ?? 8),
           border: isSelected
-            ? '2px solid #3b82f6'
+            ? '2px solid #7c3aed'
             : (widget.config?.borderEnabled === false
                 ? 'none'
                 : `1px solid ${widget.config?.borderColor || '#e2e8f0'}`),
           boxShadow: [
-            isSelected ? '0 0 0 3px rgba(59,130,246,0.15)' : null,
+            isSelected ? '0 0 0 3px rgba(124,58,237,0.15)' : null,
             buildShadowCSS(widget.config?.shadow),
             !isSelected && !widget.config?.shadow?.enabled && widget.config?.borderEnabled !== false ? '0 1px 3px rgba(0,0,0,0.05)' : null,
           ].filter(Boolean).join(', ') || 'none',
@@ -334,7 +334,7 @@ const spinnerStyle = {
   width: 16,
   height: 16,
   border: '2px solid #e2e8f0',
-  borderTopColor: '#3b82f6',
+  borderTopColor: '#7c3aed',
   borderRadius: '50%',
   animation: 'spin 0.8s linear infinite',
 };

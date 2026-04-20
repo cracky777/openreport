@@ -10,7 +10,7 @@ const DEFAULT_MAX_VISIBLE = 8;
 const JOIN_TYPES = ['LEFT', 'INNER', 'RIGHT', 'FULL'];
 const TABLE_TYPES = [null, 'dimension', 'fact']; // null = unset, cycle through
 const TABLE_TYPE_COLORS = {
-  dimension: { header: '#1e40af', border: '#3b82f6', badge: '#3b82f6', label: 'DIM' },
+  dimension: { header: '#6d28d9', border: '#7c3aed', badge: '#7c3aed', label: 'DIM' },
   fact: { header: '#9a3412', border: '#f97316', badge: '#f97316', label: 'FACT' },
 };
 
@@ -339,16 +339,16 @@ export default function SchemaCanvas({
           {/* Arrow markers */}
           <defs>
             <marker id="arrow-right" viewBox="0 0 10 10" refX="8" refY="5" markerWidth={8} markerHeight={8} orient="auto-start-reverse">
-              <path d="M 0 1 L 8 5 L 0 9 z" fill="#3b82f6" />
+              <path d="M 0 1 L 8 5 L 0 9 z" fill="#7c3aed" />
             </marker>
             <marker id="arrow-left" viewBox="0 0 10 10" refX="2" refY="5" markerWidth={8} markerHeight={8} orient="auto-start-reverse">
-              <path d="M 10 1 L 2 5 L 10 9 z" fill="#3b82f6" />
+              <path d="M 10 1 L 2 5 L 10 9 z" fill="#7c3aed" />
             </marker>
             <marker id="arrow-both-start" viewBox="0 0 10 10" refX="2" refY="5" markerWidth={8} markerHeight={8} orient="auto-start-reverse">
-              <path d="M 10 1 L 2 5 L 10 9 z" fill="#3b82f6" />
+              <path d="M 10 1 L 2 5 L 10 9 z" fill="#7c3aed" />
             </marker>
             <marker id="arrow-both-end" viewBox="0 0 10 10" refX="8" refY="5" markerWidth={8} markerHeight={8} orient="auto-start-reverse">
-              <path d="M 0 1 L 8 5 L 0 9 z" fill="#3b82f6" />
+              <path d="M 0 1 L 8 5 L 0 9 z" fill="#7c3aed" />
             </marker>
           </defs>
 
@@ -387,8 +387,8 @@ export default function SchemaCanvas({
             }
 
             // Join type colors
-            const joinColors = { LEFT: '#3b82f6', INNER: '#8b5cf6', RIGHT: '#f59e0b', FULL: '#10b981' };
-            const color = joinColors[join.type] || '#3b82f6';
+            const joinColors = { LEFT: '#7c3aed', INNER: '#8b5cf6', RIGHT: '#f59e0b', FULL: '#10b981' };
+            const color = joinColors[join.type] || '#7c3aed';
 
             return (
               <g key={`join-${i}`}>
@@ -424,7 +424,7 @@ export default function SchemaCanvas({
           {/* Drag line preview */}
           {linkDrag && (
             <line x1={linkDrag.fromX} y1={linkDrag.fromY} x2={linkDrag.mouseX} y2={linkDrag.mouseY}
-              stroke="#3b82f6" strokeWidth={2} strokeDasharray="4,4" pointerEvents="none" />
+              stroke="#7c3aed" strokeWidth={2} strokeDasharray="4,4" pointerEvents="none" />
           )}
 
           {/* Tables */}
@@ -528,7 +528,7 @@ export default function SchemaCanvas({
                     <g key={col.column_name}>
                       {(isDim || isMeas) && (
                         <rect x={1} y={HEADER_HEIGHT + TYPE_BAR_HEIGHT + ci * ROW_HEIGHT} width={TABLE_WIDTH - 2} height={ROW_HEIGHT}
-                          fill={isDim && isDate ? '#fef3c7' : isDim ? '#eff6ff' : '#f0fdf4'} />
+                          fill={isDim && isDate ? '#fef3c7' : isDim ? '#f5f3ff' : '#f0fdf4'} />
                       )}
                       {/* Key icon for id columns */}
                       {isId && (
@@ -543,7 +543,7 @@ export default function SchemaCanvas({
 
                       {/* D / M buttons */}
                       <text x={TABLE_WIDTH - 36} y={cy + 4} fontSize={9}
-                        fill={isDim ? '#3b82f6' : '#cbd5e1'} fontWeight={700}
+                        fill={isDim ? '#7c3aed' : '#cbd5e1'} fontWeight={700}
                         style={{ cursor: 'pointer' }}
                         onClick={(e) => { e.stopPropagation(); onAddDimension(tableName, col); }}>
                         D
@@ -588,7 +588,7 @@ export default function SchemaCanvas({
                       y={HEADER_HEIGHT + TYPE_BAR_HEIGHT + visibleCols.length * ROW_HEIGHT + 16}
                       textAnchor="middle"
                       fontSize={10}
-                      fill="#3b82f6"
+                      fill="#7c3aed"
                       fontWeight={600}
                     >
                       {expanded ? '▲ Collapse' : `▼ Show ${hiddenCount} more columns`}

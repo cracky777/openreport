@@ -74,7 +74,7 @@ export default function Login() {
           {isRegister ? 'Already have an account?' : "Don't have an account?"}{' '}
           <button
             onClick={() => { setIsRegister(!isRegister); setError(''); }}
-            style={{ color: '#3b82f6', border: 'none', background: 'none', cursor: 'pointer', fontWeight: 500 }}
+            style={{ color: '#7c3aed', border: 'none', background: 'none', cursor: 'pointer', fontWeight: 500 }}
           >
             {isRegister ? 'Sign in' : 'Register'}
           </button>
@@ -114,7 +114,7 @@ const inputStyle = {
 const buttonStyle = {
   width: '100%',
   padding: '10px 0',
-  backgroundColor: '#3b82f6',
+  backgroundColor: '#7c3aed',
   color: '#fff',
   border: 'none',
   borderRadius: 6,

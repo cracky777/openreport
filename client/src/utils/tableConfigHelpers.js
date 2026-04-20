@@ -112,7 +112,7 @@ export function getConditionalStyle(rules, value, colValues) {
       const nums = colValues.map((v) => parseFloat(v)).filter((n) => !isNaN(n));
       const max = Math.max(...nums, 1);
       const pct = Math.max(0, Math.min(100, (num / max) * 100));
-      style.backgroundImage = `linear-gradient(to right, ${rule.dataBarColor || '#3b82f6'}20 ${pct}%, transparent ${pct}%)`;
+      style.backgroundImage = `linear-gradient(to right, ${rule.dataBarColor || '#7c3aed'}20 ${pct}%, transparent ${pct}%)`;
     }
     if (rule.type === 'textColor' && !isNaN(num)) {
       const nums = colValues.map((v) => parseFloat(v)).filter((n) => !isNaN(n));
