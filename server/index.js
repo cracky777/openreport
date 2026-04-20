@@ -22,7 +22,9 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: process.env.NODE_ENV === 'production'
+    ? (process.env.CORS_ORIGIN || true)
+    : 'http://localhost:5173',
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
@@ -61,11 +63,22 @@ app.use('/api/upload', fileUploadRoutes);
 const { setupCube } = require('./cube/cubeSetup');
 setupCube(app);
 
+// Serve React frontend in production
+const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
+if (fs.existsSync(clientDistPath)) {
+  app.use(express.static(clientDistPath));
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api/')) {
+      res.sendFile(path.join(clientDistPath, 'index.html'));
+    }
+  });
+}
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', version: '0.1.0' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Open Report API running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Open Report running on http://0.0.0.0:${PORT}`);
 });
