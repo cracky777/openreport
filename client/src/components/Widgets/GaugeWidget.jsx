@@ -49,6 +49,12 @@ export default memo(function GaugeWidget({ data, config, chartWidth, chartHeight
     return Math.max(0, Math.min(1, (value - min) / (max - min)));
   }, [value, min, max, hasData]);
 
+  // Threshold progress (0..1) clamped for visual marker — must run unconditionally (Rules of Hooks)
+  const thresholdProgress = useMemo(() => {
+    if (threshold === null || max === min) return null;
+    return Math.max(0, Math.min(1, (threshold - min) / (max - min)));
+  }, [threshold, min, max]);
+
   if (!hasData) {
     if (data?._rowCount === 0) {
       if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
@@ -56,12 +62,6 @@ export default memo(function GaugeWidget({ data, config, chartWidth, chartHeight
     }
     return <div style={emptyStyle}>Select a measure to display a gauge</div>;
   }
-
-  // Threshold progress (0..1) clamped for visual marker
-  const thresholdProgress = useMemo(() => {
-    if (threshold === null || max === min) return null;
-    return Math.max(0, Math.min(1, (threshold - min) / (max - min)));
-  }, [threshold, min, max]);
 
   if (subType === 'arc') {
     return <ArcGauge
