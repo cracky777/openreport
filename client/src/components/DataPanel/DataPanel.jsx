@@ -273,6 +273,8 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
             }).filter(Boolean);
 
             newData = { labels, barSeries, lineSeries };
+            newData._barMeasureLabel = cBarMeas.map((mn) => gl(mn, model.measures || [])).join(', ');
+            newData._lineMeasureLabel = cLineMeas.map((mn) => gl(mn, model.measures || [])).join(', ');
           }
         } else if (currentType === 'filter') {
           if (rows.length > 0) {
@@ -340,7 +342,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               if (mx !== undefined) newData.maxValue = mx;
             }
           }
-        } else if (currentType === 'pie') {
+        } else if (currentType === 'pie' || currentType === 'treemap') {
           if (rows.length > 0) {
             const keys = Object.keys(rows[0]);
             newData = {
@@ -387,6 +389,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         if (dims.length > 0) {
           const dimDef = (model.dimensions || []).find((x) => x.name === dims[0]);
           newData._dimName = dimDef?.name || dims[0];
+          newData._dimLabel = dimDef?.label || dimDef?.name || dims[0];
+        }
+        if (meass.length > 0) {
+          const m0 = (model.measures || []).find((x) => x.name === meass[0]);
+          newData._measureLabel = m0?.label || m0?.name || meass[0];
         }
         // Attach measure formats for widget rendering
         const measureFormats = {};

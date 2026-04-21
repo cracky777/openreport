@@ -129,16 +129,16 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
       legend: { show: false },
       xAxis: {
         type: 'value', show: showXAxis,
-        name: (config?.showXHeader ?? true) ? (config?.xAxisTitle ?? data._xLabel ?? '') : '', nameLocation: 'center', nameGap: 25,
+        name: (config?.showXAxisTitle ?? config?.showXHeader ?? true) ? (config?.xAxisTitle ?? data._xLabel ?? '') : '', nameLocation: 'center', nameGap: 25,
         nameTextStyle: { fontSize: config?.headerFontSize ?? 12, color: config?.headerColor || '#475569', fontWeight: config?.headerBold ? 'bold' : 'normal' },
-        axisLabel: { show: true },
+        axisLabel: { show: true, fontSize: config?.xAxisLabelFontSize ?? 11, color: config?.xAxisLabelColor || '#64748b' },
         splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } },
       },
       yAxis: {
         type: 'value', show: showYAxis,
-        name: (config?.showYHeader ?? true) ? (config?.yAxisTitle ?? data._yLabel ?? '') : '', nameLocation: 'center', nameGap: 35,
+        name: (config?.showYAxisTitle ?? config?.showYHeader ?? true) ? (config?.yAxisTitle ?? data._yLabel ?? '') : '', nameLocation: 'center', nameGap: 35,
         nameTextStyle: { fontSize: config?.headerFontSize ?? 12, color: config?.headerColor || '#475569', fontWeight: config?.headerBold ? 'bold' : 'normal' },
-        axisLabel: { show: true },
+        axisLabel: { show: true, fontSize: config?.yAxisLabelFontSize ?? 11, color: config?.yAxisLabelColor || '#64748b' },
         splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } },
       },
       series: seriesList,
@@ -151,7 +151,7 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
 
     return { option: opt, legendItems };
     } catch (e) { console.error('ScatterWidget error:', e); return { option: null, legendItems: [] }; }
-  }, [data, hasData, config?.color, showXAxis, showYAxis, symbolSize, showDataLabels, showLegend, legendPosition, hiddenSeries, highlightValue, config?.legendColors, config?.legendSymbols, config?.legendImages, config?.xAxisTitle, config?.yAxisTitle, config?.headerFontSize, config?.headerColor, config?.headerBold, config?.showXHeader, config?.showYHeader]);
+  }, [data, hasData, config?.color, showXAxis, showYAxis, symbolSize, showDataLabels, showLegend, legendPosition, hiddenSeries, highlightValue, config?.legendColors, config?.legendSymbols, config?.legendImages, config?.xAxisTitle, config?.yAxisTitle, config?.headerFontSize, config?.headerColor, config?.headerBold, config?.showXHeader, config?.showYHeader, config?.showXAxisTitle, config?.showYAxisTitle, config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];

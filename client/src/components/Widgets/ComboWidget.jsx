@@ -46,8 +46,9 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
   const hideZeros = config?.hideZeros ?? false;
   const gridLineStyle = config?.gridLineStyle || 'solid';
   const gridLineWidth = config?.gridLineWidth ?? 1;
-  const showSecondaryAxis = config?.showSecondaryAxis ?? false;
+  const showSecondaryAxis = config?.showSecondaryAxis ?? true;
   const smoothLine = config?.smooth ?? true;
+  const sortOrder = config?.sortOrder || 'none';
 
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
@@ -62,7 +63,20 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     const getColor = (name) => colorMap[name] || COLORS[0];
 
     let labels = [...data.labels];
+    let sortedIndices = labels.map((_, i) => i);
     const datePart = data._datePart;
+
+    // Sort by total bar value per category (lines are excluded from the sort ordering)
+    if (sortOrder === 'desc' || sortOrder === 'asc') {
+      const totals = labels.map((_, i) => {
+        let total = 0;
+        for (const s of (data.barSeries || [])) total += s.values[i] || 0;
+        return total;
+      });
+      sortedIndices.sort((a, b) => sortOrder === 'desc' ? totals[b] - totals[a] : totals[a] - totals[b]);
+      labels = sortedIndices.map((i) => labels[i]);
+    }
+
     const rawLabels = [...labels];
 
     if (datePart) {
@@ -72,6 +86,8 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     const series = [];
     const allLegendItems = [];
     let customYMax = undefined;
+    const earlyBarDir = config?.barDirection || 'vertical';
+    const earlyIsHoriz = earlyBarDir === 'horizontal' || earlyBarDir === 'horizontalInverse';
 
     // Bar series
     const barSeries = (data.barSeries || []).filter((s) => !hiddenSeries.has(s.name));
@@ -83,14 +99,14 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
 
       const nonZeroCounts = labels.map((_, li) => {
         let count = 0;
-        for (const s of barSeries) if ((s.values[li] || 0) !== 0) count++;
+        for (const s of barSeries) if ((s.values[sortedIndices[li]] || 0) !== 0) count++;
         return Math.max(count, 1);
       });
       const seriesNonZeroIndex = barSeries.map((s, si) => {
         return labels.map((_, li) => {
-          if ((s.values[li] || 0) === 0) return -1;
+          if ((s.values[sortedIndices[li]] || 0) === 0) return -1;
           let idx = 0;
-          for (let j = 0; j < si; j++) if ((barSeries[j].values[li] || 0) !== 0) idx++;
+          for (let j = 0; j < si; j++) if ((barSeries[j].values[sortedIndices[li]] || 0) !== 0) idx++;
           return idx;
         });
       });
@@ -100,30 +116,52 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
         allLegendItems.push({ name: s.name, color });
         const nzCounts = nonZeroCounts;
         const nzIndices = seriesNonZeroIndex[i];
+        const sortedValues = sortedIndices.map((idx) => s.values[idx] || 0);
 
         series.push({
           type: 'custom',
           name: s.name,
-          data: s.values.map((v, ci) => [ci, v]),
+          // Swap data order so axes match (xAxis=value in horizontal, xAxis=category in vertical)
+          data: earlyIsHoriz ? sortedValues.map((v, ci) => [v, ci]) : sortedValues.map((v, ci) => [ci, v]),
           itemStyle: { color },
           emphasis: { disabled: true },
           renderItem: (params, api) => {
-            const catIdx = api.value(0);
-            const value = api.value(1);
+            const v0 = api.value(0);
+            const v1 = api.value(1);
+            const catIdx = earlyIsHoriz ? v1 : v0;
+            const value = earlyIsHoriz ? v0 : v1;
             if (value === 0) return null;
             const nzCount = nzCounts[catIdx];
             const nzIdx = nzIndices[catIdx];
             if (nzIdx < 0) return null;
-            const bandWidth = api.size([1, 0])[0];
             const groupPad = 0.15;
             const barGap = nzCount > 1 ? 0.08 : 0;
+            const dimmed = highlightValue && rawLabels[catIdx] !== highlightValue;
+
+            if (earlyIsHoriz) {
+              const bandHeight = api.size([0, 1])[1];
+              const groupHeight = bandHeight * (1 - groupPad * 2);
+              const slotHeight = groupHeight / nzCount;
+              const barHeight = slotHeight * (1 - barGap);
+              const base = api.coord([0, catIdx]);
+              const top = api.coord([value, catIdx]);
+              const y = base[1] - bandHeight / 2 + bandHeight * groupPad + slotHeight * nzIdx + (slotHeight - barHeight) / 2;
+              const x = Math.min(base[0], top[0]);
+              const width = Math.abs(top[0] - base[0]);
+              return {
+                type: 'rect',
+                shape: { x, y, width, height: barHeight },
+                style: { ...api.style(), fill: color, opacity: dimmed ? 0.3 : 1 },
+              };
+            }
+
+            const bandWidth = api.size([1, 0])[0];
             const groupWidth = bandWidth * (1 - groupPad * 2);
             const slotWidth = groupWidth / nzCount;
             const barWidth = slotWidth * (1 - barGap);
             const base = api.coord([catIdx, 0]);
             const top = api.coord([catIdx, value]);
             const x = base[0] - bandWidth / 2 + bandWidth * groupPad + slotWidth * nzIdx + (slotWidth - barWidth) / 2;
-            const dimmed = highlightValue && rawLabels[catIdx] !== highlightValue;
             return {
               type: 'rect',
               shape: { x, y: top[1], width: barWidth, height: base[1] - top[1] },
@@ -140,7 +178,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
         series.push({
           type: 'bar',
           name: s.name,
-          data: s.values,
+          data: sortedIndices.map((idx) => s.values[idx] || 0),
           stack: isStacked ? 'bar' : undefined,
           itemStyle: { color },
           emphasis: { disabled: true },
@@ -163,7 +201,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
       series.push({
         type: 'line',
         name: s.name,
-        data: s.values,
+        data: sortedIndices.map((idx) => s.values[idx] || 0),
         yAxisIndex: showSecondaryAxis ? 1 : 0,
         smooth: smoothLine,
         lineStyle: { color, width: 2 },
@@ -196,16 +234,54 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
       });
     }
 
+    const yAxisInterval = config?.yAxisInterval;
+    const secondaryYAxisInterval = config?.secondaryYAxisInterval;
+    // Compute max for both bars and lines. Apply 10% headroom so nothing gets clipped at the top.
+    let barMax = customYMax || 0;
+    if (!customYMax) {
+      for (const s of (data.barSeries || [])) for (const v of s.values) if (v > barMax) barMax = v;
+    }
+    let lineMax = 0;
+    for (const s of (data.lineSeries || [])) for (const v of s.values) if (v > lineMax) lineMax = v;
+    // When secondary axis is on, each axis has its own scale.
+    // When off, both bars and lines share the primary axis — use the larger max so nothing gets clipped.
+    const leftRaw = showSecondaryAxis ? barMax : Math.max(barMax, lineMax);
+    const leftMax = leftRaw > 0 ? Math.ceil(leftRaw * 1.1) : undefined;
+    const rightMax = lineMax > 0 ? Math.ceil(lineMax * 1.1) : undefined;
+    const yAxisFontSize = config?.yAxisLabelFontSize ?? 11;
+    const yAxisColor = config?.yAxisLabelColor || '#64748b';
+    const secYAxisFontSize = config?.secondaryYAxisLabelFontSize ?? 11;
+    const secYAxisColor = config?.secondaryYAxisLabelColor || '#64748b';
+
+    // Axis title derivation: x = dim label, primary y = Bar values bucket, secondary y = Line values bucket
+    const showXTitle = config?.showXAxisTitle ?? true;
+    const showYTitle = config?.showYAxisTitle ?? true;
+    const showSecYTitle = config?.showSecondaryYAxisTitle ?? true;
+    const barBucketLabel = data._barMeasureLabel || '';
+    const lineBucketLabel = data._lineMeasureLabel || '';
+    // If no secondary axis, lines share the primary axis — fall back to line label when no bars
+    const defaultPrimaryTitle = barBucketLabel || (!showSecondaryAxis ? lineBucketLabel : '');
+    const xTitleVal = showXTitle ? ((config?.xAxisTitle ?? '') || (data._dimLabel || '')) : '';
+    const yTitleVal = showYTitle ? ((config?.yAxisTitle ?? '') || defaultPrimaryTitle) : '';
+    const secYTitleVal = showSecYTitle ? ((config?.secondaryYAxisTitle ?? '') || lineBucketLabel) : '';
+    const yNameCfg = yTitleVal ? { name: yTitleVal, nameLocation: 'center', nameGap: 40, nameTextStyle: { fontSize: yAxisFontSize + 1, color: yAxisColor, fontWeight: 500 } } : {};
+    const secYNameCfg = secYTitleVal ? { name: secYTitleVal, nameLocation: 'center', nameGap: 40, nameTextStyle: { fontSize: secYAxisFontSize + 1, color: secYAxisColor, fontWeight: 500 } } : {};
+
     const yAxes = [{
       type: 'value', show: showYAxis,
-      max: customYMax ? Math.ceil(customYMax * 1.1) : undefined,
-      axisLabel: { formatter: (v) => abbreviateNumber(v, valueAbbr) ?? formatNumber(v) },
+      max: leftMax,
+      interval: yAxisInterval || undefined,
+      ...yNameCfg,
+      axisLabel: { fontSize: yAxisFontSize, color: yAxisColor, formatter: (v) => abbreviateNumber(v, valueAbbr) ?? formatNumber(v) },
       splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth } },
     }];
     if (showSecondaryAxis) {
       yAxes.push({
         type: 'value', show: showYAxis, position: 'right',
-        axisLabel: { formatter: (v) => abbreviateNumber(v, valueAbbr) ?? formatNumber(v) },
+        max: rightMax,
+        interval: secondaryYAxisInterval || undefined,
+        ...secYNameCfg,
+        axisLabel: { fontSize: secYAxisFontSize, color: secYAxisColor, formatter: (v) => abbreviateNumber(v, valueAbbr) ?? formatNumber(v) },
         splitLine: { show: false },
       });
     }
@@ -234,9 +310,13 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     const isHoriz = barDir === 'horizontal' || barDir === 'horizontalInverse';
     const isInverse = barDir === 'verticalInverse' || barDir === 'horizontalInverse';
 
+    const xAxisFontSize = config?.xAxisLabelFontSize ?? 11;
+    const xAxisColor = config?.xAxisLabelColor || '#64748b';
+    const xNameCfg = xTitleVal ? { name: xTitleVal, nameLocation: 'center', nameGap: 28, nameTextStyle: { fontSize: xAxisFontSize + 1, color: xAxisColor, fontWeight: 500 } } : {};
     const categoryAxis = {
       type: 'category', data: labels, show: showXAxis,
-      axisLabel: { show: true, rotate: isHoriz ? 0 : calcLabelRotation(labels, w) },
+      ...xNameCfg,
+      axisLabel: { show: true, rotate: isHoriz ? 0 : calcLabelRotation(labels, w), fontSize: xAxisFontSize, color: xAxisColor },
       position: barDir === 'verticalInverse' ? 'top' : barDir === 'horizontalInverse' ? 'right' : undefined,
       inverse: barDir === 'horizontalInverse',
     };
@@ -252,8 +332,31 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     }
 
     opt.series = series;
-    const topPad = barDir === 'verticalInverse' ? 40 : 20;
-    opt.grid = { top: topPad, right: barDir === 'horizontalInverse' ? 80 : (showSecondaryAxis ? 50 : 20), bottom: barDir === 'verticalInverse' ? 15 : (showXAxis ? 40 : 15), left: barDir === 'horizontalInverse' ? 15 : (isHoriz ? 80 : (showYAxis ? 50 : 15)) };
+    const baseTop = barDir === 'verticalInverse' ? 40 : 20;
+    const baseRight = barDir === 'horizontalInverse' ? 80 : (showSecondaryAxis ? 50 : 20);
+    const baseBottom = barDir === 'verticalInverse' ? 15 : (showXAxis ? 40 : 15);
+    const baseLeft = barDir === 'horizontalInverse' ? 15 : (isHoriz ? 80 : (showYAxis ? 50 : 15));
+    const catExtra = xTitleVal ? 18 : 0;
+    const valExtra = yTitleVal ? 20 : 0;
+    const secValExtra = (showSecondaryAxis && secYTitleVal) ? 20 : 0;
+    let extraTop = 0, extraRight = 0, extraBottom = 0, extraLeft = 0;
+    if (!isHoriz) {
+      // Vertical: category on X, values on Y
+      if (barDir === 'verticalInverse') extraTop += catExtra; else extraBottom += catExtra;
+      extraLeft += valExtra;
+      extraRight += secValExtra;
+    } else {
+      // Horizontal: values on X, category on Y
+      if (barDir === 'horizontalInverse') extraRight += catExtra; else extraLeft += catExtra;
+      extraBottom += valExtra;
+      extraTop += secValExtra;
+    }
+    opt.grid = {
+      top: baseTop + extraTop,
+      right: baseRight + extraRight,
+      bottom: baseBottom + extraBottom,
+      left: baseLeft + extraLeft,
+    };
 
     // Build legend items using stable color map
     const legendItems = [...allBarNames, ...allLineNames].map((name) => ({ name, color: colorMap[name] }));
@@ -261,7 +364,12 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     return { option: opt, legendItems, rawLabels };
   }, [data, hasData, isStacked, showXAxis, showYAxis, showDataLabels, dataLabelFontSize, dataLabelColor,
       valueAbbr, hideZeros, showLegend, legendPosition, gridLineStyle, gridLineWidth,
-      showSecondaryAxis, smoothLine, hiddenSeries, highlightValue, config?.legendColors, config?.barDirection]);
+      showSecondaryAxis, smoothLine, sortOrder, hiddenSeries, highlightValue,
+      config?.legendColors, config?.barDirection, config?.yAxisInterval, config?.secondaryYAxisInterval,
+      config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
+      config?.secondaryYAxisLabelFontSize, config?.secondaryYAxisLabelColor,
+      config?.xAxisTitle, config?.yAxisTitle, config?.secondaryYAxisTitle,
+      config?.showXAxisTitle, config?.showYAxisTitle, config?.showSecondaryYAxisTitle]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];

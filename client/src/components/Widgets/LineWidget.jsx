@@ -162,6 +162,15 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
       });
     }
 
+    const showXTitle = config?.showXAxisTitle ?? true;
+    const showYTitle = config?.showYAxisTitle ?? true;
+    const xTitle = showXTitle ? ((config?.xAxisTitle ?? '') || (data._dimLabel || '')) : '';
+    const yTitle = showYTitle ? ((config?.yAxisTitle ?? '') || (data._measureLabel || '')) : '';
+    const xNameCfg = xTitle ? { name: xTitle, nameLocation: 'center', nameGap: 28, nameTextStyle: { fontSize: (config?.xAxisLabelFontSize ?? 11) + 1, color: config?.xAxisLabelColor || '#64748b', fontWeight: 500 } } : {};
+    const yNameCfg = yTitle ? { name: yTitle, nameLocation: 'center', nameGap: 40, nameTextStyle: { fontSize: (config?.yAxisLabelFontSize ?? 11) + 1, color: config?.yAxisLabelColor || '#64748b', fontWeight: 500 } } : {};
+    const xTitleExtra = xTitle ? 18 : 0;
+    const yTitleExtra = yTitle ? 20 : 0;
+
     const opt = {
       tooltip: {
         trigger: 'axis',
@@ -179,12 +188,20 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
       legend: { show: false },
       xAxis: {
         type: 'category', data: labels, show: showXAxis,
-        axisLabel: { show: showLabels, rotate: calcLabelRotation(labels, w) },
+        ...xNameCfg,
+        axisLabel: {
+          show: showLabels, rotate: calcLabelRotation(labels, w),
+          fontSize: config?.xAxisLabelFontSize ?? 11,
+          color: config?.xAxisLabelColor || '#64748b',
+        },
       },
       yAxis: {
         type: 'value', show: showYAxis,
+        ...yNameCfg,
         axisLabel: {
           show: showLabels,
+          fontSize: config?.yAxisLabelFontSize ?? 11,
+          color: config?.yAxisLabelColor || '#64748b',
           formatter: (val) => {
             const abbr = abbreviateNumber(val, valueAbbr);
             if (abbr != null) return abbr;
@@ -197,7 +214,12 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
         splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth } },
       },
       series,
-      grid: { top: 15, right: 20, bottom: showXAxis ? calcBottomMargin(calcLabelRotation(labels, w), labels) : 15, left: showYAxis ? 50 : 15 },
+      grid: {
+        top: 15,
+        right: 20,
+        bottom: (showXAxis ? calcBottomMargin(calcLabelRotation(labels, w), labels) : 15) + xTitleExtra,
+        left: (showYAxis ? 50 : 15) + yTitleExtra,
+      },
     };
 
     const hl = highlightValue;
@@ -217,7 +239,9 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
   }, [data, subType, showLabels, showLegend, legendPosition, hasData, config?.smooth, config?.color, isArea, isStacked, hideZeros, sortOrder,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors,
-      config?.lineSymbol, config?.lineSymbolSize]);
+      config?.lineSymbol, config?.lineSymbolSize,
+      config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
+      config?.xAxisTitle, config?.yAxisTitle, config?.showXAxisTitle, config?.showYAxisTitle]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];

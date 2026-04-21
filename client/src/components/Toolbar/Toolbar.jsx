@@ -79,6 +79,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
       <div style={{ display: 'flex', gap: 4 }}>
         {Object.entries(WIDGET_TYPES).filter(([type, meta]) => !meta.hidden && type !== 'text').map(([type, { label, icon: Icon, hasSubTypes }]) => {
           const iconColor = type === 'filter' ? '#0891b2' : '#7c3aed';
+          const iconBg = type === 'filter' ? '#e0f7fa' : '#ede9fe';
           return (
           <div key={type} style={{ position: 'relative' }}
             onMouseEnter={() => hasSubTypes && setOpenMenu(type)}
@@ -93,13 +94,13 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
               title={`Add ${label}`}
               style={{
                 padding: '6px 10px', fontSize: 13,
-                border: openMenu === type ? '1px solid #7c3aed' : '1px solid #e2e8f0',
-                borderRadius: 6, background: openMenu === type ? '#f5f3ff' : '#fff',
+                border: openMenu === type ? `1px solid ${iconColor}` : '1px solid #e2e8f0',
+                borderRadius: 6, background: iconBg,
                 cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
                 transition: 'all 0.12s',
               }}
-              onMouseEnter={(e) => { if (openMenu !== type) { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#cbd5e1'; } }}
-              onMouseLeave={(e) => { if (openMenu !== type) { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; } }}
+              onMouseEnter={(e) => { if (openMenu !== type) { e.currentTarget.style.borderColor = iconColor; } }}
+              onMouseLeave={(e) => { if (openMenu !== type) { e.currentTarget.style.borderColor = '#e2e8f0'; } }}
             >
               <Icon size={18} color={iconColor} />
               {hasSubTypes && <span style={{ fontSize: 8, color: '#94a3b8' }}>▼</span>}
@@ -189,13 +190,13 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             title="Add object"
             style={{
               padding: '6px 10px', fontSize: 13,
-              border: openMenu === 'objects' ? '1px solid #7c3aed' : '1px solid #e2e8f0',
-              borderRadius: 6, background: openMenu === 'objects' ? '#f5f3ff' : '#fff',
+              border: openMenu === 'objects' ? '1px solid #64748b' : '1px solid #e2e8f0',
+              borderRadius: 6, background: '#f1f5f9',
               cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
               transition: 'all 0.12s',
             }}
-            onMouseEnter={(e) => { if (openMenu !== 'objects') { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#cbd5e1'; } }}
-            onMouseLeave={(e) => { if (openMenu !== 'objects') { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; } }}
+            onMouseEnter={(e) => { if (openMenu !== 'objects') { e.currentTarget.style.borderColor = '#64748b'; } }}
+            onMouseLeave={(e) => { if (openMenu !== 'objects') { e.currentTarget.style.borderColor = '#e2e8f0'; } }}
           >
             <TbShape size={18} color="#64748b" />
             <span style={{ fontSize: 8, color: '#94a3b8' }}>▼</span>

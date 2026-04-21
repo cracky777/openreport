@@ -322,7 +322,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       );
     }
 
-    if (type === 'pie') {
+    if (type === 'pie' || type === 'treemap') {
       return (
         <Section title="" bare>
           <DropZone label="Category" accepts={['dimension']} fields={selectedDims} zoneName="category"
@@ -505,7 +505,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
         );
       })()}
 
-      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'combo') && (
+      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'combo') && (
         <Field label="Hide zero values">
           <input type="checkbox" checked={widget.config?.hideZeros ?? false}
             onChange={(e) => updateConfig('hideZeros', e.target.checked)} />
@@ -518,7 +518,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
         </Field>
       )}
 
-      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'combo') && (
+      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'combo' || widget.type === 'treemap') && (
         <Section title="Sort">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {[
@@ -528,7 +528,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             ].map((opt) => (
               <label key={opt.value} style={radioRow}>
                 <input type="radio" name="sortOrder"
-                  checked={(widget.config?.sortOrder || 'none') === opt.value}
+                  checked={(widget.config?.sortOrder || (widget.type === 'treemap' ? 'desc' : 'none')) === opt.value}
                   onChange={() => updateConfig('sortOrder', opt.value)} />
                 {opt.label}
               </label>
@@ -636,6 +636,18 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               <Field label="Value size">
                 <input type="number" min={16} max={72} value={widget.config?.valueSize || 36}
                   onChange={(e) => updateConfig('valueSize', parseInt(e.target.value))} style={{ ...inputStyle, width: 60 }} />
+              </Field>
+              <Field label="Value color">
+                <ColorInput value={widget.config?.valueColor || '#0f172a'}
+                  onChange={(v) => updateConfig('valueColor', v)} />
+              </Field>
+              <Field label="Label size">
+                <input type="number" min={8} max={32} value={widget.config?.labelSize || 14}
+                  onChange={(e) => updateConfig('labelSize', parseInt(e.target.value))} style={{ ...inputStyle, width: 60 }} />
+              </Field>
+              <Field label="Label color">
+                <ColorInput value={widget.config?.labelColor || '#64748b'}
+                  onChange={(v) => updateConfig('labelColor', v)} />
               </Field>
             </>
           )}
@@ -753,115 +765,145 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       </Section>
 
       {/* ── Chart options ── */}
-      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'scatter' || widget.type === 'combo') && (
+      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'scatter' || widget.type === 'combo' || widget.type === 'treemap') && (
         <Section title="Chart" sectionState={sections}>
-          {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'scatter' || widget.type === 'combo') && (
+          {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'scatter') && (
             <Field label="Color">
               <ColorInput value={widget.config?.color || '#5470c6'}
                 onChange={(v) => updateConfig('color', v)} />
             </Field>
           )}
-          <Field label="Value format">
-            <select value={widget.config?.valueAbbreviation || 'none'}
-              onChange={(e) => updateConfig('valueAbbreviation', e.target.value)}
-              style={{ ...inputStyle, marginBottom: 0 }}>
-              <option value="none">Full</option>
-              <option value="auto">Auto (K/M)</option>
-              <option value="K">K (milliers)</option>
-              <option value="M">M (millions)</option>
-              <option value="B">B (milliards)</option>
-            </select>
-          </Field>
+          {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'combo') && (
+            <Field label="Value format">
+              <select value={widget.config?.valueAbbreviation || 'none'}
+                onChange={(e) => updateConfig('valueAbbreviation', e.target.value)}
+                style={{ ...inputStyle, marginBottom: 0 }}>
+                <option value="none">Full</option>
+                <option value="auto">Auto (K/M)</option>
+                <option value="K">K (milliers)</option>
+                <option value="M">M (millions)</option>
+                <option value="B">B (milliards)</option>
+              </select>
+            </Field>
+          )}
           <Field label="Data labels">
             <input type="checkbox" checked={widget.config?.showDataLabels ?? false}
               onChange={(e) => updateConfig('showDataLabels', e.target.checked)} />
           </Field>
-          {widget.config?.showDataLabels && (
-            <SubSection label="Data labels">
-              <Field label="Label shows">
-                <select value={widget.config?.dataLabelContent || 'value'}
-                  onChange={(e) => updateConfig('dataLabelContent', e.target.value)}
-                  style={{ ...inputStyle, marginBottom: 0 }}>
-                  <option value="value">Value</option>
-                  <option value="name">Name</option>
-                  <option value="percent">Percent</option>
-                  <option value="nameValue">Name + Value</option>
-                </select>
-              </Field>
-              <Field label="Label format">
-                <select value={widget.config?.dataLabelAbbr || 'none'}
-                  onChange={(e) => updateConfig('dataLabelAbbr', e.target.value)}
-                  style={{ ...inputStyle, marginBottom: 0 }}>
-                  <option value="none">Full</option>
-                  <option value="auto">Auto (K/M)</option>
-                  <option value="K">K (milliers)</option>
-                  <option value="M">M (millions)</option>
-                  <option value="B">B (milliards)</option>
-                </select>
-              </Field>
-              <Field label="Position">
-                {widget.type === 'pie' ? (
-                  <select value={widget.config?.dataLabelPosition || 'outside'}
-                    onChange={(e) => updateConfig('dataLabelPosition', e.target.value)}
-                    style={{ ...inputStyle, marginBottom: 0 }}>
-                    <option value="outside">Outside</option>
-                    <option value="inside">Inside</option>
-                  </select>
-                ) : (
-                  <select value={widget.config?.dataLabelPosition || 'top'}
-                    onChange={(e) => updateConfig('dataLabelPosition', e.target.value)}
-                    style={{ ...inputStyle, marginBottom: 0 }}>
-                    <option value="top">Au-dessus</option>
-                    <option value="inside">Int. milieu</option>
-                    <option value="insideTop">Int. haut</option>
-                    <option value="insideBottom">Int. bas</option>
-                  </select>
+          {widget.config?.showDataLabels && (() => {
+            const t = widget.type;
+            const canContent = t === 'bar' || t === 'line' || t === 'pie' || t === 'treemap';
+            const canPosition = t === 'bar' || t === 'line' || t === 'pie';
+            const canAngle = t === 'bar' || t === 'line' || t === 'pie';
+            const canColor = t !== 'scatter'; // scatter has fixed label color
+            const canBg = t === 'bar' || t === 'line' || t === 'pie';
+            return (
+              <SubSection label="Data labels">
+                {canContent && (
+                  <Field label="Label shows">
+                    <select value={widget.config?.dataLabelContent || 'value'}
+                      onChange={(e) => updateConfig('dataLabelContent', e.target.value)}
+                      style={{ ...inputStyle, marginBottom: 0 }}>
+                      <option value="value">Value</option>
+                      <option value="name">Name</option>
+                      <option value="percent">Percent</option>
+                      <option value="nameValue">Name + Value</option>
+                    </select>
+                  </Field>
                 )}
-              </Field>
-              <Field label="Angle" vertical>
-                <RangeInput min={-90} max={90} value={widget.config?.dataLabelRotate ?? 0} suffix="°"
-                  onChange={(e) => updateConfig('dataLabelRotate', parseInt(e.target.value))} />
-              </Field>
-              <Field label="Font size">
-                <input type="number" min={6} max={36} value={widget.config?.dataLabelFontSize ?? 10}
-                  onChange={(e) => updateConfig('dataLabelFontSize', parseInt(e.target.value) || 10)}
-                  style={{ ...inputStyle, width: 50, marginBottom: 0 }} />
-              </Field>
-              <Field label="Label color">
-                <ColorInput value={widget.config?.dataLabelColor || '#475569'}
-                  onChange={(v) => updateConfig('dataLabelColor', v)} />
-              </Field>
-              <Field label="Label bg color">
-                <ColorInput value={widget.config?.dataLabelBgColor || '#ffffff'}
-                  onChange={(v) => updateConfig('dataLabelBgColor', v)} />
-              </Field>
-              <Field label="Label bg opacity" vertical>
-                <RangeInput min={0} max={100} value={widget.config?.dataLabelBgOpacity ?? 0} suffix="%"
-                  onChange={(e) => updateConfig('dataLabelBgOpacity', parseInt(e.target.value))} />
-              </Field>
-            </SubSection>
+                {canContent && (
+                  <Field label="Label format">
+                    <select value={widget.config?.dataLabelAbbr || 'none'}
+                      onChange={(e) => updateConfig('dataLabelAbbr', e.target.value)}
+                      style={{ ...inputStyle, marginBottom: 0 }}>
+                      <option value="none">Full</option>
+                      <option value="auto">Auto (K/M)</option>
+                      <option value="K">K (milliers)</option>
+                      <option value="M">M (millions)</option>
+                      <option value="B">B (milliards)</option>
+                    </select>
+                  </Field>
+                )}
+                {canPosition && (
+                  <Field label="Position">
+                    {t === 'pie' ? (
+                      <select value={widget.config?.dataLabelPosition || 'outside'}
+                        onChange={(e) => updateConfig('dataLabelPosition', e.target.value)}
+                        style={{ ...inputStyle, marginBottom: 0 }}>
+                        <option value="outside">Outside</option>
+                        <option value="inside">Inside</option>
+                      </select>
+                    ) : (
+                      <select value={widget.config?.dataLabelPosition || 'top'}
+                        onChange={(e) => updateConfig('dataLabelPosition', e.target.value)}
+                        style={{ ...inputStyle, marginBottom: 0 }}>
+                        <option value="top">Au-dessus</option>
+                        <option value="inside">Int. milieu</option>
+                        <option value="insideTop">Int. haut</option>
+                        <option value="insideBottom">Int. bas</option>
+                      </select>
+                    )}
+                  </Field>
+                )}
+                {canAngle && (
+                  <Field label="Angle" vertical>
+                    <RangeInput min={-90} max={90} value={widget.config?.dataLabelRotate ?? 0} suffix="°"
+                      onChange={(e) => updateConfig('dataLabelRotate', parseInt(e.target.value))} />
+                  </Field>
+                )}
+                <Field label="Font size">
+                  <input type="number" min={6} max={36} value={widget.config?.dataLabelFontSize ?? 10}
+                    onChange={(e) => updateConfig('dataLabelFontSize', parseInt(e.target.value) || 10)}
+                    style={{ ...inputStyle, width: 50, marginBottom: 0 }} />
+                </Field>
+                {canColor && (
+                  <Field label="Label color">
+                    <ColorInput value={widget.config?.dataLabelColor || '#475569'}
+                      onChange={(v) => updateConfig('dataLabelColor', v)} />
+                  </Field>
+                )}
+                {canBg && (
+                  <>
+                    <Field label="Label bg color">
+                      <ColorInput value={widget.config?.dataLabelBgColor || '#ffffff'}
+                        onChange={(v) => updateConfig('dataLabelBgColor', v)} />
+                    </Field>
+                    <Field label="Label bg opacity" vertical>
+                      <RangeInput min={0} max={100} value={widget.config?.dataLabelBgOpacity ?? 0} suffix="%"
+                        onChange={(e) => updateConfig('dataLabelBgOpacity', parseInt(e.target.value))} />
+                    </Field>
+                  </>
+                )}
+              </SubSection>
+            );
+          })()}
+          {(widget.type === 'bar' || widget.type === 'line') && (
+            <Field label="Show column names">
+              <input type="checkbox" checked={widget.config?.showColumnNames ?? true}
+                onChange={(e) => updateConfig('showColumnNames', e.target.checked)} />
+            </Field>
           )}
-          <Field label="Show column names">
-            <input type="checkbox" checked={widget.config?.showColumnNames ?? true}
-              onChange={(e) => updateConfig('showColumnNames', e.target.checked)} />
-          </Field>
-          <Field label="Show legend">
-            <input type="checkbox" checked={widget.config?.showLegend ?? false}
-              onChange={(e) => updateConfig('showLegend', e.target.checked)} />
-          </Field>
-          {widget.config?.showLegend && (
-            <SubSection label="Legend">
-              <Field label="Position">
-                <select value={widget.config?.legendPosition || 'top'}
-                  onChange={(e) => updateConfig('legendPosition', e.target.value)}
-                  style={{ ...inputStyle, marginBottom: 0 }}>
-                  <option value="top">Top</option>
-                  <option value="bottom">Bottom</option>
-                  <option value="left">Left</option>
-                  <option value="right">Right</option>
-                </select>
+          {widget.type !== 'treemap' && (
+            <>
+              <Field label="Show legend">
+                <input type="checkbox" checked={widget.config?.showLegend ?? false}
+                  onChange={(e) => updateConfig('showLegend', e.target.checked)} />
               </Field>
-            </SubSection>
+              {widget.config?.showLegend && (
+                <SubSection label="Legend">
+                  <Field label="Position">
+                    <select value={widget.config?.legendPosition || 'top'}
+                      onChange={(e) => updateConfig('legendPosition', e.target.value)}
+                      style={{ ...inputStyle, marginBottom: 0 }}>
+                      <option value="top">Top</option>
+                      <option value="bottom">Bottom</option>
+                      <option value="left">Left</option>
+                      <option value="right">Right</option>
+                    </select>
+                  </Field>
+                </SubSection>
+              )}
+            </>
           )}
           {widget.type === 'scatter' && (
             <Field label="Point size" vertical>
@@ -870,16 +912,10 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             </Field>
           )}
           {widget.type === 'combo' && (
-            <>
-              <Field label="Smooth lines">
-                <input type="checkbox" checked={widget.config?.smooth ?? true}
-                  onChange={(e) => updateConfig('smooth', e.target.checked)} />
-              </Field>
-              <Field label="Secondary Y axis">
-                <input type="checkbox" checked={widget.config?.showSecondaryAxis ?? false}
-                  onChange={(e) => updateConfig('showSecondaryAxis', e.target.checked)} />
-              </Field>
-            </>
+            <Field label="Smooth lines">
+              <input type="checkbox" checked={widget.config?.smooth ?? true}
+                onChange={(e) => updateConfig('smooth', e.target.checked)} />
+            </Field>
           )}
           {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'scatter' || widget.type === 'combo') && (
             <>
@@ -887,10 +923,109 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 <input type="checkbox" checked={widget.config?.showXAxis ?? true}
                   onChange={(e) => updateConfig('showXAxis', e.target.checked)} />
               </Field>
+              {(widget.config?.showXAxis ?? true) && (
+                <SubSection label="X axis">
+                  <Field label="Show title">
+                    <input type="checkbox" checked={widget.config?.showXAxisTitle ?? true}
+                      onChange={(e) => updateConfig('showXAxisTitle', e.target.checked)} />
+                  </Field>
+                  {(widget.config?.showXAxisTitle ?? true) && (
+                    <Field label="Title">
+                      <input type="text" value={widget.config?.xAxisTitle ?? ''}
+                        placeholder={widget.data?._xLabel || widget.data?._dimLabel || 'Auto'}
+                        onChange={(e) => updateConfig('xAxisTitle', e.target.value)}
+                        style={{ ...inputStyle, marginBottom: 0 }} />
+                    </Field>
+                  )}
+                  <Field label="Font size">
+                    <input type="number" min={6} max={24} value={widget.config?.xAxisLabelFontSize ?? 11}
+                      onChange={(e) => updateConfig('xAxisLabelFontSize', parseInt(e.target.value) || 11)}
+                      style={{ ...inputStyle, width: 60, marginBottom: 0 }} />
+                  </Field>
+                  <Field label="Color">
+                    <ColorInput value={widget.config?.xAxisLabelColor || '#64748b'}
+                      onChange={(v) => updateConfig('xAxisLabelColor', v)} />
+                  </Field>
+                </SubSection>
+              )}
               <Field label="Show Y axis">
                 <input type="checkbox" checked={widget.config?.showYAxis ?? true}
                   onChange={(e) => updateConfig('showYAxis', e.target.checked)} />
               </Field>
+              <Field label="Y axis step">
+                <input type="number" min={0} step={1}
+                  value={widget.config?.yAxisInterval ?? ''}
+                  placeholder="Auto"
+                  onChange={(e) => updateConfig('yAxisInterval', e.target.value ? parseFloat(e.target.value) : null)}
+                  style={{ ...inputStyle, marginBottom: 0 }} />
+              </Field>
+              {(widget.config?.showYAxis ?? true) && (
+                <SubSection label="Y axis">
+                  <Field label="Show title">
+                    <input type="checkbox" checked={widget.config?.showYAxisTitle ?? true}
+                      onChange={(e) => updateConfig('showYAxisTitle', e.target.checked)} />
+                  </Field>
+                  {(widget.config?.showYAxisTitle ?? true) && (
+                    <Field label="Title">
+                      <input type="text" value={widget.config?.yAxisTitle ?? ''}
+                        placeholder={widget.data?._yLabel || widget.data?._measureLabel || 'Auto'}
+                        onChange={(e) => updateConfig('yAxisTitle', e.target.value)}
+                        style={{ ...inputStyle, marginBottom: 0 }} />
+                    </Field>
+                  )}
+                  <Field label="Font size">
+                    <input type="number" min={6} max={24} value={widget.config?.yAxisLabelFontSize ?? 11}
+                      onChange={(e) => updateConfig('yAxisLabelFontSize', parseInt(e.target.value) || 11)}
+                      style={{ ...inputStyle, width: 60, marginBottom: 0 }} />
+                  </Field>
+                  <Field label="Color">
+                    <ColorInput value={widget.config?.yAxisLabelColor || '#64748b'}
+                      onChange={(v) => updateConfig('yAxisLabelColor', v)} />
+                  </Field>
+                </SubSection>
+              )}
+              {widget.type === 'combo' && (
+                <>
+                  <Field label="Secondary Y axis">
+                    <input type="checkbox" checked={widget.config?.showSecondaryAxis ?? true}
+                      onChange={(e) => updateConfig('showSecondaryAxis', e.target.checked)} />
+                  </Field>
+                  {widget.config?.showSecondaryAxis !== false && (
+                    <>
+                      <SubSection label="Right Y axis">
+                        <Field label="Step">
+                          <input type="number" min={0} step={1}
+                            value={widget.config?.secondaryYAxisInterval ?? ''}
+                            placeholder="Auto"
+                            onChange={(e) => updateConfig('secondaryYAxisInterval', e.target.value ? parseFloat(e.target.value) : null)}
+                            style={{ ...inputStyle, marginBottom: 0 }} />
+                        </Field>
+                        <Field label="Show title">
+                          <input type="checkbox" checked={widget.config?.showSecondaryYAxisTitle ?? true}
+                            onChange={(e) => updateConfig('showSecondaryYAxisTitle', e.target.checked)} />
+                        </Field>
+                        {(widget.config?.showSecondaryYAxisTitle ?? true) && (
+                          <Field label="Title">
+                            <input type="text" value={widget.config?.secondaryYAxisTitle ?? ''}
+                              placeholder="Auto"
+                              onChange={(e) => updateConfig('secondaryYAxisTitle', e.target.value)}
+                              style={{ ...inputStyle, marginBottom: 0 }} />
+                          </Field>
+                        )}
+                        <Field label="Font size">
+                          <input type="number" min={6} max={24} value={widget.config?.secondaryYAxisLabelFontSize ?? 11}
+                            onChange={(e) => updateConfig('secondaryYAxisLabelFontSize', parseInt(e.target.value) || 11)}
+                            style={{ ...inputStyle, width: 60, marginBottom: 0 }} />
+                        </Field>
+                        <Field label="Color">
+                          <ColorInput value={widget.config?.secondaryYAxisLabelColor || '#64748b'}
+                            onChange={(v) => updateConfig('secondaryYAxisLabelColor', v)} />
+                        </Field>
+                      </SubSection>
+                    </>
+                  )}
+                </>
+              )}
               <Field label="Grid style">
                 <select value={widget.config?.gridLineStyle || 'solid'}
                   onChange={(e) => updateConfig('gridLineStyle', e.target.value)}
@@ -904,45 +1039,14 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 <RangeInput min={0} max={5} step={0.5} value={widget.config?.gridLineWidth ?? 1}
                   onChange={(e) => updateConfig('gridLineWidth', parseFloat(e.target.value))} />
               </Field>
-              <Field label="Y axis step">
-                <input type="number" min={0} step={1}
-                  value={widget.config?.yAxisInterval ?? ''}
-                  placeholder="Auto"
-                  onChange={(e) => updateConfig('yAxisInterval', e.target.value ? parseFloat(e.target.value) : null)}
-                  style={{ ...inputStyle, marginBottom: 0 }} />
-              </Field>
             </>
           )}
         </Section>
       )}
 
-      {/* Scatter Headers */}
+      {/* Scatter title style (applies to axis titles) */}
       {widget.type === 'scatter' && (
-        <Section title="Headers" sectionState={sections}>
-          <Field label="Show X header">
-            <input type="checkbox" checked={widget.config?.showXHeader ?? true}
-              onChange={(e) => updateConfig('showXHeader', e.target.checked)} />
-          </Field>
-          {(widget.config?.showXHeader ?? true) && (
-            <Field label="X axis title">
-              <input type="text" value={widget.config?.xAxisTitle ?? ''}
-                placeholder={widget.data?._xLabel || 'X'}
-                onChange={(e) => updateConfig('xAxisTitle', e.target.value)}
-                style={{ ...inputStyle, marginBottom: 0 }} />
-            </Field>
-          )}
-          <Field label="Show Y header">
-            <input type="checkbox" checked={widget.config?.showYHeader ?? true}
-              onChange={(e) => updateConfig('showYHeader', e.target.checked)} />
-          </Field>
-          {(widget.config?.showYHeader ?? true) && (
-            <Field label="Y axis title">
-              <input type="text" value={widget.config?.yAxisTitle ?? ''}
-                placeholder={widget.data?._yLabel || 'Y'}
-                onChange={(e) => updateConfig('yAxisTitle', e.target.value)}
-                style={{ ...inputStyle, marginBottom: 0 }} />
-            </Field>
-          )}
+        <Section title="Title style" sectionState={sections}>
           <Field label="Font size">
             <input type="number" min={8} max={24} value={widget.config?.headerFontSize ?? 12}
               onChange={(e) => updateConfig('headerFontSize', parseInt(e.target.value) || 12)}
@@ -960,7 +1064,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       )}
 
       {/* Legend Colors */}
-      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'scatter' || widget.type === 'combo') && (() => {
+      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'scatter' || widget.type === 'combo' || widget.type === 'treemap') && (() => {
         // Extract legend values from data
         let legendValues = [];
         if (widget.data?.barSeries || widget.data?.lineSeries) legendValues = [...(widget.data.barSeries || []), ...(widget.data.lineSeries || [])].map((s) => s.name);
@@ -1154,6 +1258,28 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               <RangeInput min={2} max={20} value={widget.config?.lineSymbolSize ?? 6}
                 onChange={(e) => updateConfig('lineSymbolSize', parseInt(e.target.value))} suffix="px" />
             </Field>
+          )}
+        </Section>
+      )}
+
+      {widget.type === 'treemap' && (
+        <Section title="TreeMap" sectionState={sections}>
+          <Field label="Show item borders">
+            <input type="checkbox" checked={widget.config?.showItemBorder ?? true}
+              onChange={(e) => updateConfig('showItemBorder', e.target.checked)} />
+          </Field>
+          {(widget.config?.showItemBorder ?? true) && (
+            <>
+              <Field label="Border color">
+                <input type="color" value={widget.config?.itemBorderColor || '#ffffff'}
+                  onChange={(e) => updateConfig('itemBorderColor', e.target.value)}
+                  style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+              </Field>
+              <Field label="Border width" vertical>
+                <RangeInput min={0} max={8} value={widget.config?.itemBorderWidth ?? 1}
+                  onChange={(e) => updateConfig('itemBorderWidth', parseInt(e.target.value))} suffix="px" />
+              </Field>
+            </>
           )}
         </Section>
       )}

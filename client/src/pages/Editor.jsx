@@ -45,6 +45,7 @@ function convertData(data, fromType, toType) {
     case 'line':
       return { labels, values };
     case 'pie':
+    case 'treemap':
       return { items: labels.map((name, i) => ({ name, value: values[i] || 0 })) };
     case 'table':
       return {
@@ -305,10 +306,12 @@ export default function Editor() {
                 return { name: ml, values: labels.map((l) => rows.filter((r) => String(r[axisKey] ?? '') === l).reduce((s, r) => s + (Number(r[mk]) || 0), 0)) };
               }).filter(Boolean);
               newData = { labels, barSeries, lineSeries };
+              newData._barMeasureLabel = cbm.map((mn) => gl(mn, model.measures || [])).join(', ');
+              newData._lineMeasureLabel = clm.map((mn) => gl(mn, model.measures || [])).join(', ');
             }
           } else if (w.type === 'table') {
             newData = { columns: keys, rows: rows.map((r) => Object.values(r).map((v) => v != null ? String(v) : '')) };
-          } else if (w.type === 'pie') {
+          } else if (w.type === 'pie' || w.type === 'treemap') {
             newData = { items: rows.map((r) => ({ name: String(r[keys[0]]), value: Number(r[keys[keys.length - 1]]) || 0 })) };
           } else if (w.type === 'scorecard' || w.type === 'gauge') {
             const firstRow = rows[0];
@@ -354,8 +357,13 @@ export default function Editor() {
           if (dims.length > 0) {
             newData._dimName = dims[0];
             const axisDim = (model.dimensions || []).find((x) => x.name === dims[0]);
+            newData._dimLabel = axisDim?.label || axisDim?.name || dims[0];
             if (axisDim?.datePart) newData._datePart = axisDim.datePart;
             else if (axisDim?.type === 'date') newData._datePart = 'full_date';
+          }
+          if (meass.length > 0) {
+            const m0 = (model.measures || []).find((x) => x.name === meass[0]);
+            newData._measureLabel = m0?.label || m0?.name || meass[0];
           }
           newData._rowCount = rows.length;
           return { wId, data: newData };

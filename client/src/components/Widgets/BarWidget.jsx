@@ -117,6 +117,8 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
 
     const series = [];
     let customYMax = undefined;
+    const earlyBarDir = config?.barDirection || 'vertical';
+    const earlyIsHoriz = earlyBarDir === 'horizontal' || earlyBarDir === 'horizontalInverse';
     if (hasSeries) {
       if (isStacked) {
         seriesData.sort((a, b) => {
@@ -167,59 +169,101 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
           series.push({
             type: 'custom',
             name: s.name,
-            data: values.map((v, ci) => [ci, v]),
+            // In horizontal mode, swap data so xAxis (value) gets the value and yAxis (category) gets catIdx
+            data: earlyIsHoriz ? values.map((v, ci) => [v, ci]) : values.map((v, ci) => [ci, v]),
             itemStyle: { color: getColor(s.name, colorIdx) },
             emphasis: { disabled: true },
             renderItem: (params, api) => {
-              const catIdx = api.value(0);
-              const value = api.value(1);
+              const v0 = api.value(0);
+              const v1 = api.value(1);
+              const catIdx = earlyIsHoriz ? v1 : v0;
+              const value = earlyIsHoriz ? v0 : v1;
               if (value === 0) return null;
 
               const nzCount = nzCounts[catIdx];
               const nzIdx = nzIndices[catIdx];
               if (nzIdx < 0) return null;
 
-              const bandWidth = api.size([1, 0])[0];
               const groupPad = 0.15;
               const barGap = nzCount > 1 ? 0.08 : 0;
-              const groupWidth = bandWidth * (1 - groupPad * 2);
-              const slotWidth = groupWidth / nzCount;
-              const barWidth = slotWidth * (1 - barGap);
-
-              const base = api.coord([catIdx, 0]);
-              const top = api.coord([catIdx, value]);
-              const x = base[0] - bandWidth / 2 + bandWidth * groupPad + slotWidth * nzIdx + (slotWidth - barWidth) / 2;
-
-              const dimmed = highlightValue && rawLabels[catIdx] !== highlightValue;
-              const rect = {
-                type: 'rect',
-                shape: { x, y: top[1], width: barWidth, height: base[1] - top[1] },
-                style: { ...api.style(), fill: getColor(s.name, colorIdx), opacity: dimmed ? 0.3 : 1 },
-                styleEmphasis: api.styleEmphasis(),
-              };
-              if (!showDataLabels) return rect;
-
               const fmt = data._measureFormats?.[s.name] || null;
-              const labelText = buildDataLabel(
-                { value, name: labels[catIdx], seriesName: s.name },
-                dataLabelContent, dataLabelAbbr, fmt, hideZeros
-              );
-              // Position the label
-              const barHeight = base[1] - top[1];
-              let lx = x + barWidth / 2;
-              let ly;
-              let lAlign = dataLabelRotate > 0 ? 'left' : dataLabelRotate < 0 ? 'right' : 'center';
-              let lVAlign = 'bottom';
-              if (Math.abs(dataLabelRotate) === 90) {
-                // At 90°/-90°: center the label at mid-height of the bar
-                ly = top[1] + barHeight / 2;
-                lVAlign = 'middle';
-              } else if (dataLabelPosition === 'top') { ly = top[1] - 4; }
-              else if (dataLabelPosition === 'insideTop') { ly = top[1] + 4; lVAlign = 'top'; }
-              else if (dataLabelPosition === 'insideBottom') { ly = base[1] - 4; lVAlign = 'bottom'; }
-              else { ly = top[1] + barHeight / 2; lVAlign = 'middle'; }
+              const labelText = showDataLabels
+                ? buildDataLabel({ value, name: labels[catIdx], seriesName: s.name }, dataLabelContent, dataLabelAbbr, fmt, hideZeros)
+                : '';
+              const dimmed = highlightValue && rawLabels[catIdx] !== highlightValue;
 
-              const rotRad = dataLabelRotate ? (dataLabelRotate * Math.PI / 180) : 0;
+              let rect, lx, ly, lAlign = 'center', lVAlign = 'middle';
+
+              if (earlyIsHoriz) {
+                // Horizontal: bars grow along X (value) axis, band runs along Y (category) axis
+                const bandHeight = api.size([0, 1])[1];
+                const groupHeight = bandHeight * (1 - groupPad * 2);
+                const slotHeight = groupHeight / nzCount;
+                const barHeight = slotHeight * (1 - barGap);
+
+                const base = api.coord([0, catIdx]);
+                const top = api.coord([value, catIdx]);
+                const y = base[1] - bandHeight / 2 + bandHeight * groupPad + slotHeight * nzIdx + (slotHeight - barHeight) / 2;
+                const x = Math.min(base[0], top[0]);
+                const width = Math.abs(top[0] - base[0]);
+
+                rect = {
+                  type: 'rect',
+                  shape: { x, y, width, height: barHeight },
+                  style: { ...api.style(), fill: getColor(s.name, colorIdx), opacity: dimmed ? 0.3 : 1 },
+                };
+
+                // Label positioning (horizontal: value runs along X)
+                // Determine which end is the "top" of the bar (furthest from base)
+                const isPositiveDir = top[0] >= base[0];
+                if (dataLabelPosition === 'top' || !dataLabelPosition) {
+                  // outside end
+                  lx = isPositiveDir ? top[0] + 4 : top[0] - 4;
+                  lAlign = isPositiveDir ? 'left' : 'right';
+                } else if (dataLabelPosition === 'insideTop') {
+                  lx = isPositiveDir ? top[0] - 4 : top[0] + 4;
+                  lAlign = isPositiveDir ? 'right' : 'left';
+                } else if (dataLabelPosition === 'insideBottom') {
+                  lx = isPositiveDir ? base[0] + 4 : base[0] - 4;
+                  lAlign = isPositiveDir ? 'left' : 'right';
+                } else {
+                  lx = (base[0] + top[0]) / 2;
+                  lAlign = 'center';
+                }
+                ly = y + barHeight / 2;
+              } else {
+                // Vertical: bars grow along Y (value) axis, band runs along X (category) axis
+                const bandWidth = api.size([1, 0])[0];
+                const groupWidth = bandWidth * (1 - groupPad * 2);
+                const slotWidth = groupWidth / nzCount;
+                const barWidth = slotWidth * (1 - barGap);
+
+                const base = api.coord([catIdx, 0]);
+                const top = api.coord([catIdx, value]);
+                const x = base[0] - bandWidth / 2 + bandWidth * groupPad + slotWidth * nzIdx + (slotWidth - barWidth) / 2;
+
+                rect = {
+                  type: 'rect',
+                  shape: { x, y: top[1], width: barWidth, height: base[1] - top[1] },
+                  style: { ...api.style(), fill: getColor(s.name, colorIdx), opacity: dimmed ? 0.3 : 1 },
+                };
+
+                const barHeight = base[1] - top[1];
+                lx = x + barWidth / 2;
+                lAlign = dataLabelRotate > 0 ? 'left' : dataLabelRotate < 0 ? 'right' : 'center';
+                lVAlign = 'bottom';
+                if (Math.abs(dataLabelRotate) === 90) {
+                  ly = top[1] + barHeight / 2;
+                  lVAlign = 'middle';
+                } else if (dataLabelPosition === 'top') { ly = top[1] - 4; }
+                else if (dataLabelPosition === 'insideTop') { ly = top[1] + 4; lVAlign = 'top'; }
+                else if (dataLabelPosition === 'insideBottom') { ly = base[1] - 4; lVAlign = 'bottom'; }
+                else { ly = top[1] + barHeight / 2; lVAlign = 'middle'; }
+              }
+
+              if (!showDataLabels || !labelText) return rect;
+
+              const rotRad = (!earlyIsHoriz && dataLabelRotate) ? (dataLabelRotate * Math.PI / 180) : 0;
 
               return {
                 type: 'group',
@@ -316,6 +360,12 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
     const isHoriz = barDir === 'horizontal' || barDir === 'horizontalInverse';
     const isInverse = barDir === 'verticalInverse' || barDir === 'horizontalInverse';
 
+    const xAxisFont = { fontSize: config?.xAxisLabelFontSize ?? 11, color: config?.xAxisLabelColor || '#64748b' };
+    const yAxisFont = { fontSize: config?.yAxisLabelFontSize ?? 11, color: config?.yAxisLabelColor || '#64748b' };
+    const showXTitle = config?.showXAxisTitle ?? true;
+    const showYTitle = config?.showYAxisTitle ?? true;
+    const xTitle = showXTitle ? ((config?.xAxisTitle ?? '') || (isHoriz ? (data._measureLabel || '') : (data._dimLabel || ''))) : '';
+    const yTitle = showYTitle ? ((config?.yAxisTitle ?? '') || (isHoriz ? (data._dimLabel || '') : (data._measureLabel || ''))) : '';
     const categoryAxis = {
       type: 'category', data: labels, show: showXAxis,
       axisLabel: { show: showLabels, rotate: isHoriz ? 0 : calcLabelRotation(labels, w) },
@@ -340,20 +390,29 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
       position: barDir === 'horizontalInverse' ? 'right' : undefined,
     };
 
+    const xNameCfg = xTitle ? { name: xTitle, nameLocation: 'center', nameGap: 28, nameTextStyle: { fontSize: (config?.xAxisLabelFontSize ?? 11) + 1, color: config?.xAxisLabelColor || '#64748b', fontWeight: 500 } } : {};
+    const yNameCfg = yTitle ? { name: yTitle, nameLocation: 'center', nameGap: 40, nameTextStyle: { fontSize: (config?.yAxisLabelFontSize ?? 11) + 1, color: config?.yAxisLabelColor || '#64748b', fontWeight: 500 } } : {};
     if (isHoriz) {
-      opt.xAxis = valueAxis;
-      opt.yAxis = categoryAxis;
+      opt.xAxis = { ...valueAxis, ...xNameCfg, axisLabel: { ...valueAxis.axisLabel, ...xAxisFont } };
+      opt.yAxis = { ...categoryAxis, ...yNameCfg, axisLabel: { ...categoryAxis.axisLabel, ...yAxisFont } };
     } else {
-      opt.xAxis = categoryAxis;
-      opt.yAxis = valueAxis;
+      opt.xAxis = { ...categoryAxis, ...xNameCfg, axisLabel: { ...categoryAxis.axisLabel, ...xAxisFont } };
+      opt.yAxis = { ...valueAxis, ...yNameCfg, axisLabel: { ...valueAxis.axisLabel, ...yAxisFont } };
     }
 
     opt.series = series;
+    // Adjust grid margins to accommodate axis titles
+    const baseTop = barDir === 'verticalInverse' ? 35 : 15;
+    const baseRight = barDir === 'horizontalInverse' ? 80 : 15;
+    const baseBottom = barDir === 'verticalInverse' ? 15 : (showXAxis ? calcBottomMargin(isHoriz ? 0 : calcLabelRotation(labels, w), labels) : 15);
+    const baseLeft = barDir === 'horizontalInverse' ? 15 : (isHoriz ? 80 : (showYAxis ? 50 : 15));
+    const xTitleExtra = xTitle ? 18 : 0;
+    const yTitleExtra = yTitle ? 20 : 0;
     opt.grid = {
-      top: barDir === 'verticalInverse' ? 35 : 15,
-      right: barDir === 'horizontalInverse' ? 80 : 15,
-      bottom: barDir === 'verticalInverse' ? 15 : (showXAxis ? calcBottomMargin(isHoriz ? 0 : calcLabelRotation(labels, w), labels) : 15),
-      left: barDir === 'horizontalInverse' ? 15 : (isHoriz ? 80 : (showYAxis ? 50 : 15)),
+      top: baseTop + (barDir === 'verticalInverse' && xTitle ? xTitleExtra : 0),
+      right: baseRight + (barDir === 'horizontalInverse' && yTitle ? yTitleExtra : 0),
+      bottom: baseBottom + (barDir !== 'verticalInverse' && xTitle ? xTitleExtra : 0),
+      left: baseLeft + (barDir !== 'horizontalInverse' && yTitle ? yTitleExtra : 0),
       containLabel: false,
     };
 
@@ -377,7 +436,9 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
     return { option: opt, legendItems, rawLabels };
   }, [data, subType, showLabels, hideZeros, showLegend, legendPosition, sortOrder, hasData, config?.color,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
-      dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors, config?.barDirection]);
+      dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors, config?.barDirection,
+      config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
+      config?.xAxisTitle, config?.yAxisTitle, config?.showXAxisTitle, config?.showYAxisTitle]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
