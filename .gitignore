@@ -10,3 +10,4 @@ coverage/
 .vscode/
 !.vscode/extensions.json
 server/data/
+.claude/settings.local.json

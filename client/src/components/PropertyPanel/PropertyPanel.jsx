@@ -55,10 +55,9 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
 
   if (collapsed) {
     return (
-      <div style={collapsedPanelStyle}>
-        <button onClick={() => setCollapsed(false)} style={chevronBtn} title="Open config panel">
-          «
-        </button>
+      <div style={collapsedPanelStyle} onClick={() => setCollapsed(false)} title="Open config panel">
+        <span style={collapsedChevronStyle}>«</span>
+        <span style={collapsedLabelStyle}>Configuration</span>
       </div>
     );
   }
@@ -85,6 +84,9 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     onUpdate(widgetId, { ...widget, data: { ...widget.data, [key]: value } });
   };
 
+  const widgetMeta = WIDGET_TYPES[widget.type];
+  const binding = widget.dataBinding || {};
+
   // Build field info lookup for tooltips and type detection
   const fieldInfos = {};
   const dimensionNames = new Set();
@@ -103,14 +105,22 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     const current = binding.measureAggOverrides || {};
     updateBinding({ measureAggOverrides: { ...current, [fieldName]: newAgg } });
   };
-
-  const widgetMeta = WIDGET_TYPES[widget.type];
-  const binding = widget.dataBinding || {};
   const selectedDims = binding.selectedDimensions || [];
   const selectedMeass = binding.selectedMeasures || [];
 
   const updateBinding = (newBinding) => {
-    onUpdate(widgetId, { ...widget, dataBinding: { ...binding, ...newBinding } });
+    const next = { ...widget, dataBinding: { ...binding, ...newBinding } };
+    // Filter widgets: if the dimension changes, clear any saved selection tied to the previous dim
+    if (widget?.type === 'filter' && 'selectedDimensions' in newBinding) {
+      const oldDim = binding.selectedDimensions?.[0];
+      const newDim = newBinding.selectedDimensions?.[0];
+      if (oldDim !== newDim) {
+        const cfg = { ...(widget.config || {}) };
+        delete cfg.selectedValues;
+        next.config = cfg;
+      }
+    }
+    onUpdate(widgetId, next);
   };
 
   const addDimension = (name) => {
@@ -349,6 +359,29 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       );
     }
 
+    if (type === 'gauge') {
+      const thresholdMeas = binding.gaugeThresholdMeasure;
+      const maxMeas = binding.gaugeMaxMeasure;
+      const setBindingField = (fieldKey) => (fieldName) => {
+        onUpdate(widgetId, { ...widget, dataBinding: { ...binding, [fieldKey]: fieldName }, data: {} });
+      };
+      const removeBindingField = (fieldKey) => () => {
+        const next = { ...binding };
+        delete next[fieldKey];
+        onUpdate(widgetId, { ...widget, dataBinding: next, data: {} });
+      };
+      return (
+        <Section title="" bare>
+          <DropZone label="Value" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="value"
+            onDrop={handleDrop('value')} onRemove={handleRemove} fieldInfos={fieldInfos} />
+          <DropZone label="Max (measure)" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={maxMeas ? [maxMeas] : []} zoneName="gaugeMax"
+            onDrop={setBindingField('gaugeMaxMeasure')} onRemove={removeBindingField('gaugeMaxMeasure')} fieldInfos={fieldInfos} />
+          <DropZone label="Threshold (measure)" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={thresholdMeas ? [thresholdMeas] : []} zoneName="gaugeThreshold"
+            onDrop={setBindingField('gaugeThresholdMeasure')} onRemove={removeBindingField('gaugeThresholdMeasure')} fieldInfos={fieldInfos} />
+        </Section>
+      );
+    }
+
     if (type === 'pivotTable') {
       return (
         <Section title="" bare>
@@ -384,12 +417,21 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       {(() => {
         const info = getWidgetDisplayInfo(widget);
         const Icon = info.icon;
+        const rowCount = widget.data?._rowCount;
+        const maxReached = widget.data?._maxReached;
         return (
           <>
             <div style={headerStyle}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
-                {Icon && <Icon size={18} />} {info.label}
-              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
+                  {Icon && <Icon size={18} />} {info.label}
+                </span>
+                {typeof rowCount === 'number' && (
+                  <span style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>
+                    {maxReached ? '1,000,000 rows (limit reached)' : `${rowCount.toLocaleString('fr-FR')} rows`}
+                  </span>
+                )}
+              </div>
               <button onClick={() => onDelete(widgetId)} style={deleteStyle} title="Delete widget">
                 <TbTrash size={14} />
               </button>
@@ -420,6 +462,34 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             {dirs.map((d) => (
               <button key={d.value} title={d.title}
                 onClick={() => updateConfig('barDirection', d.value)}
+                style={{
+                  padding: '5px 7px', border: '1px solid',
+                  borderColor: dir === d.value ? '#7c3aed' : '#e2e8f0',
+                  borderRadius: 4, cursor: 'pointer',
+                  background: dir === d.value ? '#f5f3ff' : '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <TbChartBar size={16} style={{ transform: `rotate(${d.rotate}deg)`, color: dir === d.value ? '#7c3aed' : '#94a3b8' }} />
+              </button>
+            ))}
+          </div>
+        );
+      })()}
+
+      {widget.type === 'gauge' && widget.config?.subType === 'column' && (() => {
+        const dir = widget.config?.gaugeDirection || 'up';
+        const dirs = [
+          { value: 'up', rotate: 0, title: 'Bottom to top' },
+          { value: 'down', rotate: 180, title: 'Top to bottom' },
+          { value: 'right', rotate: 90, title: 'Left to right' },
+          { value: 'left', rotate: -90, title: 'Right to left' },
+        ];
+        return (
+          <div style={{ display: 'flex', gap: 2, marginBottom: 6, justifyContent: 'center' }}>
+            {dirs.map((d) => (
+              <button key={d.value} title={d.title}
+                onClick={() => updateConfig('gaugeDirection', d.value)}
                 style={{
                   padding: '5px 7px', border: '1px solid',
                   borderColor: dir === d.value ? '#7c3aed' : '#e2e8f0',
@@ -575,6 +645,20 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 onChange={(e) => updateConfig('dataLimit', parseInt(e.target.value) || 1000)}
                 style={{ ...inputStyle, marginBottom: 0 }} />
             </Field>
+          )}
+          {widget.type !== 'filter' && (
+            <>
+              <Field label="Empty message">
+                <input type="text" value={widget.config?.emptyMessage ?? ''}
+                  onChange={(e) => updateConfig('emptyMessage', e.target.value)}
+                  placeholder="No values"
+                  style={{ ...inputStyle, marginBottom: 0 }} />
+              </Field>
+              <Field label={'Hide "No values"'}>
+                <input type="checkbox" checked={widget.config?.hideEmptyMessage || false}
+                  onChange={(e) => updateConfig('hideEmptyMessage', e.target.checked)} />
+              </Field>
+            </>
           )}
         </Section>
       )}
@@ -1050,6 +1134,160 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <Field label="Show area">
             <input type="checkbox" checked={widget.config?.showArea || false} onChange={(e) => updateConfig('showArea', e.target.checked)} />
           </Field>
+          <Field label="Point shape">
+            <select value={widget.config?.lineSymbol ?? 'circle'}
+              onChange={(e) => updateConfig('lineSymbol', e.target.value)}
+              style={{ ...inputStyle, marginBottom: 0 }}>
+              <option value="circle">● Circle</option>
+              <option value="emptyCircle">○ Empty circle</option>
+              <option value="rect">■ Square</option>
+              <option value="roundRect">▢ Rounded square</option>
+              <option value="triangle">▲ Triangle</option>
+              <option value="diamond">◆ Diamond</option>
+              <option value="pin">📍 Pin</option>
+              <option value="arrow">➤ Arrow</option>
+              <option value="none">— Hide</option>
+            </select>
+          </Field>
+          {(widget.config?.lineSymbol ?? 'circle') !== 'none' && (
+            <Field label="Point size" vertical>
+              <RangeInput min={2} max={20} value={widget.config?.lineSymbolSize ?? 6}
+                onChange={(e) => updateConfig('lineSymbolSize', parseInt(e.target.value))} suffix="px" />
+            </Field>
+          )}
+        </Section>
+      )}
+
+      {widget.type === 'gauge' && (
+        <Section title="Gauge" sectionState={sections}>
+          <Field label="Min value">
+            <input type="number" value={widget.config?.gaugeMin ?? 0}
+              onChange={(e) => updateConfig('gaugeMin', parseFloat(e.target.value) || 0)}
+              style={{ ...inputStyle, width: 80 }} />
+          </Field>
+          {!widget.dataBinding?.gaugeMaxMeasure && (
+            <Field label="Max value">
+              <input type="number" value={widget.config?.gaugeMax ?? 100}
+                onChange={(e) => updateConfig('gaugeMax', parseFloat(e.target.value) || 100)}
+                style={{ ...inputStyle, width: 80 }} />
+            </Field>
+          )}
+          <Field label={widget.config?.subType === 'column' ? 'Bar thickness' : 'Arc thickness'} vertical>
+            <RangeInput
+              min={widget.config?.subType === 'column' ? 10 : 4}
+              max={widget.config?.subType === 'column' ? 120 : 60}
+              value={widget.config?.gaugeArcWidth ?? (widget.config?.subType === 'column' ? 40 : 18)}
+              onChange={(e) => updateConfig('gaugeArcWidth', parseInt(e.target.value))}
+              suffix="px" />
+          </Field>
+          {widget.config?.subType !== 'column' && (
+            <Field label="Arc opening" vertical>
+              <RangeInput min={90} max={360} step={10} value={widget.config?.gaugeArcSpan ?? 240}
+                onChange={(e) => updateConfig('gaugeArcSpan', parseInt(e.target.value))} suffix="°" />
+            </Field>
+          )}
+          {widget.config?.subType === 'column' && (
+            <Field label="Rounded ends">
+              <input type="checkbox" checked={widget.config?.gaugeArcRounded ?? false}
+                onChange={(e) => updateConfig('gaugeArcRounded', e.target.checked)} />
+            </Field>
+          )}
+          <Field label="Fill color">
+            <input type="color" value={widget.config?.gaugeColor || '#7c3aed'}
+              onChange={(e) => updateConfig('gaugeColor', e.target.value)}
+              style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+          </Field>
+          <Field label="Track color">
+            <input type="color" value={widget.config?.gaugeTrackColor || '#e2e8f0'}
+              onChange={(e) => updateConfig('gaugeTrackColor', e.target.value)}
+              style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+          </Field>
+          <Field label="Color on threshold">
+            <input type="checkbox" checked={widget.config?.gaugeConditionalColor || false}
+              onChange={(e) => updateConfig('gaugeConditionalColor', e.target.checked)} />
+          </Field>
+          {widget.config?.gaugeConditionalColor && (
+            <Field label="Over-threshold color">
+              <input type="color" value={widget.config?.gaugeOverColor || '#dc2626'}
+                onChange={(e) => updateConfig('gaugeOverColor', e.target.value)}
+                style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+            </Field>
+          )}
+          {!widget.dataBinding?.gaugeThresholdMeasure && (
+            <Field label="Threshold value">
+              <input type="number" value={widget.config?.gaugeThresholdValue ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  updateConfig('gaugeThresholdValue', v === '' ? undefined : parseFloat(v));
+                }}
+                placeholder="None"
+                style={{ ...inputStyle, width: 80 }} />
+            </Field>
+          )}
+          <Field label="Threshold color">
+            <input type="color" value={widget.config?.gaugeThresholdColor || '#dc2626'}
+              onChange={(e) => updateConfig('gaugeThresholdColor', e.target.value)}
+              style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+          </Field>
+          <Field label="Show value">
+            <input type="checkbox" checked={widget.config?.gaugeShowValue ?? true}
+              onChange={(e) => updateConfig('gaugeShowValue', e.target.checked)} />
+          </Field>
+          <Field label="Show label">
+            <input type="checkbox" checked={widget.config?.gaugeShowLabel ?? true}
+              onChange={(e) => updateConfig('gaugeShowLabel', e.target.checked)} />
+          </Field>
+          <Field label="Show min/max">
+            <input type="checkbox" checked={widget.config?.gaugeShowMinMax ?? false}
+              onChange={(e) => updateConfig('gaugeShowMinMax', e.target.checked)} />
+          </Field>
+          <SubSection label="Value font">
+            <Field label="Size" vertical>
+              <RangeInput min={10} max={60} value={widget.config?.gaugeValueSize ?? (widget.config?.subType === 'column' ? 20 : 24)}
+                onChange={(e) => updateConfig('gaugeValueSize', parseInt(e.target.value))} suffix="px" />
+            </Field>
+            <Field label="Color">
+              <input type="color" value={widget.config?.gaugeValueColor || '#0f172a'}
+                onChange={(e) => updateConfig('gaugeValueColor', e.target.value)}
+                style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+            </Field>
+          </SubSection>
+          <SubSection label="Label font">
+            <Field label="Size" vertical>
+              <RangeInput min={8} max={30} value={widget.config?.gaugeLabelSize ?? 12}
+                onChange={(e) => updateConfig('gaugeLabelSize', parseInt(e.target.value))} suffix="px" />
+            </Field>
+            <Field label="Color">
+              <input type="color" value={widget.config?.gaugeLabelColor || '#64748b'}
+                onChange={(e) => updateConfig('gaugeLabelColor', e.target.value)}
+                style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+            </Field>
+          </SubSection>
+          {(widget.config?.gaugeShowMinMax ?? false) && (
+            <SubSection label="Min/Max font">
+              <Field label="Size" vertical>
+                <RangeInput min={8} max={24} value={widget.config?.gaugeAxisSize ?? (widget.config?.subType === 'column' ? 10 : 11)}
+                  onChange={(e) => updateConfig('gaugeAxisSize', parseInt(e.target.value))} suffix="px" />
+              </Field>
+              <Field label="Color">
+                <input type="color" value={widget.config?.gaugeAxisColor || '#94a3b8'}
+                  onChange={(e) => updateConfig('gaugeAxisColor', e.target.value)}
+                  style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+              </Field>
+              {widget.config?.subType !== 'column' && (
+                <>
+                  <Field label="Distance from arc" vertical>
+                    <RangeInput min={-20} max={80} value={widget.config?.gaugeAxisOutset ?? 25}
+                      onChange={(e) => updateConfig('gaugeAxisOutset', parseInt(e.target.value))} suffix="px" />
+                  </Field>
+                  <Field label="Pull to center" vertical>
+                    <RangeInput min={0} max={200} value={widget.config?.gaugeAxisCenterPull ?? 15}
+                      onChange={(e) => updateConfig('gaugeAxisCenterPull', parseInt(e.target.value))} suffix="px" />
+                  </Field>
+                </>
+              )}
+            </SubSection>
+          )}
         </Section>
       )}
     </div>
@@ -1057,15 +1295,14 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
 }
 
 // Right column: model dimensions & measures (always visible, collapsible)
-export function DataModelPanel({ widgetId, widget, onUpdate, model, onModelUpdate, reportFilters }) {
+export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, model, onModelUpdate, reportFilters }) {
   const [collapsed, setCollapsed] = useState(false);
 
   if (collapsed) {
     return (
-      <div style={collapsedPanelStyle}>
-        <button onClick={() => setCollapsed(false)} style={chevronBtn} title="Open data panel">
-          «
-        </button>
+      <div style={collapsedPanelStyle} onClick={() => setCollapsed(false)} title="Open data panel">
+        <span style={collapsedChevronStyle}>«</span>
+        <span style={collapsedLabelStyle}>Data</span>
       </div>
     );
   }
@@ -1076,7 +1313,7 @@ export function DataModelPanel({ widgetId, widget, onUpdate, model, onModelUpdat
         <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>Data</span>
         <button onClick={() => setCollapsed(true)} style={chevronBtn} title="Collapse panel">»</button>
       </div>
-      <DataPanel widgetId={widgetId} widget={widget} onUpdate={onUpdate} model={model} onModelUpdate={onModelUpdate} reportFilters={reportFilters} />
+      <DataPanel widgetId={widgetId} widget={widget} onUpdate={onUpdate} onUpdateSilent={onUpdateSilent} model={model} onModelUpdate={onModelUpdate} reportFilters={reportFilters} />
     </div>
   );
 }
@@ -1293,10 +1530,21 @@ const configPanelStyle = {
 };
 
 const collapsedPanelStyle = {
-  width: 32, maxWidth: 32, backgroundColor: '#fff', borderLeft: '1px solid #e2e8f0',
-  display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-  paddingTop: 8, flexShrink: 0, overflow: 'hidden',
-  transition: 'width 0.2s ease, max-width 0.2s ease',
+  backgroundColor: '#fff', borderLeft: '1px solid #e2e8f0',
+  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start',
+  flexShrink: 0, overflow: 'hidden', cursor: 'pointer',
+  padding: '12px 6px', gap: 8,
+  transition: 'all 0.2s ease',
+};
+
+const collapsedChevronStyle = {
+  fontSize: 14, color: '#94a3b8', fontWeight: 600,
+};
+
+const collapsedLabelStyle = {
+  fontSize: 11, fontWeight: 600, color: '#64748b', letterSpacing: '0.05em',
+  textTransform: 'uppercase',
+  writingMode: 'vertical-rl', textOrientation: 'mixed',
 };
 
 const panelHeader = {

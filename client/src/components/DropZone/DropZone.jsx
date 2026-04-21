@@ -148,7 +148,7 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
               {/* Aggregation dropdown menu */}
               {aggMenuField === field && (
                 <div style={{
-                  display: 'flex', gap: 2, padding: '3px 4px', background: '#f8fafc',
+                  display: 'flex', flexWrap: 'wrap', gap: 2, padding: '3px 4px', background: '#f8fafc',
                   borderRadius: 4, border: '1px solid #e2e8f0', marginTop: 2,
                 }}>
                   {AGG_OPTIONS.map((opt) => (

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB_TYPES, OBJECT_SUB_TYPES } from '../Widgets';
-import { TbEye, TbArrowLeft, TbAdjustments, TbShape } from 'react-icons/tb';
+import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB_TYPES, GAUGE_SUB_TYPES, OBJECT_SUB_TYPES } from '../Widgets';
+import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh } from 'react-icons/tb';
 
-export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId }) {
+export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing }) {
   const navigate = useNavigate();
   const [openMenu, setOpenMenu] = useState(null); // 'bar' | 'line' | null
 
@@ -77,7 +77,9 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
       <div style={{ flex: 1 }} />
 
       <div style={{ display: 'flex', gap: 4 }}>
-        {Object.entries(WIDGET_TYPES).filter(([type, meta]) => !meta.hidden && type !== 'text').map(([type, { label, icon: Icon, hasSubTypes }]) => (
+        {Object.entries(WIDGET_TYPES).filter(([type, meta]) => !meta.hidden && type !== 'text').map(([type, { label, icon: Icon, hasSubTypes }]) => {
+          const iconColor = type === 'filter' ? '#0891b2' : '#7c3aed';
+          return (
           <div key={type} style={{ position: 'relative' }}
             onMouseEnter={() => hasSubTypes && setOpenMenu(type)}
             onMouseLeave={() => hasSubTypes && setOpenMenu(null)}
@@ -99,7 +101,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
               onMouseEnter={(e) => { if (openMenu !== type) { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#cbd5e1'; } }}
               onMouseLeave={(e) => { if (openMenu !== type) { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; } }}
             >
-              <Icon size={18} />
+              <Icon size={18} color={iconColor} />
               {hasSubTypes && <span style={{ fontSize: 8, color: '#94a3b8' }}>▼</span>}
             </button>
 
@@ -112,7 +114,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                     <button key={st.value} onClick={() => handleAddWithSubType('bar', st.value)} style={dropdownItem}
                       onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
                       onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
-                      <StIcon size={14} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                      <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
                     </button>
                   );
                 })}
@@ -126,7 +128,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                     <button key={st.value} onClick={() => handleAddWithSubType('line', st.value)} style={dropdownItem}
                       onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
                       onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
-                      <StIcon size={14} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                      <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
                     </button>
                   );
                 })}
@@ -140,7 +142,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                     <button key={st.value} onClick={() => handleAddWithSubType('combo', st.value)} style={dropdownItem}
                       onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
                       onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
-                      <StIcon size={14} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                      <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
                     </button>
                   );
                 })}
@@ -154,14 +156,29 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                     <button key={st.value} onClick={() => { onAddWidget(st.value); setOpenMenu(null); }} style={dropdownItem}
                       onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
                       onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
-                      <StIcon size={14} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                      <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                    </button>
+                  );
+                })}
+              </div></div>
+            )}
+            {openMenu === type && type === 'gauge' && (
+              <div style={dropdownStyle}><div style={dropdownInner}>
+                {GAUGE_SUB_TYPES.map((st) => {
+                  const StIcon = st.icon;
+                  return (
+                    <button key={st.value} onClick={() => handleAddWithSubType('gauge', st.value)} style={dropdownItem}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                      <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
                     </button>
                   );
                 })}
               </div></div>
             )}
           </div>
-        ))}
+          );
+        })}
 
         {/* Objects group */}
         <div style={{ position: 'relative' }}
@@ -180,7 +197,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             onMouseEnter={(e) => { if (openMenu !== 'objects') { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#cbd5e1'; } }}
             onMouseLeave={(e) => { if (openMenu !== 'objects') { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; } }}
           >
-            <TbShape size={18} />
+            <TbShape size={18} color="#64748b" />
             <span style={{ fontSize: 8, color: '#94a3b8' }}>▼</span>
           </button>
           {openMenu === 'objects' && (
@@ -191,7 +208,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                   <button key={st.value} onClick={() => { onAddWidget(st.type, null, st.config, st.size); setOpenMenu(null); }} style={dropdownItem}
                     onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
                     onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
-                    <StIcon size={14} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                    <StIcon size={14} color="#64748b" style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
                   </button>
                 );
               })}
@@ -200,6 +217,21 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         </div>
       </div>
 
+      {onRefresh && (
+        <button
+          onClick={onRefresh}
+          disabled={refreshing}
+          title="Refresh all widgets"
+          style={{
+            padding: '6px 10px', fontSize: 18, border: '1px solid #e2e8f0',
+            borderRadius: 6, background: '#fff',
+            cursor: refreshing ? 'not-allowed' : 'pointer', lineHeight: 1,
+            display: 'flex', alignItems: 'center', opacity: refreshing ? 0.5 : 1,
+          }}
+        >
+          <TbRefresh size={18} style={{ animation: refreshing ? 'spin 0.8s linear infinite' : undefined }} />
+        </button>
+      )}
       <button
         onClick={onOpenSettings}
         title="Report settings"
@@ -209,7 +241,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           display: 'flex', alignItems: 'center',
         }}
       >
-        <TbAdjustments size={18} />
+        <TbSettings size={18} />
       </button>
 
       <button

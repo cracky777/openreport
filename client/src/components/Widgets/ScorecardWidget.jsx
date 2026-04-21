@@ -4,6 +4,10 @@ export default function ScorecardWidget({ data, config }) {
   const hasData = data?.value !== undefined && data?.value !== '';
 
   if (!hasData) {
+    if (data?._rowCount === 0) {
+      if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
+      return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
+    }
     return <div style={emptyStyle}>Select a measure to display a scorecard</div>;
   }
 

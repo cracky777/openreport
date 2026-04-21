@@ -9,8 +9,9 @@ import PivotTableWidget from './PivotTableWidget';
 import ShapeWidget from './ShapeWidget';
 import ScatterWidget from './ScatterWidget';
 import ComboWidget from './ComboWidget';
+import GaugeWidget from './GaugeWidget';
 
-import { TbChartBar, TbChartLine, TbChartPie, TbChartBubble, TbTable, TbLayoutGrid, TbHash, TbFilter, TbTypography, TbChartAreaLine, TbChartColumn, TbChartHistogram, TbChartBarPopular, TbShape, TbTypography as TbText, TbMinus, TbSquare, TbCircle, TbArrowRight } from 'react-icons/tb';
+import { TbChartBar, TbChartLine, TbChartPie, TbChartBubble, TbTable, TbLayoutGrid, TbHash, TbFilter, TbTypography, TbChartAreaLine, TbChartColumn, TbChartHistogram, TbChartBarPopular, TbShape, TbTypography as TbText, TbMinus, TbSquare, TbCircle, TbArrowRight, TbGauge } from 'react-icons/tb';
 
 export const WIDGET_TYPES = {
   bar: { component: BarWidget, label: 'Bar Chart', icon: TbChartBar, defaultSize: { w: 24, h: 16 }, hasSubTypes: true },
@@ -21,6 +22,7 @@ export const WIDGET_TYPES = {
   pivotTable: { component: PivotTableWidget, label: 'Pivot Table', icon: TbLayoutGrid, defaultSize: { w: 28, h: 18 }, hidden: true },
   scatter: { component: ScatterWidget, label: 'Scatter Chart', icon: TbChartBubble, defaultSize: { w: 24, h: 16 } },
   scorecard: { component: ScorecardWidget, label: 'Scorecard', icon: TbHash, defaultSize: { w: 12, h: 8 } },
+  gauge: { component: GaugeWidget, label: 'Gauge', icon: TbGauge, defaultSize: { w: 14, h: 12 }, hasSubTypes: true },
   filter: { component: FilterWidget, label: 'Filter', icon: TbFilter, defaultSize: { w: 10, h: 16 } },
   text: { component: TextWidget, label: 'Text', icon: TbTypography, defaultSize: { w: 16, h: 6 } },
   shape: { component: ShapeWidget, label: 'Shape', icon: TbShape, defaultSize: { w: 200, h: 200 }, hidden: true },
@@ -57,4 +59,9 @@ export const LINE_SUB_TYPES = [
   { value: 'stackedArea100', label: '100% Stacked Area', icon: TbChartAreaLine },
 ];
 
-export { BarWidget, LineWidget, PieWidget, ScatterWidget, ComboWidget, TableWidget, ScorecardWidget, TextWidget, FilterWidget, PivotTableWidget };
+export const GAUGE_SUB_TYPES = [
+  { value: 'arc', label: 'Arc', icon: TbGauge },
+  { value: 'column', label: 'Column', icon: TbChartBar },
+];
+
+export { BarWidget, LineWidget, PieWidget, ScatterWidget, ComboWidget, TableWidget, ScorecardWidget, TextWidget, FilterWidget, PivotTableWidget, GaugeWidget };

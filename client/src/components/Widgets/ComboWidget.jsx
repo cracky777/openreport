@@ -31,6 +31,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     });
   }, []);
 
+  const w = chartWidth || 400;
   const hasData = data?.labels?.length > 0 && (data?.barSeries?.length > 0 || data?.lineSeries?.length > 0);
   const subType = config?.subType || 'stackedCombo';
   const isStacked = subType === 'stackedCombo';
@@ -318,6 +319,10 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
   useEffect(() => () => { instanceRef.current?.dispose(); instanceRef.current = null; }, []);
 
   if (!hasData) {
+    if (data?._rowCount === 0) {
+      if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
+      return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
+    }
     return <div style={emptyStyle}>Drop measures in Bar Values and Line Values</div>;
   }
 

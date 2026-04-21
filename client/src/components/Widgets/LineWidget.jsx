@@ -133,6 +133,9 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
         series.push({
           type: 'line', name: s.name || `Series ${i + 1}`, data: values,
           smooth: config?.smooth ?? true,
+          symbol: config?.lineSymbol ?? 'circle',
+          symbolSize: config?.lineSymbolSize ?? 6,
+          showSymbol: (config?.lineSymbol ?? 'circle') !== 'none',
           lineStyle: { color: getColor(s.name, colorIdx) },
           itemStyle: { color: getColor(s.name, colorIdx) },
           areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15, color: getColor(s.name, colorIdx) } : undefined,
@@ -146,6 +149,9 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
     } else if (!hasSeries) {
       series.push({
         type: 'line', data: sortedIndices.map((i) => data.values[i] || 0), smooth: config?.smooth ?? true,
+        symbol: config?.lineSymbol ?? 'circle',
+        symbolSize: config?.lineSymbolSize ?? 6,
+        showSymbol: (config?.lineSymbol ?? 'circle') !== 'none',
         lineStyle: { color: config?.color || '#5470c6' },
         itemStyle: { color: config?.color || '#5470c6' },
         areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15 } : undefined,
@@ -210,7 +216,8 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
     return { option: opt, legendItems, rawLabels };
   }, [data, subType, showLabels, showLegend, legendPosition, hasData, config?.smooth, config?.color, isArea, isStacked, hideZeros, sortOrder,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
-      dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors]);
+      dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors,
+      config?.lineSymbol, config?.lineSymbolSize]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
@@ -269,6 +276,10 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
   useEffect(() => () => { instanceRef.current?.dispose(); instanceRef.current = null; }, []);
 
   if (!hasData) {
+    if (data?._rowCount === 0) {
+      if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
+      return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
+    }
     return <div style={emptyStyle}>Select dimensions & measures to display a line chart</div>;
   }
 

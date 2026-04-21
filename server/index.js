@@ -83,6 +83,28 @@ try {
   console.warn('Cube.js setup skipped:', err.message);
 }
 
+// Global safety nets — prevent the server from crashing on async DB errors (e.g. ECONNRESET on a pool socket)
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+
+// Graceful shutdown — release DuckDB file locks so the next restart can reopen them
+const shutdown = async (signal) => {
+  console.log(`\n[shutdown] received ${signal}, closing DuckDB instances...`);
+  if (global._duckdbInstances) {
+    for (const [path, db] of Object.entries(global._duckdbInstances)) {
+      try { await db.close(); console.log(`  closed ${path}`); }
+      catch (err) { console.error(`  failed to close ${path}:`, err.message); }
+    }
+  }
+  process.exit(0);
+};
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Open Report running on http://0.0.0.0:${PORT}`);
 });

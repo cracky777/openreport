@@ -190,7 +190,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
               const top = api.coord([catIdx, value]);
               const x = base[0] - bandWidth / 2 + bandWidth * groupPad + slotWidth * nzIdx + (slotWidth - barWidth) / 2;
 
-              const dimmed = highlightValue && labels[catIdx] !== highlightValue;
+              const dimmed = highlightValue && rawLabels[catIdx] !== highlightValue;
               const rect = {
                 type: 'rect',
                 shape: { x, y: top[1], width: barWidth, height: base[1] - top[1] },
@@ -445,6 +445,11 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
   useEffect(() => () => { instanceRef.current?.dispose(); instanceRef.current = null; }, []);
 
   if (!hasData) {
+    // Distinguish "no binding configured" from "binding configured but fetch returned empty"
+    if (data?._rowCount === 0) {
+      if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
+      return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
+    }
     return <div style={emptyStyle}>Select dimensions & measures to display a bar chart</div>;
   }
 

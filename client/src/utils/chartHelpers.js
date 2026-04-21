@@ -3,13 +3,15 @@
  * Returns 0 (horizontal), 30 (slight diagonal), 45 (diagonal), or 60 (steep diagonal).
  */
 export function calcLabelRotation(labels, chartWidth, isHorizontalBar = false) {
-  if (isHorizontalBar || !labels || labels.length <= 1) return 0;
+  if (isHorizontalBar || !labels || !Array.isArray(labels) || labels.length <= 1) return 0;
 
   // Estimate available width per label
   const widthPerLabel = (chartWidth || 400) / labels.length;
 
   // Estimate max label length in characters
-  const maxLabelLen = Math.max(...labels.map((l) => String(l).length));
+  const lengths = labels.map((l) => String(l || '').length);
+  const maxLabelLen = lengths.length > 0 ? Math.max(...lengths) : 0;
+  if (maxLabelLen === 0) return 0;
 
   // Approximate pixel width per character (depends on font size ~12px)
   const charWidth = 7;

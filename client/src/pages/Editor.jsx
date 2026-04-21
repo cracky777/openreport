@@ -52,6 +52,7 @@ function convertData(data, fromType, toType) {
         rows: labels.map((l, i) => [String(l), String(values[i] || 0)]),
       };
     case 'scorecard':
+    case 'gauge':
       return {
         value: values.reduce((a, b) => a + b, 0).toLocaleString(),
         label: 'Total',
@@ -74,25 +75,58 @@ export default function Editor() {
   const [model, setModel] = useState(null);
   const [selectedWidget, setSelectedWidget] = useState(null);
   const [clipboard, setClipboard] = useState(null);
-  // Cross-filtering: { dimensionName: [selectedValues] } — empty array = no filter
   const [reportFilters, setReportFilters] = useState({});
+  const [slicerSelections, setSlicerSelections] = useState({});
   // Cross-highlight: which widget is the source and what value is highlighted
-  const [crossHighlight, setCrossHighlight] = useState(null); // { widgetId, value }
+  const [crossHighlight, setCrossHighlight] = useState(null); // { widgetId, dim, value }
   const crossHighlightRef = useRef(null);
   crossHighlightRef.current = crossHighlight;
 
-  // Called by slicers when selection changes
-  const handleSlicerFilter = useCallback((widgetId, dimensionName, selectedValues) => {
-    setReportFilters((prev) => {
-      const next = { ...prev };
-      if (!selectedValues || selectedValues.length === 0) {
-        delete next[dimensionName];
-      } else {
-        next[dimensionName] = selectedValues;
+  // Undo/redo state: tracks layout + widgets together (for current page)
+  const history = useHistory({ layout: [], widgets: {} });
+  const { layout, widgets } = history.state;
+
+  // Sync slicerSelections from widgets' config.selectedValues (e.g. after undo/redo).
+  // Compares content to avoid updates when nothing actually changed.
+  useEffect(() => {
+    const fromWidgets = {};
+    for (const w of Object.values(widgets || {})) {
+      if (w?.type !== 'filter') continue;
+      const dim = w.dataBinding?.selectedDimensions?.[0];
+      const vals = w.config?.selectedValues;
+      if (dim && Array.isArray(vals) && vals.length > 0) fromWidgets[dim] = vals;
+    }
+    const sameContent = (a, b) => {
+      const aK = Object.keys(a), bK = Object.keys(b);
+      if (aK.length !== bK.length) return false;
+      for (const k of aK) {
+        if (!b[k] || a[k].length !== b[k].length) return false;
+        for (let i = 0; i < a[k].length; i++) if (a[k][i] !== b[k][i]) return false;
       }
-      return next;
+      return true;
+    };
+    setSlicerSelections((prev) => sameContent(prev, fromWidgets) ? prev : fromWidgets);
+    setReportFilters((prev) => {
+      // reportFilters = slicer ∪ crossHighlight; update slicer portion to match widgets
+      const next = { ...fromWidgets };
+      const ch = crossHighlightRef.current;
+      if (ch?.dim) next[ch.dim] = [ch.value];
+      return sameContent(prev, next) ? prev : next;
     });
-  }, []);
+  }, [widgets]);
+
+  // Called by slicers when selection changes — writes to widget config (recorded in history).
+  // The useEffect above will auto-sync slicerSelections and reportFilters from widgets.
+  const handleSlicerFilter = useCallback((widgetId, dimensionName, selectedValues) => {
+    history.set((prev) => {
+      const w = prev.widgets?.[widgetId];
+      if (!w) return prev;
+      const cfg = { ...(w.config || {}) };
+      if (selectedValues && selectedValues.length > 0) cfg.selectedValues = selectedValues;
+      else delete cfg.selectedValues;
+      return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...w, config: cfg } } };
+    });
+  }, [history]);
 
   // Called by chart widgets when user clicks a data point
   const crossFilterSourceRef = useRef(null);
@@ -100,40 +134,71 @@ export default function Editor() {
     const prev = crossHighlightRef.current;
     const isSame = prev && prev.widgetId === sourceWidgetId && prev.value === value;
     if (isSame) {
-      // Deselect: mark source so it is NOT refetched (keeps its colors stable)
       crossFilterSourceRef.current = sourceWidgetId;
       setCrossHighlight(null);
-      setReportFilters((p) => { const n = { ...p }; delete n[dimensionName]; return n; });
+      setReportFilters((p) => {
+        const n = { ...p };
+        if (slicerSelections[dimensionName]) n[dimensionName] = slicerSelections[dimensionName];
+        else delete n[dimensionName];
+        return n;
+      });
     } else {
       crossFilterSourceRef.current = sourceWidgetId;
-      setCrossHighlight({ widgetId: sourceWidgetId, value });
-      setReportFilters((p) => ({ ...p, [dimensionName]: [value] }));
+      setCrossHighlight({ widgetId: sourceWidgetId, dim: dimensionName, value });
+      setReportFilters((p) => {
+        const n = { ...p };
+        if (prev && prev.dim && prev.dim !== dimensionName) {
+          if (slicerSelections[prev.dim]) n[prev.dim] = slicerSelections[prev.dim];
+          else delete n[prev.dim];
+        }
+        n[dimensionName] = [value];
+        return n;
+      });
     }
-  }, []);
+  }, [slicerSelections]);
   // When filters change, refetch all widgets
   // Cross-filter refetch with debounce + abort + loading indicator
   const prevFiltersJson = useRef('{}');
   const abortControllerRef = useRef(null);
   const debounceTimerRef = useRef(null);
+  const skipNextRefetch = useRef(false); // set to true when filters are restored from saved state
+  const prevRefreshCounter = useRef(0);
+
+  const [refreshCounter, setRefreshCounter] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = useCallback(() => {
+    setRefreshing((r) => r ? r : true);
+    setRefreshCounter((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     const json = JSON.stringify(reportFilters || {});
-    if (json === prevFiltersJson.current) return;
-    prevFiltersJson.current = json;
+    const sourceId = crossFilterSourceRef.current;
+    const refreshRequested = refreshCounter !== prevRefreshCounter.current;
+    prevRefreshCounter.current = refreshCounter;
+    // Skip refetch if we just restored filters from saved state — saved widget data already reflects them
+    if (skipNextRefetch.current) {
+      skipNextRefetch.current = false;
+      prevFiltersJson.current = json;
+      return;
+    }
+    // Skip only if NOTHING changed: filters identical AND no fresh cross-filter click AND no refresh request
+    if (json === prevFiltersJson.current && sourceId === null && !refreshRequested) return;
     if (!model) return;
+    prevFiltersJson.current = json;
 
     // Abort previous in-flight requests
     if (abortControllerRef.current) abortControllerRef.current.abort();
     // Clear previous debounce
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
 
-    const sourceId = crossFilterSourceRef.current;
     crossFilterSourceRef.current = null;
     const currentWidgets = history.state.widgets;
 
     const toFetch = Object.entries(currentWidgets).filter(([wId, w]) => {
       if (!w || w.type === 'filter' || w.type === 'text') return false;
-      if (wId === sourceId) return false;
+      // On explicit refresh, refetch ALL (including cross-filter source)
+      if (!refreshRequested && wId === sourceId) return false;
       const b = w.dataBinding || {};
       const hasMeas = w.type === 'scatter' ? !!(b.scatterMeasures?.x && b.scatterMeasures?.y)
         : w.type === 'combo' ? (b.comboBarMeasures?.length > 0 || b.comboLineMeasures?.length > 0)
@@ -143,8 +208,8 @@ export default function Editor() {
 
     if (toFetch.length === 0) return;
 
-    // Mark all target widgets as loading
-    history.set((prev) => {
+    // Mark all target widgets as loading (silent — not an undoable action)
+    history.setSilent((prev) => {
       const next = { ...prev, widgets: { ...prev.widgets } };
       toFetch.forEach(([wId]) => {
         if (next.widgets[wId]) next.widgets[wId] = { ...next.widgets[wId], _loading: true };
@@ -167,7 +232,9 @@ export default function Editor() {
           ? [sm.x, sm.y, sm.size].filter(Boolean)
           : w.type === 'combo'
             ? [...new Set([...cbm, ...clm])]
-            : (binding.selectedMeasures || []);
+            : w.type === 'gauge'
+              ? [...new Set([...(binding.selectedMeasures || []), binding.gaugeThresholdMeasure, binding.gaugeMaxMeasure].filter(Boolean))]
+              : (binding.selectedMeasures || []);
         const grpBy = binding.groupBy || [];
         const colDimsB = binding.columnDimensions || [];
         const allDims = [...dims, ...grpBy.filter((g) => !dims.includes(g)), ...colDimsB.filter((g) => !dims.includes(g) && !grpBy.includes(g))];
@@ -177,7 +244,7 @@ export default function Editor() {
           limit: w.config?.dataLimit || 1000, filters: reportFilters,
         }, { signal: controller.signal }).then((res) => {
           const rows = res.data?.rows;
-          if (!rows || rows.length === 0) return { wId, data: null };
+          if (!rows || rows.length === 0) return { wId, data: { _rowCount: 0 } };
           let newData = {};
           const keys = Object.keys(rows[0]);
           if (w.type === 'pivotTable') {
@@ -243,6 +310,36 @@ export default function Editor() {
             newData = { columns: keys, rows: rows.map((r) => Object.values(r).map((v) => v != null ? String(v) : '')) };
           } else if (w.type === 'pie') {
             newData = { items: rows.map((r) => ({ name: String(r[keys[0]]), value: Number(r[keys[keys.length - 1]]) || 0 })) };
+          } else if (w.type === 'scorecard' || w.type === 'gauge') {
+            const firstRow = rows[0];
+            if (firstRow) {
+              const valueMeasName = w.dataBinding?.selectedMeasures?.[0];
+              const valueMeasDef = (model.measures || []).find((m) => m.name === valueMeasName);
+              const valueKey = valueMeasDef?.label || valueMeasDef?.name || valueMeasName;
+              const measureVal = valueKey && firstRow[valueKey] !== undefined ? firstRow[valueKey] : Object.values(firstRow)[0];
+              newData = {
+                value: typeof measureVal === 'number' ? measureVal.toLocaleString() : String(measureVal),
+                label: valueMeasDef?.label || valueMeasName || '',
+              };
+              if (w.type === 'gauge') {
+                const extractMeas = (measName) => {
+                  if (!measName) return undefined;
+                  const def = (model.measures || []).find((m) => m.name === measName);
+                  const key = def?.label || def?.name || measName;
+                  const raw = firstRow[key];
+                  if (typeof raw === 'number') return raw;
+                  if (raw != null) {
+                    const parsed = parseFloat(String(raw));
+                    if (!isNaN(parsed)) return parsed;
+                  }
+                  return undefined;
+                };
+                const th = extractMeas(w.dataBinding?.gaugeThresholdMeasure);
+                if (th !== undefined) newData.threshold = th;
+                const mx = extractMeas(w.dataBinding?.gaugeMaxMeasure);
+                if (mx !== undefined) newData.maxValue = mx;
+              }
+            }
           } else if (grpBy.length > 0 && keys.length >= 3) {
             const [axisKey, groupKey] = keys; const valueKey = keys[keys.length - 1];
             const ul = [...new Set(rows.map((r) => String(r[axisKey])))];
@@ -260,29 +357,31 @@ export default function Editor() {
             if (axisDim?.datePart) newData._datePart = axisDim.datePart;
             else if (axisDim?.type === 'date') newData._datePart = 'full_date';
           }
+          newData._rowCount = rows.length;
           return { wId, data: newData };
         }).catch(() => ({ wId, data: null }));
       });
 
-      // Wait for ALL to complete, then batch update
+      // Wait for ALL to complete, then batch update (silent — data fetch is not undoable)
       Promise.all(promises).then((results) => {
-        if (controller.signal.aborted) return;
-        history.set((prev) => {
+        if (controller.signal.aborted) { setRefreshing(false); return; }
+        history.setSilent((prev) => {
           const next = { ...prev, widgets: { ...prev.widgets } };
           results.forEach(({ wId, data }) => {
             if (next.widgets[wId]) {
-              next.widgets[wId] = { ...next.widgets[wId], _loading: false, ...(data ? { data } : {}) };
+              next.widgets[wId] = { ...next.widgets[wId], _loading: false, data: data || {} };
             }
           });
           return next;
         });
+        setRefreshing(false);
       });
     }, 150);
 
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
-  }, [reportFilters]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reportFilters, model, refreshCounter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -290,9 +389,94 @@ export default function Editor() {
   const [settings, setSettings] = useState({});
   const [showSettings, setShowSettings] = useState(false);
 
-  // Undo/redo state: tracks layout + widgets together
-  const history = useHistory({ layout: [], widgets: {} });
-  const { layout, widgets } = history.state;
+  // Multi-page support
+  const [pages, setPages] = useState([{ id: 'page-1', name: 'Page 1' }]);
+  const [currentPageIdx, setCurrentPageIdx] = useState(0);
+  const [editingPageName, setEditingPageName] = useState(null);
+  const pagesDataRef = useRef({}); // stores { [pageId]: { layout, widgets } }
+
+  // Switch page: save current, load target
+  const switchPage = useCallback((idx) => {
+    if (idx === currentPageIdx) return;
+    const curPage = pages[currentPageIdx];
+    if (curPage) {
+      pagesDataRef.current[curPage.id] = { layout: history.state.layout, widgets: history.state.widgets };
+    }
+    setCurrentPageIdx(idx);
+    setSelectedWidget(null);
+    const targetPage = pages[idx];
+    const targetData = pagesDataRef.current[targetPage.id] || { layout: [], widgets: {} };
+    history.set(targetData);
+  }, [currentPageIdx, pages, history, setSelectedWidget]);
+
+  const addPage = useCallback(() => {
+    const curPage = pages[currentPageIdx];
+    pagesDataRef.current[curPage.id] = { layout: history.state.layout, widgets: history.state.widgets };
+    const newId = `page-${Date.now()}`;
+    // Generate unique page name
+    let num = pages.length + 1;
+    while (pages.some((p) => p.name.toLowerCase() === `page ${num}`)) num++;
+    const newPages = [...pages, { id: newId, name: `Page ${num}` }];
+    setPages(newPages);
+    pagesDataRef.current[newId] = { layout: [], widgets: {} };
+    setCurrentPageIdx(newPages.length - 1);
+    setSelectedWidget(null);
+    history.set({ layout: [], widgets: {} });
+  }, [pages, currentPageIdx, history, setSelectedWidget]);
+
+  const deletePage = useCallback((idx) => {
+    if (pages.length <= 1) return;
+    if (!confirm(`Delete "${pages[idx].name}"?`)) return;
+    const pageId = pages[idx].id;
+    delete pagesDataRef.current[pageId];
+    const newPages = pages.filter((_, i) => i !== idx);
+    setPages(newPages);
+    const newIdx = idx >= newPages.length ? newPages.length - 1 : idx;
+    setCurrentPageIdx(newIdx);
+    setSelectedWidget(null);
+    const targetData = pagesDataRef.current[newPages[newIdx].id] || { layout: [], widgets: {} };
+    history.set(targetData);
+  }, [pages, history, setSelectedWidget]);
+
+  const [pageContextMenu, setPageContextMenu] = useState(null); // { idx, x, y }
+
+  const copyPage = useCallback((idx) => {
+    const curPage = pages[currentPageIdx];
+    pagesDataRef.current[curPage.id] = { layout: history.state.layout, widgets: history.state.widgets };
+    const srcPage = pages[idx];
+    const srcData = pagesDataRef.current[srcPage.id] || { layout: [], widgets: {} };
+    const newId = `page-${Date.now()}`;
+    // Generate unique copy name
+    let copyName = `${srcPage.name} (copy)`;
+    let n = 2;
+    while (pages.some((p) => p.name.toLowerCase() === copyName.toLowerCase())) {
+      copyName = `${srcPage.name} (copy ${n++})`;
+    }
+    // Deep copy layout and widgets
+    const copiedLayout = JSON.parse(JSON.stringify(srcData.layout));
+    const copiedWidgets = JSON.parse(JSON.stringify(srcData.widgets));
+    const newPages = [...pages, { id: newId, name: copyName }];
+    pagesDataRef.current[newId] = { layout: copiedLayout, widgets: copiedWidgets };
+    setPages(newPages);
+    setCurrentPageIdx(newPages.length - 1);
+    setSelectedWidget(null);
+    history.set({ layout: copiedLayout, widgets: copiedWidgets });
+    setPageContextMenu(null);
+  }, [pages, currentPageIdx, history, setSelectedWidget]);
+
+  const renamePage = useCallback((idx, newName) => {
+    const trimmed = newName.trim();
+    if (!trimmed) { setEditingPageName(null); return; }
+    // Check for duplicate name
+    const isDuplicate = pages.some((p, i) => i !== idx && p.name.toLowerCase() === trimmed.toLowerCase());
+    if (isDuplicate) {
+      alert(`A page named "${trimmed}" already exists.`);
+      setEditingPageName(null);
+      return;
+    }
+    setPages((prev) => prev.map((p, i) => i === idx ? { ...p, name: trimmed } : p));
+    setEditingPageName(null);
+  }, [pages]);
 
   const setLayout = useCallback((updater) => {
     history.set((prev) => ({
@@ -324,7 +508,33 @@ export default function Editor() {
         setReport(r);
         setTitle(r.title);
         setSettings(r.settings || {});
-        history.set({ layout: r.layout || [], widgets: r.widgets || {} });
+
+        // Load pages (backward compat: if no pages, create one from layout/widgets)
+        const reportPages = r.pages || r.settings?.pages;
+        let firstPageWidgets = {};
+        if (reportPages && reportPages.length > 0) {
+          setPages(reportPages.map((p) => ({ id: p.id, name: p.name })));
+          reportPages.forEach((p) => {
+            pagesDataRef.current[p.id] = { layout: p.layout || [], widgets: p.widgets || {} };
+          });
+          firstPageWidgets = reportPages[0].widgets || {};
+          history.set({ layout: reportPages[0].layout || [], widgets: firstPageWidgets });
+        } else {
+          const defaultPage = { id: 'page-1', name: 'Page 1' };
+          setPages([defaultPage]);
+          pagesDataRef.current[defaultPage.id] = { layout: r.layout || [], widgets: r.widgets || {} };
+          firstPageWidgets = r.widgets || {};
+          history.set({ layout: r.layout || [], widgets: firstPageWidgets });
+        }
+        setCurrentPageIdx(0);
+
+        // slicerSelections/reportFilters are auto-derived from widgets' config.selectedValues.
+        // Skip the resulting refetch — saved widget data already reflects these filters.
+        const hasSavedFilter = Object.values(firstPageWidgets).some((w) => {
+          if (w?.type !== 'filter') return false;
+          return Array.isArray(w.config?.selectedValues) && w.config.selectedValues.length > 0;
+        });
+        if (hasSavedFilter) skipNextRefetch.current = true;
 
         if (r.model_id) {
           const modelRes = await api.get(`/models/${r.model_id}`);
@@ -456,7 +666,12 @@ export default function Editor() {
         [widgetId]: {
           type,
           data: {},
-          config: { ...(subType ? { subType } : {}), ...extraConfig },
+          config: {
+            ...(subType ? { subType } : {}),
+            // Filter widgets: no border by default, tighter padding
+            ...(type === 'filter' ? { borderEnabled: false } : {}),
+            ...extraConfig,
+          },
         },
       })
     );
@@ -470,6 +685,14 @@ export default function Editor() {
       [widgetId]: updatedWidget,
     }));
   }, [setWidgets]);
+
+  // Silent version — for fetch-related updates (loading/data) that should NOT pollute undo history
+  const handleUpdateWidgetSilent = useCallback((widgetId, updatedWidget) => {
+    history.setSilent((prev) => ({
+      ...prev,
+      widgets: { ...prev.widgets, [widgetId]: updatedWidget },
+    }));
+  }, [history]);
 
   const handleBringToFront = useCallback((widgetId) => {
     setLayout((prev) => {
@@ -500,6 +723,9 @@ export default function Editor() {
   }, [setLayout]);
 
   const handleDeleteWidget = useCallback((widgetId) => {
+    const prevCH = crossHighlightRef.current;
+    const wasCrossFilterSource = prevCH && prevCH.widgetId === widgetId;
+
     setLayoutAndWidgets(
       (prevLayout) => prevLayout.filter((item) => item.i !== widgetId),
       (prevWidgets) => {
@@ -509,6 +735,9 @@ export default function Editor() {
       }
     );
     setSelectedWidget(null);
+
+    // Clear cross-highlight if deleting the source widget — slicer state auto-resyncs via useEffect(widgets)
+    if (wasCrossFilterSource) setCrossHighlight(null);
   }, [setLayoutAndWidgets]);
 
   const handleLoadMore = useCallback(async (widgetId) => {
@@ -524,10 +753,10 @@ export default function Editor() {
     const currentRows = widget.data?.rows || [];
     const dataLimit = widget.config?.dataLimit || 1000;
 
-    // Mark as loading
-    setWidgets((prev) => ({
+    // Mark as loading (silent — not undoable)
+    history.setSilent((prev) => ({
       ...prev,
-      [widgetId]: { ...prev[widgetId], data: { ...prev[widgetId].data, _loadingMore: true } },
+      widgets: { ...prev.widgets, [widgetId]: { ...prev.widgets[widgetId], data: { ...prev.widgets[widgetId].data, _loadingMore: true } } },
     }));
 
     try {
@@ -541,8 +770,8 @@ export default function Editor() {
       const newRows = res.data.rows;
       const hasMore = newRows.length >= dataLimit;
 
-      setWidgets((prev) => {
-        const w = prev[widgetId];
+      history.setSilent((prev) => {
+        const w = prev.widgets[widgetId];
         if (!w) return prev;
         const existingRows = w.data?.rows || [];
         const columns = w.data?.columns || (newRows.length > 0 ? Object.keys(newRows[0]) : []);
@@ -550,25 +779,28 @@ export default function Editor() {
 
         return {
           ...prev,
-          [widgetId]: {
-            ...w,
-            data: {
-              columns,
-              rows: [...existingRows, ...appendedRows],
-              _loadingMore: false,
-              _hasMore: hasMore,
+          widgets: {
+            ...prev.widgets,
+            [widgetId]: {
+              ...w,
+              data: {
+                columns,
+                rows: [...existingRows, ...appendedRows],
+                _loadingMore: false,
+                _hasMore: hasMore,
+              },
             },
           },
         };
       });
     } catch (err) {
       console.error('Load more failed:', err);
-      setWidgets((prev) => ({
+      history.setSilent((prev) => ({
         ...prev,
-        [widgetId]: { ...prev[widgetId], data: { ...prev[widgetId].data, _loadingMore: false } },
+        widgets: { ...prev.widgets, [widgetId]: { ...prev.widgets[widgetId], data: { ...prev.widgets[widgetId].data, _loadingMore: false } } },
       }));
     }
-  }, [widgets, model, setWidgets]);
+  }, [widgets, model, history]);
 
   const reloadModel = useCallback(async () => {
     if (!report?.model_id) return;
@@ -597,7 +829,25 @@ export default function Editor() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.put(`/reports/${id}`, { title, layout, widgets, settings });
+      // Save current page state first
+      const curPage = pages[currentPageIdx];
+      pagesDataRef.current[curPage.id] = { layout, widgets };
+
+      // Build pages array for save — slicer selections already live in widget.config.selectedValues
+      const pagesForSave = pages.map((p) => ({
+        id: p.id,
+        name: p.name,
+        layout: pagesDataRef.current[p.id]?.layout || [],
+        widgets: pagesDataRef.current[p.id]?.widgets || {},
+      }));
+
+      // Also save layout/widgets at root for backward compat (first page)
+      await api.put(`/reports/${id}`, {
+        title, settings,
+        layout: pagesForSave[0]?.layout || [],
+        widgets: pagesForSave[0]?.widgets || {},
+        pages: pagesForSave,
+      });
       setSaveMsg('Saved');
       setTimeout(() => setSaveMsg(null), 2000);
     } catch (err) {
@@ -629,22 +879,64 @@ export default function Editor() {
         canRedo={history.canRedo}
         onOpenSettings={() => setShowSettings(true)}
         reportId={id}
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
       />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <ReportCanvas
-          layout={layout}
-          widgets={widgets}
-          selectedWidget={selectedWidget}
-          onLayoutChange={setLayout}
-          onSelectWidget={setSelectedWidget}
-          settings={settings}
-          onLoadMore={handleLoadMore}
-          onWidgetUpdate={handleUpdateWidget}
-          reportFilters={reportFilters}
-          onSlicerFilter={handleSlicerFilter}
-          onCrossFilter={handleCrossFilter}
-          crossHighlight={crossHighlight}
-        />
+        {/* Left column: canvas + pages bar, so pages bar doesn't overlap Config/Data panels */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+            <ReportCanvas
+              layout={layout}
+              widgets={widgets}
+              selectedWidget={selectedWidget}
+              onLayoutChange={setLayout}
+              onSelectWidget={setSelectedWidget}
+              settings={settings}
+              onLoadMore={handleLoadMore}
+              onWidgetUpdate={handleUpdateWidget}
+              reportFilters={slicerSelections}
+              onSlicerFilter={handleSlicerFilter}
+              onCrossFilter={handleCrossFilter}
+              crossHighlight={crossHighlight}
+            />
+          </div>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 0, padding: '0 8px',
+            backgroundColor: '#f1f5f9', borderTop: '1px solid #e2e8f0', height: 30, flexShrink: 0,
+          }}>
+          {pages.map((page, idx) => (
+            <div key={page.id}
+              onClick={() => switchPage(idx)}
+              onDoubleClick={() => setEditingPageName(idx)}
+              onContextMenu={(e) => { e.preventDefault(); setPageContextMenu({ idx, x: e.clientX, y: e.clientY }); }}
+              style={{
+                padding: '4px 14px', fontSize: 11, cursor: 'pointer', userSelect: 'none',
+                borderRight: '1px solid #e2e8f0',
+                backgroundColor: idx === currentPageIdx ? '#fff' : 'transparent',
+                color: idx === currentPageIdx ? '#7c3aed' : '#64748b',
+                fontWeight: idx === currentPageIdx ? 600 : 400,
+                borderTop: idx === currentPageIdx ? '2px solid #7c3aed' : '2px solid transparent',
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}
+            >
+              {editingPageName === idx ? (
+                <input
+                  autoFocus
+                  defaultValue={page.name}
+                  onBlur={(e) => renamePage(idx, e.target.value || page.name)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') renamePage(idx, e.target.value || page.name); if (e.key === 'Escape') setEditingPageName(null); }}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ border: 'none', outline: 'none', fontSize: 11, width: 80, background: 'transparent', fontWeight: 600, color: '#7c3aed' }}
+                />
+              ) : page.name}
+            </div>
+          ))}
+          <button onClick={addPage} title="Add page"
+            style={{ padding: '4px 10px', fontSize: 14, border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8', fontWeight: 700 }}>+</button>
+          </div>
+        </div>
+
         <WidgetConfigPanel
           widgetId={selectedWidget}
           widget={selectedWidget ? widgets[selectedWidget] : null}
@@ -660,10 +952,33 @@ export default function Editor() {
           widgetId={selectedWidget}
           widget={selectedWidget ? widgets[selectedWidget] : null}
           onUpdate={handleUpdateWidget}
+          onUpdateSilent={handleUpdateWidgetSilent}
           model={model}
           onModelUpdate={reloadModel}
-          reportFilters={crossHighlight?.widgetId === selectedWidget ? {} : reportFilters}
+          reportFilters={crossHighlight?.widgetId === selectedWidget ? slicerSelections : reportFilters}
         />
+
+        {/* Page context menu */}
+        {pageContextMenu && (
+          <>
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99 }}
+              onClick={() => setPageContextMenu(null)} />
+            <div style={{
+              position: 'fixed', bottom: window.innerHeight - pageContextMenu.y, left: pageContextMenu.x, zIndex: 100,
+              backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 6,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)', overflow: 'hidden', minWidth: 140,
+            }}>
+              <button onClick={() => { setEditingPageName(pageContextMenu.idx); setPageContextMenu(null); }}
+                style={ctxMenuItem}>Rename</button>
+              <button onClick={() => { copyPage(pageContextMenu.idx); }}
+                style={ctxMenuItem}>Duplicate</button>
+              {pages.length > 1 && (
+                <button onClick={() => { deletePage(pageContextMenu.idx); setPageContextMenu(null); }}
+                  style={{ ...ctxMenuItem, color: '#dc2626' }}>Delete</button>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {showSettings && (
@@ -684,3 +999,9 @@ export default function Editor() {
     </div>
   );
 }
+
+const ctxMenuItem = {
+  display: 'block', width: '100%', padding: '8px 16px', border: 'none',
+  background: '#fff', cursor: 'pointer', fontSize: 12, color: '#334155',
+  textAlign: 'left',
+};

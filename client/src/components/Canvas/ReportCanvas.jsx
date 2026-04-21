@@ -18,7 +18,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onCrossFilter, crossHighlight, snapGrid }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onCrossFilter, crossHighlight, snapGrid, reportFilters }) {
   const nodeRef = useRef(null);
   const WidgetType = WIDGET_TYPES[widget.type];
   if (!WidgetType) return null;
@@ -28,8 +28,11 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
   const isAutoHeight = widget.type === 'table' && widget.config?.autoHeight;
   const h = isAutoHeight ? 'auto' : (item.h || 300);
   const titleHeight = widget.config?.title ? 30 : 0;
-  const contentWidth = Math.max(50, (typeof w === 'number' ? w : 400) - 16);
-  const contentHeight = Math.max(50, (typeof h === 'number' ? h : 300) - titleHeight - 16);
+  // Filter widgets use tighter padding (4px vs 8px) for a more compact look
+  const contentPadding = widget.type === 'filter' ? 2 : 8;
+  const paddingTotal = contentPadding * 2;
+  const contentWidth = Math.max(50, (typeof w === 'number' ? w : 400) - paddingTotal);
+  const contentHeight = Math.max(50, (typeof h === 'number' ? h : 300) - titleHeight - paddingTotal);
 
   return (
     <Draggable
@@ -89,7 +92,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           </>
         )}
         <div className="widget-content" style={{
-          padding: 8,
+          padding: contentPadding,
           width: contentWidth,
           height: contentHeight,
           overflow: 'hidden',
@@ -108,6 +111,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
               const dimName = widget.dataBinding?.selectedDimensions?.[0];
               if (dimName) onSlicerFilter(item.i, dimName, vals);
             } : undefined}
+            activeSelection={widget.type === 'filter' && reportFilters ? reportFilters[widget.dataBinding?.selectedDimensions?.[0]] : undefined}
             onDataClick={onCrossFilter ? (dimName, value) => onCrossFilter(item.i, dimName, value) : undefined}
             highlightValue={crossHighlight?.widgetId === item.i ? crossHighlight.value : null}
           />
@@ -168,6 +172,7 @@ export default function ReportCanvas({
   onSlicerFilter,
   onCrossFilter,
   crossHighlight,
+  reportRef,
 }) {
   const [resizing, setResizing] = useState(null);
   const containerRef = useRef(null);
@@ -282,6 +287,7 @@ export default function ReportCanvas({
         overflow: 'visible',
       }}>
         <div
+          ref={reportRef}
           style={{
             width: pageWidth,
             minWidth: pageWidth,
@@ -330,6 +336,7 @@ export default function ReportCanvas({
               onCrossFilter={onCrossFilter}
               crossHighlight={crossHighlight}
               snapGrid={snapGrid}
+              reportFilters={reportFilters}
             />
           );
         })}

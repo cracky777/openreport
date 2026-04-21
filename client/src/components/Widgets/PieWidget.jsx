@@ -166,6 +166,10 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
   useEffect(() => () => { instanceRef.current?.dispose(); instanceRef.current = null; }, []);
 
   if (!hasData) {
+    if (data?._rowCount === 0) {
+      if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
+      return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
+    }
     return <div style={emptyStyle}>Select dimensions & measures to display a pie chart</div>;
   }
 

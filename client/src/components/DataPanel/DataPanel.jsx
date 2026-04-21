@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../../utils/api';
 import SqlExpressionInput from '../SqlExpressionInput/SqlExpressionInput';
 
-export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUpdate, reportFilters }) {
+export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, model, onModelUpdate, reportFilters }) {
   const [status, setStatus] = useState(null);
   const [showCalcForm, setShowCalcForm] = useState(false);
   const [calcLabel, setCalcLabel] = useState('');
@@ -15,6 +15,9 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
   const [loading, setLoading] = useState(false);
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
+  // Fetch-related updates (loading flag, fetched data) should NOT pollute undo history
+  const onUpdateSilentRef = useRef(onUpdateSilent || onUpdate);
+  onUpdateSilentRef.current = onUpdateSilent || onUpdate;
   const widgetRef = useRef(widget);
   widgetRef.current = widget;
   const widgetIdRef = useRef(widgetId);
@@ -41,11 +44,15 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
   const scatterMeas = binding.scatterMeasures || {};
   const comboBarMeas = binding.comboBarMeasures || [];
   const comboLineMeas = binding.comboLineMeasures || [];
+  const gaugeThresholdMeasure = binding.gaugeThresholdMeasure;
+  const gaugeMaxMeasure = binding.gaugeMaxMeasure;
   const selectedMeass = isScatter
     ? [scatterMeas.x, scatterMeas.y, scatterMeas.size].filter(Boolean)
     : isCombo
       ? [...new Set([...comboBarMeas, ...comboLineMeas])]
-      : (binding.selectedMeasures || []);
+      : widget?.type === 'gauge'
+        ? [...new Set([...(binding.selectedMeasures || []), gaugeThresholdMeasure, gaugeMaxMeasure].filter(Boolean))]
+        : (binding.selectedMeasures || []);
 
   // Key based on binding + model version + filters (slicers don't include filters)
   const modelVersion = (model?.measures?.length || 0) + ':' + (model?.dimensions?.length || 0);
@@ -53,9 +60,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
   const filtersKey = !isFilterWidget && reportFilters ? JSON.stringify(reportFilters) : '';
   const scatterKey = isScatter ? `${scatterMeas.x || ''}:${scatterMeas.y || ''}:${scatterMeas.size || ''}` : '';
   const comboKey = isCombo ? `bar:${comboBarMeas.join(',')}|line:${comboLineMeas.join(',')}` : '';
+  const gaugeKey = widget?.type === 'gauge' ? `threshold:${gaugeThresholdMeasure || ''}|max:${gaugeMaxMeasure || ''}` : '';
   const aggOverrides = binding.measureAggOverrides || {};
   const aggKey = Object.keys(aggOverrides).length > 0 ? JSON.stringify(aggOverrides) : '';
-  const bindingKey = hasWidget ? `${selectedDims.join(',')}:${selectedMeass.join(',')}:${groupBy.join(',')}:${columnDims.join(',')}:${scatterKey}:${comboKey}:${aggKey}:${modelVersion}:${filtersKey}` : '';
+  const bindingKey = hasWidget ? `${selectedDims.join(',')}:${selectedMeass.join(',')}:${groupBy.join(',')}:${columnDims.join(',')}:${scatterKey}:${comboKey}:${gaugeKey}:${aggKey}:${modelVersion}:${filtersKey}` : '';
   // Full key including widgetId to detect widget switch
   const selectionKey = hasWidget ? `${widgetId}:${bindingKey}` : '';
 
@@ -98,10 +106,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
       setLoading(true);
       setStatus(null);
 
-      // Mark widget as loading
+      // Mark widget as loading (silent — not an undoable action)
       const lw = widgetRef.current;
       if (lw && widgetIdRef.current === capturedWidgetId) {
-        onUpdateRef.current(capturedWidgetId, { ...lw, _loading: true });
+        onUpdateSilentRef.current(capturedWidgetId, { ...lw, _loading: true });
       }
 
       try {
@@ -300,16 +308,37 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
               _loadingMore: false,
             };
           }
-        } else if (currentType === 'scorecard') {
+        } else if (currentType === 'scorecard' || currentType === 'gauge') {
           const firstRow = rows[0];
           if (firstRow) {
-            const values = Object.values(firstRow);
-            const measureVal = values[values.length - 1];
-            const measDef = model.measures?.find((m) => meass.includes(m.name));
+            // Value measure is the one in selectedMeasures[0] (capturedWidget.dataBinding.selectedMeasures[0])
+            const valueMeasName = capturedWidget.dataBinding?.selectedMeasures?.[0];
+            const valueMeasDef = model.measures?.find((m) => m.name === valueMeasName);
+            const valueKey = valueMeasDef?.label || valueMeasDef?.name || valueMeasName;
+            const measureVal = valueKey && firstRow[valueKey] !== undefined ? firstRow[valueKey] : Object.values(firstRow)[0];
             newData = {
               value: typeof measureVal === 'number' ? measureVal.toLocaleString() : String(measureVal),
-              label: measDef?.label || meass[0] || '',
+              label: valueMeasDef?.label || valueMeasName || '',
             };
+            // Threshold & max from measures (gauge only)
+            if (currentType === 'gauge') {
+              const extractMeasureValue = (measName) => {
+                if (!measName) return undefined;
+                const def = model.measures?.find((m) => m.name === measName);
+                const key = def?.label || def?.name || measName;
+                const raw = firstRow[key];
+                if (typeof raw === 'number') return raw;
+                if (raw != null) {
+                  const parsed = parseFloat(String(raw));
+                  if (!isNaN(parsed)) return parsed;
+                }
+                return undefined;
+              };
+              const th = extractMeasureValue(capturedWidget.dataBinding?.gaugeThresholdMeasure);
+              if (th !== undefined) newData.threshold = th;
+              const mx = extractMeasureValue(capturedWidget.dataBinding?.gaugeMaxMeasure);
+              if (mx !== undefined) newData.maxValue = mx;
+            }
           }
         } else if (currentType === 'pie') {
           if (rows.length > 0) {
@@ -372,16 +401,17 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
           if (axisDim?.datePart) newData._datePart = axisDim.datePart;
           else if (axisDim?.type === 'date') newData._datePart = 'full_date';
         }
+        newData._rowCount = rows.length;
         const latestWidget = widgetRef.current;
         if (latestWidget && widgetIdRef.current === capturedWidgetId) {
-          onUpdateRef.current(capturedWidgetId, { ...latestWidget, data: newData, _loading: false });
+          onUpdateSilentRef.current(capturedWidgetId, { ...latestWidget, data: newData, _loading: false });
         }
-        setStatus({ type: 'ok', message: maxReached ? `1,000,000 rows (limit reached)` : `${rows.length} rows` });
+        setStatus({ type: 'ok' });
       } catch (err) {
         if (cancelled) return;
         const ew = widgetRef.current;
         if (ew && widgetIdRef.current === capturedWidgetId) {
-          onUpdateRef.current(capturedWidgetId, { ...ew, _loading: false });
+          onUpdateSilentRef.current(capturedWidgetId, { ...ew, _loading: false });
         }
         setStatus({ type: 'error', message: err.response?.data?.error || err.message });
       } finally {
@@ -780,9 +810,9 @@ export default function DataPanel({ widgetId, widget, onUpdate, model, onModelUp
         </div>
       )}
 
-      {status && (
-        <div style={{ fontSize: 11, marginTop: 4, color: status.type === 'error' ? '#dc2626' : '#16a34a' }}>
-          {status.type === 'error' ? `Error: ${status.message}` : status.message}
+      {status?.type === 'error' && (
+        <div style={{ fontSize: 11, marginTop: 4, color: '#dc2626' }}>
+          Error: {status.message}
         </div>
       )}
 

@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
   const update = (key, value) => {
     onSettingsChange({ ...settings, [key]: value });
@@ -17,7 +19,7 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
     <div style={overlayStyle} onClick={onClose}>
       <div style={panelStyle} onClick={(e) => e.stopPropagation()}>
         <div style={headerStyle}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: '#0f172a' }}>Report Settings</h3>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>Settings</span>
           <button onClick={onClose} style={closeBtn}>x</button>
         </div>
 
@@ -208,21 +210,37 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
 }
 
 function Section({ title, children }) {
+  const [open, setOpen] = useState(true);
   return (
-    <div style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8 }}>
-        {title}
+    <div style={{
+      marginBottom: 8,
+      border: '1px solid #e2e8f0',
+      borderRadius: 6,
+      overflow: 'hidden',
+    }}>
+      <div
+        onClick={() => setOpen(!open)}
+        style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '6px 10px',
+          background: '#f8fafc',
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>{title}</span>
+        <span style={{ fontSize: 10, color: '#94a3b8', transition: 'transform 0.15s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }}>▼</span>
       </div>
-      {children}
+      {open && <div style={{ padding: '8px 10px 4px' }}>{children}</div>}
     </div>
   );
 }
 
 function Field({ label, children }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-      <span style={{ fontSize: 13, color: '#475569' }}>{label}</span>
-      {children}
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 6 }}>
+      <span style={{ fontSize: 12, color: '#475569', whiteSpace: 'nowrap', flexShrink: 0 }}>{label}</span>
+      <div style={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>{children}</div>
     </div>
   );
 }
@@ -234,13 +252,13 @@ const overlayStyle = {
 };
 
 const panelStyle = {
-  width: 340, backgroundColor: '#fff', height: '100%',
-  boxShadow: '-4px 0 12px rgba(0,0,0,0.1)', padding: 20, overflowY: 'auto',
+  width: 280, backgroundColor: '#fff', height: '100%',
+  boxShadow: '-4px 0 12px rgba(0,0,0,0.1)', padding: 16, overflowY: 'auto',
 };
 
 const headerStyle = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  marginBottom: 20, paddingBottom: 12, borderBottom: '1px solid #e2e8f0',
+  marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid #e2e8f0',
 };
 
 const closeBtn = {

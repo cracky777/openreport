@@ -124,6 +124,10 @@ export default memo(function PivotTableWidget({ data, config }) {
   }, [rowTree, collapsedGroups]);
 
   if (!hasData || !pivot) {
+    if (data?._rowCount === 0) {
+      if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
+      return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
+    }
     return <div style={emptyStyle}>Drop dimensions into Rows/Columns and measures into Values</div>;
   }
 

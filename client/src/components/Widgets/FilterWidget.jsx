@@ -6,8 +6,15 @@ import MiniCalendar from './MiniCalendar';
  * Power BI-style Slicer widget.
  * Modes: list, dropdown, buttons, range, dateRange, dateBetween, dateRelative
  */
-export default memo(function FilterWidget({ data, config, onFilterChange }) {
-  const [selected, setSelected] = useState(config?.selectedValues || []);
+export default memo(function FilterWidget({ data, config, onFilterChange, activeSelection }) {
+  const [selected, setSelected] = useState(activeSelection || config?.selectedValues || []);
+
+  // Sync selection when activeSelection changes (e.g. page switch)
+  useEffect(() => {
+    if (activeSelection !== undefined) {
+      setSelected(activeSelection || []);
+    }
+  }, [activeSelection]);
   const [search, setSearch] = useState('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [relValue, setRelValue] = useState(config?.relativeValue || 7);
@@ -21,6 +28,22 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
   const [popupPos, setPopupPos] = useState({ top: 0, left: 0 });
   const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 200 });
   const relAppliedRef = useRef(false);
+
+  // Reset transient UI state when the bound dimension changes (selected is synced via activeSelection effect)
+  const prevDimRef = useRef(data?._dimName);
+  useEffect(() => {
+    if (prevDimRef.current !== data?._dimName) {
+      prevDimRef.current = data?._dimName;
+      // If no slicer-wide selection exists for this dim, clear local selected too
+      if (activeSelection === undefined || activeSelection === null) {
+        setSelected(config?.selectedValues || []);
+      }
+      setSearch('');
+      setDateFrom('');
+      setDateTo('');
+      relAppliedRef.current = false;
+    }
+  }, [data?._dimName, config?.selectedValues, activeSelection]);
 
   // Update popup position when target changes
   useEffect(() => {
@@ -62,11 +85,21 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
     return values.filter((v) => String(v).toLowerCase().includes(search.toLowerCase()));
   }, [values, search]);
 
-  // Sort dates chronologically
+  // Sort: dates chronologically, then selected values bubble to the top
   const sortedValues = useMemo(() => {
-    if (!isDate) return filteredValues;
-    return [...filteredValues].sort((a, b) => new Date(a) - new Date(b));
-  }, [filteredValues, isDate]);
+    const base = isDate
+      ? [...filteredValues].sort((a, b) => new Date(a) - new Date(b))
+      : filteredValues;
+    if (!selected || selected.length === 0) return base;
+    const selectedSet = new Set(selected.map(String));
+    const sel = [];
+    const rest = [];
+    for (const v of base) {
+      if (selectedSet.has(String(v))) sel.push(v);
+      else rest.push(v);
+    }
+    return [...sel, ...rest];
+  }, [filteredValues, isDate, selected]);
 
   const handleToggle = (val) => {
     let next;
@@ -268,7 +301,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
     };
 
     return (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 8 }}>
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 4 }}>
         <div ref={dropdownRef} onClick={openDropdown}
           style={{
             padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6,
@@ -311,7 +344,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
   // ─── BUTTONS MODE ───
   if (slicerStyle === 'buttons') {
     return (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 8 }}>
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 4 }}>
         {showSelectAll && (
           <button onClick={handleSelectAll} style={{ ...linkBtn, marginBottom: 6, alignSelf: 'flex-start' }}>
             {selected.length === 0 ? 'All selected' : 'Select all'}
@@ -377,7 +410,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange }) {
 
   // ─── LIST MODE (default) ───
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 8 }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 4 }}>
       {showSearch && (
         <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
           placeholder="Search..." style={searchInputStyle} />

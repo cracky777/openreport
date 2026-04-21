@@ -17,6 +17,10 @@ function createConnection(datasource) {
       connectionTimeoutMillis: 5000,
       ssl: db_type === 'azure_postgres' ? { rejectUnauthorized: true } : { rejectUnauthorized: false },
     });
+    // Prevent unhandled errors on idle clients (e.g. ECONNRESET) from crashing the Node process
+    pool.on('error', (err) => {
+      console.error('[pg pool error]', err.message);
+    });
     return {
       query: async (sql) => { const result = await pool.query(sql); return result.rows; },
       testConnection: async () => { const client = await pool.connect(); client.release(); return true; },
@@ -146,13 +150,22 @@ function createConnection(datasource) {
   if (db_type === 'duckdb') {
     const duckdb = require('duckdb-async');
     // Global cache: one instance per file path to avoid lock conflicts
+    // Cache the PROMISE (not the resolved value) so concurrent callers share the same open call
     if (!global._duckdbInstances) global._duckdbInstances = {};
+    if (!global._duckdbPromises) global._duckdbPromises = {};
     const dbPath = db_name || ':memory:';
     const getDb = async () => {
-      if (!global._duckdbInstances[dbPath]) {
-        global._duckdbInstances[dbPath] = await duckdb.Database.create(dbPath);
+      if (global._duckdbInstances[dbPath]) return global._duckdbInstances[dbPath];
+      if (!global._duckdbPromises[dbPath]) {
+        global._duckdbPromises[dbPath] = duckdb.Database.create(dbPath).then((db) => {
+          global._duckdbInstances[dbPath] = db;
+          return db;
+        }).catch((err) => {
+          delete global._duckdbPromises[dbPath];
+          throw err;
+        });
       }
-      return global._duckdbInstances[dbPath];
+      return global._duckdbPromises[dbPath];
     };
     // Convert BigInt to Number and Date to ISO string in all results
     const convertValues = (rows) => rows.map((r) => {

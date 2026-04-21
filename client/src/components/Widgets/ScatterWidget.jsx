@@ -207,6 +207,10 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
   useEffect(() => () => { instanceRef.current?.dispose(); instanceRef.current = null; }, []);
 
   if (!hasData) {
+    if (data?._rowCount === 0) {
+      if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
+      return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
+    }
     return <div style={emptyStyle}>Drop measures on X and Y axes to create a scatter chart</div>;
   }
 

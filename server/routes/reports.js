@@ -29,12 +29,14 @@ router.get('/:id', (req, res) => {
     return res.status(403).json({ error: 'Access denied' });
   }
 
+  const parsedSettings = JSON.parse(report.settings);
   res.json({
     report: {
       ...report,
       layout: JSON.parse(report.layout),
       widgets: JSON.parse(report.widgets),
-      settings: JSON.parse(report.settings),
+      settings: parsedSettings,
+      pages: parsedSettings.pages || null,
     },
   });
 });
@@ -73,7 +75,10 @@ router.put('/:id', requireAuth, (req, res) => {
     return res.status(404).json({ error: 'Report not found' });
   }
 
-  const { title, layout, widgets, settings, is_public, workspace_id } = req.body;
+  const { title, layout, widgets, settings, is_public, workspace_id, pages } = req.body;
+
+  // Merge pages into settings for storage
+  const mergedSettings = { ...(settings || {}), ...(pages ? { pages } : {}) };
 
   db.prepare(`
     UPDATE reports SET
@@ -89,7 +94,7 @@ router.put('/:id', requireAuth, (req, res) => {
     title || null,
     layout ? JSON.stringify(layout) : null,
     widgets ? JSON.stringify(widgets) : null,
-    settings ? JSON.stringify(settings) : null,
+    mergedSettings ? JSON.stringify(mergedSettings) : null,
     is_public !== undefined ? (is_public ? 1 : 0) : null,
     workspace_id !== undefined ? 1 : 0,
     workspace_id !== undefined ? workspace_id : null,
@@ -97,12 +102,14 @@ router.put('/:id', requireAuth, (req, res) => {
   );
 
   const updated = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  const parsedSettings = JSON.parse(updated.settings);
   res.json({
     report: {
       ...updated,
       layout: JSON.parse(updated.layout),
       widgets: JSON.parse(updated.widgets),
-      settings: JSON.parse(updated.settings),
+      settings: parsedSettings,
+      pages: parsedSettings.pages || null,
     },
   });
 });

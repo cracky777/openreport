@@ -136,6 +136,10 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
   };
 
   if (!hasData) {
+    if (data?._rowCount === 0) {
+      if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
+      return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
+    }
     return <div style={emptyStyle}>Select dimensions & measures to display a table</div>;
   }
 
