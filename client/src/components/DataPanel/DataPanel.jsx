@@ -450,10 +450,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
       } catch (err) {
         if (cancelled) return;
         const ew = widgetRef.current;
+        const msg = err?.response?.data?.error || err?.message || 'Query failed';
         if (ew && widgetIdRef.current === capturedWidgetId) {
-          onUpdateSilentRef.current(capturedWidgetId, { ...ew, _loading: false });
+          onUpdateSilentRef.current(capturedWidgetId, { ...ew, _loading: false, data: { ...(ew.data || {}), _error: msg, _rowCount: 0 } });
         }
-        setStatus({ type: 'error', message: err.response?.data?.error || err.message });
+        setStatus({ type: 'error', message: msg });
       } finally {
         setLoading(false);
       }

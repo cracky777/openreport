@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
-import { TbUpload, TbArrowLeft } from 'react-icons/tb';
+import { TbUpload } from 'react-icons/tb';
+import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
 
 const DB_TYPES = [
   { value: 'postgres', label: 'PostgreSQL', defaultPort: 5432 },
@@ -23,8 +24,9 @@ export default function Datasources() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
 
-  const [form, setForm] = useState({
+  const blankForm = {
     name: '',
     dbType: 'postgres',
     host: 'localhost',
@@ -33,7 +35,8 @@ export default function Datasources() {
     dbUser: '',
     dbPassword: '',
     extraConfig: {},
-  });
+  };
+  const [form, setForm] = useState(blankForm);
 
   useEffect(() => {
     loadDatasources();
@@ -76,9 +79,14 @@ export default function Datasources() {
     if (!form.name || !form.dbName) return;
     setSaving(true);
     try {
-      await api.post('/datasources', form);
+      if (editingId) {
+        await api.put(`/datasources/${editingId}`, form);
+      } else {
+        await api.post('/datasources', form);
+      }
       setShowForm(false);
-      setForm({ name: '', dbType: 'postgres', host: 'localhost', port: 5432, dbName: '', dbUser: '', dbPassword: '', extraConfig: {} });
+      setEditingId(null);
+      setForm(blankForm);
       setTestResult(null);
       loadDatasources();
       setSaveMsg('Saved');
@@ -92,6 +100,33 @@ export default function Datasources() {
     }
   };
 
+  const handleEdit = async (ds) => {
+    try {
+      // Fetch full datasource (includes db_user, not password)
+      const res = await api.get(`/datasources/${ds.id}`);
+      const full = res.data.datasource;
+      let extraConfig = {};
+      if (ds.extra_config) {
+        try { extraConfig = typeof ds.extra_config === 'string' ? JSON.parse(ds.extra_config) : ds.extra_config; } catch { extraConfig = {}; }
+      }
+      setEditingId(ds.id);
+      setForm({
+        name: full.name || '',
+        dbType: full.db_type || 'postgres',
+        host: full.host || '',
+        port: full.port || 5432,
+        dbName: full.db_name || '',
+        dbUser: full.db_user || '',
+        dbPassword: '',
+        extraConfig,
+      });
+      setTestResult(null);
+      setShowForm(true);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Could not load datasource');
+    }
+  };
+
   const handleDelete = async (id) => {
     if (!confirm('Are you sure you want to delete this datasource?')) return;
     try {
@@ -100,6 +135,13 @@ export default function Datasources() {
     } catch (err) {
       alert(err.response?.data?.error || 'Delete failed');
     }
+  };
+
+  const handleCancel = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(blankForm);
+    setTestResult(null);
   };
 
   const handleFileUpload = async (e) => {
@@ -127,20 +169,17 @@ export default function Datasources() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f1f5f9' }}>
-      <header style={headerStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => navigate('/')} style={backStyle}><TbArrowLeft size={16} /> Back</button>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#0f172a' }}>Data Sources</h1>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv"
-            style={{ display: 'none' }} onChange={handleFileUpload} />
-          <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
-            style={{ ...secondaryBtn, display: 'flex', alignItems: 'center', gap: 4, color: '#7c3aed', borderColor: '#c4b5fd' }}>
-            <TbUpload size={16} /> {uploading ? 'Uploading...' : 'Upload File'}
-          </button>
-          <button onClick={() => setShowForm(true)} style={primaryBtn}>+ New Connection</button>
-        </div>
+      <header style={headerShellStyle}>
+        <BackButton to="/" />
+        <h1 style={headerTitleStyle}>Data Sources</h1>
+        <div style={{ flex: 1 }} />
+        <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv"
+          style={{ display: 'none' }} onChange={handleFileUpload} />
+        <SecondaryButton onClick={() => fileInputRef.current?.click()} disabled={uploading}
+          style={{ color: '#7c3aed', borderColor: '#ddd6fe', background: '#faf8ff' }}>
+          <TbUpload size={16} />{uploading ? 'Uploading...' : 'Upload File'}
+        </SecondaryButton>
+        <PrimaryButton onClick={() => setShowForm(true)}>+ New Connection</PrimaryButton>
       </header>
 
       <main style={{ maxWidth: 800, margin: '0 auto', padding: '32px 20px' }}>
@@ -156,7 +195,7 @@ export default function Datasources() {
         )}
         {showForm && (
           <div style={formCard}>
-            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>New Data Source</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>{editingId ? 'Edit Data Source' : 'New Data Source'}</h2>
 
             <Field label="Name">
               <input style={inputStyle} value={form.name} onChange={(e) => updateForm('name', e.target.value)} placeholder="My database" />
@@ -189,7 +228,9 @@ export default function Datasources() {
                     <input style={inputStyle} value={form.dbUser} onChange={(e) => updateForm('dbUser', e.target.value)} />
                   </Field>
                   <Field label="Password" style={{ flex: 1 }}>
-                    <input style={inputStyle} type="password" value={form.dbPassword} onChange={(e) => updateForm('dbPassword', e.target.value)} />
+                    <input style={inputStyle} type="password" value={form.dbPassword}
+                      onChange={(e) => updateForm('dbPassword', e.target.value)}
+                      placeholder={editingId ? 'Leave blank to keep existing' : ''} />
                   </Field>
                 </div>
               </>
@@ -235,12 +276,12 @@ export default function Datasources() {
             )}
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => { setShowForm(false); setTestResult(null); }} style={secondaryBtn}>Cancel</button>
+              <button onClick={handleCancel} style={secondaryBtn}>Cancel</button>
               <button onClick={handleTest} disabled={testing} style={{ ...secondaryBtn, color: '#7c3aed', borderColor: '#c4b5fd' }}>
                 {testing ? 'Testing...' : 'Test Connection'}
               </button>
               <button onClick={handleSave} disabled={saving} style={primaryBtn}>
-                {saving ? 'Saving...' : 'Save'}
+                {saving ? 'Saving...' : (editingId ? 'Update' : 'Save')}
               </button>
             </div>
           </div>
@@ -255,26 +296,36 @@ export default function Datasources() {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {datasources.map((ds) => (
-              <div key={ds.id} style={dsCardStyle}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, color: '#0f172a', fontSize: 15 }}>{ds.name}</div>
-                  <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
-                    {(() => {
-                      const dbLabel = DB_TYPES.find((t) => t.value === ds.db_type)?.label || ds.db_type.toUpperCase();
-                      const extra = ds.extra_config ? (typeof ds.extra_config === 'string' ? JSON.parse(ds.extra_config) : ds.extra_config) : {};
-                      if (extra.sourceFile) return `${dbLabel} — 📄 ${extra.sourceFile} (${extra.rowCount?.toLocaleString() || '?'} rows)`;
-                      if (ds.db_type === 'bigquery') return `${dbLabel} — ${ds.db_name}`;
-                      if (ds.db_type === 'duckdb') return `${dbLabel} — ${ds.db_name}`;
-                      return `${dbLabel} — ${ds.host}:${ds.port}/${ds.db_name}`;
-                    })()}
+            {datasources.map((ds) => {
+              const extra = ds.extra_config ? (typeof ds.extra_config === 'string' ? JSON.parse(ds.extra_config) : ds.extra_config) : {};
+              const isUploadedFile = !!extra.sourceFile;
+              return (
+                <div key={ds.id} style={dsCardStyle}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, color: '#0f172a', fontSize: 15 }}>{ds.name}</div>
+                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
+                      {(() => {
+                        const dbLabel = DB_TYPES.find((t) => t.value === ds.db_type)?.label || ds.db_type.toUpperCase();
+                        if (extra.sourceFile) return `${dbLabel} — 📄 ${extra.sourceFile} (${extra.rowCount?.toLocaleString() || '?'} rows)`;
+                        if (ds.db_type === 'bigquery') return `${dbLabel} — ${ds.db_name}`;
+                        if (ds.db_type === 'duckdb') return `${dbLabel} — ${ds.db_name}`;
+                        return `${dbLabel} — ${ds.host}:${ds.port}/${ds.db_name}`;
+                      })()}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {!isUploadedFile && (
+                      <button onClick={() => handleEdit(ds)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px' }}>
+                        Edit
+                      </button>
+                    )}
+                    <button onClick={() => handleDelete(ds.id)} style={{ ...secondaryBtn, color: '#dc2626', borderColor: '#fca5a5', fontSize: 12, padding: '4px 10px' }}>
+                      Delete
+                    </button>
                   </div>
                 </div>
-                <button onClick={() => handleDelete(ds.id)} style={{ ...secondaryBtn, color: '#dc2626', borderColor: '#fca5a5', fontSize: 12 }}>
-                  Delete
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>
@@ -299,16 +350,6 @@ function Field({ label, children, style }) {
   );
 }
 
-const headerStyle = {
-  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  padding: '12px 24px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0',
-};
-
-const backStyle = {
-  display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px',
-  background: 'none', border: '1px solid #e2e8f0', borderRadius: 6,
-  color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 500,
-};
 
 const primaryBtn = {
   padding: '8px 16px', fontSize: 14, fontWeight: 600, border: 'none',

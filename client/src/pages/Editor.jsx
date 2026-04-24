@@ -68,6 +68,42 @@ function convertData(data, fromType, toType) {
   }
 }
 
+// Canonical JSON serializer — keys sorted so object key ordering doesn't affect the output.
+function canonicalStringify(obj) {
+  if (obj === null || obj === undefined) return 'null';
+  if (typeof obj !== 'object') return JSON.stringify(obj);
+  if (Array.isArray(obj)) return '[' + obj.map(canonicalStringify).join(',') + ']';
+  const keys = Object.keys(obj).filter((k) => obj[k] !== undefined).sort();
+  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalStringify(obj[k])).join(',') + '}';
+}
+
+// Build a stable snapshot string used to detect real modifications against the last-saved state.
+// Strips transient widget data/loading flags — only persisted config matters — and emits keys in
+// canonical order so a difference means a real change, not a re-ordered object.
+function buildSnapshot(title, settings, pagesArr) {
+  const cleanWidget = (w) => {
+    if (!w) return {};
+    // Only keep fields that represent the user-authored configuration of the widget.
+    // Anything else (data, _loading, _error, transient cached state…) is runtime noise.
+    const out = {
+      type: w.type,
+      config: w.config || {},
+      dataBinding: w.dataBinding || {},
+    };
+    if (Array.isArray(w.drillPath) && w.drillPath.length > 0) out.drillPath = w.drillPath;
+    return out;
+  };
+  const cleanPage = (p) => ({
+    id: p.id, name: p.name,
+    layout: p.layout || [],
+    widgets: Object.fromEntries(Object.entries(p.widgets || {}).map(([k, w]) => [k, cleanWidget(w)])),
+  });
+  // Server nests pages inside settings for storage — strip that copy out; our `pagesArr` is the canonical one.
+  const settingsSansPages = { ...(settings || {}) };
+  delete settingsSansPages.pages;
+  return canonicalStringify({ title: title || '', settings: settingsSansPages, pages: (pagesArr || []).map(cleanPage) });
+}
+
 export default function Editor() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -89,6 +125,8 @@ export default function Editor() {
   // Ref mirror so click handlers always read the freshest widget state (closures can be stale)
   const widgetsRef = useRef(widgets);
   widgetsRef.current = widgets;
+  // Snapshot of the last-saved (or last-loaded) report state — used to detect real modifications
+  const savedSnapshotRef = useRef('');
 
   // Sync slicerSelections from widgets' config.selectedValues (e.g. after undo/redo).
   // Compares content to avoid updates when nothing actually changed.
@@ -452,7 +490,11 @@ export default function Editor() {
             newData._isDrillLeaf = drillPath.length >= fullHierarchy.length - 1;
           }
           return { wId, data: newData };
-        }).catch(() => ({ wId, data: null }));
+        }).catch((err) => {
+          if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return { wId, data: null };
+          const msg = err?.response?.data?.error || err?.message || 'Query failed';
+          return { wId, data: { _error: msg, _rowCount: 0 } };
+        });
       });
 
       // Wait for ALL to complete, then batch update (silent — data fetch is not undoable)
@@ -633,6 +675,14 @@ export default function Editor() {
           const modelRes = await api.get(`/models/${r.model_id}`);
           setModel(modelRes.data.model);
         }
+        // After initial load, the state matches what's on the server — snapshot it
+        savedSnapshotRef.current = buildSnapshot(
+          r.title,
+          r.settings || {},
+          reportPages && reportPages.length > 0
+            ? reportPages.map((p) => ({ id: p.id, name: p.name, layout: p.layout || [], widgets: p.widgets || {} }))
+            : [{ id: 'page-1', name: 'Page 1', layout: r.layout || [], widgets: r.widgets || {} }],
+        );
       } catch {
         navigate('/');
       } finally {
@@ -640,7 +690,7 @@ export default function Editor() {
       }
     };
     load();
-  }, [id, navigate]);
+  }, [id, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard shortcuts: Delete, Ctrl+Z, Ctrl+Y
   useEffect(() => {
@@ -941,6 +991,7 @@ export default function Editor() {
         widgets: pagesForSave[0]?.widgets || {},
         pages: pagesForSave,
       });
+      savedSnapshotRef.current = buildSnapshot(title, settings, pagesForSave);
       setSaveMsg('Saved');
       setTimeout(() => setSaveMsg(null), 2000);
     } catch (err) {
@@ -974,6 +1025,18 @@ export default function Editor() {
         reportId={id}
         onRefresh={handleRefresh}
         refreshing={refreshing}
+        isReportDirty={() => {
+          // Compute the current snapshot (includes the currently-edited page + all cached pages)
+          const curPage = pages[currentPageIdx];
+          const pagesData = { ...pagesDataRef.current };
+          if (curPage) pagesData[curPage.id] = { layout, widgets };
+          const pagesForSnapshot = pages.map((p) => ({
+            id: p.id, name: p.name,
+            layout: pagesData[p.id]?.layout || [],
+            widgets: pagesData[p.id]?.widgets || {},
+          }));
+          return buildSnapshot(title, settings, pagesForSnapshot) !== savedSnapshotRef.current;
+        }}
       />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* Left column: canvas + pages bar, so pages bar doesn't overlap Config/Data panels */}

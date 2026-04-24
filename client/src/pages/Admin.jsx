@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import { TbShield, TbEdit, TbEye, TbTrash, TbUserPlus, TbKey, TbArrowLeft } from 'react-icons/tb';
+import { TbShield, TbEdit, TbEye, TbTrash, TbUserPlus, TbKey } from 'react-icons/tb';
+import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton } from '../components/PageHeader/PageHeader';
 
 const ROLES = [
   { value: 'admin', label: 'Admin', color: '#dc2626', icon: TbShield, desc: 'Full access + user management' },
@@ -70,16 +71,15 @@ export default function Admin() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f1f5f9' }}>
-      <header style={headerStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => navigate('/')} style={backBtn}><TbArrowLeft size={16} /> Back</button>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <TbShield size={22} /> Admin Console
-          </h1>
-        </div>
-        <button onClick={() => setShowCreate(true)} style={primaryBtn}>
-          <TbUserPlus size={16} style={{ marginRight: 4 }} /> Add User
-        </button>
+      <header style={headerShellStyle}>
+        <BackButton to="/" />
+        <h1 style={{ ...headerTitleStyle, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <TbShield size={18} color="#7c3aed" /> Admin Console
+        </h1>
+        <div style={{ flex: 1 }} />
+        <PrimaryButton onClick={() => setShowCreate(true)}>
+          <TbUserPlus size={16} /> Add User
+        </PrimaryButton>
       </header>
 
       <main style={{ maxWidth: 900, margin: '0 auto', padding: '32px 20px' }}>
@@ -175,8 +175,6 @@ export default function Admin() {
   );
 }
 
-const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0' };
-const backBtn = { display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 500 };
 const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: '#7c3aed', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center' };
 const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer' };
 const inputStyle = { padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box' };

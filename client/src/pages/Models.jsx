@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
-import { TbArrowLeft } from 'react-icons/tb';
+import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton } from '../components/PageHeader/PageHeader';
 
 export default function Models() {
   const navigate = useNavigate();
@@ -39,12 +39,11 @@ export default function Models() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f1f5f9' }}>
-      <header style={headerStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => navigate('/')} style={backStyle}><TbArrowLeft size={16} /> Back</button>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#0f172a' }}>Data Models</h1>
-        </div>
-        <button onClick={() => setShowForm(true)} style={primaryBtn}>+ New Model</button>
+      <header style={headerShellStyle}>
+        <BackButton to="/" />
+        <h1 style={headerTitleStyle}>Data Models</h1>
+        <div style={{ flex: 1 }} />
+        <PrimaryButton onClick={() => setShowForm(true)}>+ New Model</PrimaryButton>
       </header>
 
       <main style={{ maxWidth: 800, margin: '0 auto', padding: '32px 20px' }}>
@@ -131,11 +130,6 @@ export default function Models() {
   );
 }
 
-const headerStyle = {
-  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  padding: '12px 24px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0',
-};
-const backStyle = { display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 500 };
 const primaryBtn = {
   padding: '8px 16px', fontSize: 14, fontWeight: 600, border: 'none',
   borderRadius: 6, background: '#7c3aed', color: '#fff', cursor: 'pointer',

@@ -1,16 +1,69 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB_TYPES, GAUGE_SUB_TYPES, OBJECT_SUB_TYPES } from '../Widgets';
-import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh } from 'react-icons/tb';
+import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbDatabase, TbPencil, TbArrowBackUp, TbArrowForwardUp } from 'react-icons/tb';
 
-export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing }) {
+// Ordered groups for the widget toolbar
+const WIDGET_GROUPS = [
+  { name: 'charts', types: ['bar', 'line', 'combo', 'pie', 'treemap', 'scatter'] },
+  { name: 'data', types: ['table', 'scorecard', 'gauge'] },
+  { name: 'interactive', types: ['filter'] },
+];
+
+// Custom tooltip: shows 400ms after hover, below the anchor
+function WidgetTooltip({ text, show }) {
+  if (!show) return null;
+  return (
+    <div style={{
+      position: 'absolute', top: 'calc(100% + 6px)', left: '50%',
+      transform: 'translateX(-50%)', zIndex: 60,
+      pointerEvents: 'none',
+      background: '#0f172a', color: '#f8fafc', fontSize: 11,
+      padding: '4px 8px', borderRadius: 4, whiteSpace: 'nowrap',
+      animation: 'tooltipIn 120ms ease-out',
+      boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+    }}>{text}</div>
+  );
+}
+
+export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, isReportDirty }) {
   const navigate = useNavigate();
   const [openMenu, setOpenMenu] = useState(null); // 'bar' | 'line' | null
+  const [hoverKey, setHoverKey] = useState(null);
+  const hoverTimerRef = useRef(null);
+  const [previewPrompt, setPreviewPrompt] = useState(false);
+
+  const openPreview = () => {
+    window.open(`/view/${reportId}`, '_blank');
+  };
+  const handlePreviewClick = () => {
+    if (isReportDirty?.()) setPreviewPrompt(true);
+    else openPreview();
+  };
 
   const handleAddWithSubType = (type, subType) => {
     onAddWidget(type, subType);
     setOpenMenu(null);
   };
+
+  const scheduleHover = (key) => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => setHoverKey(key), 400);
+  };
+  const clearHover = () => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    setHoverKey(null);
+  };
+  useEffect(() => () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); }, []);
+
+  // Build a flat list of widget buttons grouped, with group metadata preserved
+  const groupedWidgets = WIDGET_GROUPS.map((g) => ({
+    name: g.name,
+    items: g.types
+      .map((t) => WIDGET_TYPES[t] ? [t, WIDGET_TYPES[t]] : null)
+      .filter(Boolean)
+      .filter(([, meta]) => !meta.hidden),
+  })).filter((g) => g.items.length > 0);
 
   return (
     <div
@@ -27,180 +80,260 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
       <button
         onClick={() => navigate('/')}
         style={backBtnStyle}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = '#f1f5f9';
+          e.currentTarget.style.borderColor = '#cbd5e1';
+          e.currentTarget.style.color = '#0f172a';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = '#f8fafc';
+          e.currentTarget.style.borderColor = '#e2e8f0';
+          e.currentTarget.style.color = '#475569';
+        }}
       >
-        <TbArrowLeft size={16} /> Back
+        <TbArrowLeft size={16} />
+        <span>Back</span>
       </button>
-      <div style={{ display: 'flex', gap: 2 }}>
-        <button onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl+Z)" style={{ ...undoBtn, opacity: canUndo ? 1 : 0.3 }}>↩</button>
-        <button onClick={onRedo} disabled={!canRedo} title="Redo (Ctrl+Y)" style={{ ...undoBtn, opacity: canRedo ? 1 : 0.3 }}>↪</button>
+
+      {/* Undo / Redo pill group */}
+      <div style={utilityGroupStyle}>
+        <div style={{ position: 'relative' }}
+          onMouseEnter={() => scheduleHover('undo')}
+          onMouseLeave={clearHover}>
+          <button onClick={onUndo} disabled={!canUndo}
+            style={{ ...utilityIconBtn, opacity: canUndo ? 1 : 0.35, cursor: canUndo ? 'pointer' : 'not-allowed' }}
+            onMouseEnter={(e) => { if (canUndo) { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
+          >
+            <TbArrowBackUp size={18} color="#475569" />
+          </button>
+          <WidgetTooltip text="Undo (Ctrl+Z)" show={hoverKey === 'undo'} />
+        </div>
+        <div style={{ width: 1, height: 20, background: '#e2e8f0' }} />
+        <div style={{ position: 'relative' }}
+          onMouseEnter={() => scheduleHover('redo')}
+          onMouseLeave={clearHover}>
+          <button onClick={onRedo} disabled={!canRedo}
+            style={{ ...utilityIconBtn, opacity: canRedo ? 1 : 0.35, cursor: canRedo ? 'pointer' : 'not-allowed' }}
+            onMouseEnter={(e) => { if (canRedo) { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
+          >
+            <TbArrowForwardUp size={18} color="#475569" />
+          </button>
+          <WidgetTooltip text="Redo (Ctrl+Y)" show={hoverKey === 'redo'} />
+        </div>
       </div>
+      <button
+        onClick={handlePreviewClick}
+        style={previewBtnStyle}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = '#cffafe';
+          e.currentTarget.style.borderColor = '#0891b2';
+          e.currentTarget.style.transform = 'translateY(-1px)';
+          e.currentTarget.style.boxShadow = '0 2px 6px rgba(8,145,178,0.15)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = '#ecfeff';
+          e.currentTarget.style.borderColor = 'transparent';
+          e.currentTarget.style.transform = 'translateY(0)';
+          e.currentTarget.style.boxShadow = 'none';
+        }}
+      >
+        <TbEye size={16} />
+        <span>Preview</span>
+      </button>
+
+      {modelName && (
+        <a
+          href={modelId ? `/models/${modelId}` : undefined}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={modelId ? 'Open data model (new tab)' : undefined}
+          style={modelPillStyle(!!modelId)}
+          onMouseEnter={(e) => {
+            if (!modelId) return;
+            e.currentTarget.style.background = '#f5f3ff';
+            e.currentTarget.style.borderColor = '#7c3aed';
+            const pencil = e.currentTarget.querySelector('[data-pencil]');
+            if (pencil) pencil.style.opacity = '1';
+          }}
+          onMouseLeave={(e) => {
+            if (!modelId) return;
+            e.currentTarget.style.background = '#faf8ff';
+            e.currentTarget.style.borderColor = '#ede9fe';
+            const pencil = e.currentTarget.querySelector('[data-pencil]');
+            if (pencil) pencil.style.opacity = '0.5';
+          }}
+        >
+          <TbDatabase size={14} color="#7c3aed" style={{ flexShrink: 0 }} />
+          <span style={{ fontWeight: 500, color: '#4c1d95' }}>{modelName}</span>
+          {modelId && (
+            <TbPencil data-pencil size={12} color="#7c3aed" style={{ opacity: 0.5, transition: 'opacity 0.12s', flexShrink: 0 }} />
+          )}
+        </a>
+      )}
+
+      <div style={{ flex: 1 }} />
+
       <input
         type="text"
         value={reportTitle}
         onChange={(e) => onTitleChange(e.target.value)}
         style={{
-          fontSize: 18, fontWeight: 600, border: 'none', outline: 'none',
-          background: 'transparent', color: '#0f172a', minWidth: 200,
+          fontSize: 16, fontWeight: 600, border: '1px solid transparent', outline: 'none',
+          background: 'transparent', color: '#0f172a', minWidth: 180, maxWidth: 320,
+          padding: '4px 8px', borderRadius: 6, textAlign: 'center',
+          transition: 'background 0.12s, border-color 0.12s',
         }}
+        onFocus={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
+        onBlur={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
         placeholder="Report title"
       />
 
-      <button
-        onClick={() => window.open(`/view/${reportId}`, '_blank')}
-        title="Preview report"
-        style={{
-          padding: '4px 10px', border: '1px solid #e2e8f0',
-          borderRadius: 4, background: '#fff', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#475569',
-        }}
-      >
-        <TbEye size={16} /> Preview
-      </button>
-
-      {modelName && (
-        <span style={{ fontSize: 12, color: '#64748b', background: '#f1f5f9', padding: '4px 10px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {modelName}
-          {modelId && (
-            <a
-              href={`/models/${modelId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Edit model (new tab)"
-              style={{ color: '#7c3aed', fontSize: 13, lineHeight: 1, textDecoration: 'none' }}
-            >
-              ✎
-            </a>
-          )}
-        </span>
-      )}
-
       <div style={{ flex: 1 }} />
 
-      <div style={{ display: 'flex', gap: 4 }}>
-        {Object.entries(WIDGET_TYPES).filter(([type, meta]) => !meta.hidden && type !== 'text').map(([type, { label, icon: Icon, hasSubTypes }]) => {
-          const iconColor = type === 'filter' ? '#0891b2' : '#7c3aed';
-          const iconBg = type === 'filter' ? '#e0f7fa' : '#ede9fe';
-          return (
-          <div key={type} style={{ position: 'relative' }}
-            onMouseEnter={() => hasSubTypes && setOpenMenu(type)}
-            onMouseLeave={() => hasSubTypes && setOpenMenu(null)}
-          >
-            <button
-              onClick={() => {
-                if (!hasSubTypes) {
-                  onAddWidget(type);
-                }
-              }}
-              title={`Add ${label}`}
-              style={{
-                padding: '6px 10px', fontSize: 13,
-                border: openMenu === type ? `1px solid ${iconColor}` : '1px solid #e2e8f0',
-                borderRadius: 6, background: iconBg,
-                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
-                transition: 'all 0.12s',
-              }}
-              onMouseEnter={(e) => { if (openMenu !== type) { e.currentTarget.style.borderColor = iconColor; } }}
-              onMouseLeave={(e) => { if (openMenu !== type) { e.currentTarget.style.borderColor = '#e2e8f0'; } }}
-            >
-              <Icon size={18} color={iconColor} />
-              {hasSubTypes && <span style={{ fontSize: 8, color: '#94a3b8' }}>▼</span>}
-            </button>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 2,
+        padding: '3px 6px', background: '#f8fafc',
+        border: '1px solid #e2e8f0', borderRadius: 10,
+      }}>
+        {groupedWidgets.map((group, gi) => (
+          <div key={group.name} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            {gi > 0 && <div style={{ width: 1, height: 22, background: '#e2e8f0', margin: '0 4px' }} />}
+            {group.items.map(([type, { label, icon: Icon, hasSubTypes }]) => {
+              const iconColor = type === 'filter' ? '#0891b2' : '#7c3aed';
+              return (
+                <div key={type} style={{ position: 'relative' }}
+                  onMouseEnter={() => { hasSubTypes && setOpenMenu(type); scheduleHover(type); }}
+                  onMouseLeave={() => { hasSubTypes && setOpenMenu(null); clearHover(); }}
+                >
+                  <button
+                    onClick={() => { if (!hasSubTypes) onAddWidget(type); }}
+                    style={widgetBtnStyle(openMenu === type, iconColor)}
+                    onMouseEnter={(e) => {
+                      if (openMenu !== type) {
+                        e.currentTarget.style.background = '#ffffff';
+                        e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (openMenu !== type) {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.boxShadow = 'none';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                      }
+                    }}
+                  >
+                    <Icon size={22} color={iconColor} />
+                    {hasSubTypes && <span style={{ fontSize: 7, color: '#94a3b8', marginLeft: 2 }}>▼</span>}
+                  </button>
+                  <WidgetTooltip text={`Add ${label}`} show={hoverKey === type && openMenu !== type} />
 
-            {/* Sub-type dropdown */}
-            {openMenu === type && type === 'bar' && (
-              <div style={dropdownStyle}><div style={dropdownInner}>
-                {BAR_SUB_TYPES.map((st) => {
-                  const StIcon = st.icon;
-                  return (
-                    <button key={st.value} onClick={() => handleAddWithSubType('bar', st.value)} style={dropdownItem}
-                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
-                      <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
-                    </button>
-                  );
-                })}
-              </div></div>
-            )}
-            {openMenu === type && type === 'line' && (
-              <div style={dropdownStyle}><div style={dropdownInner}>
-                {LINE_SUB_TYPES.map((st) => {
-                  const StIcon = st.icon;
-                  return (
-                    <button key={st.value} onClick={() => handleAddWithSubType('line', st.value)} style={dropdownItem}
-                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
-                      <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
-                    </button>
-                  );
-                })}
-              </div></div>
-            )}
-            {openMenu === type && type === 'combo' && (
-              <div style={dropdownStyle}><div style={dropdownInner}>
-                {COMBO_SUB_TYPES.map((st) => {
-                  const StIcon = st.icon;
-                  return (
-                    <button key={st.value} onClick={() => handleAddWithSubType('combo', st.value)} style={dropdownItem}
-                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
-                      <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
-                    </button>
-                  );
-                })}
-              </div></div>
-            )}
-            {openMenu === type && type === 'table' && (
-              <div style={dropdownStyle}><div style={dropdownInner}>
-                {TABLE_SUB_TYPES.map((st) => {
-                  const StIcon = st.icon;
-                  return (
-                    <button key={st.value} onClick={() => { onAddWidget(st.value); setOpenMenu(null); }} style={dropdownItem}
-                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
-                      <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
-                    </button>
-                  );
-                })}
-              </div></div>
-            )}
-            {openMenu === type && type === 'gauge' && (
-              <div style={dropdownStyle}><div style={dropdownInner}>
-                {GAUGE_SUB_TYPES.map((st) => {
-                  const StIcon = st.icon;
-                  return (
-                    <button key={st.value} onClick={() => handleAddWithSubType('gauge', st.value)} style={dropdownItem}
-                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
-                      <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
-                    </button>
-                  );
-                })}
-              </div></div>
-            )}
+                  {/* Sub-type dropdowns */}
+                  {openMenu === type && type === 'bar' && (
+                    <div style={dropdownStyle}><div style={dropdownInner}>
+                      {BAR_SUB_TYPES.map((st) => {
+                        const StIcon = st.icon;
+                        return (
+                          <button key={st.value} onClick={() => handleAddWithSubType('bar', st.value)} style={dropdownItem}
+                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                            <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                          </button>
+                        );
+                      })}
+                    </div></div>
+                  )}
+                  {openMenu === type && type === 'line' && (
+                    <div style={dropdownStyle}><div style={dropdownInner}>
+                      {LINE_SUB_TYPES.map((st) => {
+                        const StIcon = st.icon;
+                        return (
+                          <button key={st.value} onClick={() => handleAddWithSubType('line', st.value)} style={dropdownItem}
+                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                            <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                          </button>
+                        );
+                      })}
+                    </div></div>
+                  )}
+                  {openMenu === type && type === 'combo' && (
+                    <div style={dropdownStyle}><div style={dropdownInner}>
+                      {COMBO_SUB_TYPES.map((st) => {
+                        const StIcon = st.icon;
+                        return (
+                          <button key={st.value} onClick={() => handleAddWithSubType('combo', st.value)} style={dropdownItem}
+                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                            <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                          </button>
+                        );
+                      })}
+                    </div></div>
+                  )}
+                  {openMenu === type && type === 'table' && (
+                    <div style={dropdownStyle}><div style={dropdownInner}>
+                      {TABLE_SUB_TYPES.map((st) => {
+                        const StIcon = st.icon;
+                        return (
+                          <button key={st.value} onClick={() => { onAddWidget(st.value); setOpenMenu(null); }} style={dropdownItem}
+                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                            <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                          </button>
+                        );
+                      })}
+                    </div></div>
+                  )}
+                  {openMenu === type && type === 'gauge' && (
+                    <div style={dropdownStyle}><div style={dropdownInner}>
+                      {GAUGE_SUB_TYPES.map((st) => {
+                        const StIcon = st.icon;
+                        return (
+                          <button key={st.value} onClick={() => handleAddWithSubType('gauge', st.value)} style={dropdownItem}
+                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                            <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                          </button>
+                        );
+                      })}
+                    </div></div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-          );
-        })}
+        ))}
 
         {/* Objects group */}
+        <div style={{ width: 1, height: 22, background: '#e2e8f0', margin: '0 4px' }} />
         <div style={{ position: 'relative' }}
-          onMouseEnter={() => setOpenMenu('objects')}
-          onMouseLeave={() => setOpenMenu(null)}
+          onMouseEnter={() => { setOpenMenu('objects'); scheduleHover('objects'); }}
+          onMouseLeave={() => { setOpenMenu(null); clearHover(); }}
         >
           <button
-            title="Add object"
-            style={{
-              padding: '6px 10px', fontSize: 13,
-              border: openMenu === 'objects' ? '1px solid #64748b' : '1px solid #e2e8f0',
-              borderRadius: 6, background: '#f1f5f9',
-              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
-              transition: 'all 0.12s',
+            style={widgetBtnStyle(openMenu === 'objects', '#64748b')}
+            onMouseEnter={(e) => {
+              if (openMenu !== 'objects') {
+                e.currentTarget.style.background = '#ffffff';
+                e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }
             }}
-            onMouseEnter={(e) => { if (openMenu !== 'objects') { e.currentTarget.style.borderColor = '#64748b'; } }}
-            onMouseLeave={(e) => { if (openMenu !== 'objects') { e.currentTarget.style.borderColor = '#e2e8f0'; } }}
+            onMouseLeave={(e) => {
+              if (openMenu !== 'objects') {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.boxShadow = 'none';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }
+            }}
           >
-            <TbShape size={18} color="#64748b" />
-            <span style={{ fontSize: 8, color: '#94a3b8' }}>▼</span>
+            <TbShape size={22} color="#64748b" />
+            <span style={{ fontSize: 7, color: '#94a3b8', marginLeft: 2 }}>▼</span>
           </button>
+          <WidgetTooltip text="Add object" show={hoverKey === 'objects' && openMenu !== 'objects'} />
           {openMenu === 'objects' && (
             <div style={dropdownStyle}><div style={dropdownInner}>
               {OBJECT_SUB_TYPES.map((st) => {
@@ -218,58 +351,146 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         </div>
       </div>
 
-      {onRefresh && (
-        <button
-          onClick={onRefresh}
-          disabled={refreshing}
-          title="Refresh all widgets"
-          style={{
-            padding: '6px 10px', fontSize: 18, border: '1px solid #e2e8f0',
-            borderRadius: 6, background: '#fff',
-            cursor: refreshing ? 'not-allowed' : 'pointer', lineHeight: 1,
-            display: 'flex', alignItems: 'center', opacity: refreshing ? 0.5 : 1,
-          }}
-        >
-          <TbRefresh size={18} style={{ animation: refreshing ? 'spin 0.8s linear infinite' : undefined }} />
-        </button>
-      )}
-      <button
-        onClick={onOpenSettings}
-        title="Report settings"
-        style={{
-          padding: '6px 10px', fontSize: 18, border: '1px solid #e2e8f0',
-          borderRadius: 6, background: '#fff', cursor: 'pointer', lineHeight: 1,
-          display: 'flex', alignItems: 'center',
-        }}
-      >
-        <TbSettings size={18} />
-      </button>
+      {/* Utility icons pill group: Refresh + Settings */}
+      <div style={utilityGroupStyle}>
+        {onRefresh && (
+          <>
+            <div style={{ position: 'relative' }}
+              onMouseEnter={() => scheduleHover('refresh')}
+              onMouseLeave={clearHover}>
+              <button
+                onClick={onRefresh}
+                disabled={refreshing}
+                style={{ ...utilityIconBtn, opacity: refreshing ? 0.5 : 1, cursor: refreshing ? 'not-allowed' : 'pointer' }}
+                onMouseEnter={(e) => { if (!refreshing) { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
+              >
+                <TbRefresh size={18} color="#475569" style={{ animation: refreshing ? 'spin 0.8s linear infinite' : undefined }} />
+              </button>
+              <WidgetTooltip text="Refresh all widgets" show={hoverKey === 'refresh' && !refreshing} />
+            </div>
+            <div style={{ width: 1, height: 20, background: '#e2e8f0' }} />
+          </>
+        )}
+        <div style={{ position: 'relative' }}
+          onMouseEnter={() => scheduleHover('settings')}
+          onMouseLeave={clearHover}>
+          <button
+            onClick={onOpenSettings}
+            style={utilityIconBtn}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
+          >
+            <TbSettings size={18} color="#475569" />
+          </button>
+          <WidgetTooltip text="Report settings" show={hoverKey === 'settings'} />
+        </div>
+      </div>
 
       <button
         onClick={onSave}
         disabled={saving}
-        style={{
-          padding: '8px 20px', fontSize: 14, fontWeight: 600, border: 'none',
-          borderRadius: 6, background: '#7c3aed', color: '#fff',
-          cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1,
+        style={saveBtnStyle(saving)}
+        onMouseEnter={(e) => {
+          if (!saving) {
+            e.currentTarget.style.background = '#6d28d9';
+            e.currentTarget.style.transform = 'translateY(-1px)';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(124,58,237,0.3)';
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (!saving) {
+            e.currentTarget.style.background = '#7c3aed';
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 1px 3px rgba(124,58,237,0.2)';
+          }
         }}
       >
-        {saving ? 'Saving...' : 'Save'}
+        <span>{saving ? 'Saving...' : 'Save'}</span>
       </button>
+
+      {/* Unsaved-changes prompt before previewing */}
+      {previewPrompt && (
+        <>
+          <div onClick={() => setPreviewPrompt(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)', zIndex: 1000 }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            background: '#fff', borderRadius: 10, padding: 20, minWidth: 380, maxWidth: 440,
+            boxShadow: '0 10px 30px rgba(15,23,42,0.25)', zIndex: 1001,
+          }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', marginBottom: 6 }}>
+              You have unsaved changes
+            </div>
+            <div style={{ fontSize: 13, color: '#475569', marginBottom: 16, lineHeight: 1.5 }}>
+              The preview opens in a new tab and shows the last saved version of your report. Would you like to save before previewing?
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setPreviewPrompt(false)}
+                style={{ padding: '6px 14px', fontSize: 13, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, color: '#475569', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setPreviewPrompt(false); openPreview(); }}
+                style={{ padding: '6px 14px', fontSize: 13, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, color: '#475569', cursor: 'pointer' }}
+              >
+                Preview without saving
+              </button>
+              <button
+                onClick={async () => {
+                  setPreviewPrompt(false);
+                  await onSave?.();
+                  openPreview();
+                }}
+                style={{
+                  padding: '6px 14px', fontSize: 13, fontWeight: 600,
+                  background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer',
+                  boxShadow: '0 1px 3px rgba(124,58,237,0.2)',
+                }}
+              >
+                Save and preview
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
 const backBtnStyle = {
-  display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px',
-  background: 'none', border: '1px solid #e2e8f0', borderRadius: 6,
-  color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+  background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
+  color: '#475569', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+  transition: 'background 0.12s, border-color 0.12s, color 0.12s',
 };
 
-const undoBtn = {
-  padding: '4px 8px', fontSize: 16, border: '1px solid #e2e8f0',
-  borderRadius: 4, background: '#fff', cursor: 'pointer', color: '#475569',
+const utilityGroupStyle = {
+  display: 'flex', alignItems: 'center', gap: 2,
+  padding: '3px 6px', background: '#f8fafc',
+  border: '1px solid #e2e8f0', borderRadius: 10,
 };
+
+const utilityIconBtn = {
+  padding: '6px 8px', border: 'none',
+  borderRadius: 6, background: 'transparent',
+  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  transition: 'background 0.15s, box-shadow 0.15s, transform 0.15s',
+  lineHeight: 1,
+};
+
+function saveBtnStyle(saving) {
+  return {
+    padding: '7px 18px', fontSize: 13, fontWeight: 600, border: 'none',
+    borderRadius: 8, background: '#7c3aed', color: '#fff',
+    cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1,
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    boxShadow: '0 1px 3px rgba(124,58,237,0.2)',
+    transition: 'background 0.15s, transform 0.15s, box-shadow 0.15s',
+  };
+}
 
 const dropdownStyle = {
   position: 'absolute', top: '100%', left: 0, paddingTop: 4, zIndex: 50, minWidth: 180,
@@ -284,3 +505,34 @@ const dropdownItem = {
   border: 'none', background: '#fff', cursor: 'pointer', textAlign: 'left',
   color: '#334155',
 };
+
+// Pill-style button inside the grouped widget toolbar — larger icon, subtle hover elevation
+function widgetBtnStyle(active, iconColor) {
+  return {
+    padding: '6px 10px', border: 'none',
+    borderRadius: 8, background: active ? '#ffffff' : 'transparent',
+    cursor: 'pointer', display: 'flex', alignItems: 'center',
+    transition: 'background 0.15s, box-shadow 0.15s, transform 0.15s',
+    boxShadow: active ? `0 2px 8px rgba(15,23,42,0.1), inset 0 0 0 1px ${iconColor}40` : 'none',
+  };
+}
+
+const previewBtnStyle = {
+  padding: '6px 12px', border: '1px solid transparent',
+  borderRadius: 8, background: '#ecfeff',
+  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+  fontSize: 13, fontWeight: 500, color: '#0891b2',
+  transition: 'background 0.15s, border-color 0.15s, transform 0.15s, box-shadow 0.15s',
+};
+
+function modelPillStyle(clickable) {
+  return {
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    padding: '5px 10px', borderRadius: 8,
+    background: '#faf8ff', border: '1px solid #ede9fe',
+    fontSize: 12, color: '#4c1d95',
+    textDecoration: 'none', cursor: clickable ? 'pointer' : 'default',
+    transition: 'background 0.12s, border-color 0.12s',
+    maxWidth: 240, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+  };
+}

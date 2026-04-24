@@ -72,6 +72,50 @@ router.post('/', requireAuth, (req, res) => {
   });
 });
 
+// Update datasource (edit existing connection)
+router.put('/:id', requireAuth, (req, res) => {
+  const existing = db.prepare(
+    'SELECT * FROM datasources WHERE id = ? AND user_id = ?'
+  ).get(req.params.id, req.user.id);
+  if (!existing) {
+    return res.status(404).json({ error: 'Datasource not found' });
+  }
+
+  const { name, dbType, host, port, dbName, dbUser, dbPassword, extraConfig } = req.body;
+  const newDbType = dbType || existing.db_type;
+  const needsHost = !['bigquery', 'duckdb'].includes(newDbType);
+  const newHost = host !== undefined ? host : existing.host;
+  const newDbName = dbName !== undefined ? dbName : existing.db_name;
+  if (!name || !newDbType || (needsHost && !newHost) || !newDbName) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  // Empty password means "keep existing" — non-empty replaces it
+  const finalPassword = (dbPassword && dbPassword !== '') ? dbPassword : existing.db_password;
+
+  db.prepare(`
+    UPDATE datasources
+    SET name = ?, db_type = ?, host = ?, port = ?, db_name = ?, db_user = ?, db_password = ?, extra_config = ?
+    WHERE id = ? AND user_id = ?
+  `).run(
+    name,
+    newDbType,
+    newHost || '',
+    port != null ? port : existing.port,
+    newDbName,
+    dbUser !== undefined ? dbUser : existing.db_user,
+    finalPassword,
+    extraConfig !== undefined ? JSON.stringify(extraConfig) : existing.extra_config,
+    req.params.id,
+    req.user.id,
+  );
+
+  const updated = db.prepare(
+    'SELECT id, name, db_type, host, port, db_name, db_user, created_at FROM datasources WHERE id = ? AND user_id = ?'
+  ).get(req.params.id, req.user.id);
+  res.json({ datasource: updated });
+});
+
 // List tables for a datasource
 router.get('/:id/tables', requireAuth, async (req, res) => {
   const source = db.prepare(

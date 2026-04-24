@@ -3,7 +3,7 @@ import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB
 import DataPanel from '../DataPanel/DataPanel';
 import DropZone from '../DropZone/DropZone';
 import TablePropertySections from './TablePropertySections';
-import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar } from 'react-icons/tb';
+import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase } from 'react-icons/tb';
 
 function getWidgetDisplayInfo(widget) {
   if (!widget) return { label: '', icon: null };
@@ -56,7 +56,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
   if (collapsed) {
     return (
       <div style={collapsedPanelStyle} onClick={() => setCollapsed(false)} title="Open config panel">
-        <span style={collapsedChevronStyle}>«</span>
+        <span style={collapsedChevronStyle}><TbChevronsLeft size={14} /></span>
+        <TbAdjustments size={14} color="#7c3aed" />
         <span style={collapsedLabelStyle}>Configuration</span>
       </div>
     );
@@ -66,8 +67,14 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     return (
       <div style={configPanelStyle}>
         <div style={panelHeader}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>Configuration</span>
-          <button onClick={() => setCollapsed(true)} style={chevronBtn} title="Collapse panel">»</button>
+          <span style={panelHeaderTitle}>
+            <TbAdjustments size={14} color="#7c3aed" />
+            Configuration
+          </span>
+          <button onClick={() => setCollapsed(true)} style={chevronBtn} title="Collapse panel"
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.color = '#0f172a'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#64748b'; }}
+          ><TbChevronsRight size={14} /></button>
         </div>
         <div style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', marginTop: 40 }}>
           Select a widget to configure it
@@ -410,8 +417,14 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
   return (
     <div style={configPanelStyle}>
       <div style={panelHeader}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>Configuration</span>
-        <button onClick={() => setCollapsed(true)} style={chevronBtn} title="Collapse panel">»</button>
+        <span style={panelHeaderTitle}>
+          <TbAdjustments size={14} color="#7c3aed" />
+          Configuration
+        </span>
+        <button onClick={() => setCollapsed(true)} style={chevronBtn} title="Collapse panel"
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.color = '#0f172a'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#64748b'; }}
+        ><TbChevronsRight size={14} /></button>
       </div>
 
       {(() => {
@@ -1424,7 +1437,8 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, mod
   if (collapsed) {
     return (
       <div style={collapsedPanelStyle} onClick={() => setCollapsed(false)} title="Open data panel">
-        <span style={collapsedChevronStyle}>«</span>
+        <span style={collapsedChevronStyle}><TbChevronsLeft size={14} /></span>
+        <TbDatabase size={14} color="#0891b2" />
         <span style={collapsedLabelStyle}>Data</span>
       </div>
     );
@@ -1433,8 +1447,14 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, mod
   return (
     <div style={dataPanelStyle}>
       <div style={panelHeader}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>Data</span>
-        <button onClick={() => setCollapsed(true)} style={chevronBtn} title="Collapse panel">»</button>
+        <span style={panelHeaderTitle}>
+          <TbDatabase size={14} color="#0891b2" />
+          Data
+        </span>
+        <button onClick={() => setCollapsed(true)} style={chevronBtn} title="Collapse panel"
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.color = '#0f172a'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#64748b'; }}
+        ><TbChevronsRight size={14} /></button>
       </div>
       <DataPanel widgetId={widgetId} widget={widget} onUpdate={onUpdate} onUpdateSilent={onUpdateSilent} model={model} onModelUpdate={onModelUpdate} reportFilters={reportFilters} />
     </div>
@@ -1456,7 +1476,9 @@ function Section({ title, children, defaultOpen, sectionState, bare }) {
       <div onClick={toggle} style={{ ...sectionHeaderStyle, cursor: toggle ? 'pointer' : 'default' }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>{title}</span>
         {toggle && (
-          <span style={{ fontSize: 10, color: '#94a3b8', transition: 'transform 0.15s', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
+          <span style={{ display: 'inline-flex', color: '#94a3b8', transition: 'transform 0.15s', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>
+            <TbChevronDown size={14} />
+          </span>
         )}
       </div>
       {!isCollapsed && (
@@ -1665,82 +1687,102 @@ function PivotOptionsSection({ widget, updateConfig, Section, Field, inputStyle,
 const sectionStyle = {
   marginBottom: 8,
   border: '1px solid #e2e8f0',
-  borderRadius: 6,
+  borderRadius: 8,
   overflow: 'hidden',
+  background: '#fff',
+  boxShadow: '0 1px 1px rgba(15,23,42,0.02)',
 };
 
 const sectionHeaderStyle = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  padding: '6px 10px',
-  background: '#f8fafc',
+  padding: '8px 12px',
+  background: '#ffffff',
+  borderBottom: '1px solid transparent',
   cursor: 'pointer',
   userSelect: 'none',
+  transition: 'background 0.12s, border-color 0.12s',
 };
 
 const subSectionStyle = {
   marginTop: 6, marginBottom: 6,
-  padding: '6px 6px',
-  border: '1px solid #f1f5f9',
-  borderRadius: 4,
-  background: '#fafbfc',
+  padding: '8px 8px',
+  border: '1px solid #eef2f7',
+  borderRadius: 6,
+  background: '#f8fafc',
   overflow: 'hidden',
 };
 
 const configPanelStyle = {
-  width: 210, maxWidth: 210, backgroundColor: '#fff', borderLeft: '1px solid #e2e8f0',
+  width: 210, maxWidth: 210, backgroundColor: '#fafbfc', borderLeft: '1px solid #e2e8f0',
   padding: 12, overflowY: 'auto', flexShrink: 0,
   transition: 'width 0.2s ease, max-width 0.2s ease, padding 0.2s ease',
 };
 
 const collapsedPanelStyle = {
-  backgroundColor: '#fff', borderLeft: '1px solid #e2e8f0',
+  backgroundColor: '#fafbfc', borderLeft: '1px solid #e2e8f0',
   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start',
   flexShrink: 0, overflow: 'hidden', cursor: 'pointer',
-  padding: '12px 6px', gap: 8,
+  padding: '10px 8px', gap: 10, width: 34,
   transition: 'all 0.2s ease',
 };
 
 const collapsedChevronStyle = {
-  fontSize: 14, color: '#94a3b8', fontWeight: 600,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  width: 22, height: 22, background: '#fff', border: '1px solid #e2e8f0',
+  borderRadius: 6, color: '#64748b',
 };
 
 const collapsedLabelStyle = {
-  fontSize: 11, fontWeight: 600, color: '#64748b', letterSpacing: '0.05em',
+  fontSize: 11, fontWeight: 600, color: '#64748b', letterSpacing: '0.08em',
   textTransform: 'uppercase',
   writingMode: 'vertical-rl', textOrientation: 'mixed',
 };
 
 const panelHeader = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid #e2e8f0',
+  gap: 8,
+  marginBottom: 14, paddingBottom: 10, borderBottom: '1px solid #e2e8f0',
+};
+
+const panelHeaderTitle = {
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  fontSize: 12, fontWeight: 700, color: '#334155', letterSpacing: '0.04em', textTransform: 'uppercase',
 };
 
 const chevronBtn = {
-  fontSize: 14, color: '#64748b', background: 'none', border: 'none',
-  cursor: 'pointer', padding: '2px 4px', fontWeight: 700,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  width: 24, height: 24, color: '#64748b',
+  background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6,
+  cursor: 'pointer', padding: 0,
+  transition: 'background 0.12s, border-color 0.12s, color 0.12s',
 };
 
 const dataPanelStyle = {
-  width: 220, maxWidth: 220, backgroundColor: '#fff', borderLeft: '1px solid #e2e8f0',
+  width: 220, maxWidth: 220, backgroundColor: '#fafbfc', borderLeft: '1px solid #e2e8f0',
   padding: 12, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden',
   transition: 'width 0.2s ease, max-width 0.2s ease, padding 0.2s ease',
 };
 
 const headerStyle = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #e2e8f0', fontWeight: 600, fontSize: 14,
+  gap: 8,
+  marginBottom: 14, paddingBottom: 10, borderBottom: '1px solid #e2e8f0',
 };
 
 const radioRow = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' };
 
 const layerBtn = {
-  color: '#475569', background: 'none', border: '1px solid #e2e8f0',
-  borderRadius: 4, padding: '4px 6px', cursor: 'pointer', display: 'flex', alignItems: 'center',
+  color: '#475569', background: '#fff', border: '1px solid #e2e8f0',
+  borderRadius: 6, padding: '5px 7px', cursor: 'pointer',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  transition: 'background 0.12s, border-color 0.12s, color 0.12s',
 };
 
 const deleteStyle = {
-  color: '#dc2626', background: 'none', border: '1px solid #fca5a5',
-  borderRadius: 4, padding: '4px 6px', cursor: 'pointer', display: 'flex', alignItems: 'center',
+  color: '#dc2626', background: '#fff', border: '1px solid #fecaca',
+  borderRadius: 6, padding: '5px 7px', cursor: 'pointer',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  transition: 'background 0.12s, border-color 0.12s',
 };
 
 const inputStyle = {

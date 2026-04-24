@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import SchemaCanvas from '../components/SchemaCanvas/SchemaCanvas';
 import SqlExpressionInput from '../components/SqlExpressionInput/SqlExpressionInput';
 import api from '../utils/api';
-import { TbArrowLeft } from 'react-icons/tb';
+import { headerShellStyle, BackButton, PrimaryButton, headerBadgeStyle } from '../components/PageHeader/PageHeader';
 
 const AGG_OPTIONS = [
   { value: 'sum', label: 'Sum' },
@@ -38,6 +38,83 @@ export default function ModelEditor() {
   const [tableSearch, setTableSearch] = useState('');
   const [tablesError, setTablesError] = useState(null);
   const [tablesLoading, setTablesLoading] = useState(false);
+  const [brokenRefs, setBrokenRefs] = useState([]);
+  const [validating, setValidating] = useState(false);
+  const [showDsChange, setShowDsChange] = useState(false);
+  const [allDatasources, setAllDatasources] = useState([]);
+  const [switchingDs, setSwitchingDs] = useState(false);
+
+  const runValidation = useCallback(async () => {
+    if (!id) return;
+    setValidating(true);
+    try {
+      const res = await api.get(`/models/${id}/validate`);
+      setBrokenRefs(res.data?.brokenReferences || []);
+    } catch (err) {
+      console.error('Validation failed:', err);
+      setBrokenRefs([]);
+    } finally {
+      setValidating(false);
+    }
+  }, [id]);
+
+  const openDsChange = async () => {
+    try {
+      const res = await api.get('/datasources');
+      setAllDatasources(res.data?.datasources || []);
+      setShowDsChange(true);
+    } catch (err) {
+      alert(err?.response?.data?.error || 'Failed to load datasources');
+    }
+  };
+
+  const applyDsChange = async (newDsId) => {
+    if (!newDsId || newDsId === model?.datasource_id) { setShowDsChange(false); return; }
+    const ok = confirm('Change the datasource for this model?\n\nReferences to tables/columns that no longer exist will be flagged so you can fix them. Existing dimensions, measures and joins are preserved.');
+    if (!ok) return;
+    setSwitchingDs(true);
+    try {
+      await api.put(`/models/${id}`, { datasourceId: newDsId });
+      // Reload model (server preserves selected_tables/dimensions/measures/joins via COALESCE)
+      const modelRes = await api.get(`/models/${id}`);
+      const m = modelRes.data.model;
+      // Fully resync local state — the model content itself is unchanged, only the datasource moves
+      setModel(m);
+      setSelectedTables(m.selected_tables || []);
+      setTablePositions(m.table_positions || {});
+      setDimensions(m.dimensions || []);
+      setMeasures(m.measures || []);
+      setJoins(m.joins || []);
+      // Reload datasource meta
+      const dsRes = await api.get(`/datasources/${m.datasource_id}`);
+      setDatasource(dsRes.data.datasource);
+      // Reload available tables from new datasource (for the UI pickers)
+      try {
+        const tablesRes = await api.get(`/datasources/${dsRes.data.datasource.id}/tables`);
+        setAllTables(tablesRes.data.tables || []);
+        setTablesError(null);
+      } catch (err) {
+        setTablesError(err?.response?.data?.error || 'Failed to load tables from database');
+      }
+      // Refresh columns for each selected table. Keep previous columns as a visual fallback
+      // when the table still exists — only drop them if the table is outright gone.
+      for (const t of (m.selected_tables || [])) {
+        try {
+          const colRes = await api.get(`/datasources/${dsRes.data.datasource.id}/tables/${t}/columns`);
+          setTableColumns((prev) => ({ ...prev, [t]: colRes.data.columns }));
+        } catch (err) {
+          // Table missing in new datasource — drop its columns (validation will flag it)
+          setTableColumns((prev) => { const n = { ...prev }; delete n[t]; return n; });
+        }
+      }
+      runValidation();
+      setShowDsChange(false);
+    } catch (err) {
+      alert(err?.response?.data?.error || 'Failed to change datasource');
+    } finally {
+      setSwitchingDs(false);
+    }
+  };
 
   // Load model + datasource + tables
   useEffect(() => {
@@ -81,6 +158,8 @@ export default function ModelEditor() {
             }
           }
         }
+        // Validate model references against the current datasource schema
+        runValidation();
       } catch (err) {
         console.error('Failed to load model:', err);
         navigate('/models');
@@ -89,7 +168,7 @@ export default function ModelEditor() {
       }
     };
     load();
-  }, [id, navigate]);
+  }, [id, navigate, runValidation]);
 
   // When entering step 1, load columns for newly selected tables
   const enterStep1 = useCallback(async () => {
@@ -194,6 +273,7 @@ export default function ModelEditor() {
       });
       setSaveMsg('Saved');
       setTimeout(() => setSaveMsg(null), 2000);
+      runValidation();
     } catch (err) {
       console.error('Save failed:', err);
       setSaveMsg('Save failed');
@@ -218,19 +298,41 @@ export default function ModelEditor() {
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#f1f5f9' }}>
       {/* Header */}
-      <header style={headerStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => navigate('/models')} style={backStyle}><TbArrowLeft size={16} /> Back</button>
-          <input
-            type="text" value={name} onChange={(e) => setName(e.target.value)}
-            style={{ fontSize: 18, fontWeight: 600, border: 'none', outline: 'none', background: 'transparent', color: '#0f172a' }}
-          />
-          <span style={{ fontSize: 12, color: '#94a3b8' }}>{datasource?.name}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* Steps */}
-          <div style={{ display: 'flex', gap: 2, marginRight: 16 }}>
-            {STEPS.map((s, i) => (
+      <header style={headerShellStyle}>
+        <BackButton to="/models" />
+        <input
+          type="text" value={name} onChange={(e) => setName(e.target.value)}
+          style={{
+            fontSize: 16, fontWeight: 600, border: '1px solid transparent', outline: 'none',
+            background: 'transparent', color: '#0f172a', minWidth: 180, maxWidth: 320,
+            padding: '4px 8px', borderRadius: 6,
+            transition: 'background 0.12s, border-color 0.12s',
+          }}
+          onFocus={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
+          onBlur={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
+        />
+        {datasource?.name && (
+          <button
+            onClick={openDsChange}
+            title="Change datasource"
+            style={{ ...headerBadgeStyle, cursor: 'pointer' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#f5f3ff'; e.currentTarget.style.borderColor = '#c4b5fd'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = '#faf8ff'; e.currentTarget.style.borderColor = '#ede9fe'; }}
+          >
+            {datasource.name}
+            <span style={{ fontSize: 9, color: '#7c3aed', marginLeft: 2 }}>▼</span>
+          </button>
+        )}
+        <div style={{ flex: 1 }} />
+        {/* Steps */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 2,
+          padding: '3px 4px', background: '#f8fafc',
+          border: '1px solid #e2e8f0', borderRadius: 10, marginRight: 8,
+        }}>
+          {STEPS.map((s, i) => {
+            const active = step === i;
+            return (
               <button
                 key={i}
                 onClick={() => {
@@ -238,21 +340,77 @@ export default function ModelEditor() {
                   else setStep(i);
                 }}
                 style={{
-                  padding: '6px 14px', fontSize: 12, fontWeight: step === i ? 700 : 400,
-                  border: '1px solid #e2e8f0', borderRadius: i === 0 ? '6px 0 0 6px' : i === 2 ? '0 6px 6px 0' : 0,
-                  background: step === i ? '#7c3aed' : '#fff',
-                  color: step === i ? '#fff' : '#475569', cursor: 'pointer',
+                  padding: '6px 12px', fontSize: 12, fontWeight: active ? 600 : 500,
+                  border: 'none', borderRadius: 6,
+                  background: active ? '#ffffff' : 'transparent',
+                  color: active ? '#7c3aed' : '#475569', cursor: 'pointer',
+                  boxShadow: active ? '0 1px 3px rgba(15,23,42,0.08), inset 0 0 0 1px rgba(124,58,237,0.2)' : 'none',
+                  transition: 'background 0.12s, color 0.12s, box-shadow 0.12s',
                 }}
               >
                 {i + 1}. {s}
               </button>
-            ))}
-          </div>
-          <button onClick={handleSave} disabled={saving} style={primaryBtn}>
-            {saving ? 'Saving...' : 'Save'}
-          </button>
+            );
+          })}
         </div>
+        <PrimaryButton onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving...' : 'Save'}
+        </PrimaryButton>
       </header>
+
+      {/* Change datasource modal */}
+      {showDsChange && (
+        <>
+          <div onClick={() => setShowDsChange(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)', zIndex: 100 }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            background: '#fff', borderRadius: 10, padding: 20, minWidth: 400, maxWidth: 480,
+            boxShadow: '0 10px 30px rgba(15,23,42,0.25)', zIndex: 101,
+          }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', marginBottom: 4 }}>Change datasource</div>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 14, lineHeight: 1.5 }}>
+              The model's tables, dimensions, measures and joins will be preserved. Any references to tables/columns that don't exist in the new datasource will be flagged on the model editor and on the widgets that use them.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 280, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 6, padding: 4 }}>
+              {allDatasources.map((ds) => {
+                const isCurrent = ds.id === model?.datasource_id;
+                return (
+                  <button key={ds.id}
+                    disabled={isCurrent || switchingDs}
+                    onClick={() => applyDsChange(ds.id)}
+                    style={{
+                      textAlign: 'left', padding: '8px 12px', border: 'none',
+                      borderRadius: 5, cursor: isCurrent ? 'default' : 'pointer',
+                      background: isCurrent ? '#f5f3ff' : 'transparent',
+                      color: isCurrent ? '#7c3aed' : '#0f172a',
+                      display: 'flex', flexDirection: 'column', gap: 2,
+                    }}
+                    onMouseEnter={(e) => { if (!isCurrent) e.currentTarget.style.background = '#f8fafc'; }}
+                    onMouseLeave={(e) => { if (!isCurrent) e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>
+                      {ds.name} {isCurrent && <span style={{ fontSize: 10, color: '#7c3aed', marginLeft: 6 }}>current</span>}
+                    </span>
+                    <span style={{ fontSize: 11, color: '#64748b' }}>
+                      {ds.db_type?.toUpperCase()} — {ds.host ? `${ds.host}:${ds.port}/${ds.db_name}` : ds.db_name}
+                    </span>
+                  </button>
+                );
+              })}
+              {allDatasources.length === 0 && (
+                <div style={{ padding: 16, fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>No datasources available</div>
+              )}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+              <button onClick={() => setShowDsChange(false)}
+                style={{ padding: '6px 14px', fontSize: 13, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, color: '#475569', cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Step 0: Table selection */}
       {step === 0 && (
@@ -310,6 +468,45 @@ export default function ModelEditor() {
       )}
 
       {/* Step 1: Visual schema */}
+      {/* Broken references banner (visible on all steps when there are issues) */}
+      {brokenRefs.length > 0 && (
+        <div style={{
+          margin: '12px 24px 0', padding: '10px 14px', borderRadius: 8,
+          background: '#fef3c7', border: '1px solid #fde68a', color: '#92400e',
+          fontSize: 13, display: 'flex', alignItems: 'flex-start', gap: 10,
+        }}>
+          <span style={{ fontSize: 18, lineHeight: 1 }}>⚠️</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+              {brokenRefs.length} broken reference{brokenRefs.length > 1 ? 's' : ''} detected
+            </div>
+            <div style={{ fontSize: 12, color: '#78350f', lineHeight: 1.5 }}>
+              Some tables or columns used by this model are no longer present in the datasource. Queries using them will fail. Review and fix them below.
+            </div>
+            <ul style={{ margin: '6px 0 0 18px', padding: 0, fontSize: 12, color: '#78350f' }}>
+              {brokenRefs.slice(0, 6).map((r, i) => (
+                <li key={i}>
+                  <strong>{r.kind}</strong>{' '}
+                  {r.label ? `"${r.label}" ` : r.name ? `"${r.name}" ` : ''}
+                  — {r.issue === 'missing_table' ? `table "${r.table}" not found` :
+                     r.issue === 'missing_column' ? `column "${r.column}" missing in "${r.table}"` :
+                     r.issue === 'no_table' ? 'has no table reference' : r.issue}
+                </li>
+              ))}
+              {brokenRefs.length > 6 && <li>…and {brokenRefs.length - 6} more</li>}
+            </ul>
+          </div>
+          <button onClick={runValidation} disabled={validating}
+            style={{
+              padding: '4px 10px', fontSize: 12, fontWeight: 500,
+              background: '#fff', color: '#92400e', border: '1px solid #fcd34d',
+              borderRadius: 6, cursor: validating ? 'wait' : 'pointer', whiteSpace: 'nowrap',
+            }}>
+            {validating ? 'Checking…' : 'Re-check'}
+          </button>
+        </div>
+      )}
+
       {step === 1 && (
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <div style={{
@@ -368,9 +565,11 @@ export default function ModelEditor() {
                     </tr>
                   </thead>
                   <tbody>
-                    {dimensions.map((d) => (
-                      <tr key={d.name}>
-                        <td style={tdStyle}>{d.table}</td>
+                    {dimensions.map((d) => {
+                      const broken = brokenRefs.find((r) => r.kind === 'dimension' && r.name === d.name);
+                      return (
+                      <tr key={d.name} style={broken ? { background: '#fef3c7' } : undefined} title={broken ? (broken.issue === 'missing_table' ? `Table "${broken.table}" not found` : broken.issue === 'missing_column' ? `Column "${broken.column}" missing in "${broken.table}"` : broken.issue) : undefined}>
+                        <td style={tdStyle}>{broken && <span style={{ marginRight: 4 }}>⚠️</span>}{d.table}</td>
                         <td style={tdStyle}>{d.column}</td>
                         <td style={tdStyle}>
                           <span style={{ ...badge, background: '#f5f3ff', color: '#7c3aed' }}>{d.type}</span>
@@ -386,7 +585,8 @@ export default function ModelEditor() {
                           <button onClick={() => removeDimension(d.name)} style={removeBtn}>Remove</button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -435,9 +635,11 @@ export default function ModelEditor() {
                     </tr>
                   </thead>
                   <tbody>
-                    {measures.map((m) => (
-                      <tr key={m.name}>
-                        <td style={tdStyle}>{m.aggregation === 'custom' ? <span style={{ color: '#8b5cf6', fontSize: 11 }}>SQL</span> : m.table}</td>
+                    {measures.map((m) => {
+                      const broken = brokenRefs.find((r) => r.kind === 'measure' && r.name === m.name);
+                      return (
+                      <tr key={m.name} style={broken ? { background: '#fef3c7' } : undefined} title={broken ? (broken.issue === 'missing_table' ? `Table "${broken.table}" not found` : broken.issue === 'missing_column' ? `Column "${broken.column}" missing in "${broken.table}"` : broken.issue) : undefined}>
+                        <td style={tdStyle}>{broken && <span style={{ marginRight: 4 }}>⚠️</span>}{m.aggregation === 'custom' ? <span style={{ color: '#8b5cf6', fontSize: 11 }}>SQL</span> : m.table}</td>
                         <td style={tdStyle} title={m.expression || ''}>
                           {m.aggregation === 'custom' ? (
                             <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#64748b' }}>
@@ -473,7 +675,8 @@ export default function ModelEditor() {
                           <button onClick={() => removeMeasure(m.name)} style={removeBtn}>Remove</button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -514,11 +717,6 @@ export default function ModelEditor() {
   );
 }
 
-const headerStyle = {
-  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  padding: '10px 20px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0,
-};
-const backStyle = { display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 500 };
 const primaryBtn = {
   padding: '8px 16px', fontSize: 14, fontWeight: 600, border: 'none',
   borderRadius: 6, background: '#7c3aed', color: '#fff', cursor: 'pointer',

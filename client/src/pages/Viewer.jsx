@@ -400,8 +400,9 @@ export default function Viewer() {
           newData._isDrillLeaf = drillPath.length >= fullHierarchy.length - 1;
         }
         setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data: newData } }));
-      }).catch(() => {
-        setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false } }));
+      }).catch((err) => {
+        const msg = err?.response?.data?.error || err?.message || 'Query failed';
+        setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data: { _error: msg, _rowCount: 0 } } }));
       });
     });
   }, [reportFilters, refreshCounter]); // eslint-disable-line react-hooks/exhaustive-deps

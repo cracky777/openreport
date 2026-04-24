@@ -10,7 +10,15 @@ export default function Dashboard() {
   const [reports, setReports] = useState([]);
   const [models, setModels] = useState([]);
   const [workspaces, setWorkspaces] = useState([]);
-  const [selectedWs, setSelectedWs] = useState(null); // null = My Reports
+  // Remember the last-visited workspace per user across reloads / page navigation
+  const lastWsKey = user?.id ? `openreport.lastWorkspace.${user.id}` : null;
+  const [selectedWs, setSelectedWs] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const stored = lastWsKey ? window.localStorage.getItem(lastWsKey) : null;
+      return stored && stored !== 'null' ? stored : null;
+    } catch { return null; }
+  }); // null = My Reports
   const [wsReports, setWsReports] = useState([]);
   const [wsMembers, setWsMembers] = useState([]);
   const [wsOwner, setWsOwner] = useState(null);
@@ -66,12 +74,39 @@ export default function Dashboard() {
         ]);
         setReports(reportsRes.data.reports);
         setModels(modelsRes.data.models || []);
-        setWorkspaces(wsRes.data.workspaces || []);
+        const loadedWs = wsRes.data.workspaces || [];
+        setWorkspaces(loadedWs);
+        // If the persisted workspace no longer exists (deleted, access removed), reset selection.
+        if (selectedWs && !loadedWs.some((w) => w.id === selectedWs)) {
+          setSelectedWs(null);
+        }
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // On first render the user may not yet be loaded (AuthContext fetches async),
+  // so the useState initializer runs with lastWsKey=null. Restore once the key becomes known.
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current || !lastWsKey || typeof window === 'undefined') return;
+    restoredRef.current = true;
+    try {
+      const stored = window.localStorage.getItem(lastWsKey);
+      if (stored && stored !== 'null') setSelectedWs(stored);
+    } catch { /* ignore */ }
+  }, [lastWsKey]);
+
+  // Persist the current workspace selection so we come back to it next time
+  useEffect(() => {
+    if (!lastWsKey || typeof window === 'undefined' || !restoredRef.current) return;
+    try {
+      if (selectedWs) window.localStorage.setItem(lastWsKey, selectedWs);
+      else window.localStorage.removeItem(lastWsKey);
+    } catch { /* ignore quota / privacy-mode errors */ }
+  }, [selectedWs, lastWsKey]);
 
   // Load workspace content
   useEffect(() => {
@@ -235,27 +270,42 @@ export default function Dashboard() {
         <h1 style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', letterSpacing: -0.5, display: 'flex', alignItems: 'center', gap: 8 }}>
           <img src="/logo.svg" alt="Open Report" style={{ height: 28 }} />
         </h1>
-        <nav style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          {canEdit && (
-            <>
-              <button onClick={() => navigate('/datasources')} style={navBtnStyled}>
-                <TbDatabase size={15} /> <span>Data Sources</span>
-              </button>
-              <button onClick={() => navigate('/models')} style={navBtnStyled}>
-                <TbTableOptions size={15} /> <span>Models</span>
-              </button>
-            </>
+        <nav style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {(canEdit || user?.role === 'admin') && (
+            <div style={navPillGroup}>
+              {canEdit && (
+                <>
+                  <button onClick={() => navigate('/datasources')} style={navBtnStyled}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                  >
+                    <TbDatabase size={15} /> <span>Data Sources</span>
+                  </button>
+                  <button onClick={() => navigate('/models')} style={navBtnStyled}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                  >
+                    <TbTableOptions size={15} /> <span>Models</span>
+                  </button>
+                </>
+              )}
+              {user?.role === 'admin' && (
+                <button onClick={() => navigate('/admin')} style={navBtnStyled}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                >
+                  <TbShield size={15} /> <span>Admin</span>
+                </button>
+              )}
+            </div>
           )}
-          {user?.role === 'admin' && (
-            <button onClick={() => navigate('/admin')} style={navBtnStyled}>
-              <TbShield size={15} /> <span>Admin</span>
-            </button>
-          )}
-          <div style={{ width: 1, height: 20, backgroundColor: '#e2e8f0', margin: '0 6px' }} />
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: '#64748b', padding: '0 6px' }}>
-            <TbUser size={15} /> {user?.display_name || user?.email}
-          </span>
-          <button onClick={logout} style={{ ...navBtnStyled, color: '#94a3b8' }}>
+          <div style={userPillStyle}>
+            <TbUser size={14} color="#7c3aed" /> {user?.display_name || user?.email}
+          </div>
+          <button onClick={logout} style={logoutBtnStyle}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.color = '#0f172a'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#64748b'; }}
+          >
             <TbLogout size={15} /> <span>Logout</span>
           </button>
         </nav>
@@ -528,12 +578,29 @@ export default function Dashboard() {
   );
 }
 
-const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 20px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0 };
+const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0 };
+const navPillGroup = {
+  display: 'flex', alignItems: 'center', gap: 2,
+  padding: '3px 4px', background: '#f8fafc',
+  border: '1px solid #e2e8f0', borderRadius: 10,
+};
 const navBtnStyled = {
-  display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px',
-  background: 'none', border: '1px solid transparent', borderRadius: 6,
+  display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+  background: 'transparent', border: 'none', borderRadius: 7,
   color: '#475569', cursor: 'pointer', fontSize: 13, fontWeight: 500,
-  transition: 'all 0.15s',
+  transition: 'background 0.15s, box-shadow 0.15s, transform 0.15s',
+};
+const userPillStyle = {
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  padding: '6px 10px', borderRadius: 8,
+  background: '#faf8ff', border: '1px solid #ede9fe',
+  fontSize: 12, color: '#4c1d95', fontWeight: 500,
+};
+const logoutBtnStyle = {
+  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+  background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
+  color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+  transition: 'background 0.12s, border-color 0.12s, color 0.12s',
 };
 const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: '#7c3aed', color: '#fff', cursor: 'pointer' };
 const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer' };

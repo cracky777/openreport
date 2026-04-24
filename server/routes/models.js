@@ -62,17 +62,24 @@ router.post('/', requireAuth, (req, res) => {
   res.status(201).json({ model: { id, name, datasource_id: datasourceId, description: description || '' } });
 });
 
-// Update model (dimensions, measures, joins)
+// Update model (dimensions, measures, joins, and optionally datasource)
 router.put('/:id', requireAuth, (req, res) => {
   const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!model) return res.status(404).json({ error: 'Model not found' });
 
-  const { name, description, selected_tables, table_positions, dimensions, measures, joins, dateColumn } = req.body;
+  const { name, description, selected_tables, table_positions, dimensions, measures, joins, dateColumn, datasourceId } = req.body;
+
+  // If caller is moving the model to a different datasource, verify ownership
+  if (datasourceId && datasourceId !== model.datasource_id) {
+    const ds = db.prepare('SELECT id FROM datasources WHERE id = ? AND user_id = ?').get(datasourceId, req.user.id);
+    if (!ds) return res.status(404).json({ error: 'Target datasource not found' });
+  }
 
   db.prepare(`
     UPDATE models SET
       name = COALESCE(?, name),
       description = COALESCE(?, description),
+      datasource_id = COALESCE(?, datasource_id),
       selected_tables = COALESCE(?, selected_tables),
       table_positions = COALESCE(?, table_positions),
       dimensions = COALESCE(?, dimensions),
@@ -84,6 +91,7 @@ router.put('/:id', requireAuth, (req, res) => {
   `).run(
     name || null,
     description !== undefined ? description : null,
+    datasourceId || null,
     selected_tables ? JSON.stringify(selected_tables) : null,
     table_positions ? JSON.stringify(table_positions) : null,
     dimensions ? JSON.stringify(dimensions) : null,
@@ -106,6 +114,120 @@ router.put('/:id', requireAuth, (req, res) => {
       dateColumn: updated.date_column || null,
     },
   });
+});
+
+// Validate model references against the current datasource schema.
+// Returns a list of broken references (missing tables, missing columns).
+router.get('/:id/validate', requireAuth, async (req, res) => {
+  const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!model) return res.status(404).json({ error: 'Model not found' });
+
+  const source = db.prepare('SELECT * FROM datasources WHERE id = ? AND user_id = ?').get(model.datasource_id, req.user.id);
+  if (!source) return res.status(404).json({ error: 'Datasource not found' });
+
+  const selectedTables = JSON.parse(model.selected_tables || '[]');
+  const dimensions = JSON.parse(model.dimensions || '[]');
+  const measures = JSON.parse(model.measures || '[]');
+  const joins = JSON.parse(model.joins || '[]');
+
+  let conn;
+  const issues = [];
+  try {
+    conn = createConnection(source);
+    const availableTables = new Set(await conn.getTables());
+    const columnsCache = new Map();
+    const getCols = async (tableName) => {
+      if (columnsCache.has(tableName)) return columnsCache.get(tableName);
+      if (!availableTables.has(tableName)) { columnsCache.set(tableName, null); return null; }
+      try {
+        const cols = await conn.getColumns(tableName);
+        // Drivers expose columns with different shapes: { column_name }, { name }, or plain strings
+        const set = new Set((cols || []).map((c) => {
+          if (typeof c === 'string') return c;
+          return c?.column_name ?? c?.name ?? c?.Name ?? c?.COLUMN_NAME ?? '';
+        }).filter(Boolean));
+        columnsCache.set(tableName, set);
+        return set;
+      } catch (e) {
+        columnsCache.set(tableName, null);
+        return null;
+      }
+    };
+
+    // Check selected tables
+    for (const t of selectedTables) {
+      if (!availableTables.has(t)) {
+        issues.push({ kind: 'table', name: t, table: t, issue: 'missing_table' });
+      }
+    }
+
+    // Check dimensions
+    for (const d of dimensions) {
+      // Computed dimensions with sqlExpression don't need table/column checks
+      if (d.sqlExpression) continue;
+      // Date-part synthetic dimensions (name starts with "_date.") depend on the parent date column
+      if (d.datePartOf) continue;
+      if (!d.table) { issues.push({ kind: 'dimension', name: d.name, issue: 'no_table', label: d.label }); continue; }
+      const cols = await getCols(d.table);
+      if (cols === null) {
+        issues.push({ kind: 'dimension', name: d.name, table: d.table, column: d.column, issue: 'missing_table', label: d.label });
+        continue;
+      }
+      if (d.column && !cols.has(d.column)) {
+        issues.push({ kind: 'dimension', name: d.name, table: d.table, column: d.column, issue: 'missing_column', label: d.label });
+      }
+    }
+
+    // Check measures
+    for (const m of measures) {
+      if (m.sqlExpression) continue;
+      if (!m.table) { issues.push({ kind: 'measure', name: m.name, issue: 'no_table', label: m.label }); continue; }
+      const cols = await getCols(m.table);
+      if (cols === null) {
+        issues.push({ kind: 'measure', name: m.name, table: m.table, column: m.column, issue: 'missing_table', label: m.label });
+        continue;
+      }
+      if (m.column && !cols.has(m.column)) {
+        issues.push({ kind: 'measure', name: m.name, table: m.table, column: m.column, issue: 'missing_column', label: m.label });
+      }
+    }
+
+    // Check joins
+    for (const j of joins) {
+      const check = async (side, pos) => {
+        if (!side || !side.table) return;
+        const cols = await getCols(side.table);
+        if (cols === null) {
+          issues.push({ kind: 'join', name: `${j.left?.table || '?'} ↔ ${j.right?.table || '?'}`, table: side.table, column: side.column, issue: 'missing_table', side: pos });
+          return;
+        }
+        if (side.column && !cols.has(side.column)) {
+          issues.push({ kind: 'join', name: `${j.left?.table || '?'} ↔ ${j.right?.table || '?'}`, table: side.table, column: side.column, issue: 'missing_column', side: pos });
+        }
+      };
+      await check(j.left, 'left');
+      await check(j.right, 'right');
+    }
+
+    // Check date column
+    if (model.date_column) {
+      const dateDim = dimensions.find((d) => d.name === model.date_column);
+      if (dateDim && dateDim.table) {
+        const cols = await getCols(dateDim.table);
+        if (cols === null) {
+          issues.push({ kind: 'dateColumn', name: model.date_column, table: dateDim.table, column: dateDim.column, issue: 'missing_table' });
+        } else if (dateDim.column && !cols.has(dateDim.column)) {
+          issues.push({ kind: 'dateColumn', name: model.date_column, table: dateDim.table, column: dateDim.column, issue: 'missing_column' });
+        }
+      }
+    }
+
+    res.json({ brokenReferences: issues, checkedAt: new Date().toISOString() });
+  } catch (err) {
+    res.status(500).json({ error: err.message, brokenReferences: [] });
+  } finally {
+    conn?.close?.();
+  }
 });
 
 // Delete model
@@ -147,6 +269,16 @@ router.post('/:id/query', async (req, res) => {
   const allDimensions = JSON.parse(model.dimensions);
   const allMeasures = JSON.parse(model.measures);
   const allJoins = JSON.parse(model.joins);
+
+  // Detect missing references and report them explicitly instead of silently dropping
+  const missingDims = (dimensionNames || []).filter((name) => !allDimensions.find((d) => d.name === name));
+  const missingMeas = (measureNames || []).filter((name) => !allMeasures.find((m) => m.name === name));
+  if (missingDims.length > 0 || missingMeas.length > 0) {
+    const parts = [];
+    if (missingDims.length) parts.push(`dimension(s) ${missingDims.map((n) => `"${n}"`).join(', ')}`);
+    if (missingMeas.length) parts.push(`measure(s) ${missingMeas.map((n) => `"${n}"`).join(', ')}`);
+    return res.status(400).json({ error: `Missing in model: ${parts.join(' and ')}. Update the widget binding or restore the field in the model.` });
+  }
 
   // Preserve the order from the request (axis first, then legend)
   const selectedDimensions = dimensionNames
