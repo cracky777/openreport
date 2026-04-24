@@ -115,22 +115,44 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
       try {
         // Include groupBy and column dimensions in the query
         const colDimsBinding = capturedWidget.dataBinding?.columnDimensions || [];
+
+        // Drill-down support — mirror Editor/Viewer logic
+        const DRILLABLE_LOCAL = ['bar', 'line', 'combo', 'pie', 'treemap'];
+        const fullHierarchyLocal = [...dims];
+        const isDrillableLocal = DRILLABLE_LOCAL.includes(capturedWidget.type) && fullHierarchyLocal.length > 1;
+        const drillPathLocal = [];
+        if (isDrillableLocal) {
+          const raw = Array.isArray(capturedWidget.drillPath) ? capturedWidget.drillPath : [];
+          for (let i = 0; i < raw.length && i < fullHierarchyLocal.length - 1; i++) {
+            if (raw[i]?.dim === fullHierarchyLocal[i]) drillPathLocal.push(raw[i]);
+            else break;
+          }
+        }
+        let effectiveDims = dims;
+        const drillFiltersLocal = {};
+        if (isDrillableLocal) {
+          drillPathLocal.forEach(({ dim, value }) => { if (dim && value != null) drillFiltersLocal[dim] = [String(value)]; });
+          const activeDim = fullHierarchyLocal[drillPathLocal.length] || fullHierarchyLocal[0];
+          effectiveDims = [activeDim];
+        }
+
         // Build unique dimension list for SQL query (each dim appears once even if in both Rows and Columns)
         const seen = new Set();
         const allDims = [];
-        for (const d of [...dims, ...grpBy, ...colDimsBinding]) {
+        for (const d of [...effectiveDims, ...grpBy, ...colDimsBinding]) {
           if (!seen.has(d)) { seen.add(d); allDims.push(d); }
         }
 
         // Deduplicate measures for SQL query (same measure in multiple scatter slots = one SQL column)
         const uniqueMeass = [...new Set(meass)];
 
+        const mergedFiltersLocal = isFilterWidget ? {} : { ...(reportFilters || {}), ...drillFiltersLocal };
         const res = await api.post(`/models/${model.id}/query`, {
           dimensionNames: allDims,
           measureNames: uniqueMeass,
           measureAggOverrides: Object.keys(aggOverrides).length > 0 ? aggOverrides : undefined,
           limit: isFilterWidget ? 1000000 : (capturedWidget.config?.dataLimit || 1000),
-          filters: isFilterWidget ? {} : (reportFilters || {}),
+          filters: mergedFiltersLocal,
           distinct: isFilterWidget || undefined,
         }, { signal: abortController.signal });
 
@@ -218,7 +240,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
 
             const cBarMeas = capturedWidget.dataBinding?.comboBarMeasures || [];
             const cLineMeas = capturedWidget.dataBinding?.comboLineMeasures || [];
-            const axisKey = dims.length > 0 ? fk(gl(dims[0], model.dimensions || [])) || keys[0] : keys[0];
+            const axisKey = effectiveDims.length > 0 ? fk(gl(effectiveDims[0], model.dimensions || [])) || keys[0] : keys[0];
             const grpLabel = grpBy.length > 0 ? gl(grpBy[0], model.dimensions || []) : null;
             const grpKey = grpLabel ? fk(grpLabel) : null;
 
@@ -319,7 +341,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
             const valueKey = valueMeasDef?.label || valueMeasDef?.name || valueMeasName;
             const measureVal = valueKey && firstRow[valueKey] !== undefined ? firstRow[valueKey] : Object.values(firstRow)[0];
             newData = {
-              value: typeof measureVal === 'number' ? measureVal.toLocaleString() : String(measureVal),
+              value: measureVal,
               label: valueMeasDef?.label || valueMeasName || '',
             };
             // Threshold & max from measures (gauge only)
@@ -385,11 +407,12 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         if (cancelled) return;
         newData._maxReached = maxReached;
         newData._fetchedBinding = bindingKey;
-        // Attach primary dimension name for cross-filtering
-        if (dims.length > 0) {
-          const dimDef = (model.dimensions || []).find((x) => x.name === dims[0]);
-          newData._dimName = dimDef?.name || dims[0];
-          newData._dimLabel = dimDef?.label || dimDef?.name || dims[0];
+        // Attach primary dimension name for cross-filtering (use active dim when drilling)
+        const primaryDim = effectiveDims[0] || dims[0];
+        if (primaryDim) {
+          const dimDef = (model.dimensions || []).find((x) => x.name === primaryDim);
+          newData._dimName = dimDef?.name || primaryDim;
+          newData._dimLabel = dimDef?.label || dimDef?.name || primaryDim;
         }
         if (meass.length > 0) {
           const m0 = (model.measures || []).find((x) => x.name === meass[0]);
@@ -403,12 +426,22 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         }
         newData._measureFormats = measureFormats;
         // Attach date part info for chronological sorting in charts
-        if (dims.length > 0) {
-          const axisDim = (model.dimensions || []).find((x) => x.name === dims[0]);
+        if (primaryDim) {
+          const axisDim = (model.dimensions || []).find((x) => x.name === primaryDim);
           if (axisDim?.datePart) newData._datePart = axisDim.datePart;
           else if (axisDim?.type === 'date') newData._datePart = 'full_date';
         }
         newData._rowCount = rows.length;
+        // Expose drill metadata so canvas can render the up/reset buttons
+        if (isDrillableLocal) {
+          newData._hierarchy = fullHierarchyLocal.map((dn) => {
+            const def = (model.dimensions || []).find((x) => x.name === dn);
+            return { name: dn, label: def?.label || def?.name || dn };
+          });
+          newData._drillPath = drillPathLocal;
+          newData._drillDepth = drillPathLocal.length;
+          newData._isDrillLeaf = drillPathLocal.length >= fullHierarchyLocal.length - 1;
+        }
         const latestWidget = widgetRef.current;
         if (latestWidget && widgetIdRef.current === capturedWidgetId) {
           onUpdateSilentRef.current(capturedWidgetId, { ...latestWidget, data: newData, _loading: false });

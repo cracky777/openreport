@@ -13,8 +13,12 @@ export default function ScorecardWidget({ data, config }) {
 
   const change = data?.change;
   const fmt = Object.values(data?._measureFormats || {})[0];
-  const rawValue = typeof data.value === 'string' ? parseFloat(data.value.replace(/[^\d.-]/g, '')) : data.value;
-  const displayValue = fmt && !isNaN(rawValue) ? formatNumber(rawValue, fmt) : data.value;
+  const rawValue = typeof data.value === 'number'
+    ? data.value
+    : parseFloat(String(data.value).replace(',', '.').replace(/[^\d.-]/g, ''));
+  const displayValue = !isNaN(rawValue)
+    ? (fmt ? formatNumber(rawValue, fmt) : rawValue.toLocaleString())
+    : String(data.value ?? '');
 
   return (
     <div

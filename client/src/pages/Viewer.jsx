@@ -14,6 +14,8 @@ export default function Viewer() {
   const [model, setModel] = useState(null);
   const [error, setError] = useState(null);
   const [widgets, setWidgets] = useState({});
+  const widgetsRef = useRef({});
+  widgetsRef.current = widgets;
   const [reportFilters, setReportFilters] = useState({});
   // Tracks only slicer-driven selections (not cross-filters) — drives FilterWidget visual state
   const [slicerSelections, setSlicerSelections] = useState({});
@@ -104,8 +106,54 @@ export default function Viewer() {
     });
   }, []);
 
+  // Drill-down helpers
+  const DRILLABLE_TYPES = ['bar', 'line', 'combo', 'pie', 'treemap'];
+  const isWidgetDrillable = useCallback((w) => {
+    if (!w || !DRILLABLE_TYPES.includes(w.type)) return false;
+    const dims = w.dataBinding?.selectedDimensions || [];
+    return dims.length > 1;
+  }, []);
+  const isWidgetAtLeaf = useCallback((w) => {
+    const dims = w?.dataBinding?.selectedDimensions || [];
+    const path = Array.isArray(w?.drillPath) ? w.drillPath : [];
+    return path.length >= Math.max(0, dims.length - 1);
+  }, []);
+  const applyDrillMutation = useCallback((widgetId, mutate) => {
+    setWidgets((prev) => {
+      const w = prev?.[widgetId];
+      if (!w) return prev;
+      const nextPath = mutate(Array.isArray(w.drillPath) ? w.drillPath : []);
+      return { ...prev, [widgetId]: { ...w, drillPath: nextPath, _loading: true } };
+    });
+    const prevCH = crossHighlightRef.current;
+    if (prevCH && prevCH.widgetId === widgetId) {
+      setCrossHighlight(null);
+      setReportFilters((p) => {
+        const n = { ...p };
+        if (slicerSelections[prevCH.dim]) n[prevCH.dim] = slicerSelections[prevCH.dim];
+        else delete n[prevCH.dim];
+        return n;
+      });
+    }
+    setRefreshCounter((n) => n + 1);
+  }, [slicerSelections]);
+  const handleDrillDown = useCallback((widgetId, dim, value) => {
+    applyDrillMutation(widgetId, (cur) => [...cur, { dim, value }]);
+  }, [applyDrillMutation]);
+  const handleDrillUp = useCallback((widgetId) => {
+    applyDrillMutation(widgetId, (cur) => cur.slice(0, -1));
+  }, [applyDrillMutation]);
+  const handleDrillReset = useCallback((widgetId) => {
+    applyDrillMutation(widgetId, () => []);
+  }, [applyDrillMutation]);
+
   // Cross-filter click
   const handleCrossFilter = useCallback((sourceWidgetId, dimensionName, value) => {
+    const w = widgetsRef.current?.[sourceWidgetId];
+    if (w && isWidgetDrillable(w) && !isWidgetAtLeaf(w)) {
+      handleDrillDown(sourceWidgetId, dimensionName, value);
+      return;
+    }
     const prev = crossHighlightRef.current;
     const isSame = prev && prev.widgetId === sourceWidgetId && prev.value === value;
     if (isSame) {
@@ -136,7 +184,7 @@ export default function Viewer() {
         return n;
       });
     }
-  }, [slicerSelections]);
+  }, [slicerSelections, handleDrillDown, isWidgetDrillable, isWidgetAtLeaf]);
 
   // Refetch when filters change (NOT on page restore — saved state is already correct)
   const prevFiltersJson = useRef('{}');
@@ -160,8 +208,8 @@ export default function Viewer() {
 
     crossFilterSourceRef.current = null;
 
-    // Use current page widgets (not stale state from previous render)
-    const currentWidgets = pages[currentPageIdx]?.widgets || widgets;
+    // Use current page widgets — prefer the live `widgets` state (contains fresh drill mutations)
+    const currentWidgets = widgets && Object.keys(widgets).length > 0 ? widgets : (pages[currentPageIdx]?.widgets || {});
 
     // Collect widgets to fetch, then mark them all as loading in one batch
     const toFetch = Object.entries(currentWidgets).filter(([wId, w]) => {
@@ -183,7 +231,8 @@ export default function Viewer() {
 
     toFetch.forEach(([wId, w]) => {
       const binding = w.dataBinding || {};
-      const dims = binding.selectedDimensions || [];
+      let dims = binding.selectedDimensions || [];
+      const fullHierarchy = [...dims];
       const sm = binding.scatterMeasures || {};
       const cbm = binding.comboBarMeasures || [];
       const clm = binding.comboLineMeasures || [];
@@ -197,11 +246,30 @@ export default function Viewer() {
       const grpBy = binding.groupBy || [];
       const colDimsB = binding.columnDimensions || [];
 
+      // Drill-down support
+      const DRILLABLE = ['bar', 'line', 'combo', 'pie', 'treemap'];
+      const isDrillable = DRILLABLE.includes(w.type) && fullHierarchy.length > 1;
+      const drillPath = [];
+      if (isDrillable) {
+        const raw = Array.isArray(w.drillPath) ? w.drillPath : [];
+        for (let i = 0; i < raw.length && i < fullHierarchy.length - 1; i++) {
+          if (raw[i]?.dim === fullHierarchy[i]) drillPath.push(raw[i]);
+          else break;
+        }
+      }
+      const drillFilters = {};
+      if (isDrillable) {
+        drillPath.forEach(({ dim, value }) => { if (dim && value != null) drillFilters[dim] = [String(value)]; });
+        const activeDim = fullHierarchy[drillPath.length] || fullHierarchy[0];
+        dims = [activeDim];
+      }
+
       const allDims = [...dims, ...grpBy.filter((g) => !dims.includes(g)), ...colDimsB.filter((g) => !dims.includes(g) && !grpBy.includes(g))];
+      const mergedFilters = { ...(reportFilters || {}), ...drillFilters };
 
       api.post(`/models/${model.id}/query`, {
         dimensionNames: allDims, measureNames: meass,
-        limit: w.config?.dataLimit || 1000, filters: reportFilters,
+        limit: w.config?.dataLimit || 1000, filters: mergedFilters,
       }).then((res) => {
         const rows = res.data?.rows;
         if (!rows || rows.length === 0) {
@@ -279,7 +347,7 @@ export default function Viewer() {
             const valueKey = valueMeasDef?.label || valueMeasDef?.name || valueMeasName;
             const measureVal = valueKey && firstRow[valueKey] !== undefined ? firstRow[valueKey] : Object.values(firstRow)[0];
             newData = {
-              value: typeof measureVal === 'number' ? measureVal.toLocaleString() : String(measureVal),
+              value: measureVal,
               label: valueMeasDef?.label || valueMeasName || '',
             };
             if (w.type === 'gauge') {
@@ -322,6 +390,15 @@ export default function Viewer() {
           newData._measureLabel = m0?.label || m0?.name || meass[0];
         }
         newData._rowCount = rows.length;
+        if (isDrillable) {
+          newData._hierarchy = fullHierarchy.map((dn) => {
+            const def = (model.dimensions || []).find((x) => x.name === dn);
+            return { name: dn, label: def?.label || def?.name || dn };
+          });
+          newData._drillPath = drillPath;
+          newData._drillDepth = drillPath.length;
+          newData._isDrillLeaf = drillPath.length >= fullHierarchy.length - 1;
+        }
         setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data: newData } }));
       }).catch(() => {
         setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false } }));
@@ -536,6 +613,8 @@ export default function Viewer() {
             reportFilters={slicerSelections}
             onSlicerFilter={handleSlicerFilter}
             onCrossFilter={handleCrossFilter}
+            onDrillUp={handleDrillUp}
+            onDrillReset={handleDrillReset}
             crossHighlight={crossHighlight}
             reportRef={canvasRef}
           />

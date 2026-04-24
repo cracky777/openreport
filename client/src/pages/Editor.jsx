@@ -55,7 +55,7 @@ function convertData(data, fromType, toType) {
     case 'scorecard':
     case 'gauge':
       return {
-        value: values.reduce((a, b) => a + b, 0).toLocaleString(),
+        value: values.reduce((a, b) => a + b, 0),
         label: 'Total',
       };
     case 'pivotTable':
@@ -86,6 +86,9 @@ export default function Editor() {
   // Undo/redo state: tracks layout + widgets together (for current page)
   const history = useHistory({ layout: [], widgets: {} });
   const { layout, widgets } = history.state;
+  // Ref mirror so click handlers always read the freshest widget state (closures can be stale)
+  const widgetsRef = useRef(widgets);
+  widgetsRef.current = widgets;
 
   // Sync slicerSelections from widgets' config.selectedValues (e.g. after undo/redo).
   // Compares content to avoid updates when nothing actually changed.
@@ -129,9 +132,60 @@ export default function Editor() {
     });
   }, [history]);
 
+  // Drill-down handlers — update widget.drillPath silently and trigger refetch
+  const DRILLABLE_TYPES = ['bar', 'line', 'combo', 'pie', 'treemap'];
+  const isWidgetDrillable = useCallback((w) => {
+    if (!w || !DRILLABLE_TYPES.includes(w.type)) return false;
+    const dims = w.dataBinding?.selectedDimensions || [];
+    return dims.length > 1;
+  }, []);
+  const isWidgetAtLeaf = useCallback((w) => {
+    const dims = w?.dataBinding?.selectedDimensions || [];
+    const path = Array.isArray(w?.drillPath) ? w.drillPath : [];
+    return path.length >= Math.max(0, dims.length - 1);
+  }, []);
+  const applyDrillMutation = useCallback((widgetId, mutate) => {
+    history.setSilent((prev) => {
+      const w = prev.widgets?.[widgetId];
+      if (!w) return prev;
+      const nextPath = mutate(Array.isArray(w.drillPath) ? w.drillPath : []);
+      return {
+        ...prev,
+        widgets: { ...prev.widgets, [widgetId]: { ...w, drillPath: nextPath, _loading: true } },
+      };
+    });
+    // Clear any cross-filter originated from this widget — drill navigation should reset the leaf-level cross-filter
+    const prevCH = crossHighlightRef.current;
+    if (prevCH && prevCH.widgetId === widgetId) {
+      setCrossHighlight(null);
+      setReportFilters((p) => {
+        const n = { ...p };
+        if (slicerSelections[prevCH.dim]) n[prevCH.dim] = slicerSelections[prevCH.dim];
+        else delete n[prevCH.dim];
+        return n;
+      });
+    }
+    setRefreshCounter((n) => n + 1);
+  }, [history, slicerSelections]);
+  const handleDrillDown = useCallback((widgetId, dim, value) => {
+    applyDrillMutation(widgetId, (cur) => [...cur, { dim, value }]);
+  }, [applyDrillMutation]);
+  const handleDrillUp = useCallback((widgetId) => {
+    applyDrillMutation(widgetId, (cur) => cur.slice(0, -1));
+  }, [applyDrillMutation]);
+  const handleDrillReset = useCallback((widgetId) => {
+    applyDrillMutation(widgetId, () => []);
+  }, [applyDrillMutation]);
+
   // Called by chart widgets when user clicks a data point
   const crossFilterSourceRef = useRef(null);
   const handleCrossFilter = useCallback((sourceWidgetId, dimensionName, value) => {
+    const w = widgetsRef.current?.[sourceWidgetId];
+    // Route to drill-down if widget is drillable and not yet at leaf level
+    if (w && isWidgetDrillable(w) && !isWidgetAtLeaf(w)) {
+      handleDrillDown(sourceWidgetId, dimensionName, value);
+      return;
+    }
     const prev = crossHighlightRef.current;
     const isSame = prev && prev.widgetId === sourceWidgetId && prev.value === value;
     if (isSame) {
@@ -156,7 +210,7 @@ export default function Editor() {
         return n;
       });
     }
-  }, [slicerSelections]);
+  }, [slicerSelections, handleDrillDown, isWidgetDrillable, isWidgetAtLeaf]);
   // When filters change, refetch all widgets
   // Cross-filter refetch with debounce + abort + loading indicator
   const prevFiltersJson = useRef('{}');
@@ -225,7 +279,8 @@ export default function Editor() {
 
       const promises = toFetch.map(([wId, w]) => {
         const binding = w.dataBinding || {};
-        const dims = binding.selectedDimensions || [];
+        let dims = binding.selectedDimensions || [];
+        const fullHierarchy = [...dims];
         const sm = binding.scatterMeasures || {};
         const cbm = binding.comboBarMeasures || [];
         const clm = binding.comboLineMeasures || [];
@@ -238,11 +293,32 @@ export default function Editor() {
               : (binding.selectedMeasures || []);
         const grpBy = binding.groupBy || [];
         const colDimsB = binding.columnDimensions || [];
+
+        // Drill-down support: for drillable widgets with >1 dim, use only active dim + filter by drill path
+        const DRILLABLE = ['bar', 'line', 'combo', 'pie', 'treemap'];
+        const isDrillable = DRILLABLE.includes(w.type) && fullHierarchy.length > 1;
+        // Clean drillPath entries that no longer match the hierarchy (stale after bucket edits)
+        const drillPath = [];
+        if (isDrillable) {
+          const raw = Array.isArray(w.drillPath) ? w.drillPath : [];
+          for (let i = 0; i < raw.length && i < fullHierarchy.length - 1; i++) {
+            if (raw[i]?.dim === fullHierarchy[i]) drillPath.push(raw[i]);
+            else break;
+          }
+        }
+        const drillFilters = {};
+        if (isDrillable) {
+          drillPath.forEach(({ dim, value }) => { if (dim && value != null) drillFilters[dim] = [String(value)]; });
+          const activeDim = fullHierarchy[drillPath.length] || fullHierarchy[0];
+          dims = [activeDim];
+        }
+
         const allDims = [...dims, ...grpBy.filter((g) => !dims.includes(g)), ...colDimsB.filter((g) => !dims.includes(g) && !grpBy.includes(g))];
+        const mergedFilters = { ...(reportFilters || {}), ...drillFilters };
 
         return api.post(`/models/${model.id}/query`, {
           dimensionNames: allDims, measureNames: [...new Set(meass)],
-          limit: w.config?.dataLimit || 1000, filters: reportFilters,
+          limit: w.config?.dataLimit || 1000, filters: mergedFilters,
         }, { signal: controller.signal }).then((res) => {
           const rows = res.data?.rows;
           if (!rows || rows.length === 0) return { wId, data: { _rowCount: 0 } };
@@ -321,7 +397,7 @@ export default function Editor() {
               const valueKey = valueMeasDef?.label || valueMeasDef?.name || valueMeasName;
               const measureVal = valueKey && firstRow[valueKey] !== undefined ? firstRow[valueKey] : Object.values(firstRow)[0];
               newData = {
-                value: typeof measureVal === 'number' ? measureVal.toLocaleString() : String(measureVal),
+                value: measureVal,
                 label: valueMeasDef?.label || valueMeasName || '',
               };
               if (w.type === 'gauge') {
@@ -366,6 +442,15 @@ export default function Editor() {
             newData._measureLabel = m0?.label || m0?.name || meass[0];
           }
           newData._rowCount = rows.length;
+          if (isDrillable) {
+            newData._hierarchy = fullHierarchy.map((dn) => {
+              const def = (model.dimensions || []).find((x) => x.name === dn);
+              return { name: dn, label: def?.label || def?.name || dn };
+            });
+            newData._drillPath = drillPath;
+            newData._drillDepth = drillPath.length;
+            newData._isDrillLeaf = drillPath.length >= fullHierarchy.length - 1;
+          }
           return { wId, data: newData };
         }).catch(() => ({ wId, data: null }));
       });
@@ -906,6 +991,8 @@ export default function Editor() {
               reportFilters={slicerSelections}
               onSlicerFilter={handleSlicerFilter}
               onCrossFilter={handleCrossFilter}
+              onDrillUp={handleDrillUp}
+              onDrillReset={handleDrillReset}
               crossHighlight={crossHighlight}
             />
           </div>

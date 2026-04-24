@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB_TYPES } from '../Widgets';
 import DataPanel from '../DataPanel/DataPanel';
 import DropZone from '../DropZone/DropZone';
@@ -1287,14 +1287,14 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       {widget.type === 'gauge' && (
         <Section title="Gauge" sectionState={sections}>
           <Field label="Min value">
-            <input type="number" value={widget.config?.gaugeMin ?? 0}
-              onChange={(e) => updateConfig('gaugeMin', parseFloat(e.target.value) || 0)}
+            <DecimalInput value={widget.config?.gaugeMin ?? 0}
+              onChange={(v) => updateConfig('gaugeMin', v === undefined ? 0 : v)}
               style={{ ...inputStyle, width: 80 }} />
           </Field>
           {!widget.dataBinding?.gaugeMaxMeasure && (
             <Field label="Max value">
-              <input type="number" value={widget.config?.gaugeMax ?? 100}
-                onChange={(e) => updateConfig('gaugeMax', parseFloat(e.target.value) || 100)}
+              <DecimalInput value={widget.config?.gaugeMax ?? 100}
+                onChange={(v) => updateConfig('gaugeMax', v === undefined ? 100 : v)}
                 style={{ ...inputStyle, width: 80 }} />
             </Field>
           )}
@@ -1341,11 +1341,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           )}
           {!widget.dataBinding?.gaugeThresholdMeasure && (
             <Field label="Threshold value">
-              <input type="number" value={widget.config?.gaugeThresholdValue ?? ''}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  updateConfig('gaugeThresholdValue', v === '' ? undefined : parseFloat(v));
-                }}
+              <DecimalInput value={widget.config?.gaugeThresholdValue ?? undefined}
+                onChange={(v) => updateConfig('gaugeThresholdValue', v)}
                 placeholder="None"
                 style={{ ...inputStyle, width: 80 }} />
             </Field>
@@ -1496,6 +1493,46 @@ function Field({ label, children, vertical }) {
       <span style={{ fontSize: 12, color: '#475569', whiteSpace: 'nowrap', flexShrink: 0 }}>{label}</span>
       <div style={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>{children}</div>
     </div>
+  );
+}
+
+// Number input that accepts both "," and "." as decimal separator and preserves raw typing.
+function DecimalInput({ value, onChange, placeholder, style }) {
+  const [text, setText] = useState(value == null ? '' : String(value));
+  const prevValueRef = useRef(value);
+  // Re-sync local text when the external value changes (and isn't the same number we emitted)
+  useEffect(() => {
+    if (prevValueRef.current === value) return;
+    prevValueRef.current = value;
+    const parsed = parseFloat((text || '').replace(',', '.'));
+    if (value == null) {
+      if (text !== '') setText('');
+    } else if (parsed !== value) {
+      setText(String(value));
+    }
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={text}
+      placeholder={placeholder}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setText(raw);
+        if (raw === '' || raw === '-') { onChange(undefined); return; }
+        // Allow only digits, one separator (, or .), optional leading minus
+        if (!/^-?\d*[.,]?\d*$/.test(raw)) return;
+        const parsed = parseFloat(raw.replace(',', '.'));
+        if (!isNaN(parsed)) { prevValueRef.current = parsed; onChange(parsed); }
+      }}
+      onBlur={() => {
+        // Normalize display on blur (e.g. "1," → "1")
+        const parsed = parseFloat((text || '').replace(',', '.'));
+        if (!isNaN(parsed)) setText(String(parsed));
+      }}
+      style={style}
+    />
   );
 }
 

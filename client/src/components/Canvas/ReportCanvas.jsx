@@ -18,7 +18,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onCrossFilter, crossHighlight, snapGrid, reportFilters }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters }) {
   const nodeRef = useRef(null);
   const WidgetType = WIDGET_TYPES[widget.type];
   if (!WidgetType) return null;
@@ -106,7 +106,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             onAutoHeight={isAutoHeight ? (newH) => onAutoHeight(item.i, newH) : undefined}
             columnOrder={widget.dataBinding?.columnOrder}
             onLoadMore={widget.type === 'table' ? () => onLoadMore?.(item.i) : undefined}
-            onConfigUpdate={widget.type === 'table' ? (key, val) => onWidgetUpdate?.(item.i, { ...widget, config: { ...widget.config, [key]: val } }) : undefined}
+            onConfigUpdate={onWidgetUpdate ? (key, val) => onWidgetUpdate(item.i, { ...widget, config: { ...widget.config, [key]: val } }) : undefined}
             onFilterChange={widget.type === 'filter' && onSlicerFilter ? (vals) => {
               const dimName = widget.dataBinding?.selectedDimensions?.[0];
               if (dimName) onSlicerFilter(item.i, dimName, vals);
@@ -123,6 +123,32 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             position: 'absolute', top: 8, right: 40, zIndex: 10,
           }}>
             <div style={spinnerStyle} />
+          </div>
+        )}
+
+        {/* Drill-down controls (up / reset) — shown when widget has an active drill path */}
+        {widget.data?._drillDepth > 0 && (onDrillUp || onDrillReset) && (
+          <div style={{
+            position: 'absolute', top: 6, left: 6, zIndex: 11,
+            display: 'flex', gap: 2, pointerEvents: 'auto',
+          }}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            {onDrillUp && (
+              <button
+                title="Drill up"
+                onClick={(e) => { e.stopPropagation(); onDrillUp(item.i); }}
+                style={drillBtnStyle}
+              >↑</button>
+            )}
+            {onDrillReset && (
+              <button
+                title="Reset drill"
+                onClick={(e) => { e.stopPropagation(); onDrillReset(item.i); }}
+                style={drillBtnStyle}
+              >⟲</button>
+            )}
           </div>
         )}
 
@@ -171,6 +197,8 @@ export default function ReportCanvas({
   reportFilters,
   onSlicerFilter,
   onCrossFilter,
+  onDrillUp,
+  onDrillReset,
   crossHighlight,
   reportRef,
 }) {
@@ -334,6 +362,8 @@ export default function ReportCanvas({
               onWidgetUpdate={onWidgetUpdate}
               onSlicerFilter={onSlicerFilter}
               onCrossFilter={onCrossFilter}
+              onDrillUp={onDrillUp}
+              onDrillReset={onDrillReset}
               crossHighlight={crossHighlight}
               snapGrid={snapGrid}
               reportFilters={reportFilters}
@@ -353,4 +383,13 @@ const spinnerStyle = {
   borderTopColor: '#7c3aed',
   borderRadius: '50%',
   animation: 'spin 0.8s linear infinite',
+};
+
+const drillBtnStyle = {
+  width: 22, height: 22, padding: 0, lineHeight: 1,
+  fontSize: 13, fontWeight: 600,
+  color: '#475569', background: '#ffffff',
+  border: '1px solid #e2e8f0', borderRadius: 4,
+  cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
 };

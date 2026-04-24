@@ -4,6 +4,7 @@ import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, sortDateSeries, formatDateLabel } from '../../utils/dateHelpers';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
+import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -67,12 +68,20 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
   const w = chartWidth || 400;
   const h = chartHeight || 300;
 
+  // Track all series names ever seen so colors stay stable across filters
+  const allSeriesNames = useMemo(() => {
+    const names = [];
+    if (data?.series) for (const s of data.series) if (s?.name) names.push(s.name);
+    return names;
+  }, [data?.series]);
+  const { getStableIdx } = useStableColorOrder(allSeriesNames.join('|'), allSeriesNames);
+
   // Memoize the ECharts option to avoid recalculating on every render
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
 
     const customColors = config?.legendColors || {};
-    const getColor = (name, idx) => customColors[name] || COLORS[idx % COLORS.length];
+    const getColor = (name) => customColors[name] || COLORS[getStableIdx(name) % COLORS.length];
 
     let seriesData = data.series && data.series.length > 0 ? [...data.series] : null;
     if (seriesData && hideZeros) {

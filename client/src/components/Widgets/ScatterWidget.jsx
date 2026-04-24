@@ -2,6 +2,7 @@ import { useRef, useEffect, memo, useMemo, useState, useCallback } from 'react';
 import * as echarts from 'echarts';
 import formatNumber from '../../utils/formatNumber';
 import ChartLegend from './ChartLegend';
+import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -30,6 +31,9 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
   const symbolSize = config?.symbolSize ?? 10;
   const showDataLabels = config?.showDataLabels ?? false;
 
+  const allGroupNames = useMemo(() => (data?.seriesGroups || []).map((g) => g?.name).filter((n) => n != null), [data?.seriesGroups]);
+  const { getStableIdx } = useStableColorOrder(allGroupNames.join('|'), allGroupNames);
+
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
     try {
@@ -37,7 +41,7 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
     const customColors = config?.legendColors || {};
     const customSymbols = config?.legendSymbols || {};
     const customImages = config?.legendImages || {};
-    const getColor = (name, idx) => customColors[name] || COLORS[idx % COLORS.length];
+    const getColor = (name) => customColors[name] || COLORS[getStableIdx(name) % COLORS.length];
     const getSymbol = (name) => {
       if (customImages[name]) return `image://${customImages[name]}`;
       return customSymbols[name] || 'circle';

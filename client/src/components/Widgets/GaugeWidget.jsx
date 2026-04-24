@@ -2,11 +2,17 @@ import { useEffect, useLayoutEffect, useRef, useState, memo, useMemo } from 'rea
 import * as echarts from 'echarts';
 import formatNumber from '../../utils/formatNumber';
 
-// Extract numeric value from scorecard-shaped data
+// Extract numeric value from scorecard-shaped data (handles legacy string values from old saves)
 const extractValue = (data) => {
   if (data?.value === undefined || data?.value === null || data?.value === '') return null;
   if (typeof data.value === 'number') return data.value;
-  const parsed = parseFloat(String(data.value).replace(/[^\d.-]/g, ''));
+  const str = String(data.value);
+  const hasDot = str.includes('.');
+  const hasComma = str.includes(',');
+  let cleaned = str;
+  if (hasComma && !hasDot) cleaned = str.replace(',', '.'); // FR-style decimal
+  else if (hasComma && hasDot) cleaned = str.replace(/,/g, ''); // EN-style thousand sep
+  const parsed = parseFloat(cleaned.replace(/[^\d.-]/g, ''));
   return isNaN(parsed) ? null : parsed;
 };
 

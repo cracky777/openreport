@@ -2,6 +2,7 @@ import { useRef, useEffect, memo, useMemo, useState, useCallback } from 'react';
 import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import ChartLegend from './ChartLegend';
+import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -42,11 +43,14 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
   const w = chartWidth || 400;
   const h = chartHeight || 300;
 
+  const allItemNames = useMemo(() => (data?.items || []).map((it) => it?.name).filter((n) => n != null), [data?.items]);
+  const { getStableIdx } = useStableColorOrder(allItemNames.join('|'), allItemNames);
+
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
     const fmt = Object.values(data._measureFormats || {})[0];
     const customColors = config?.legendColors || {};
-    const getColor = (name, idx) => customColors[name] || COLORS[idx % COLORS.length];
+    const getColor = (name) => customColors[name] || COLORS[getStableIdx(name) % COLORS.length];
 
     const buildLabel = (params) => {
       const val = abbreviateNumber(params.value, dataLabelAbbr) ?? formatNumber(params.value, fmt);

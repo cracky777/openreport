@@ -62,8 +62,8 @@ export const LINE_SUB_TYPES = [
 ];
 
 export const GAUGE_SUB_TYPES = [
-  { value: 'arc', label: 'Arc', icon: TbGauge },
-  { value: 'column', label: 'Column', icon: TbChartBar },
+  { value: 'arc', label: 'Arc Gauge', icon: TbGauge },
+  { value: 'column', label: 'Column Gauge', icon: TbChartBar },
 ];
 
 export { BarWidget, LineWidget, PieWidget, ScatterWidget, ComboWidget, TableWidget, ScorecardWidget, TextWidget, FilterWidget, PivotTableWidget, GaugeWidget, TreeMapWidget };

@@ -1,6 +1,7 @@
 import { useRef, useEffect, memo, useMemo } from 'react';
 import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
+import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -23,11 +24,14 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
   const borderColor = config?.itemBorderColor || '#ffffff';
   const borderWidth = config?.itemBorderWidth ?? 1;
 
+  const allItemNames = useMemo(() => (data?.items || []).map((it) => it?.name).filter((n) => n != null), [data?.items]);
+  const { getStableIdx } = useStableColorOrder(allItemNames.join('|'), allItemNames);
+
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null };
     const fmt = Object.values(data._measureFormats || {})[0];
     const customColors = config?.legendColors || {};
-    const getColor = (name, idx) => customColors[name] || COLORS[idx % COLORS.length];
+    const getColor = (name) => customColors[name] || COLORS[getStableIdx(name) % COLORS.length];
 
     let items = [...data.items];
     if (sortOrder === 'desc') items.sort((a, b) => b.value - a.value);

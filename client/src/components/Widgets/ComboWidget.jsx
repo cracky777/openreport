@@ -4,6 +4,7 @@ import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
+import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -50,17 +51,25 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
   const smoothLine = config?.smooth ?? true;
   const sortOrder = config?.sortOrder || 'none';
 
+  // Stable color ordering across filters: combine bar + line series into one seen-order list
+  const allComboNames = useMemo(() => {
+    const names = [];
+    for (const s of (data?.barSeries || [])) if (s?.name) names.push(s.name);
+    for (const s of (data?.lineSeries || [])) if (s?.name) names.push(s.name);
+    return names;
+  }, [data?.barSeries, data?.lineSeries]);
+  const { getStableIdx } = useStableColorOrder(allComboNames.join('|'), allComboNames);
+
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
 
     const customColors = config?.legendColors || {};
-    // Assign stable colors: bars get indices 0..N, lines get indices from N onward
     const allBarNames = (data.barSeries || []).map((s) => s.name);
     const allLineNames = (data.lineSeries || []).map((s) => s.name);
     const colorMap = {};
-    allBarNames.forEach((n, i) => { colorMap[n] = customColors[n] || COLORS[i % COLORS.length]; });
-    allLineNames.forEach((n, i) => { colorMap[n] = customColors[n] || COLORS[(allBarNames.length + i) % COLORS.length]; });
-    const getColor = (name) => colorMap[name] || COLORS[0];
+    allBarNames.forEach((n) => { colorMap[n] = customColors[n] || COLORS[getStableIdx(n) % COLORS.length]; });
+    allLineNames.forEach((n) => { colorMap[n] = customColors[n] || COLORS[getStableIdx(n) % COLORS.length]; });
+    const getColor = (name) => colorMap[name] || customColors[name] || COLORS[getStableIdx(name) % COLORS.length];
 
     let labels = [...data.labels];
     let sortedIndices = labels.map((_, i) => i);
