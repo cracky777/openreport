@@ -18,7 +18,7 @@ function WidgetTooltip({ text, show }) {
       position: 'absolute', top: 'calc(100% + 6px)', left: '50%',
       transform: 'translateX(-50%)', zIndex: 60,
       pointerEvents: 'none',
-      background: '#0f172a', color: '#f8fafc', fontSize: 11,
+      background: 'var(--text-primary)', color: 'var(--bg-panel)', fontSize: 11,
       padding: '4px 8px', borderRadius: 4, whiteSpace: 'nowrap',
       animation: 'tooltipIn 120ms ease-out',
       boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
@@ -72,8 +72,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         alignItems: 'center',
         gap: 12,
         padding: '10px 20px',
-        backgroundColor: '#fff',
-        borderBottom: '1px solid #e2e8f0',
+        backgroundColor: 'var(--bg-panel)',
+        borderBottom: '1px solid var(--border-default)',
         flexShrink: 0,
       }}
     >
@@ -81,14 +81,14 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         onClick={() => navigate('/')}
         style={backBtnStyle}
         onMouseEnter={(e) => {
-          e.currentTarget.style.background = '#f1f5f9';
-          e.currentTarget.style.borderColor = '#cbd5e1';
-          e.currentTarget.style.color = '#0f172a';
+          e.currentTarget.style.background = 'var(--bg-hover)';
+          e.currentTarget.style.borderColor = 'var(--border-strong)';
+          e.currentTarget.style.color = 'var(--text-primary)';
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.background = '#f8fafc';
-          e.currentTarget.style.borderColor = '#e2e8f0';
-          e.currentTarget.style.color = '#475569';
+          e.currentTarget.style.background = 'var(--bg-subtle)';
+          e.currentTarget.style.borderColor = 'var(--border-default)';
+          e.currentTarget.style.color = 'var(--text-secondary)';
         }}
       >
         <TbArrowLeft size={16} />
@@ -102,46 +102,27 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           onMouseLeave={clearHover}>
           <button onClick={onUndo} disabled={!canUndo}
             style={{ ...utilityIconBtn, opacity: canUndo ? 1 : 0.35, cursor: canUndo ? 'pointer' : 'not-allowed' }}
-            onMouseEnter={(e) => { if (canUndo) { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
+            onMouseEnter={(e) => { if (canUndo) { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
           >
-            <TbArrowBackUp size={18} color="#475569" />
+            <TbArrowBackUp size={18} color="var(--text-secondary)" />
           </button>
           <WidgetTooltip text="Undo (Ctrl+Z)" show={hoverKey === 'undo'} />
         </div>
-        <div style={{ width: 1, height: 20, background: '#e2e8f0' }} />
+        <div style={{ width: 1, height: 20, background: 'var(--border-default)' }} />
         <div style={{ position: 'relative' }}
           onMouseEnter={() => scheduleHover('redo')}
           onMouseLeave={clearHover}>
           <button onClick={onRedo} disabled={!canRedo}
             style={{ ...utilityIconBtn, opacity: canRedo ? 1 : 0.35, cursor: canRedo ? 'pointer' : 'not-allowed' }}
-            onMouseEnter={(e) => { if (canRedo) { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
+            onMouseEnter={(e) => { if (canRedo) { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
           >
-            <TbArrowForwardUp size={18} color="#475569" />
+            <TbArrowForwardUp size={18} color="var(--text-secondary)" />
           </button>
           <WidgetTooltip text="Redo (Ctrl+Y)" show={hoverKey === 'redo'} />
         </div>
       </div>
-      <button
-        onClick={handlePreviewClick}
-        style={previewBtnStyle}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = '#cffafe';
-          e.currentTarget.style.borderColor = '#0891b2';
-          e.currentTarget.style.transform = 'translateY(-1px)';
-          e.currentTarget.style.boxShadow = '0 2px 6px rgba(8,145,178,0.15)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = '#ecfeff';
-          e.currentTarget.style.borderColor = 'transparent';
-          e.currentTarget.style.transform = 'translateY(0)';
-          e.currentTarget.style.boxShadow = 'none';
-        }}
-      >
-        <TbEye size={16} />
-        <span>Preview</span>
-      </button>
 
       {modelName && (
         <a
@@ -152,26 +133,27 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           style={modelPillStyle(!!modelId)}
           onMouseEnter={(e) => {
             if (!modelId) return;
-            e.currentTarget.style.background = '#f5f3ff';
-            e.currentTarget.style.borderColor = '#7c3aed';
+            e.currentTarget.style.background = 'var(--bg-active)';
+            e.currentTarget.style.borderColor = 'var(--accent-primary)';
             const pencil = e.currentTarget.querySelector('[data-pencil]');
             if (pencil) pencil.style.opacity = '1';
           }}
           onMouseLeave={(e) => {
             if (!modelId) return;
-            e.currentTarget.style.background = '#faf8ff';
-            e.currentTarget.style.borderColor = '#ede9fe';
+            e.currentTarget.style.background = 'var(--accent-primary-soft)';
+            e.currentTarget.style.borderColor = 'var(--accent-primary-border)';
             const pencil = e.currentTarget.querySelector('[data-pencil]');
             if (pencil) pencil.style.opacity = '0.5';
           }}
         >
-          <TbDatabase size={14} color="#7c3aed" style={{ flexShrink: 0 }} />
-          <span style={{ fontWeight: 500, color: '#4c1d95' }}>{modelName}</span>
+          <TbDatabase size={14} color="var(--accent-primary)" style={{ flexShrink: 0 }} />
+          <span style={{ fontWeight: 500, color: 'var(--accent-primary-text)' }}>{modelName}</span>
           {modelId && (
-            <TbPencil data-pencil size={12} color="#7c3aed" style={{ opacity: 0.5, transition: 'opacity 0.12s', flexShrink: 0 }} />
+            <TbPencil data-pencil size={12} color="var(--accent-primary)" style={{ opacity: 0.5, transition: 'opacity 0.12s', flexShrink: 0 }} />
           )}
         </a>
       )}
+
 
       <div style={{ flex: 1 }} />
 
@@ -181,11 +163,11 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         onChange={(e) => onTitleChange(e.target.value)}
         style={{
           fontSize: 16, fontWeight: 600, border: '1px solid transparent', outline: 'none',
-          background: 'transparent', color: '#0f172a', minWidth: 180, maxWidth: 320,
+          background: 'transparent', color: 'var(--text-primary)', minWidth: 180, maxWidth: 320,
           padding: '4px 8px', borderRadius: 6, textAlign: 'center',
           transition: 'background 0.12s, border-color 0.12s',
         }}
-        onFocus={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
+        onFocus={(e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
         onBlur={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
         placeholder="Report title"
       />
@@ -194,14 +176,14 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
 
       <div style={{
         display: 'flex', alignItems: 'center', gap: 2,
-        padding: '3px 6px', background: '#f8fafc',
-        border: '1px solid #e2e8f0', borderRadius: 10,
+        padding: '3px 6px', background: 'var(--bg-subtle)',
+        border: '1px solid var(--border-default)', borderRadius: 10,
       }}>
         {groupedWidgets.map((group, gi) => (
           <div key={group.name} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            {gi > 0 && <div style={{ width: 1, height: 22, background: '#e2e8f0', margin: '0 4px' }} />}
+            {gi > 0 && <div style={{ width: 1, height: 22, background: 'var(--border-default)', margin: '0 4px' }} />}
             {group.items.map(([type, { label, icon: Icon, hasSubTypes }]) => {
-              const iconColor = type === 'filter' ? '#0891b2' : '#7c3aed';
+              const iconColor = type === 'filter' ? 'var(--accent-cyan)' : 'var(--accent-primary)';
               return (
                 <div key={type} style={{ position: 'relative' }}
                   onMouseEnter={() => { hasSubTypes && setOpenMenu(type); scheduleHover(type); }}
@@ -212,8 +194,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                     style={widgetBtnStyle(openMenu === type, iconColor)}
                     onMouseEnter={(e) => {
                       if (openMenu !== type) {
-                        e.currentTarget.style.background = '#ffffff';
-                        e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)';
+                        e.currentTarget.style.background = 'var(--bg-panel)';
+                        e.currentTarget.style.boxShadow = 'var(--shadow-md)';
                         e.currentTarget.style.transform = 'translateY(-1px)';
                       }
                     }}
@@ -225,8 +207,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                       }
                     }}
                   >
-                    <Icon size={22} color={iconColor} />
-                    {hasSubTypes && <span style={{ fontSize: 7, color: '#94a3b8', marginLeft: 2 }}>▼</span>}
+                    <Icon size={18} color={iconColor} />
+                    {hasSubTypes && <span style={{ fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 }}>▼</span>}
                   </button>
                   <WidgetTooltip text={`Add ${label}`} show={hoverKey === type && openMenu !== type} />
 
@@ -237,8 +219,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                         const StIcon = st.icon;
                         return (
                           <button key={st.value} onClick={() => handleAddWithSubType('bar', st.value)} style={dropdownItem}
-                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
                             <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
                           </button>
                         );
@@ -251,8 +233,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                         const StIcon = st.icon;
                         return (
                           <button key={st.value} onClick={() => handleAddWithSubType('line', st.value)} style={dropdownItem}
-                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
                             <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
                           </button>
                         );
@@ -265,8 +247,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                         const StIcon = st.icon;
                         return (
                           <button key={st.value} onClick={() => handleAddWithSubType('combo', st.value)} style={dropdownItem}
-                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
                             <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
                           </button>
                         );
@@ -279,8 +261,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                         const StIcon = st.icon;
                         return (
                           <button key={st.value} onClick={() => { onAddWidget(st.value); setOpenMenu(null); }} style={dropdownItem}
-                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
                             <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
                           </button>
                         );
@@ -293,8 +275,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                         const StIcon = st.icon;
                         return (
                           <button key={st.value} onClick={() => handleAddWithSubType('gauge', st.value)} style={dropdownItem}
-                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
                             <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
                           </button>
                         );
@@ -308,17 +290,17 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         ))}
 
         {/* Objects group */}
-        <div style={{ width: 1, height: 22, background: '#e2e8f0', margin: '0 4px' }} />
+        <div style={{ width: 1, height: 22, background: 'var(--border-default)', margin: '0 4px' }} />
         <div style={{ position: 'relative' }}
           onMouseEnter={() => { setOpenMenu('objects'); scheduleHover('objects'); }}
           onMouseLeave={() => { setOpenMenu(null); clearHover(); }}
         >
           <button
-            style={widgetBtnStyle(openMenu === 'objects', '#64748b')}
+            style={widgetBtnStyle(openMenu === 'objects', 'var(--text-muted)')}
             onMouseEnter={(e) => {
               if (openMenu !== 'objects') {
-                e.currentTarget.style.background = '#ffffff';
-                e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)';
+                e.currentTarget.style.background = 'var(--bg-panel)';
+                e.currentTarget.style.boxShadow = 'var(--shadow-md)';
                 e.currentTarget.style.transform = 'translateY(-1px)';
               }
             }}
@@ -330,8 +312,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
               }
             }}
           >
-            <TbShape size={22} color="#64748b" />
-            <span style={{ fontSize: 7, color: '#94a3b8', marginLeft: 2 }}>▼</span>
+            <TbShape size={18} color="var(--text-muted)" />
+            <span style={{ fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 }}>▼</span>
           </button>
           <WidgetTooltip text="Add object" show={hoverKey === 'objects' && openMenu !== 'objects'} />
           {openMenu === 'objects' && (
@@ -340,9 +322,9 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                 const StIcon = st.icon;
                 return (
                   <button key={st.value} onClick={() => { onAddWidget(st.type, null, st.config, st.size); setOpenMenu(null); }} style={dropdownItem}
-                    onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
-                    <StIcon size={14} color="#64748b" style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
+                    <StIcon size={14} color="var(--text-muted)" style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
                   </button>
                 );
               })}
@@ -362,14 +344,14 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                 onClick={onRefresh}
                 disabled={refreshing}
                 style={{ ...utilityIconBtn, opacity: refreshing ? 0.5 : 1, cursor: refreshing ? 'not-allowed' : 'pointer' }}
-                onMouseEnter={(e) => { if (!refreshing) { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
+                onMouseEnter={(e) => { if (!refreshing) { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
               >
-                <TbRefresh size={18} color="#475569" style={{ animation: refreshing ? 'spin 0.8s linear infinite' : undefined }} />
+                <TbRefresh size={18} color="var(--text-secondary)" style={{ animation: refreshing ? 'spin 0.8s linear infinite' : undefined }} />
               </button>
               <WidgetTooltip text="Refresh all widgets" show={hoverKey === 'refresh' && !refreshing} />
             </div>
-            <div style={{ width: 1, height: 20, background: '#e2e8f0' }} />
+            <div style={{ width: 1, height: 20, background: 'var(--border-default)' }} />
           </>
         )}
         <div style={{ position: 'relative' }}
@@ -378,13 +360,38 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           <button
             onClick={onOpenSettings}
             style={utilityIconBtn}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
           >
-            <TbSettings size={18} color="#475569" />
+            <TbSettings size={18} color="var(--text-secondary)" />
           </button>
           <WidgetTooltip text="Report settings" show={hoverKey === 'settings'} />
         </div>
+      </div>
+
+      {/* Preview — icon only with tooltip, sits next to Save */}
+      <div style={{ position: 'relative' }}
+        onMouseEnter={() => scheduleHover('preview')}
+        onMouseLeave={clearHover}>
+        <button
+          onClick={handlePreviewClick}
+          style={previewBtnStyle}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--accent-cyan-border)';
+            e.currentTarget.style.borderColor = 'var(--accent-cyan)';
+            e.currentTarget.style.transform = 'translateY(-1px)';
+            e.currentTarget.style.boxShadow = 'var(--shadow-md)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'var(--accent-cyan-soft)';
+            e.currentTarget.style.borderColor = 'transparent';
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = 'none';
+          }}
+        >
+          <TbEye size={18} />
+        </button>
+        <WidgetTooltip text="Preview report" show={hoverKey === 'preview'} />
       </div>
 
       <button
@@ -393,14 +400,14 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         style={saveBtnStyle(saving)}
         onMouseEnter={(e) => {
           if (!saving) {
-            e.currentTarget.style.background = '#6d28d9';
+            e.currentTarget.style.background = 'var(--accent-primary-hover)';
             e.currentTarget.style.transform = 'translateY(-1px)';
             e.currentTarget.style.boxShadow = '0 4px 12px rgba(124,58,237,0.3)';
           }
         }}
         onMouseLeave={(e) => {
           if (!saving) {
-            e.currentTarget.style.background = '#7c3aed';
+            e.currentTarget.style.background = 'var(--accent-primary)';
             e.currentTarget.style.transform = 'translateY(0)';
             e.currentTarget.style.boxShadow = '0 1px 3px rgba(124,58,237,0.2)';
           }
@@ -416,25 +423,25 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)', zIndex: 1000 }} />
           <div style={{
             position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-            background: '#fff', borderRadius: 10, padding: 20, minWidth: 380, maxWidth: 440,
+            background: 'var(--bg-panel)', borderRadius: 10, padding: 20, minWidth: 380, maxWidth: 440,
             boxShadow: '0 10px 30px rgba(15,23,42,0.25)', zIndex: 1001,
           }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', marginBottom: 6 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
               You have unsaved changes
             </div>
-            <div style={{ fontSize: 13, color: '#475569', marginBottom: 16, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.5 }}>
               The preview opens in a new tab and shows the last saved version of your report. Would you like to save before previewing?
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
               <button
                 onClick={() => setPreviewPrompt(false)}
-                style={{ padding: '6px 14px', fontSize: 13, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, color: '#475569', cursor: 'pointer' }}
+                style={{ padding: '6px 14px', fontSize: 13, background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}
               >
                 Cancel
               </button>
               <button
                 onClick={() => { setPreviewPrompt(false); openPreview(); }}
-                style={{ padding: '6px 14px', fontSize: 13, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, color: '#475569', cursor: 'pointer' }}
+                style={{ padding: '6px 14px', fontSize: 13, background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}
               >
                 Preview without saving
               </button>
@@ -446,7 +453,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                 }}
                 style={{
                   padding: '6px 14px', fontSize: 13, fontWeight: 600,
-                  background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer',
+                  background: 'var(--accent-primary)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer',
                   boxShadow: '0 1px 3px rgba(124,58,237,0.2)',
                 }}
               >
@@ -462,15 +469,15 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
 
 const backBtnStyle = {
   display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-  background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
-  color: '#475569', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+  background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8,
+  color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13, fontWeight: 500,
   transition: 'background 0.12s, border-color 0.12s, color 0.12s',
 };
 
 const utilityGroupStyle = {
   display: 'flex', alignItems: 'center', gap: 2,
-  padding: '3px 6px', background: '#f8fafc',
-  border: '1px solid #e2e8f0', borderRadius: 10,
+  padding: '3px 6px', background: 'var(--bg-subtle)',
+  border: '1px solid var(--border-default)', borderRadius: 10,
 };
 
 const utilityIconBtn = {
@@ -484,7 +491,7 @@ const utilityIconBtn = {
 function saveBtnStyle(saving) {
   return {
     padding: '7px 18px', fontSize: 13, fontWeight: 600, border: 'none',
-    borderRadius: 8, background: '#7c3aed', color: '#fff',
+    borderRadius: 8, background: 'var(--accent-primary)', color: '#fff',
     cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1,
     display: 'inline-flex', alignItems: 'center', gap: 6,
     boxShadow: '0 1px 3px rgba(124,58,237,0.2)',
@@ -496,32 +503,32 @@ const dropdownStyle = {
   position: 'absolute', top: '100%', left: 0, paddingTop: 4, zIndex: 50, minWidth: 180,
 };
 const dropdownInner = {
-  backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 6,
+  backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 6,
   boxShadow: '0 4px 12px rgba(0,0,0,0.1)', overflow: 'hidden',
 };
 
 const dropdownItem = {
   display: 'block', width: '100%', padding: '8px 14px', fontSize: 13,
-  border: 'none', background: '#fff', cursor: 'pointer', textAlign: 'left',
-  color: '#334155',
+  border: 'none', background: 'var(--bg-panel)', cursor: 'pointer', textAlign: 'left',
+  color: 'var(--text-secondary)',
 };
 
 // Pill-style button inside the grouped widget toolbar — larger icon, subtle hover elevation
 function widgetBtnStyle(active, iconColor) {
   return {
     padding: '6px 10px', border: 'none',
-    borderRadius: 8, background: active ? '#ffffff' : 'transparent',
+    borderRadius: 8, background: active ? 'var(--bg-panel)' : 'transparent',
     cursor: 'pointer', display: 'flex', alignItems: 'center',
     transition: 'background 0.15s, box-shadow 0.15s, transform 0.15s',
-    boxShadow: active ? `0 2px 8px rgba(15,23,42,0.1), inset 0 0 0 1px ${iconColor}40` : 'none',
+    boxShadow: active ? `var(--shadow-md), inset 0 0 0 1px ${iconColor}40` : 'none',
   };
 }
 
 const previewBtnStyle = {
-  padding: '6px 12px', border: '1px solid transparent',
-  borderRadius: 8, background: '#ecfeff',
-  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
-  fontSize: 13, fontWeight: 500, color: '#0891b2',
+  padding: '7px 9px', border: '1px solid transparent',
+  borderRadius: 8, background: 'var(--accent-cyan-soft)',
+  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  color: 'var(--accent-cyan)', lineHeight: 1,
   transition: 'background 0.15s, border-color 0.15s, transform 0.15s, box-shadow 0.15s',
 };
 
@@ -529,8 +536,8 @@ function modelPillStyle(clickable) {
   return {
     display: 'inline-flex', alignItems: 'center', gap: 6,
     padding: '5px 10px', borderRadius: 8,
-    background: '#faf8ff', border: '1px solid #ede9fe',
-    fontSize: 12, color: '#4c1d95',
+    background: 'var(--accent-primary-soft)', border: '1px solid var(--accent-primary-border)',
+    fontSize: 12, color: 'var(--accent-primary-text)',
     textDecoration: 'none', cursor: clickable ? 'pointer' : 'default',
     transition: 'background 0.12s, border-color 0.12s',
     maxWidth: 240, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',

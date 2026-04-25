@@ -168,7 +168,7 @@ export default function Datasources() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#f1f5f9' }}>
+    <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-app)' }}>
       <header style={headerShellStyle}>
         <BackButton to="/" />
         <h1 style={headerTitleStyle}>Data Sources</h1>
@@ -176,7 +176,7 @@ export default function Datasources() {
         <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv"
           style={{ display: 'none' }} onChange={handleFileUpload} />
         <SecondaryButton onClick={() => fileInputRef.current?.click()} disabled={uploading}
-          style={{ color: '#7c3aed', borderColor: '#ddd6fe', background: '#faf8ff' }}>
+          style={{ color: 'var(--accent-primary)', borderColor: '#ddd6fe', background: 'var(--accent-primary-soft)' }}>
           <TbUpload size={16} />{uploading ? 'Uploading...' : 'Upload File'}
         </SecondaryButton>
         <PrimaryButton onClick={() => setShowForm(true)}>+ New Connection</PrimaryButton>
@@ -186,7 +186,7 @@ export default function Datasources() {
         {uploadProgress && (
           <div style={{
             padding: '10px 16px', marginBottom: 16, borderRadius: 6, fontSize: 13,
-            background: uploadProgress.startsWith('Error') ? '#fef2f2' : '#f0fdf4',
+            background: uploadProgress.startsWith('Error') ? 'var(--state-danger-soft)' : '#f0fdf4',
             color: uploadProgress.startsWith('Error') ? '#dc2626' : '#16a34a',
             border: `1px solid ${uploadProgress.startsWith('Error') ? '#fca5a5' : '#bbf7d0'}`,
           }}>
@@ -267,7 +267,7 @@ export default function Datasources() {
                 borderRadius: 6,
                 fontSize: 13,
                 marginBottom: 12,
-                background: testResult.success ? '#f0fdf4' : '#fef2f2',
+                background: testResult.success ? '#f0fdf4' : 'var(--state-danger-soft)',
                 color: testResult.success ? '#16a34a' : '#dc2626',
                 border: `1px solid ${testResult.success ? '#bbf7d0' : '#fca5a5'}`,
               }}>
@@ -277,7 +277,7 @@ export default function Datasources() {
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={handleCancel} style={secondaryBtn}>Cancel</button>
-              <button onClick={handleTest} disabled={testing} style={{ ...secondaryBtn, color: '#7c3aed', borderColor: '#c4b5fd' }}>
+              <button onClick={handleTest} disabled={testing} style={{ ...secondaryBtn, color: 'var(--accent-primary)', borderColor: 'var(--accent-primary)' }}>
                 {testing ? 'Testing...' : 'Test Connection'}
               </button>
               <button onClick={handleSave} disabled={saving} style={primaryBtn}>
@@ -288,10 +288,10 @@ export default function Datasources() {
         )}
 
         {loading ? (
-          <div style={{ color: '#94a3b8', textAlign: 'center', marginTop: 60 }}>Loading...</div>
+          <div style={{ color: 'var(--text-disabled)', textAlign: 'center', marginTop: 60 }}>Loading...</div>
         ) : datasources.length === 0 && !showForm ? (
           <div style={{ textAlign: 'center', marginTop: 80 }}>
-            <p style={{ fontSize: 16, color: '#64748b', marginBottom: 12 }}>No data sources configured</p>
+            <p style={{ fontSize: 16, color: 'var(--text-muted)', marginBottom: 12 }}>No data sources configured</p>
             <button onClick={() => setShowForm(true)} style={primaryBtn}>Add your first data source</button>
           </div>
         ) : (
@@ -302,8 +302,8 @@ export default function Datasources() {
               return (
                 <div key={ds.id} style={dsCardStyle}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, color: '#0f172a', fontSize: 15 }}>{ds.name}</div>
-                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 15 }}>{ds.name}</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>
                       {(() => {
                         const dbLabel = DB_TYPES.find((t) => t.value === ds.db_type)?.label || ds.db_type.toUpperCase();
                         if (extra.sourceFile) return `${dbLabel} — 📄 ${extra.sourceFile} (${extra.rowCount?.toLocaleString() || '?'} rows)`;
@@ -319,7 +319,7 @@ export default function Datasources() {
                         Edit
                       </button>
                     )}
-                    <button onClick={() => handleDelete(ds.id)} style={{ ...secondaryBtn, color: '#dc2626', borderColor: '#fca5a5', fontSize: 12, padding: '4px 10px' }}>
+                    <button onClick={() => handleDelete(ds.id)} style={{ ...secondaryBtn, color: 'var(--state-danger)', borderColor: 'var(--state-danger)', fontSize: 12, padding: '4px 10px' }}>
                       Delete
                     </button>
                   </div>
@@ -333,7 +333,7 @@ export default function Datasources() {
         <div style={{
           position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
           padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 9999,
-          backgroundColor: saveMsg === 'Saved' ? '#22c55e' : '#ef4444', color: '#fff',
+          backgroundColor: saveMsg === 'Saved' ? 'var(--state-success)' : 'var(--state-danger)', color: '#fff',
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
         }}>{saveMsg === 'Saved' ? '✓ Datasource saved' : '✗ Save failed'}</div>
       )}
@@ -344,7 +344,7 @@ export default function Datasources() {
 function Field({ label, children, style }) {
   return (
     <div style={{ marginBottom: 12, ...style }}>
-      <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4, fontWeight: 500 }}>{label}</label>
+      <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4, fontWeight: 500 }}>{label}</label>
       {children}
     </div>
   );
@@ -353,25 +353,25 @@ function Field({ label, children, style }) {
 
 const primaryBtn = {
   padding: '8px 16px', fontSize: 14, fontWeight: 600, border: 'none',
-  borderRadius: 6, background: '#7c3aed', color: '#fff', cursor: 'pointer',
+  borderRadius: 6, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
 };
 
 const secondaryBtn = {
-  padding: '8px 16px', fontSize: 14, background: '#fff', color: '#475569',
-  border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer',
+  padding: '8px 16px', fontSize: 14, background: 'var(--bg-panel)', color: 'var(--text-secondary)',
+  border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer',
 };
 
 const inputStyle = {
-  width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0',
+  width: '100%', padding: '8px 10px', border: '1px solid var(--border-default)',
   borderRadius: 6, fontSize: 14, outline: 'none', boxSizing: 'border-box',
 };
 
 const formCard = {
-  backgroundColor: '#fff', padding: 24, borderRadius: 8,
-  border: '1px solid #e2e8f0', marginBottom: 24,
+  backgroundColor: 'var(--bg-panel)', padding: 24, borderRadius: 8,
+  border: '1px solid var(--border-default)', marginBottom: 24,
 };
 
 const dsCardStyle = {
-  backgroundColor: '#fff', padding: '16px 20px', borderRadius: 8,
-  border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center',
+  backgroundColor: 'var(--bg-panel)', padding: '16px 20px', borderRadius: 8,
+  border: '1px solid var(--border-default)', display: 'flex', alignItems: 'center',
 };

@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
+import { ThemeProvider } from './hooks/useTheme';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Editor from './pages/Editor';
@@ -11,20 +12,21 @@ import Admin from './pages/Admin';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <div style={{ padding: 40, color: '#94a3b8' }}>Loading...</div>;
+  if (loading) return <div style={{ padding: 40, color: 'var(--text-disabled)' }}>Loading...</div>;
   return user ? children : <Navigate to="/login" />;
 }
 
 function PublicRoute({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <div style={{ padding: 40, color: '#94a3b8' }}>Loading...</div>;
+  if (loading) return <div style={{ padding: 40, color: 'var(--text-disabled)' }}>Loading...</div>;
   return user ? <Navigate to="/" /> : children;
 }
 
 function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
+    <ThemeProvider>
+      <AuthProvider>
+        <BrowserRouter>
         <Routes>
           <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
           <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
@@ -36,7 +38,8 @@ function App() {
           <Route path="/view/:id" element={<Viewer />} />
         </Routes>
       </BrowserRouter>
-    </AuthProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

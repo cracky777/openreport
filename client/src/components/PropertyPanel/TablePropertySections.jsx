@@ -381,7 +381,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
             />
           </>
         ) : (
-          <div style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>Select a column above</div>
+          <div style={{ fontSize: 11, color: 'var(--text-disabled)', fontStyle: 'italic' }}>Select a column above</div>
         )}
       </Section>
 
@@ -497,7 +497,7 @@ function ConditionalFormatEditor({ rules, onChange, inputStyle, Field, SubSectio
             </>
           )}
           <button onClick={() => removeRule(i)}
-            style={{ fontSize: 10, color: '#dc2626', background: 'none', border: '1px solid #fca5a5', borderRadius: 3, padding: '2px 6px', cursor: 'pointer', marginTop: 4 }}>
+            style={{ fontSize: 10, color: 'var(--state-danger)', background: 'transparent', border: '1px solid #fca5a5', borderRadius: 3, padding: '2px 6px', cursor: 'pointer', marginTop: 4 }}>
             Remove
           </button>
         </SubSection>
@@ -506,7 +506,7 @@ function ConditionalFormatEditor({ rules, onChange, inputStyle, Field, SubSectio
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
         {['dataBar', 'colorScale', 'textColor', 'icon'].map((type) => (
           <button key={type} onClick={() => addRule(type)}
-            style={{ fontSize: 10, padding: '3px 6px', border: '1px solid #e2e8f0', borderRadius: 3, background: '#fff', cursor: 'pointer', color: '#475569' }}>
+            style={{ fontSize: 10, padding: '3px 6px', border: '1px solid var(--border-default)', borderRadius: 3, background: 'var(--bg-panel)', cursor: 'pointer', color: 'var(--text-secondary)' }}>
             + {type}
           </button>
         ))}
@@ -521,11 +521,11 @@ function IconLevelEditor({ label, icon, color, value, valuePlaceholder, onIconCh
   const [showPresets, setShowPresets] = useState(false);
   return (
     <div style={iconLevelStyle}>
-      <div style={{ fontSize: 10, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>{label}</div>
       <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4 }}>
         <div style={{ position: 'relative' }}>
           <button onClick={() => setShowPresets(!showPresets)}
-            style={{ width: 30, height: 26, border: '1px solid #e2e8f0', borderRadius: 3, background: '#fff', cursor: 'pointer', fontSize: 14, color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            style={{ width: 30, height: 26, border: '1px solid var(--border-default)', borderRadius: 3, background: 'var(--bg-panel)', cursor: 'pointer', fontSize: 14, color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {icon}
           </button>
           {showPresets && (
@@ -543,7 +543,7 @@ function IconLevelEditor({ label, icon, color, value, valuePlaceholder, onIconCh
           )}
         </div>
         <ColorInput value={color} onChange={(v) => onColorChange(v)}
-          style={{ width: 26, height: 26, border: '1px solid #e2e8f0', borderRadius: 3, padding: 1, cursor: 'pointer' }} />
+          style={{ width: 26, height: 26, border: '1px solid var(--border-default)', borderRadius: 3, padding: 1, cursor: 'pointer' }} />
         <input type="number" value={value ?? ''} placeholder={valuePlaceholder}
           onChange={(e) => onValueChange(e.target.value !== '' ? parseFloat(e.target.value) : null)}
           style={{ ...inputStyle, flex: 1, marginBottom: 0, fontSize: 11 }} />
@@ -559,7 +559,7 @@ const iconLevelStyle = {
 
 const presetDropdown = {
   position: 'absolute', top: 30, left: 0, zIndex: 20,
-  background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6,
+  background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 6,
   padding: 6, display: 'flex', flexWrap: 'wrap', gap: 2, width: 170,
   boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
 };
@@ -570,7 +570,7 @@ const colSelectStyle = {
 };
 
 const toggleBtn = {
-  width: 28, height: 24, border: '1px solid #e2e8f0', borderRadius: 3,
+  width: 28, height: 24, border: '1px solid var(--border-default)', borderRadius: 3,
   cursor: 'pointer', fontSize: 11, fontWeight: 600,
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 };

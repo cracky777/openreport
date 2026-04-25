@@ -2,10 +2,15 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbTableOptions } from 'react-icons/tb';
+import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbTableOptions, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown } from 'react-icons/tb';
+import { useTheme } from '../hooks/useTheme';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
+  const { mode: themeMode, resolved: themeResolved, setMode: setThemeMode, themes: availableThemes } = useTheme();
+  const logoSrc = themeResolved === 'dark' ? '/logo-dark.svg' : '/logo.svg';
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef(null);
   const navigate = useNavigate();
   const [reports, setReports] = useState([]);
   const [models, setModels] = useState([]);
@@ -86,6 +91,18 @@ export default function Dashboard() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Close user menu on outside click / Escape
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const onClick = (e) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) setUserMenuOpen(false);
+    };
+    const onEsc = (e) => { if (e.key === 'Escape') setUserMenuOpen(false); };
+    document.addEventListener('mousedown', onClick);
+    document.addEventListener('keydown', onEsc);
+    return () => { document.removeEventListener('mousedown', onClick); document.removeEventListener('keydown', onEsc); };
+  }, [userMenuOpen]);
 
   // On first render the user may not yet be loaded (AuthContext fetches async),
   // so the useState initializer runs with lastWsKey=null. Restore once the key becomes known.
@@ -176,6 +193,7 @@ export default function Dashboard() {
         title: newTitle || ds.name,
         modelId,
         ...(selectedWs ? { workspaceId: selectedWs } : {}),
+        settings: { theme: availableThemes[themeResolved] ? { key: themeResolved, ...availableThemes[themeResolved] } : null },
       });
       navigate(`/edit/${reportRes.data.report.id}`);
     } catch (err) {
@@ -191,6 +209,7 @@ export default function Dashboard() {
     const res = await api.post('/reports', {
       title: newTitle || 'Untitled Report', modelId: newModelId,
       ...(selectedWs ? { workspaceId: selectedWs } : {}),
+      settings: { theme: availableThemes[themeResolved] ? { key: themeResolved, ...availableThemes[themeResolved] } : null },
     });
     navigate(`/edit/${res.data.report.id}`);
   };
@@ -264,11 +283,11 @@ export default function Dashboard() {
   const canEditWs = wsUserRole === 'admin' || wsUserRole === 'editor';
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#f1f5f9' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' }}>
       {/* Header */}
       <header style={headerStyle}>
-        <h1 style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', letterSpacing: -0.5, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <img src="/logo.svg" alt="Open Report" style={{ height: 28 }} />
+        <h1 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: -0.5, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <img src={logoSrc} alt="Open Report" style={{ height: 28 }} />
         </h1>
         <nav style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {(canEdit || user?.role === 'admin') && (
@@ -276,13 +295,13 @@ export default function Dashboard() {
               {canEdit && (
                 <>
                   <button onClick={() => navigate('/datasources')} style={navBtnStyled}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
                   >
                     <TbDatabase size={15} /> <span>Data Sources</span>
                   </button>
                   <button onClick={() => navigate('/models')} style={navBtnStyled}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
                   >
                     <TbTableOptions size={15} /> <span>Models</span>
@@ -291,7 +310,7 @@ export default function Dashboard() {
               )}
               {user?.role === 'admin' && (
                 <button onClick={() => navigate('/admin')} style={navBtnStyled}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(15,23,42,0.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
                 >
                   <TbShield size={15} /> <span>Admin</span>
@@ -299,52 +318,141 @@ export default function Dashboard() {
               )}
             </div>
           )}
-          <div style={userPillStyle}>
-            <TbUser size={14} color="#7c3aed" /> {user?.display_name || user?.email}
+          <div ref={userMenuRef} style={{ position: 'relative' }}>
+            <button
+              onClick={() => setUserMenuOpen((v) => !v)}
+              style={userPillStyle}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-primary-border)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent-primary-soft)'; }}
+            >
+              <TbUser size={14} color="var(--accent-primary)" />
+              <span>{user?.display_name || user?.email}</span>
+              <TbChevronDown size={12} style={{ transition: 'transform 0.12s', transform: userMenuOpen ? 'rotate(180deg)' : 'none' }} />
+            </button>
+            {userMenuOpen && (
+              <div style={userMenuDropdown}>
+                <div style={userMenuSectionLabel}>Theme</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 8px 8px' }}>
+                  {/* "System" follows the OS preference */}
+                  <button onClick={() => setThemeMode('system')} style={themeRowBtn(themeMode === 'system')}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <TbDeviceLaptop size={14} />
+                      <span>System</span>
+                    </span>
+                    {themeMode === 'system' && <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>auto</span>}
+                  </button>
+                  {/* All themes from the JSON definition */}
+                  {Object.entries(availableThemes).map(([key, theme]) => {
+                    const active = themeMode === key;
+                    const Icon = theme.kind === 'dark' ? TbMoon : TbSun;
+                    return (
+                      <button key={key} onClick={() => setThemeMode(key)} style={themeRowBtn(active)}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{
+                            width: 14, height: 14, borderRadius: 3,
+                            background: theme.vars?.['--bg-app'] || '#fff',
+                            border: '1px solid ' + (theme.vars?.['--border-default'] || '#e2e8f0'),
+                            display: 'inline-block',
+                          }} />
+                          <span>{theme.label || key}</span>
+                        </span>
+                        {active && <Icon size={12} style={{ color: 'var(--accent-primary)' }} />}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={userMenuDivider} />
+                <button
+                  onClick={() => { setUserMenuOpen(false); logout(); }}
+                  style={userMenuItem}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <TbLogout size={15} />
+                  <span>Logout</span>
+                </button>
+              </div>
+            )}
           </div>
-          <button onClick={logout} style={logoutBtnStyle}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.color = '#0f172a'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#64748b'; }}
-          >
-            <TbLogout size={15} /> <span>Logout</span>
-          </button>
         </nav>
       </header>
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Sidebar — Workspaces */}
         <div style={sidebarStyle}>
-          <div style={{ padding: '12px 16px', fontWeight: 600, fontSize: 11, color: '#94a3b8', textTransform: 'uppercase' }}>Workspaces</div>
+          <div style={{ padding: '12px 16px', fontWeight: 600, fontSize: 11, color: 'var(--text-disabled)', textTransform: 'uppercase' }}>Workspaces</div>
 
           <button onClick={() => setSelectedWs(null)}
-            style={{ ...wsItemStyle, fontWeight: !selectedWs ? 700 : 400, background: !selectedWs ? '#f5f3ff' : 'transparent', color: !selectedWs ? '#7c3aed' : '#334155' }}>
+            style={{ ...wsItemStyle, fontWeight: !selectedWs ? 700 : 400, background: !selectedWs ? 'var(--bg-active)' : 'transparent', color: !selectedWs ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>
             <TbFolder size={16} /> My Reports
           </button>
 
           {workspaces.map((ws) => (
             <button key={ws.id} onClick={() => setSelectedWs(ws.id)}
-              style={{ ...wsItemStyle, fontWeight: selectedWs === ws.id ? 700 : 400, background: selectedWs === ws.id ? '#f5f3ff' : 'transparent', color: selectedWs === ws.id ? '#7c3aed' : '#334155' }}>
+              style={{ ...wsItemStyle, fontWeight: selectedWs === ws.id ? 700 : 400, background: selectedWs === ws.id ? 'var(--bg-active)' : 'transparent', color: selectedWs === ws.id ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>
               <TbFolder size={16} />
               <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ws.name}</span>
-              <span style={{ fontSize: 10, color: '#94a3b8' }}>{ws.report_count}</span>
+              <span style={{ fontSize: 10, color: 'var(--text-disabled)' }}>{ws.report_count}</span>
             </button>
           ))}
 
           {canEdit && (
             <div style={{ padding: '8px 12px' }}>
               {showCreateWs ? (
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <input placeholder="Name" value={newWsName} onChange={(e) => setNewWsName(e.target.value)}
-                    style={{ flex: 1, padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12, outline: 'none' }}
-                    onKeyDown={(e) => e.key === 'Enter' && createWorkspace()} autoFocus />
-                  <button onClick={createWorkspace} style={{ fontSize: 11, padding: '4px 8px', border: 'none', borderRadius: 4, background: '#7c3aed', color: '#fff', cursor: 'pointer' }}>+</button>
-                  <button onClick={() => setShowCreateWs(false)} style={{ fontSize: 11, padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, background: '#fff', cursor: 'pointer' }}>
-                    <TbX size={12} />
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 2,
+                  padding: 3, background: 'var(--bg-subtle)',
+                  border: '1px solid var(--border-default)', borderRadius: 8,
+                }}>
+                  <input
+                    placeholder="Workspace name" value={newWsName}
+                    onChange={(e) => setNewWsName(e.target.value)}
+                    style={{
+                      flex: 1, padding: '4px 8px', border: 'none', background: 'transparent',
+                      fontSize: 12, outline: 'none', color: 'var(--text-primary)', minWidth: 0,
+                    }}
+                    onKeyDown={(e) => e.key === 'Enter' && createWorkspace()} autoFocus
+                  />
+                  <button onClick={createWorkspace}
+                    disabled={!newWsName.trim()}
+                    title="Create"
+                    style={{
+                      width: 22, height: 22, padding: 0, border: 'none',
+                      borderRadius: 5, cursor: newWsName.trim() ? 'pointer' : 'not-allowed',
+                      background: newWsName.trim() ? 'var(--accent-primary)' : 'var(--bg-hover)',
+                      color: newWsName.trim() ? '#fff' : 'var(--text-disabled)',
+                      fontSize: 13, fontWeight: 600, lineHeight: 1,
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'background 0.12s',
+                    }}>+</button>
+                  <button onClick={() => { setShowCreateWs(false); setNewWsName(''); }}
+                    title="Cancel"
+                    style={{
+                      width: 22, height: 22, padding: 0, border: 'none',
+                      borderRadius: 5, cursor: 'pointer',
+                      background: 'transparent', color: 'var(--text-muted)',
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'background 0.12s, color 0.12s',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                  >
+                    <TbX size={13} />
                   </button>
                 </div>
               ) : (
-                <button onClick={() => setShowCreateWs(true)} style={{ ...wsItemStyle, color: '#7c3aed', fontSize: 12 }}>
-                  <TbFolderPlus size={16} /> New workspace
+                <button onClick={() => setShowCreateWs(true)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                    padding: '8px 12px', border: '1px dashed var(--border-default)',
+                    borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 500,
+                    background: 'transparent', color: 'var(--text-muted)',
+                    textAlign: 'left', transition: 'border-color 0.12s, color 0.12s, background 0.12s',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent-primary)'; e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.background = 'var(--bg-subtle)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <TbFolderPlus size={14} /> New workspace
                 </button>
               )}
             </div>
@@ -355,14 +463,14 @@ export default function Dashboard() {
         <main style={{ flex: 1, overflow: 'auto', padding: '24px 32px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 600, color: '#0f172a' }}>{wsName}</h2>
+              <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{wsName}</h2>
               {selectedWs && (
                 <>
-                  <button onClick={() => setShowMembers(!showMembers)} style={{ ...iconBtn, color: '#64748b' }} title="Members">
+                  <button onClick={() => setShowMembers(!showMembers)} style={{ ...iconBtn, color: 'var(--text-muted)' }} title="Members">
                     <TbUsers size={16} />
                   </button>
                   {wsUserRole === 'admin' && (
-                    <button onClick={() => deleteWorkspace(selectedWs)} style={{ ...iconBtn, color: '#dc2626' }} title="Delete workspace">
+                    <button onClick={() => deleteWorkspace(selectedWs)} style={{ ...iconBtn, color: 'var(--state-danger)' }} title="Delete workspace">
                       <TbTrash size={14} />
                     </button>
                   )}
@@ -379,7 +487,7 @@ export default function Dashboard() {
               {wsOwner && (
                 <div style={memberRow}>
                   <span>{wsOwner.display_name || wsOwner.email}</span>
-                  <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600 }}>Owner</span>
+                  <span style={{ fontSize: 11, color: 'var(--state-danger)', fontWeight: 600 }}>Owner</span>
                 </div>
               )}
               {wsMembers.map((m) => (
@@ -389,7 +497,7 @@ export default function Dashboard() {
                     {wsUserRole === 'admin' ? (
                       <>
                         <select value={m.role} onChange={(e) => updateMemberRole(m.id, e.target.value)}
-                          style={{ padding: '2px 4px', border: '1px solid #e2e8f0', borderRadius: 3, fontSize: 11 }}>
+                          style={{ padding: '2px 4px', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 11 }}>
                           <option value="admin">Admin</option>
                           <option value="editor">Editor</option>
                           <option value="viewer">Viewer</option>
@@ -397,7 +505,7 @@ export default function Dashboard() {
                         <button onClick={() => removeMember(m.id)} style={{ ...iconBtn, padding: '2px 4px' }}><TbX size={12} /></button>
                       </>
                     ) : (
-                      <span style={{ fontSize: 11, color: '#64748b' }}>{m.role}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{m.role}</span>
                     )}
                   </div>
                 </div>
@@ -409,28 +517,28 @@ export default function Dashboard() {
                       onChange={(e) => searchUsers(e.target.value)}
                       onFocus={() => userSuggestions.length > 0 && setShowSuggestions(true)}
                       onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                      style={{ width: '100%', padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
+                      style={{ width: '100%', padding: '4px 8px', border: '1px solid var(--border-default)', borderRadius: 4, fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
                     {showSuggestions && userSuggestions.length > 0 && (
-                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 20, maxHeight: 150, overflow: 'auto' }}>
+                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 20, maxHeight: 150, overflow: 'auto' }}>
                         {userSuggestions.map((u) => (
                           <div key={u.id} onClick={() => selectSuggestion(u)}
                             style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f8fafc', display: 'flex', justifyContent: 'space-between' }}
-                            onMouseEnter={(e) => e.currentTarget.style.background = '#f5f3ff'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-active)'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
                             <span style={{ fontWeight: 500 }}>{u.display_name || u.email.split('@')[0]}</span>
-                            <span style={{ color: '#94a3b8' }}>{u.email}</span>
+                            <span style={{ color: 'var(--text-disabled)' }}>{u.email}</span>
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
                   <select value={newMemberRole} onChange={(e) => setNewMemberRole(e.target.value)}
-                    style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 11 }}>
+                    style={{ padding: '4px 6px', border: '1px solid var(--border-default)', borderRadius: 4, fontSize: 11 }}>
                     <option value="viewer">Viewer</option>
                     <option value="editor">Editor</option>
                     <option value="admin">Admin</option>
                   </select>
-                  <button onClick={addMember} style={{ padding: '4px 8px', border: 'none', borderRadius: 4, background: '#7c3aed', color: '#fff', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center' }}>
+                  <button onClick={addMember} style={{ padding: '4px 8px', border: 'none', borderRadius: 4, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center' }}>
                     <TbUserPlus size={14} />
                   </button>
                 </div>
@@ -457,20 +565,20 @@ export default function Dashboard() {
                     <div style={{ display: 'flex', gap: 10 }}>
                       {models.length > 0 && (
                         <button onClick={() => setCreateMode('model')} style={sourceCard}>
-                          <TbLayoutDashboard size={28} color="#7c3aed" />
+                          <TbLayoutDashboard size={28} color="var(--accent-primary)" />
                           <span style={{ fontWeight: 600, fontSize: 13 }}>Existing Model</span>
-                          <span style={{ fontSize: 11, color: '#94a3b8' }}>Use a data model already configured</span>
+                          <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>Use a data model already configured</span>
                         </button>
                       )}
                       <button onClick={() => setCreateMode('file')} style={sourceCard}>
                         <TbUpload size={28} color="#16a34a" />
                         <span style={{ fontWeight: 600, fontSize: 13 }}>Import File</span>
-                        <span style={{ fontSize: 11, color: '#94a3b8' }}>CSV, Excel, Parquet, JSON</span>
+                        <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>CSV, Excel, Parquet, JSON</span>
                       </button>
                       <button onClick={() => { setShowCreate(false); navigate('/datasources'); }} style={sourceCard}>
                         <TbDatabase size={28} color="#f59e0b" />
                         <span style={{ fontWeight: 600, fontSize: 13 }}>Database</span>
-                        <span style={{ fontSize: 11, color: '#94a3b8' }}>Connect to a database</span>
+                        <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>Connect to a database</span>
                       </button>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
@@ -506,22 +614,22 @@ export default function Dashboard() {
                       style={{
                         border: '2px dashed #cbd5e1', borderRadius: 8, padding: '32px 20px', textAlign: 'center',
                         cursor: uploadingFile ? 'wait' : 'pointer', marginBottom: 12,
-                        background: '#fafbfc', transition: 'border-color 0.15s',
+                        background: 'var(--bg-panel-alt)', transition: 'border-color 0.15s',
                       }}
-                      onMouseEnter={(e) => e.currentTarget.style.borderColor = '#7c3aed'}
-                      onMouseLeave={(e) => e.currentTarget.style.borderColor = '#cbd5e1'}
+                      onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--accent-primary)'}
+                      onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border-strong)'}
                     >
                       {uploadingFile ? (
-                        <div style={{ color: '#7c3aed', fontSize: 14 }}>Importing data...</div>
+                        <div style={{ color: 'var(--accent-primary)', fontSize: 14 }}>Importing data...</div>
                       ) : (
                         <>
-                          <TbUpload size={32} color="#94a3b8" />
-                          <div style={{ fontSize: 14, color: '#475569', marginTop: 8 }}>Click to select a file</div>
-                          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>CSV, Excel, Parquet, JSON (max 500 Mo)</div>
+                          <TbUpload size={32} color="var(--text-disabled)" />
+                          <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 8 }}>Click to select a file</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-disabled)', marginTop: 4 }}>CSV, Excel, Parquet, JSON (max 500 Mo)</div>
                         </>
                       )}
                     </div>
-                    {uploadError && <div style={{ color: '#dc2626', fontSize: 12, marginBottom: 8 }}>{uploadError}</div>}
+                    {uploadError && <div style={{ color: 'var(--state-danger)', fontSize: 12, marginBottom: 8 }}>{uploadError}</div>}
                     <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
                       <button onClick={() => { setCreateMode(null); setUploadError(''); }} style={secondaryBtn}>← Back</button>
                     </div>
@@ -533,9 +641,9 @@ export default function Dashboard() {
 
           {/* Reports grid */}
           {loading ? (
-            <div style={{ textAlign: 'center', color: '#94a3b8', marginTop: 60 }}>Loading...</div>
+            <div style={{ textAlign: 'center', color: 'var(--text-disabled)', marginTop: 60 }}>Loading...</div>
           ) : wsReports.length === 0 ? (
-            <div style={{ textAlign: 'center', color: '#94a3b8', marginTop: 60 }}>
+            <div style={{ textAlign: 'center', color: 'var(--text-disabled)', marginTop: 60 }}>
               No reports{selectedWs ? ' in this workspace' : ''}.
             </div>
           ) : (
@@ -544,13 +652,13 @@ export default function Dashboard() {
                 <div key={report.id} style={cardStyle}>
                   <div onClick={() => window.open(`/view/${report.id}`, '_blank')}
                     style={{ cursor: 'pointer', padding: 20, flex: 1 }}>
-                    <h3 style={{ fontSize: 16, fontWeight: 600, color: '#0f172a', marginBottom: 4 }}>{report.title}</h3>
-                    {report.model_name && <p style={{ fontSize: 12, color: '#7c3aed', marginBottom: 4 }}>{report.model_name}</p>}
-                    <p style={{ fontSize: 12, color: '#94a3b8' }}>Updated {new Date(report.updated_at).toLocaleDateString()}</p>
+                    <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{report.title}</h3>
+                    {report.model_name && <p style={{ fontSize: 12, color: 'var(--accent-primary)', marginBottom: 4 }}>{report.model_name}</p>}
+                    <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Updated {new Date(report.updated_at).toLocaleDateString()}</p>
                   </div>
                   <div style={{ padding: '8px 20px 16px', display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <button onClick={() => window.open(`/view/${report.id}`, '_blank')} title="View" style={{ ...iconBtn, color: '#7c3aed', borderColor: '#c4b5fd' }}><TbEye size={16} /></button>
-                    {canEdit && <button onClick={() => navigate(`/edit/${report.id}`)} title="Edit" style={{ ...iconBtn, color: '#475569', borderColor: '#e2e8f0' }}><TbEdit size={16} /></button>}
+                    <button onClick={() => window.open(`/view/${report.id}`, '_blank')} title="View" style={{ ...iconBtn, color: 'var(--accent-primary)', borderColor: 'var(--accent-primary)' }}><TbEye size={16} /></button>
+                    {canEdit && <button onClick={() => navigate(`/edit/${report.id}`)} title="Edit" style={{ ...iconBtn, color: 'var(--text-secondary)', borderColor: 'var(--border-default)' }}><TbEdit size={16} /></button>}
                     {canEdit && (
                       <button onClick={() => togglePublic(report)} title={report.is_public ? 'Make private' : 'Share public link'}
                         style={{ ...iconBtn, color: report.is_public ? '#16a34a' : '#94a3b8', borderColor: report.is_public ? '#bbf7d0' : '#e2e8f0' }}>
@@ -561,12 +669,12 @@ export default function Dashboard() {
                     {canEdit && workspaces.length > 0 && (
                       <select value={report.workspace_id || ''} onChange={(e) => moveReport(report.id, e.target.value || null)}
                         title="Move to workspace"
-                        style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 10, color: '#64748b', cursor: 'pointer', maxWidth: 80 }}>
+                        style={{ padding: '4px 6px', border: '1px solid var(--border-default)', borderRadius: 4, fontSize: 10, color: 'var(--text-muted)', cursor: 'pointer', maxWidth: 80 }}>
                         <option value="">My Reports</option>
                         {workspaces.map((ws) => <option key={ws.id} value={ws.id}>{ws.name}</option>)}
                       </select>
                     )}
-                    {canEdit && <button onClick={() => deleteReport(report.id)} title="Delete" style={{ ...iconBtn, color: '#dc2626', borderColor: '#fca5a5' }}><TbTrash size={16} /></button>}
+                    {canEdit && <button onClick={() => deleteReport(report.id)} title="Delete" style={{ ...iconBtn, color: 'var(--state-danger)', borderColor: 'var(--state-danger)' }}><TbTrash size={16} /></button>}
                   </div>
                 </div>
               ))}
@@ -578,44 +686,59 @@ export default function Dashboard() {
   );
 }
 
-const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0 };
+const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px', backgroundColor: 'var(--bg-panel)', borderBottom: '1px solid var(--border-default)', flexShrink: 0 };
 const navPillGroup = {
   display: 'flex', alignItems: 'center', gap: 2,
-  padding: '3px 4px', background: '#f8fafc',
-  border: '1px solid #e2e8f0', borderRadius: 10,
+  padding: '3px 4px', background: 'var(--bg-subtle)',
+  border: '1px solid var(--border-default)', borderRadius: 10,
 };
 const navBtnStyled = {
   display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
   background: 'transparent', border: 'none', borderRadius: 7,
-  color: '#475569', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+  color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13, fontWeight: 500,
   transition: 'background 0.15s, box-shadow 0.15s, transform 0.15s',
 };
 const userPillStyle = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
   padding: '6px 10px', borderRadius: 8,
-  background: '#faf8ff', border: '1px solid #ede9fe',
-  fontSize: 12, color: '#4c1d95', fontWeight: 500,
+  background: 'var(--accent-primary-soft)', border: '1px solid var(--accent-primary-border)',
+  fontSize: 12, color: 'var(--accent-primary-text)', fontWeight: 500,
+  cursor: 'pointer', transition: 'background 0.12s',
 };
-const logoutBtnStyle = {
-  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-  background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
-  color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 500,
-  transition: 'background 0.12s, border-color 0.12s, color 0.12s',
+const userMenuDropdown = {
+  position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 200,
+  minWidth: 220, background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
+  borderRadius: 10, boxShadow: 'var(--shadow-md)', padding: '6px 0',
 };
-const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: '#7c3aed', color: '#fff', cursor: 'pointer' };
-const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer' };
-const iconBtn = { background: 'none', border: '1px solid', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
-const cardStyle = { backgroundColor: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.15s', overflow: 'hidden' };
-const inputStyle = { width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box' };
-const labelStyle = { display: 'block', fontSize: 13, color: '#475569', marginBottom: 4, fontWeight: 500 };
-const modalOverlay = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 };
-const modalCard = { backgroundColor: '#fff', borderRadius: 12, padding: 24, width: 400, maxWidth: '90vw', boxShadow: '0 8px 30px rgba(0,0,0,0.12)' };
+const userMenuSectionLabel = { fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '6px 12px 4px' };
+const userMenuDivider = { height: 1, background: 'var(--border-default)', margin: '4px 0' };
+const userMenuItem = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)', textAlign: 'left', transition: 'background 0.12s' };
+function themeRowBtn(active) {
+  return {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    width: '100%', padding: '6px 8px', fontSize: 12, fontWeight: active ? 600 : 500,
+    border: '1px solid ' + (active ? 'var(--accent-primary)' : 'transparent'),
+    borderRadius: 6,
+    background: active ? 'var(--accent-primary-soft)' : 'transparent',
+    color: active ? 'var(--accent-primary-text)' : 'var(--text-secondary)',
+    cursor: 'pointer', transition: 'background 0.12s, border-color 0.12s',
+    textAlign: 'left',
+  };
+}
+const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer' };
+const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: 'var(--bg-panel)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer' };
+const iconBtn = { background: 'transparent', border: '1px solid', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
+const cardStyle = { backgroundColor: 'var(--bg-panel)', borderRadius: 8, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.15s', overflow: 'hidden' };
+const inputStyle = { width: '100%', padding: '8px 10px', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box', background: 'var(--bg-panel)', color: 'var(--text-primary)' };
+const labelStyle = { display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4, fontWeight: 500 };
+const modalOverlay = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 };
+const modalCard = { backgroundColor: 'var(--bg-panel)', borderRadius: 12, padding: 24, width: 400, maxWidth: '90vw', boxShadow: 'var(--shadow-lg)', color: 'var(--text-primary)' };
 const sourceCard = {
   flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-  padding: '20px 12px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff',
-  cursor: 'pointer', textAlign: 'center', transition: 'all 0.15s',
+  padding: '20px 12px', border: '1px solid var(--border-default)', borderRadius: 8, background: 'var(--bg-panel)',
+  cursor: 'pointer', textAlign: 'center', transition: 'all 0.15s', color: 'var(--text-primary)',
 };
-const sidebarStyle = { width: 240, backgroundColor: '#fff', borderRight: '1px solid #e2e8f0', overflow: 'auto', flexShrink: 0 };
+const sidebarStyle = { width: 240, backgroundColor: 'var(--bg-panel)', borderRight: '1px solid var(--border-default)', overflow: 'auto', flexShrink: 0 };
 const wsItemStyle = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 16px', border: 'none', cursor: 'pointer', fontSize: 13, textAlign: 'left' };
-const membersPanel = { backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 16, marginBottom: 20 };
-const memberRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: 13, borderBottom: '1px solid #f8fafc' };
+const membersPanel = { backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 8, padding: 16, marginBottom: 20 };
+const memberRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: 13, borderBottom: '1px solid var(--bg-subtle)' };

@@ -63,13 +63,13 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           transformOrigin: 'center center',
           background: widget.config?.transparentBg
             ? 'transparent'
-            : (buildGradientCSS(widget.config?.gradientBg) || widget.config?.backgroundColor || '#ffffff'),
+            : (buildGradientCSS(widget.config?.gradientBg) || widget.config?.backgroundColor || 'var(--bg-panel)'),
           borderRadius: (widget.type === 'shape' && widget.config?.shape === 'round') ? '50%' : (widget.config?.borderRadius ?? 8),
           border: isSelected
-            ? '2px solid #7c3aed'
+            ? '2px solid var(--accent-primary)'
             : (widget.config?.borderEnabled === false
                 ? 'none'
-                : `1px solid ${widget.config?.borderColor || '#e2e8f0'}`),
+                : `1px solid ${widget.config?.borderColor || 'var(--border-default)'}`),
           boxShadow: [
             isSelected ? '0 0 0 3px rgba(124,58,237,0.15)' : null,
             buildShadowCSS(widget.config?.shadow),
@@ -78,7 +78,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           overflow: widget.config?.shadow?.enabled ? 'visible' : 'hidden',
         }}>
         {widget.config?.title && (
-          <div style={{ padding: '8px 12px 0', fontSize: 13, fontWeight: 600, color: '#475569' }}>
+          <div style={{ padding: '8px 12px 0', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
             {widget.config.title}
           </div>
         )}
@@ -159,17 +159,17 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
         {widget.data?._error && !widget._loading && widget.type !== 'text' && widget.type !== 'shape' && (
           <div style={{
             position: 'absolute', inset: 0, zIndex: 6,
-            background: 'rgba(254, 242, 242, 0.92)',
+            background: 'var(--state-danger-soft)',
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             padding: 16, textAlign: 'center', gap: 6,
             borderRadius: 'inherit', pointerEvents: 'none',
           }}>
             <div style={{ fontSize: 22 }}>⚠️</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#991b1b' }}>Data error</div>
-            <div style={{ fontSize: 11, color: '#7f1d1d', maxWidth: 280, lineHeight: 1.4, wordBreak: 'break-word' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--state-danger)' }}>Data error</div>
+            <div style={{ fontSize: 11, color: 'var(--state-danger)', maxWidth: 280, lineHeight: 1.4, wordBreak: 'break-word' }}>
               {widget.data._error}
             </div>
-            <div style={{ fontSize: 10, color: '#b91c1c', marginTop: 4 }}>
+            <div style={{ fontSize: 10, color: 'var(--state-danger)', marginTop: 4 }}>
               Check the model — a referenced field may have been removed or renamed.
             </div>
           </div>
@@ -320,7 +320,7 @@ export default function ReportCanvas({
       onClick={() => onSelectWidget?.(null)}
       style={{
         flex: 1,
-        backgroundColor: '#f1f5f9',
+        backgroundColor: 'var(--bg-app)',
         overflowX: 'hidden',
         overflowY: viewMode === 'fitToPage' ? 'hidden' : 'auto',
         padding: 20,
@@ -342,7 +342,7 @@ export default function ReportCanvas({
             minHeight: canvasHeight,
             transform: scale < 1 ? `scale(${scale})` : undefined,
             transformOrigin: 'top left',
-            backgroundColor: settings.transparentBg ? 'transparent' : (settings.backgroundColor || '#ffffff'),
+            backgroundColor: settings.transparentBg ? 'transparent' : (settings.backgroundColor || 'var(--bg-canvas)'),
             backgroundImage: !settings.transparentBg && settings.backgroundImage ? `url(${settings.backgroundImage})` : 'none',
             backgroundSize: settings.backgroundSize || 'cover',
             backgroundPosition: 'center',
@@ -400,7 +400,7 @@ const spinnerStyle = {
   width: 16,
   height: 16,
   border: '2px solid #e2e8f0',
-  borderTopColor: '#7c3aed',
+  borderTopColor: 'var(--accent-primary)',
   borderRadius: '50%',
   animation: 'spin 0.8s linear infinite',
 };
@@ -408,8 +408,8 @@ const spinnerStyle = {
 const drillBtnStyle = {
   width: 22, height: 22, padding: 0, lineHeight: 1,
   fontSize: 13, fontWeight: 600,
-  color: '#475569', background: '#ffffff',
-  border: '1px solid #e2e8f0', borderRadius: 4,
+  color: 'var(--text-secondary)', background: 'var(--bg-panel)',
+  border: '1px solid var(--border-default)', borderRadius: 4,
   cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
 };

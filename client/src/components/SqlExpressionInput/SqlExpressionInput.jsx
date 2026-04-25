@@ -171,12 +171,12 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
                 {s.type === 'dim' ? 'DIM' : 'MES'}
               </span>
               <span style={{ flex: 1, minWidth: 0 }}>{s.label}</span>
-              <span style={{ fontSize: 9, color: '#94a3b8', whiteSpace: 'nowrap', marginLeft: 4 }}>
+              <span style={{ fontSize: 9, color: 'var(--text-disabled)', whiteSpace: 'nowrap', marginLeft: 4 }}>
                 {s.source.includes('.') ? s.source.split('.').slice(-2).join('.') : s.source}
               </span>
             </div>
           ))}
-          <div style={{ fontSize: 9, color: '#94a3b8', padding: '3px 8px', borderTop: '1px solid #f1f5f9' }}>
+          <div style={{ fontSize: 9, color: 'var(--text-disabled)', padding: '3px 8px', borderTop: '1px solid #f1f5f9' }}>
             ↑↓ navigate &nbsp; Tab/Enter select &nbsp; Esc close
           </div>
         </div>
@@ -191,13 +191,13 @@ const inputStyle = {
 };
 
 const fnChip = {
-  fontSize: 9, padding: '1px 5px', border: '1px solid #e2e8f0', borderRadius: 3,
-  background: '#fff', color: '#475569', cursor: 'pointer', fontFamily: 'monospace',
+  fontSize: 9, padding: '1px 5px', border: '1px solid var(--border-default)', borderRadius: 3,
+  background: 'var(--bg-panel)', color: 'var(--text-secondary)', cursor: 'pointer', fontFamily: 'monospace',
 };
 
 const dropdownStyle = {
   position: 'absolute', left: 0, right: 0, zIndex: 100,
-  backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 6,
+  backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 6,
   boxShadow: '0 4px 12px rgba(0,0,0,0.12)', overflow: 'hidden',
 };
 

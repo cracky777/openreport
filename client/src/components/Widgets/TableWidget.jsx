@@ -180,10 +180,10 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                       style={{
                         padding: `${grid.cellPadding}px`,
                         fontSize: hs.fontSize || 13,
-                        color: hs.fontColor || '#334155',
+                        color: hs.fontColor || 'var(--text-primary)',
                         fontWeight: hs.fontBold !== false ? 600 : 400,
                         fontStyle: hs.fontItalic ? 'italic' : 'normal',
-                        backgroundColor: hs.bgColor || '#f8fafc',
+                        backgroundColor: hs.bgColor || 'var(--bg-hover)',
                         textAlign: hs.alignment || 'left',
                         whiteSpace: hs.wordWrap ? 'normal' : 'nowrap',
                         overflow: hs.wordWrap ? 'visible' : 'hidden',
@@ -203,7 +203,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                       <span style={{ position: 'relative', paddingRight: 14 }}>
                         {displayName}
                         {sortCol === col && (
-                          <span style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: '#7c3aed' }}>
+                          <span style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--accent-primary)' }}>
                             {sortDir === 'asc' ? '▲' : '▼'}
                           </span>
                         )}
@@ -229,7 +229,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
               const isHovered = hoveredRow === ri;
               const stripeBg = rowCfg.striped
                 ? (ri % 2 === 0 ? rowCfg.stripeColor1 : rowCfg.stripeColor2)
-                : rowCfg.stripeColor1 || '#fff';
+                : rowCfg.stripeColor1 || 'var(--bg-panel)';
               const rowBg = isHovered && rowCfg.hoverHighlight ? rowCfg.hoverColor : stripeBg;
 
               return (
@@ -268,7 +268,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                         style={{
                           padding: `${Math.max(2, grid.cellPadding - 2)}px ${grid.cellPadding}px`,
                           fontSize: vs.fontSize || 13,
-                          color: vs.fontColor || '#475569',
+                          color: vs.fontColor || 'var(--text-secondary)',
                           fontWeight: vs.fontBold ? 600 : 400,
                           fontStyle: vs.fontItalic ? 'italic' : 'normal',
                           textAlign: align,
@@ -332,7 +332,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
 
         {/* Infinite scroll indicators */}
         {paginationMode === 'infinite' && loadingMore && (
-          <div style={{ padding: 12, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
+          <div style={{ padding: 12, textAlign: 'center', color: 'var(--text-disabled)', fontSize: 12 }}>
             Loading more rows...
           </div>
         )}
@@ -348,7 +348,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
           >
             ◀
           </button>
-          <span style={{ fontSize: 11, color: '#64748b' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
             {currentPage} / {totalPages}
           </span>
           <button
@@ -358,7 +358,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
           >
             ▶
           </button>
-          <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 8 }}>
+          <span style={{ fontSize: 10, color: 'var(--text-disabled)', marginLeft: 8 }}>
             {sortedRows.length} rows
           </span>
         </div>
@@ -369,15 +369,15 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
 
 const emptyStyle = {
   height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: 16,
+  color: 'var(--text-disabled)', fontSize: 12, textAlign: 'center', padding: 16,
 };
 
 const paginationStyle = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
-  gap: 8, padding: '6px 0', borderTop: '1px solid #e2e8f0', flexShrink: 0,
+  gap: 8, padding: '6px 0', borderTop: '1px solid var(--border-default)', flexShrink: 0,
 };
 
 const pageBtn = {
-  background: 'none', border: '1px solid #e2e8f0', borderRadius: 4,
-  padding: '2px 8px', cursor: 'pointer', fontSize: 11, color: '#475569',
+  background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4,
+  padding: '2px 8px', cursor: 'pointer', fontSize: 11, color: 'var(--text-secondary)',
 };

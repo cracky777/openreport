@@ -27,7 +27,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
     return (
       <div style={{ marginBottom: 16 }}>
         <div style={sectionTitle}>Data Source</div>
-        <div style={{ fontSize: 12, color: '#94a3b8' }}>No model linked to this report.</div>
+        <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>No model linked to this report.</div>
       </div>
     );
   }
@@ -485,14 +485,14 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         </span>
       } style={{ flex: '0 0 auto', maxHeight: showCalcForm ? '45%' : '25%' }}>
         {showCalcForm && (
-          <div style={{ padding: 6, background: '#f5f3ff', borderRadius: 4, marginBottom: 4, border: '1px solid #ddd6fe' }}>
+          <div style={{ padding: 6, background: 'var(--bg-active)', borderRadius: 4, marginBottom: 4, border: '1px solid var(--accent-primary-border)' }}>
             <input type="text" placeholder="Label" value={calcLabel}
               onChange={(e) => setCalcLabel(e.target.value)}
               style={{ ...calcInputStyle, marginBottom: 4 }} />
             <SqlExpressionInput value={calcExpr} onChange={setCalcExpr} model={model} />
             <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
               <button onClick={() => { setShowCalcForm(false); setCalcLabel(''); setCalcExpr(''); }}
-                style={{ fontSize: 11, padding: '2px 8px', border: '1px solid #e2e8f0', borderRadius: 3, background: '#fff', cursor: 'pointer', color: '#64748b' }}>Cancel</button>
+                style={{ fontSize: 11, padding: '2px 8px', border: '1px solid var(--border-default)', borderRadius: 3, background: 'var(--bg-panel)', cursor: 'pointer', color: 'var(--text-muted)' }}>Cancel</button>
               <button disabled={!calcLabel || !calcExpr || calcSaving} onClick={async () => {
                 setCalcSaving(true);
                 try {
@@ -507,7 +507,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 } catch (err) { console.error(err); }
                 finally { setCalcSaving(false); }
               }}
-                style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', border: 'none', borderRadius: 3, background: '#8b5cf6', color: '#fff', cursor: 'pointer' }}>
+                style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', border: 'none', borderRadius: 3, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer' }}>
                 {calcSaving ? '...' : 'Add'}
               </button>
             </div>
@@ -539,13 +539,13 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 title={m.aggregation === 'custom' ? `SQL: ${m.expression}` : `${m.table}.${m.column} (${m.aggregation})`}
                 style={{
                   ...dragItem,
-                  backgroundColor: editingField === m.name ? '#f5f3ff' : selectedMeass.includes(m.name) ? '#f0fdf4' : 'transparent',
-                  borderLeft: editingField === m.name ? '3px solid #8b5cf6' : selectedMeass.includes(m.name) ? '3px solid #16a34a' : '3px solid transparent',
+                  backgroundColor: editingField === m.name ? 'var(--bg-active)' : selectedMeass.includes(m.name) ? 'var(--state-success-soft)' : 'transparent',
+                  borderLeft: editingField === m.name ? '3px solid var(--accent-primary)' : selectedMeass.includes(m.name) ? '3px solid var(--state-success)' : '3px solid transparent',
                 }}
               >
                 <span style={dragHandle}>⠿</span>
-                <span style={{ flex: 1, fontSize: 12 }}>{m.label || m.column}</span>
-                <span style={m.aggregation === 'custom' ? customTag : measTag}>
+                <span style={truncatedLabel} title={m.label || m.column}>{m.label || m.column}</span>
+                <span style={{ ...(m.aggregation === 'custom' ? customTag : measTag), flexShrink: 0 }}>
                   {m.aggregation === 'custom' ? 'fx' : m.aggregation}
                 </span>
               </div>
@@ -559,7 +559,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         if (!m) return null;
         return (
           <div style={{ ...editPanelStyle, flexShrink: 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#8b5cf6', marginBottom: 6 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-primary)', marginBottom: 6 }}>
               Edit: {m.label || m.column}
             </div>
             <div style={editRow}>
@@ -649,7 +649,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 const newDims = (model.dimensions || []).filter((x) => x.datePartOf !== model.dateColumn);
                 await api.put(`/models/${model.id}`, { dateColumn: '', dimensions: newDims });
                 if (onModelUpdate) onModelUpdate();
-              }} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#fef3c7', color: '#d97706', fontWeight: 600, border: 'none', cursor: 'pointer' }}>✕ remove</button>
+              }} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--state-warning-soft)', color: 'var(--state-warning)', fontWeight: 600, border: 'none', cursor: 'pointer' }}>✕ remove</button>
             </span>
           } style={{ flex: '0 0 auto', maxHeight: '30%' }}>
             <div style={listBox}>
@@ -660,13 +660,13 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 title={`${dateCol.table}.${dateCol.column}`}
                 style={{
                   ...dragItem, paddingLeft: 8,
-                  backgroundColor: (selectedDims.includes(dateCol.name) || columnDims.includes(dateCol.name) || groupBy.includes(dateCol.name)) ? '#fef3c7' : 'transparent',
-                  borderLeft: (selectedDims.includes(dateCol.name) || columnDims.includes(dateCol.name) || groupBy.includes(dateCol.name)) ? '3px solid #d97706' : '3px solid transparent',
+                  backgroundColor: (selectedDims.includes(dateCol.name) || columnDims.includes(dateCol.name) || groupBy.includes(dateCol.name)) ? 'var(--state-warning-soft)' : 'transparent',
+                  borderLeft: (selectedDims.includes(dateCol.name) || columnDims.includes(dateCol.name) || groupBy.includes(dateCol.name)) ? '3px solid var(--state-warning)' : '3px solid transparent',
                 }}
               >
                 <span style={dragHandle}>⠿</span>
-                <span style={{ flex: 1, fontSize: 12, fontWeight: 600 }}>{dateCol.label || dateCol.column}</span>
-                <span style={dateTag}>📅</span>
+                <span style={{ ...truncatedLabel, fontWeight: 600 }} title={dateCol.label || dateCol.column}>{dateCol.label || dateCol.column}</span>
+                <span style={{ ...dateTag, flexShrink: 0 }}>📅</span>
               </div>
               {/* Date parts */}
               {dateParts.map((dp) => (
@@ -677,13 +677,13 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   title={dp.datePart}
                   style={{
                     ...dragItem, paddingLeft: 20,
-                    backgroundColor: (selectedDims.includes(dp.name) || columnDims.includes(dp.name) || groupBy.includes(dp.name)) ? '#fef3c7' : 'transparent',
-                    borderLeft: (selectedDims.includes(dp.name) || columnDims.includes(dp.name) || groupBy.includes(dp.name)) ? '3px solid #d97706' : '3px solid transparent',
+                    backgroundColor: (selectedDims.includes(dp.name) || columnDims.includes(dp.name) || groupBy.includes(dp.name)) ? 'var(--state-warning-soft)' : 'transparent',
+                    borderLeft: (selectedDims.includes(dp.name) || columnDims.includes(dp.name) || groupBy.includes(dp.name)) ? '3px solid var(--state-warning)' : '3px solid transparent',
                   }}
                 >
                   <span style={dragHandle}>⠿</span>
-                  <span style={{ flex: 1, fontSize: 11, color: '#78716c' }}>{dp.label}</span>
-                  <span style={{ fontSize: 8, color: '#a8a29e' }}>{dp.datePart}</span>
+                  <span style={{ ...truncatedLabel, fontSize: 11, color: 'var(--text-muted)' }} title={dp.label}>{dp.label}</span>
+                  <span style={{ fontSize: 8, color: 'var(--text-disabled)', flexShrink: 0 }}>{dp.datePart}</span>
                 </div>
               ))}
             </div>
@@ -726,12 +726,12 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                       style={{
                         ...dragItem,
                         paddingLeft: 12,
-                        backgroundColor: editingDim === d.name ? '#f5f3ff' : (selectedDims.includes(d.name) || columnDims.includes(d.name) || groupBy.includes(d.name)) ? '#f5f3ff' : 'transparent',
-                        borderLeft: editingDim === d.name ? '3px solid #7c3aed' : (selectedDims.includes(d.name) || columnDims.includes(d.name) || groupBy.includes(d.name)) ? '3px solid #7c3aed' : '3px solid transparent',
+                        backgroundColor: editingDim === d.name ? 'var(--bg-active)' : (selectedDims.includes(d.name) || columnDims.includes(d.name) || groupBy.includes(d.name)) ? 'var(--bg-active)' : 'transparent',
+                        borderLeft: editingDim === d.name ? '3px solid var(--accent-primary)' : (selectedDims.includes(d.name) || columnDims.includes(d.name) || groupBy.includes(d.name)) ? '3px solid var(--accent-primary)' : '3px solid transparent',
                       }}
                     >
                       <span style={dragHandle}>⠿</span>
-                      <span style={{ flex: 1, fontSize: 12 }}>{d.label || d.column}</span>
+                      <span style={truncatedLabel} title={d.label || d.column}>{d.label || d.column}</span>
                       {d.type === 'date' && (
                         <button
                           onClick={async (e) => {
@@ -758,7 +758,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         if (!d) return null;
         return (
           <div style={{ ...editPanelStyle, flexShrink: 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#7c3aed', marginBottom: 6 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-primary)', marginBottom: 6 }}>
               Edit: {d.label || d.column}
             </div>
             <div style={editRow}>
@@ -839,26 +839,26 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   if (onModelUpdate) onModelUpdate();
                   setEditingDim(null);
                 } catch (err) { console.error(err); }
-              }} style={{ ...editSaveBtn, background: '#7c3aed' }}>Save</button>
+              }} style={{ ...editSaveBtn, background: 'var(--accent-primary)' }}>Save</button>
             </div>
           </div>
         );
       })()}
 
       {model.dimensions?.length === 0 && model.measures?.length === 0 && (
-        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-disabled)', marginTop: 4 }}>
           This model has no dimensions or measures defined yet.
         </div>
       )}
 
       {status?.type === 'error' && (
-        <div style={{ fontSize: 11, marginTop: 4, color: '#dc2626' }}>
+        <div style={{ fontSize: 11, marginTop: 4, color: 'var(--state-danger)' }}>
           Error: {status.message}
         </div>
       )}
 
       {!widgetId && (
-        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>Drag fields onto the widget config panel.</div>
+        <div style={{ fontSize: 12, color: 'var(--text-disabled)', marginTop: 8 }}>Drag fields onto the widget config panel.</div>
       )}
     </div>
   );
@@ -867,75 +867,81 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
 function FieldSection({ label, children, style }) {
   return (
     <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', minHeight: 0, ...style }}>
-      <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 3, fontWeight: 500, flexShrink: 0 }}>{label}</label>
+      <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 3, fontWeight: 500, flexShrink: 0 }}>{label}</label>
       {children}
     </div>
   );
 }
 
 const sectionTitle = {
-  fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 0,
+  fontSize: 11, fontWeight: 600, color: 'var(--text-disabled)', textTransform: 'uppercase', marginBottom: 0,
 };
 const loadingDot = {
-  width: 8, height: 8, borderRadius: '50%', background: '#7c3aed',
+  width: 8, height: 8, borderRadius: '50%', background: 'var(--accent-primary)',
   animation: 'pulse 1s infinite',
 };
 const listBox = {
-  flex: 1, overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: 4, minHeight: 0,
+  flex: 1, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 4, minHeight: 0,
 };
 const listBoxLarge = {
-  flex: 1, overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: 4, minHeight: 0,
+  flex: 1, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 4, minHeight: 0,
 };
 const tableGroupHeader = {
-  fontSize: 10, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase',
-  padding: '5px 6px 2px', backgroundColor: '#f8fafc', borderBottom: '1px solid #f1f5f9',
-  position: 'sticky', top: 0, zIndex: 1,
+  fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase',
+  padding: '5px 8px 3px', backgroundColor: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-default)',
+  position: 'sticky', top: 0, zIndex: 1, letterSpacing: '0.04em',
 };
 const dragItem = {
   display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px',
-  cursor: 'grab', userSelect: 'none', borderBottom: '1px solid #f8fafc',
+  cursor: 'grab', userSelect: 'none', borderBottom: '1px solid var(--border-subtle)',
+  minWidth: 0, // ensures children can shrink for ellipsis
 };
 const dragHandle = {
-  fontSize: 10, color: '#cbd5e1', cursor: 'grab',
+  fontSize: 10, color: 'var(--border-strong)', cursor: 'grab', flexShrink: 0,
+};
+// Label inside a field row — truncates with "…" if too long
+const truncatedLabel = {
+  flex: 1, minWidth: 0, fontSize: 12,
+  overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
 };
 const dimTag = {
-  fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#f5f3ff', color: '#7c3aed', fontWeight: 600,
+  fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--bg-active)', color: 'var(--accent-primary)', fontWeight: 600,
 };
 const measTag = {
-  fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#f0fdf4', color: '#16a34a', fontWeight: 600,
+  fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--state-success-soft)', color: 'var(--state-success)', fontWeight: 600,
 };
 const dateTag = {
-  fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#fef3c7', color: '#d97706', fontWeight: 600,
+  fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--state-warning-soft)', color: 'var(--state-warning)', fontWeight: 600,
 };
 const customTag = {
-  fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#f5f3ff', color: '#8b5cf6', fontWeight: 700,
+  fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--bg-active)', color: 'var(--accent-primary)', fontWeight: 700,
 };
 const editPanelStyle = {
-  padding: 8, background: '#fafafe', borderBottom: '1px solid #e2e8f0',
+  padding: 8, background: 'var(--bg-panel-alt)', borderBottom: '1px solid var(--border-default)',
 };
 const editRow = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5,
 };
 const editLabel = {
-  fontSize: 10, color: '#64748b', fontWeight: 500,
+  fontSize: 10, color: 'var(--text-muted)', fontWeight: 500,
 };
 const editInput = {
-  padding: '3px 6px', border: '1px solid #e2e8f0', borderRadius: 3,
+  padding: '3px 6px', border: '1px solid var(--border-default)', borderRadius: 3,
   fontSize: 11, outline: 'none', boxSizing: 'border-box',
 };
 const editCancelBtn = {
-  fontSize: 10, padding: '2px 8px', border: '1px solid #e2e8f0', borderRadius: 3,
-  background: '#fff', cursor: 'pointer', color: '#64748b',
+  fontSize: 10, padding: '2px 8px', border: '1px solid var(--border-default)', borderRadius: 3,
+  background: 'var(--bg-panel)', cursor: 'pointer', color: 'var(--text-muted)',
 };
 const editSaveBtn = {
   fontSize: 10, fontWeight: 600, padding: '2px 8px', border: 'none', borderRadius: 3,
-  background: '#8b5cf6', color: '#fff', cursor: 'pointer',
+  background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
 };
 const addCalcBtnSmall = {
-  fontSize: 10, fontWeight: 600, padding: '1px 6px', border: '1px solid #8b5cf6',
-  borderRadius: 3, background: '#f5f3ff', color: '#8b5cf6', cursor: 'pointer',
+  fontSize: 10, fontWeight: 600, padding: '1px 6px', border: '1px solid var(--accent-primary)',
+  borderRadius: 3, background: 'var(--bg-active)', color: 'var(--accent-primary)', cursor: 'pointer',
 };
 const calcInputStyle = {
-  width: '100%', padding: '4px 6px', border: '1px solid #ddd6fe', borderRadius: 3,
-  fontSize: 11, outline: 'none', boxSizing: 'border-box',
+  width: '100%', padding: '4px 6px', border: '1px solid var(--accent-primary-border)', borderRadius: 3,
+  fontSize: 11, outline: 'none', boxSizing: 'border-box', background: 'var(--bg-panel)', color: 'var(--text-primary)',
 };

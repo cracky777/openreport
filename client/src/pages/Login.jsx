@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { useTheme } from '../hooks/useTheme';
 
 export default function Login() {
   const { login, register } = useAuth();
+  const { resolved: themeResolved } = useTheme();
+  const logoSrc = themeResolved === 'dark' ? '/logo-dark.svg' : '/logo.svg';
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -27,14 +30,14 @@ export default function Login() {
     <div style={containerStyle}>
       <div style={cardStyle}>
         <div style={{ marginBottom: 4 }}>
-          <img src="/logo.svg" alt="Open Report" style={{ height: 36 }} />
+          <img src={logoSrc} alt="Open Report" style={{ height: 36 }} />
         </div>
-        <p style={{ color: '#64748b', marginBottom: 24, fontSize: 14 }}>
+        <p style={{ color: 'var(--text-muted)', marginBottom: 24, fontSize: 14 }}>
           {isRegister ? 'Create your account' : 'Sign in to your account'}
         </p>
 
         {error && (
-          <div style={{ background: '#fef2f2', color: '#dc2626', padding: '8px 12px', borderRadius: 6, fontSize: 13, marginBottom: 16 }}>
+          <div style={{ background: '#fef2f2', color: 'var(--state-danger)', padding: '8px 12px', borderRadius: 6, fontSize: 13, marginBottom: 16 }}>
             {error}
           </div>
         )}
@@ -70,11 +73,11 @@ export default function Login() {
           </button>
         </form>
 
-        <div style={{ textAlign: 'center', marginTop: 16, fontSize: 13, color: '#64748b' }}>
+        <div style={{ textAlign: 'center', marginTop: 16, fontSize: 13, color: 'var(--text-muted)' }}>
           {isRegister ? 'Already have an account?' : "Don't have an account?"}{' '}
           <button
             onClick={() => { setIsRegister(!isRegister); setError(''); }}
-            style={{ color: '#7c3aed', border: 'none', background: 'none', cursor: 'pointer', fontWeight: 500 }}
+            style={{ color: 'var(--accent-primary)', border: 'none', background: 'transparent', cursor: 'pointer', fontWeight: 500 }}
           >
             {isRegister ? 'Sign in' : 'Register'}
           </button>
@@ -89,11 +92,11 @@ const containerStyle = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  backgroundColor: '#f1f5f9',
+  backgroundColor: 'var(--bg-app)',
 };
 
 const cardStyle = {
-  backgroundColor: '#fff',
+  backgroundColor: 'var(--bg-panel)',
   padding: 40,
   borderRadius: 12,
   boxShadow: '0 4px 6px rgba(0,0,0,0.07)',
@@ -103,7 +106,7 @@ const cardStyle = {
 const inputStyle = {
   width: '100%',
   padding: '10px 12px',
-  border: '1px solid #e2e8f0',
+  border: '1px solid var(--border-default)',
   borderRadius: 6,
   fontSize: 14,
   marginBottom: 12,
@@ -114,7 +117,7 @@ const inputStyle = {
 const buttonStyle = {
   width: '100%',
   padding: '10px 0',
-  backgroundColor: '#7c3aed',
+  backgroundColor: 'var(--accent-primary)',
   color: '#fff',
   border: 'none',
   borderRadius: 6,

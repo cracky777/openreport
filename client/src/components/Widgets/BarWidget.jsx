@@ -542,5 +542,5 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
 
 const emptyStyle = {
   height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: 16,
+  color: 'var(--text-disabled)', fontSize: 12, textAlign: 'center', padding: 16,
 };

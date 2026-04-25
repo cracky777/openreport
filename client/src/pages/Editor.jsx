@@ -6,7 +6,9 @@ import Toolbar from '../components/Toolbar/Toolbar';
 import { WidgetConfigPanel, DataModelPanel } from '../components/PropertyPanel/PropertyPanel';
 import { WIDGET_TYPES } from '../components/Widgets';
 import SettingsPanel from '../components/SettingsPanel/SettingsPanel';
+import PagesColumn, { PAGES_COLUMN_TRANSITION_MS } from '../components/PagesColumn/PagesColumn';
 import { useHistory } from '../hooks/useHistory';
+import { useTheme } from '../hooks/useTheme';
 import api from '../utils/api';
 
 // Convert data between widget formats
@@ -107,6 +109,7 @@ function buildSnapshot(title, settings, pagesArr) {
 export default function Editor() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { getThemeVars } = useTheme();
 
   const [report, setReport] = useState(null);
   const [model, setModel] = useState(null);
@@ -527,8 +530,26 @@ export default function Editor() {
   // Multi-page support
   const [pages, setPages] = useState([{ id: 'page-1', name: 'Page 1' }]);
   const [currentPageIdx, setCurrentPageIdx] = useState(0);
-  const [editingPageName, setEditingPageName] = useState(null);
   const pagesDataRef = useRef({}); // stores { [pageId]: { layout, widgets } }
+
+  // While the pages column animates open/closed, take the canvas out of the flex flow and pin
+  // it absolutely at its current position/size. That way the column animation doesn't shift or
+  // resize the canvas — neither layout nor paint of the widgets is touched. When the animation
+  // ends, the canvas re-enters flex and reflows once to its new size.
+  const canvasWrapperRef = useRef(null);
+  const [pinnedRect, setPinnedRect] = useState(null);
+  const pinCanvas = useCallback(() => {
+    const el = canvasWrapperRef.current;
+    if (!el || !el.parentElement) return;
+    const r = el.getBoundingClientRect();
+    const p = el.parentElement.getBoundingClientRect();
+    setPinnedRect({ left: r.left - p.left, top: r.top - p.top, width: r.width, height: r.height });
+  }, []);
+  const unpinCanvas = useCallback(() => setPinnedRect(null), []);
+  const handlePagesNavAnimation = useCallback(() => {
+    pinCanvas();
+    setTimeout(unpinCanvas, PAGES_COLUMN_TRANSITION_MS);
+  }, [pinCanvas, unpinCanvas]);
 
   // Switch page: save current, load target
   const switchPage = useCallback((idx) => {
@@ -573,8 +594,6 @@ export default function Editor() {
     history.set(targetData);
   }, [pages, history, setSelectedWidget]);
 
-  const [pageContextMenu, setPageContextMenu] = useState(null); // { idx, x, y }
-
   const copyPage = useCallback((idx) => {
     const curPage = pages[currentPageIdx];
     pagesDataRef.current[curPage.id] = { layout: history.state.layout, widgets: history.state.widgets };
@@ -596,21 +615,18 @@ export default function Editor() {
     setCurrentPageIdx(newPages.length - 1);
     setSelectedWidget(null);
     history.set({ layout: copiedLayout, widgets: copiedWidgets });
-    setPageContextMenu(null);
   }, [pages, currentPageIdx, history, setSelectedWidget]);
 
   const renamePage = useCallback((idx, newName) => {
     const trimmed = newName.trim();
-    if (!trimmed) { setEditingPageName(null); return; }
+    if (!trimmed) return;
     // Check for duplicate name
     const isDuplicate = pages.some((p, i) => i !== idx && p.name.toLowerCase() === trimmed.toLowerCase());
     if (isDuplicate) {
       alert(`A page named "${trimmed}" already exists.`);
-      setEditingPageName(null);
       return;
     }
     setPages((prev) => prev.map((p, i) => i === idx ? { ...p, name: trimmed } : p));
-    setEditingPageName(null);
   }, [pages]);
 
   const setLayout = useCallback((updater) => {
@@ -1004,7 +1020,7 @@ export default function Editor() {
   };
 
   if (loading) {
-    return <div style={{ padding: 40, color: '#94a3b8' }}>Loading report...</div>;
+    return <div style={{ padding: 40, color: 'var(--text-disabled)' }}>Loading report...</div>;
   }
 
   return (
@@ -1039,9 +1055,44 @@ export default function Editor() {
         }}
       />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Left column: canvas + pages bar, so pages bar doesn't overlap Config/Data panels */}
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+        {/* Canvas + pages column live inside the report theme wrapper, so the column inherits the report's theme variables. */}
+        <div
+          data-theme={settings?.theme?.key || 'light'}
+          style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', position: 'relative', overflow: 'hidden', ...(settings?.theme?.vars || getThemeVars('light')) }}
+        >
+          <PagesColumn
+            editMode
+            pages={pages}
+            currentPageIdx={currentPageIdx}
+            onSwitch={switchPage}
+            onAdd={addPage}
+            onRename={renamePage}
+            onCopy={copyPage}
+            onDelete={deletePage}
+            config={settings.pageNav}
+            onConfigChange={(next) => setSettings({ ...settings, pageNav: next })}
+            onAnimationStart={handlePagesNavAnimation}
+          />
+          <div
+            ref={canvasWrapperRef}
+            style={pinnedRect
+              ? {
+                  // Take the canvas out of flex flow during the column animation so it neither
+                  // moves nor resizes. Snaps back into flex layout when the animation ends.
+                  position: 'absolute',
+                  left: pinnedRect.left,
+                  top: pinnedRect.top,
+                  width: pinnedRect.width,
+                  height: pinnedRect.height,
+                  display: 'flex',
+                  contain: 'layout paint style',
+                }
+              : {
+                  flex: 1, minWidth: 0, minHeight: 0,
+                  display: 'flex',
+                  contain: 'layout paint style',
+                }}
+          >
             <ReportCanvas
               layout={layout}
               widgets={widgets}
@@ -1059,40 +1110,6 @@ export default function Editor() {
               crossHighlight={crossHighlight}
             />
           </div>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 0, padding: '0 8px',
-            backgroundColor: '#f1f5f9', borderTop: '1px solid #e2e8f0', height: 30, flexShrink: 0,
-          }}>
-          {pages.map((page, idx) => (
-            <div key={page.id}
-              onClick={() => switchPage(idx)}
-              onDoubleClick={() => setEditingPageName(idx)}
-              onContextMenu={(e) => { e.preventDefault(); setPageContextMenu({ idx, x: e.clientX, y: e.clientY }); }}
-              style={{
-                padding: '4px 14px', fontSize: 11, cursor: 'pointer', userSelect: 'none',
-                borderRight: '1px solid #e2e8f0',
-                backgroundColor: idx === currentPageIdx ? '#fff' : 'transparent',
-                color: idx === currentPageIdx ? '#7c3aed' : '#64748b',
-                fontWeight: idx === currentPageIdx ? 600 : 400,
-                borderTop: idx === currentPageIdx ? '2px solid #7c3aed' : '2px solid transparent',
-                display: 'flex', alignItems: 'center', gap: 4,
-              }}
-            >
-              {editingPageName === idx ? (
-                <input
-                  autoFocus
-                  defaultValue={page.name}
-                  onBlur={(e) => renamePage(idx, e.target.value || page.name)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') renamePage(idx, e.target.value || page.name); if (e.key === 'Escape') setEditingPageName(null); }}
-                  onClick={(e) => e.stopPropagation()}
-                  style={{ border: 'none', outline: 'none', fontSize: 11, width: 80, background: 'transparent', fontWeight: 600, color: '#7c3aed' }}
-                />
-              ) : page.name}
-            </div>
-          ))}
-          <button onClick={addPage} title="Add page"
-            style={{ padding: '4px 10px', fontSize: 14, border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8', fontWeight: 700 }}>+</button>
-          </div>
         </div>
 
         <WidgetConfigPanel
@@ -1105,6 +1122,8 @@ export default function Editor() {
           onBringForward={handleBringForward}
           onSendBackward={handleSendBackward}
           model={model}
+          onResizeStart={pinCanvas}
+          onResizeEnd={unpinCanvas}
         />
         <DataModelPanel
           widgetId={selectedWidget}
@@ -1114,29 +1133,9 @@ export default function Editor() {
           model={model}
           onModelUpdate={reloadModel}
           reportFilters={crossHighlight?.widgetId === selectedWidget ? slicerSelections : reportFilters}
+          onResizeStart={pinCanvas}
+          onResizeEnd={unpinCanvas}
         />
-
-        {/* Page context menu */}
-        {pageContextMenu && (
-          <>
-            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99 }}
-              onClick={() => setPageContextMenu(null)} />
-            <div style={{
-              position: 'fixed', bottom: window.innerHeight - pageContextMenu.y, left: pageContextMenu.x, zIndex: 100,
-              backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 6,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.1)', overflow: 'hidden', minWidth: 140,
-            }}>
-              <button onClick={() => { setEditingPageName(pageContextMenu.idx); setPageContextMenu(null); }}
-                style={ctxMenuItem}>Rename</button>
-              <button onClick={() => { copyPage(pageContextMenu.idx); }}
-                style={ctxMenuItem}>Duplicate</button>
-              {pages.length > 1 && (
-                <button onClick={() => { deletePage(pageContextMenu.idx); setPageContextMenu(null); }}
-                  style={{ ...ctxMenuItem, color: '#dc2626' }}>Delete</button>
-              )}
-            </div>
-          </>
-        )}
       </div>
 
       {showSettings && (
@@ -1150,7 +1149,7 @@ export default function Editor() {
         <div style={{
           position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
           padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 9999,
-          backgroundColor: saveMsg === 'Saved' ? '#22c55e' : '#ef4444', color: '#fff',
+          backgroundColor: saveMsg === 'Saved' ? 'var(--state-success)' : 'var(--state-danger)', color: '#fff',
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)', animation: 'fadeIn 0.2s',
         }}>{saveMsg === 'Saved' ? '✓ Report saved' : '✗ Save failed'}</div>
       )}
@@ -1158,8 +1157,3 @@ export default function Editor() {
   );
 }
 
-const ctxMenuItem = {
-  display: 'block', width: '100%', padding: '8px 16px', border: 'none',
-  background: '#fff', cursor: 'pointer', fontSize: 12, color: '#334155',
-  textAlign: 'left',
-};

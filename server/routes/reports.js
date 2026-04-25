@@ -44,14 +44,17 @@ router.get('/:id', (req, res) => {
 // Create report
 router.post('/', requireAuth, (req, res) => {
   const id = uuidv4();
-  const { title, modelId, workspaceId } = req.body;
+  const { title, modelId, workspaceId, settings } = req.body;
 
   if (!modelId) {
     return res.status(400).json({ error: 'A data model is required' });
   }
 
-  db.prepare('INSERT INTO reports (id, user_id, model_id, title, workspace_id) VALUES (?, ?, ?, ?, ?)').run(
-    id, req.user.id, modelId, title || 'Untitled Report', workspaceId || null
+  // Bake in initial settings (e.g. createdTheme) at creation time
+  const initialSettings = settings && typeof settings === 'object' ? JSON.stringify(settings) : '{}';
+
+  db.prepare('INSERT INTO reports (id, user_id, model_id, title, workspace_id, settings) VALUES (?, ?, ?, ?, ?, ?)').run(
+    id, req.user.id, modelId, title || 'Untitled Report', workspaceId || null, initialSettings
   );
 
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(id);

@@ -87,7 +87,7 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
             symbolSize: hasSize ? (val, params) => params.data?.symbolSize || symbolSize : symbolSize,
             itemStyle: { color: getColor(g.name, origIdx >= 0 ? origIdx : i) },
             emphasis: { disabled: true },
-            label: { show: showDataLabels, formatter: (p) => p.data._label || '', fontSize: config?.dataLabelFontSize ?? 10, position: 'top', color: '#475569' },
+            label: { show: showDataLabels, formatter: (p) => p.data._label || '', fontSize: config?.dataLabelFontSize ?? 10, position: 'top', color: 'var(--text-secondary)' },
           };
         });
     } else {
@@ -97,7 +97,7 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
         symbolSize: (val, params) => params.data?.symbolSize ?? symbolSize,
         itemStyle: { color: config?.color || '#5470c6' },
         emphasis: { disabled: true },
-        label: { show: showDataLabels, formatter: (p) => p.data._label || '', fontSize: 10, position: 'top', color: '#475569' },
+        label: { show: showDataLabels, formatter: (p) => p.data._label || '', fontSize: 10, position: 'top', color: 'var(--text-secondary)' },
       }];
     }
 
@@ -236,5 +236,5 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
 
 const emptyStyle = {
   height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: 16,
+  color: 'var(--text-disabled)', fontSize: 12, textAlign: 'center', padding: 16,
 };

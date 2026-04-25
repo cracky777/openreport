@@ -76,9 +76,9 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
   const showSelectAll = config?.showSelectAll ?? true;
   const orientation = config?.orientation || 'vertical';
   const fontSize = config?.slicerFontSize || 12;
-  const fontColor = config?.slicerFontColor || '#0f172a';
+  const fontColor = config?.slicerFontColor || 'var(--text-primary)';
   const selectedColor = config?.slicerSelectedColor || '#7c3aed';
-  const selectedBg = config?.slicerSelectedBg || '#f5f3ff';
+  const selectedBg = config?.slicerSelectedBg || 'var(--bg-active)';
 
   const filteredValues = useMemo(() => {
     if (!search) return values;
@@ -161,19 +161,19 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
         {/* Date inputs */}
         <div style={{ display: 'flex', flexDirection: isHoriz ? 'row' : 'column', gap: 6, flexShrink: 0, alignItems: isHoriz ? 'flex-end' : 'stretch' }}>
           <div style={{ flex: isHoriz ? 1 : undefined }}>
-            <label style={{ fontSize: 10, color: '#94a3b8', display: 'block', marginBottom: 2 }}>From</label>
+            <label style={{ fontSize: 10, color: 'var(--text-disabled)', display: 'block', marginBottom: 2 }}>From</label>
             <input ref={fromRef} type="text" value={startDate ? formatDate(startDate) : ''}
               readOnly placeholder="Select date"
               onClick={() => setCalendarTarget(calendarTarget === 'from' ? null : 'from')}
-              style={{ ...dateInputStyle, cursor: 'pointer', backgroundColor: calendarTarget === 'from' ? '#f5f3ff' : '#fff' }} />
+              style={{ ...dateInputStyle, cursor: 'pointer', backgroundColor: calendarTarget === 'from' ? 'var(--bg-active)' : 'var(--bg-panel)' }} />
           </div>
-          {isHoriz && <span style={{ fontSize: 12, color: '#94a3b8', paddingBottom: 6 }}>→</span>}
+          {isHoriz && <span style={{ fontSize: 12, color: 'var(--text-disabled)', paddingBottom: 6 }}>→</span>}
           <div style={{ flex: isHoriz ? 1 : undefined }}>
-            <label style={{ fontSize: 10, color: '#94a3b8', display: 'block', marginBottom: 2 }}>To</label>
+            <label style={{ fontSize: 10, color: 'var(--text-disabled)', display: 'block', marginBottom: 2 }}>To</label>
             <input ref={toRef} type="text" value={endDate ? formatDate(endDate) : ''}
               readOnly placeholder="Select date"
               onClick={() => setCalendarTarget(calendarTarget === 'to' ? null : 'to')}
-              style={{ ...dateInputStyle, cursor: 'pointer', backgroundColor: calendarTarget === 'to' ? '#f5f3ff' : '#fff' }} />
+              style={{ ...dateInputStyle, cursor: 'pointer', backgroundColor: calendarTarget === 'to' ? 'var(--bg-active)' : 'var(--bg-panel)' }} />
           </div>
         </div>
         {/* Calendar popup — rendered in body via portal */}
@@ -181,8 +181,8 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
           <div style={{
             position: 'fixed', zIndex: 9999,
             top: popupPos.top, left: popupPos.left,
-            border: '1px solid #e2e8f0', borderRadius: 8, padding: 8,
-            backgroundColor: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+            border: '1px solid var(--border-default)', borderRadius: 8, padding: 8,
+            backgroundColor: 'var(--bg-panel)', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
             minWidth: 230,
           }}>
             <MiniCalendar
@@ -251,9 +251,9 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
 
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 12, justifyContent: 'center' }}>
-        <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8, fontWeight: 600 }}>Relative Date</div>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>Relative Date</div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
-          <span style={{ fontSize: 12, color: '#475569' }}>Last</span>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Last</span>
           <input type="number" min={0} max={365} value={relValue}
             onChange={(e) => {
               const raw = e.target.value;
@@ -273,7 +273,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
             <option value="years">years</option>
           </select>
         </div>
-        <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>
+        <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 }}>
           {selectedCount > 0
             ? `${selectedCount} date(s) from ${cutoffStr}`
             : `No dates found after ${cutoffStr}`}
@@ -304,19 +304,19 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 4 }}>
         <div ref={dropdownRef} onClick={openDropdown}
           style={{
-            padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6,
+            padding: '6px 10px', border: '1px solid var(--border-default)', borderRadius: 6,
             cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            fontSize, color: fontColor, backgroundColor: '#fff',
+            fontSize, color: fontColor, backgroundColor: 'var(--bg-panel)',
           }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayText}</span>
-          <span style={{ fontSize: 10, color: '#94a3b8', flexShrink: 0 }}>{dropdownOpen ? '▲' : '▼'}</span>
+          <span style={{ fontSize: 10, color: 'var(--text-disabled)', flexShrink: 0 }}>{dropdownOpen ? '▲' : '▼'}</span>
         </div>
         {dropdownOpen && createPortal(
           <div ref={dropdownPopupRef} onClick={(e) => e.stopPropagation()} style={{
             position: 'fixed', zIndex: 9999,
             top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width,
-            border: '1px solid #e2e8f0', borderRadius: 6, overflow: 'auto',
-            maxHeight: 300, backgroundColor: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+            border: '1px solid var(--border-default)', borderRadius: 6, overflow: 'auto',
+            maxHeight: 300, backgroundColor: 'var(--bg-panel)', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
           }}>
             {showSearch && (
               <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
@@ -328,7 +328,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
               </div>
             )}
             {sortedValues.map((val, i) => (
-              <label key={i} style={{ ...listRowStyle, fontSize, color: isChecked(val) ? fontColor : '#94a3b8', padding: '4px 10px' }}>
+              <label key={i} style={{ ...listRowStyle, fontSize, color: isChecked(val) ? fontColor : 'var(--text-disabled)', padding: '4px 10px' }}>
                 <input type={multiSelect ? 'checkbox' : 'radio'} checked={isChecked(val)}
                   onChange={() => handleToggle(val)} style={{ marginRight: 6, accentColor: selectedColor }} />
                 {isDate ? formatDate(val) : String(val)}
@@ -361,8 +361,8 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
               <button key={i} onClick={() => handleToggle(val)}
                 style={{
                   padding: '4px 12px', borderRadius: 4, cursor: 'pointer', fontSize,
-                  border: `1px solid ${active ? selectedColor : '#e2e8f0'}`,
-                  backgroundColor: active ? selectedBg : '#fff',
+                  border: `1px solid ${active ? selectedColor : 'var(--border-default)'}`,
+                  backgroundColor: active ? selectedBg : 'var(--bg-panel)',
                   color: active ? selectedColor : fontColor,
                   fontWeight: active ? 600 : 400,
                   whiteSpace: 'nowrap', flexShrink: 0, transition: 'all 0.1s',
@@ -386,7 +386,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
 
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 12, justifyContent: 'center' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#64748b', marginBottom: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
           <span>{rangeMin}</span><span>{rangeMax}</span>
         </div>
         <input type="range" min={min} max={max} value={rangeMin}
@@ -399,7 +399,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
           <input type="number" min={min} max={max} value={rangeMin}
             onChange={(e) => { const v = Number(e.target.value); setSelected([v, rangeMax]); onFilterChange?.([v, rangeMax]); }}
             style={{ ...numInputStyle, flex: 1 }} />
-          <span style={{ color: '#94a3b8', fontSize: 12, alignSelf: 'center' }}>—</span>
+          <span style={{ color: 'var(--text-disabled)', fontSize: 12, alignSelf: 'center' }}>—</span>
           <input type="number" min={min} max={max} value={rangeMax}
             onChange={(e) => { const v = Number(e.target.value); setSelected([rangeMin, v]); onFilterChange?.([rangeMin, v]); }}
             style={{ ...numInputStyle, flex: 1 }} />
@@ -428,7 +428,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
               style={{ marginRight: 6, accentColor: selectedColor }} />
             {selected.length === 0 ? 'Select all' : 'Clear all'}
           </label>
-          <span style={{ fontSize: 10, color: '#94a3b8' }}>
+          <span style={{ fontSize: 10, color: 'var(--text-disabled)' }}>
             {selectedCount > 0 ? `${selectedCount} selected` : 'No filter'}
           </span>
         </div>
@@ -469,16 +469,16 @@ function toInputDate(d) {
 
 const emptyStyle = {
   height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: 16,
+  color: 'var(--text-disabled)', fontSize: 12, textAlign: 'center', padding: 16,
 };
 
 const searchInputStyle = {
-  width: '100%', padding: '5px 8px', border: '1px solid #e2e8f0',
+  width: '100%', padding: '5px 8px', border: '1px solid var(--border-default)',
   borderRadius: 4, fontSize: 12, outline: 'none', marginBottom: 6, boxSizing: 'border-box',
 };
 
 const linkBtn = {
-  background: 'none', border: 'none', color: '#7c3aed',
+  background: 'transparent', border: 'none', color: 'var(--accent-primary)',
   fontSize: 11, cursor: 'pointer', padding: 0,
 };
 
@@ -488,17 +488,17 @@ const listRowStyle = {
 };
 
 const numInputStyle = {
-  padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4,
+  padding: '4px 6px', border: '1px solid var(--border-default)', borderRadius: 4,
   fontSize: 12, outline: 'none', textAlign: 'center', boxSizing: 'border-box',
 };
 
 const dateInputStyle = {
-  width: '100%', padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6,
-  fontSize: 13, outline: 'none', boxSizing: 'border-box', color: '#334155',
+  width: '100%', padding: '6px 8px', border: '1px solid var(--border-default)', borderRadius: 6,
+  fontSize: 13, outline: 'none', boxSizing: 'border-box', color: 'var(--text-secondary)',
 };
 
 const calendarStyle = {
-  width: '100%', padding: '4px', border: '1px solid #e2e8f0', borderRadius: 6,
-  fontSize: 13, outline: 'none', boxSizing: 'border-box', color: '#334155',
+  width: '100%', padding: '4px', border: '1px solid var(--border-default)', borderRadius: 6,
+  fontSize: 13, outline: 'none', boxSizing: 'border-box', color: 'var(--text-secondary)',
   minHeight: 40,
 };

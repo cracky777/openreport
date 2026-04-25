@@ -160,8 +160,8 @@ export default memo(function PivotTableWidget({ data, config }) {
       fontWeight: hs.fontBold !== false ? 600 : 400,
       fontStyle: hs.fontItalic ? 'italic' : 'normal',
       fontSize: hs.fontSize || 12,
-      color: hs.fontColor || '#334155',
-      backgroundColor: hs.bgColor || '#f1f5f9',
+      color: hs.fontColor || 'var(--text-primary)',
+      backgroundColor: hs.bgColor || 'var(--bg-hover)',
       borderBottom: hBorder, borderRight: vBorder,
       whiteSpace: hs.wordWrap ? 'normal' : 'nowrap',
       position: freeze.stickyHeader ? 'sticky' : 'static',
@@ -175,7 +175,7 @@ export default memo(function PivotTableWidget({ data, config }) {
       padding: cellPad,
       textAlign: vs.alignment === 'auto' || !vs.alignment ? 'right' : vs.alignment,
       fontSize: vs.fontSize || 12,
-      color: vs.fontColor || '#475569',
+      color: vs.fontColor || 'var(--text-secondary)',
       fontWeight: vs.fontBold ? 600 : 400,
       fontStyle: vs.fontItalic ? 'italic' : 'normal',
       borderBottom: hBorder, borderRight: vBorder,
@@ -188,7 +188,7 @@ export default memo(function PivotTableWidget({ data, config }) {
     return {
       padding: cellPad,
       fontSize: vs.fontSize || 12,
-      color: vs.fontColor || '#1e293b',
+      color: vs.fontColor || 'var(--text-primary)',
       fontWeight: vs.fontBold ? 600 : 400,
       fontStyle: vs.fontItalic ? 'italic' : 'normal',
       backgroundColor: vs.bgColor || undefined,
@@ -215,18 +215,18 @@ export default memo(function PivotTableWidget({ data, config }) {
             <tr key={`ch-${li}`}>
               {li === 0 && (
                 <th rowSpan={colLevels.length + (numMeasures > 1 ? 1 : 0)}
-                  style={{ ...getHeaderStyle('Rows', 0), backgroundColor: getHeaderStyle('Rows', 0).backgroundColor || '#e2e8f0', minWidth: 160 }}>
+                  style={{ ...getHeaderStyle('Rows', 0), minWidth: 160, backgroundColor: 'var(--accent-primary-soft)', color: 'var(--accent-primary-text)' }}>
                   {getColumnDisplayName(tc, 'Rows') !== 'Rows' ? getColumnDisplayName(tc, 'Rows') : rowDims.join(' / ')}
                 </th>
               )}
               {level.map((item, ci) => (
-                <th key={ci} colSpan={item.span * numMeasures} style={getHeaderStyle(colDims[li] || item.value, li * headerRowHeight)}>
+                <th key={ci} colSpan={item.span * numMeasures} style={{ ...getHeaderStyle(colDims[li] || item.value, li * headerRowHeight), backgroundColor: 'var(--accent-primary-soft)', color: 'var(--accent-primary-text)' }}>
                   {item.value}
                 </th>
               ))}
               {li === 0 && showGrandCol && (
                 <th rowSpan={colLevels.length + (numMeasures > 1 ? 1 : 0)} colSpan={numMeasures}
-                  style={{ ...getHeaderStyle('__none__', 0), backgroundColor: '#e2e8f0' }}>
+                  style={{ ...getHeaderStyle('__none__', 0), backgroundColor: 'var(--bg-hover)', color: 'var(--text-primary)' }}>
                   Total
                 </th>
               )}
@@ -237,22 +237,22 @@ export default memo(function PivotTableWidget({ data, config }) {
             <tr>
               {colKeys.map(([ck], ci) =>
                 measures.map((m, mi) => (
-                  <th key={`${ci}-${mi}`} style={{ ...getHeaderStyle(m, colLevels.length * headerRowHeight), fontSize: 10, fontWeight: 500 }}>{getColumnDisplayName(tc, m)}</th>
+                  <th key={`${ci}-${mi}`} style={{ ...getHeaderStyle(m, colLevels.length * headerRowHeight), fontSize: 10, fontWeight: 500, backgroundColor: 'var(--bg-hover)', color: 'var(--text-primary)' }}>{getColumnDisplayName(tc, m)}</th>
                 ))
               )}
               {showGrandCol && measures.map((m, mi) => (
-                <th key={`gt-${mi}`} style={{ ...getHeaderStyle('__none__', colLevels.length * headerRowHeight), fontSize: 10, fontWeight: 500, backgroundColor: '#e2e8f0' }}>{getColumnDisplayName(tc, m)}</th>
+                <th key={`gt-${mi}`} style={{ ...getHeaderStyle('__none__', colLevels.length * headerRowHeight), fontSize: 10, fontWeight: 500, backgroundColor: 'var(--bg-hover)', color: 'var(--text-primary)' }}>{getColumnDisplayName(tc, m)}</th>
               ))}
             </tr>
           )}
           {/* If no col dims, show measure names as column headers */}
           {colDims.length === 0 && (
             <tr>
-              <th style={{ ...getHeaderStyle('Rows'), backgroundColor: getHeaderStyle('Rows').backgroundColor || '#e2e8f0', minWidth: 160 }}>{getColumnDisplayName(tc, 'Rows') !== 'Rows' ? getColumnDisplayName(tc, 'Rows') : rowDims.join(' / ')}</th>
+              <th style={{ ...getHeaderStyle('Rows'), minWidth: 160, backgroundColor: 'var(--accent-primary-soft)', color: 'var(--accent-primary-text)' }}>{getColumnDisplayName(tc, 'Rows') !== 'Rows' ? getColumnDisplayName(tc, 'Rows') : rowDims.join(' / ')}</th>
               {measures.map((m, mi) => (
-                <th key={mi} style={getHeaderStyle(m)}>{getColumnDisplayName(tc, m)}</th>
+                <th key={mi} style={{ ...getHeaderStyle(m), backgroundColor: 'var(--bg-hover)', color: 'var(--text-primary)' }}>{getColumnDisplayName(tc, m)}</th>
               ))}
-              {showGrandCol && <th style={{ ...defaultHeaderStyle, backgroundColor: '#e2e8f0' }}>Total</th>}
+              {showGrandCol && <th style={{ ...defaultHeaderStyle, backgroundColor: 'var(--bg-hover)' }}>Total</th>}
             </tr>
           )}
         </thead>}
@@ -263,9 +263,9 @@ export default memo(function PivotTableWidget({ data, config }) {
             const depth = row.depth;
             const stripeBg = rowCfg.striped
               ? (idx % 2 === 0 ? rowCfg.stripeColor1 : rowCfg.stripeColor2)
-              : '#fff';
+              : 'var(--bg-panel)';
             const bg = isHovered && rowCfg.hoverHighlight ? rowCfg.hoverColor
-              : isGroup ? '#f8fafc' : stripeBg;
+              : isGroup ? 'var(--bg-subtle)' : stripeBg;
 
             if (isGroup) {
               // Group header row — show aggregated values (subtotals)
@@ -284,7 +284,7 @@ export default memo(function PivotTableWidget({ data, config }) {
                         ...(freeze.freezeFirstColumn ? { position: 'sticky', left: 0, zIndex: 1, backgroundColor: bg, boxShadow: '2px 0 4px rgba(0,0,0,0.06)' } : {}),
                       }}>
                         <span onClick={() => toggleGroup(node.key)}
-                          style={{ cursor: 'pointer', marginRight: 6, fontSize: 10, color: '#64748b', display: 'inline-block', width: 12 }}>
+                          style={{ cursor: 'pointer', marginRight: 6, fontSize: 10, color: 'var(--text-muted)', display: 'inline-block', width: 12 }}>
                           {row.isCollapsed ? '▶' : '▼'}
                         </span>
                         {node.value}
@@ -298,7 +298,7 @@ export default memo(function PivotTableWidget({ data, config }) {
                       return (
                         <td key={`${ck}-${mi}`} style={{
                           ...getCellStyle(m),
-                          backgroundColor: isGroup ? '#f8fafc' : undefined,
+                          backgroundColor: isGroup ? 'var(--bg-subtle)' : undefined,
                         }}>
                           {val != null ? formatVal(val, m) : ''}
                         </td>
@@ -311,7 +311,7 @@ export default memo(function PivotTableWidget({ data, config }) {
                     return (
                       <td key={`rt-${mi}`} style={{
                         padding: cellPad, textAlign: 'right', fontWeight: 600, fontSize: 12,
-                        backgroundColor: '#f0f4f8', borderBottom: hBorder, borderRight: vBorder,
+                        backgroundColor: 'var(--bg-panel-alt)', borderBottom: hBorder, borderRight: vBorder,
                       }}>
                         {val != null ? formatVal(val, m) : ''}
                       </td>
@@ -349,7 +349,7 @@ export default memo(function PivotTableWidget({ data, config }) {
                     return (
                       <td key={`${ck}-${mi}`} style={{
                         padding: cellPad, textAlign: 'right', fontSize: 12,
-                        color: '#475569', borderBottom: hBorder, borderRight: vBorder,
+                        color: 'var(--text-secondary)', borderBottom: hBorder, borderRight: vBorder,
                       }}>
                         {formatVal(val, m)}
                       </td>
@@ -361,7 +361,7 @@ export default memo(function PivotTableWidget({ data, config }) {
                   return (
                     <td key={`rt-${mi}`} style={{
                       padding: cellPad, textAlign: 'right', fontWeight: 600, fontSize: 12,
-                      backgroundColor: '#f8fafc', borderBottom: hBorder, borderRight: vBorder,
+                      backgroundColor: 'var(--bg-subtle)', borderBottom: hBorder, borderRight: vBorder,
                     }}>
                       {formatVal(val, m)}
                     </td>
@@ -388,7 +388,7 @@ export default memo(function PivotTableWidget({ data, config }) {
                 ))
               )}
               {showGrandCol && measures.map((m, mi) => (
-                <td key={`gt-${mi}`} style={{ ...totalStyle, fontWeight: 700, backgroundColor: '#e2e8f0' }}>
+                <td key={`gt-${mi}`} style={{ ...totalStyle, fontWeight: 700, backgroundColor: 'var(--bg-hover)' }}>
                   {formatVal(resolveCell(grandTotal[m], getFn(m)), m)}
                 </td>
               ))}
@@ -402,5 +402,5 @@ export default memo(function PivotTableWidget({ data, config }) {
 
 const emptyStyle = {
   height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: 16,
+  color: 'var(--text-disabled)', fontSize: 12, textAlign: 'center', padding: 16,
 };

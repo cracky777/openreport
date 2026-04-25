@@ -5,18 +5,18 @@ import { TbArrowLeft } from 'react-icons/tb';
 
 export const headerShellStyle = {
   display: 'flex', alignItems: 'center', gap: 12,
-  padding: '10px 20px', backgroundColor: '#fff',
-  borderBottom: '1px solid #e2e8f0', flexShrink: 0,
+  padding: '10px 20px', backgroundColor: 'var(--bg-panel)',
+  borderBottom: '1px solid var(--border-default)', flexShrink: 0,
 };
 
 export const headerTitleStyle = {
-  fontSize: 16, fontWeight: 700, color: '#0f172a', margin: 0,
+  fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0,
 };
 
 const backBtnBase = {
   display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-  background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
-  color: '#475569', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+  background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8,
+  color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13, fontWeight: 500,
   transition: 'background 0.12s, border-color 0.12s, color 0.12s',
 };
 
@@ -28,14 +28,14 @@ export function BackButton({ to = '/', onClick, label = 'Back' }) {
       onClick={handle}
       style={backBtnBase}
       onMouseEnter={(e) => {
-        e.currentTarget.style.background = '#f1f5f9';
-        e.currentTarget.style.borderColor = '#cbd5e1';
-        e.currentTarget.style.color = '#0f172a';
+        e.currentTarget.style.background = 'var(--bg-hover)';
+        e.currentTarget.style.borderColor = 'var(--border-strong)';
+        e.currentTarget.style.color = 'var(--text-primary)';
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = '#f8fafc';
-        e.currentTarget.style.borderColor = '#e2e8f0';
-        e.currentTarget.style.color = '#475569';
+        e.currentTarget.style.background = 'var(--bg-subtle)';
+        e.currentTarget.style.borderColor = 'var(--border-default)';
+        e.currentTarget.style.color = 'var(--text-secondary)';
       }}
     >
       <TbArrowLeft size={16} />
@@ -46,7 +46,7 @@ export function BackButton({ to = '/', onClick, label = 'Back' }) {
 
 const primaryBtnBase = {
   padding: '7px 18px', fontSize: 13, fontWeight: 600, border: 'none',
-  borderRadius: 8, background: '#7c3aed', color: '#fff',
+  borderRadius: 8, background: 'var(--accent-primary)', color: '#fff',
   cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
   boxShadow: '0 1px 3px rgba(124,58,237,0.2)',
   transition: 'background 0.15s, transform 0.15s, box-shadow 0.15s',
@@ -61,13 +61,13 @@ export function PrimaryButton({ children, onClick, disabled, style, title }) {
       style={{ ...primaryBtnBase, opacity: disabled ? 0.7 : 1, cursor: disabled ? 'not-allowed' : 'pointer', ...style }}
       onMouseEnter={(e) => {
         if (disabled) return;
-        e.currentTarget.style.background = '#6d28d9';
+        e.currentTarget.style.background = 'var(--accent-primary-hover)';
         e.currentTarget.style.transform = 'translateY(-1px)';
         e.currentTarget.style.boxShadow = '0 4px 12px rgba(124,58,237,0.3)';
       }}
       onMouseLeave={(e) => {
         if (disabled) return;
-        e.currentTarget.style.background = '#7c3aed';
+        e.currentTarget.style.background = 'var(--accent-primary)';
         e.currentTarget.style.transform = 'translateY(0)';
         e.currentTarget.style.boxShadow = '0 1px 3px rgba(124,58,237,0.2)';
       }}
@@ -78,15 +78,15 @@ export function PrimaryButton({ children, onClick, disabled, style, title }) {
 }
 
 const secondaryBtnBase = {
-  padding: '6px 12px', fontSize: 13, fontWeight: 500, color: '#475569',
-  background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
+  padding: '6px 12px', fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)',
+  background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8,
   cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
   transition: 'background 0.12s, border-color 0.12s, color 0.12s',
 };
 
 export function SecondaryButton({ children, onClick, disabled, style, title, danger }) {
   const base = danger
-    ? { ...secondaryBtnBase, color: '#dc2626', background: '#fff', borderColor: '#fecaca' }
+    ? { ...secondaryBtnBase, color: 'var(--state-danger)', background: 'var(--bg-panel)', borderColor: 'var(--state-danger-border)' }
     : secondaryBtnBase;
   return (
     <button
@@ -96,13 +96,13 @@ export function SecondaryButton({ children, onClick, disabled, style, title, dan
       style={{ ...base, opacity: disabled ? 0.5 : 1, cursor: disabled ? 'not-allowed' : 'pointer', ...style }}
       onMouseEnter={(e) => {
         if (disabled) return;
-        e.currentTarget.style.background = danger ? '#fef2f2' : '#f1f5f9';
-        e.currentTarget.style.borderColor = danger ? '#fca5a5' : '#cbd5e1';
+        e.currentTarget.style.background = danger ? 'var(--state-danger-soft)' : 'var(--bg-hover)';
+        e.currentTarget.style.borderColor = danger ? 'var(--state-danger)' : 'var(--border-strong)';
       }}
       onMouseLeave={(e) => {
         if (disabled) return;
         e.currentTarget.style.background = base.background;
-        e.currentTarget.style.borderColor = base.border?.split(' ')[2] || (danger ? '#fecaca' : '#e2e8f0');
+        e.currentTarget.style.borderColor = danger ? 'var(--state-danger-border)' : 'var(--border-default)';
       }}
     >
       {children}
@@ -113,7 +113,7 @@ export function SecondaryButton({ children, onClick, disabled, style, title, dan
 export const headerBadgeStyle = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
   padding: '5px 10px', borderRadius: 8,
-  background: '#faf8ff', border: '1px solid #ede9fe',
-  fontSize: 12, color: '#4c1d95', fontWeight: 500,
+  background: 'var(--accent-primary-soft)', border: '1px solid var(--accent-primary-border)',
+  fontSize: 12, color: 'var(--accent-primary-text)', fontWeight: 500,
   maxWidth: 240, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
 };

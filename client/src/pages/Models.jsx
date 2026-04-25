@@ -38,7 +38,7 @@ export default function Models() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#f1f5f9' }}>
+    <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-app)' }}>
       <header style={headerShellStyle}>
         <BackButton to="/" />
         <h1 style={headerTitleStyle}>Data Models</h1>
@@ -72,9 +72,9 @@ export default function Models() {
                 ))}
               </select>
               {datasources.length === 0 && (
-                <p style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>
+                <p style={{ fontSize: 12, color: 'var(--state-danger)', marginTop: 4 }}>
                   No data sources configured.{' '}
-                  <button onClick={() => navigate('/datasources')} style={{ color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>
+                  <button onClick={() => navigate('/datasources')} style={{ color: 'var(--accent-primary)', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 12 }}>
                     Add one first
                   </button>
                 </p>
@@ -97,11 +97,11 @@ export default function Models() {
         )}
 
         {loading ? (
-          <div style={{ color: '#94a3b8', textAlign: 'center', marginTop: 60 }}>Loading...</div>
+          <div style={{ color: 'var(--text-disabled)', textAlign: 'center', marginTop: 60 }}>Loading...</div>
         ) : models.length === 0 && !showForm ? (
           <div style={{ textAlign: 'center', marginTop: 80 }}>
-            <p style={{ fontSize: 16, color: '#64748b', marginBottom: 4 }}>No data models yet</p>
-            <p style={{ fontSize: 13, color: '#94a3b8', marginBottom: 16 }}>
+            <p style={{ fontSize: 16, color: 'var(--text-muted)', marginBottom: 4 }}>No data models yet</p>
+            <p style={{ fontSize: 13, color: 'var(--text-disabled)', marginBottom: 16 }}>
               Models define which tables, dimensions, and measures are available in your reports.
             </p>
             <button onClick={() => setShowForm(true)} style={primaryBtn}>Create your first model</button>
@@ -111,15 +111,15 @@ export default function Models() {
             {models.map((m) => (
               <div key={m.id} style={cardStyle}>
                 <div onClick={() => navigate(`/models/${m.id}`)} style={{ cursor: 'pointer', flex: 1 }}>
-                  <div style={{ fontWeight: 600, color: '#0f172a', fontSize: 15 }}>{m.name}</div>
-                  <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 15 }}>{m.name}</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>
                     Source: {m.datasource_name} — Updated {new Date(m.updated_at).toLocaleDateString()}
                   </div>
-                  {m.description && <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{m.description}</div>}
+                  {m.description && <div style={{ fontSize: 12, color: 'var(--text-disabled)', marginTop: 2 }}>{m.description}</div>}
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={() => navigate(`/models/${m.id}`)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px' }}>Edit</button>
-                  <button onClick={() => handleDelete(m.id)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px', color: '#dc2626', borderColor: '#fca5a5' }}>Delete</button>
+                  <button onClick={() => handleDelete(m.id)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px', color: 'var(--state-danger)', borderColor: 'var(--state-danger)' }}>Delete</button>
                 </div>
               </div>
             ))}
@@ -132,22 +132,22 @@ export default function Models() {
 
 const primaryBtn = {
   padding: '8px 16px', fontSize: 14, fontWeight: 600, border: 'none',
-  borderRadius: 6, background: '#7c3aed', color: '#fff', cursor: 'pointer',
+  borderRadius: 6, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
 };
 const secondaryBtn = {
-  padding: '8px 16px', fontSize: 14, background: '#fff', color: '#475569',
-  border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer',
+  padding: '8px 16px', fontSize: 14, background: 'var(--bg-panel)', color: 'var(--text-secondary)',
+  border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer',
 };
 const inputStyle = {
-  width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0',
+  width: '100%', padding: '8px 10px', border: '1px solid var(--border-default)',
   borderRadius: 6, fontSize: 14, outline: 'none', boxSizing: 'border-box',
 };
-const labelStyle = { display: 'block', fontSize: 13, color: '#475569', marginBottom: 4, fontWeight: 500 };
+const labelStyle = { display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4, fontWeight: 500 };
 const formCard = {
-  backgroundColor: '#fff', padding: 24, borderRadius: 8,
-  border: '1px solid #e2e8f0', marginBottom: 24,
+  backgroundColor: 'var(--bg-panel)', padding: 24, borderRadius: 8,
+  border: '1px solid var(--border-default)', marginBottom: 24,
 };
 const cardStyle = {
-  backgroundColor: '#fff', padding: '16px 20px', borderRadius: 8,
-  border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center',
+  backgroundColor: 'var(--bg-panel)', padding: '16px 20px', borderRadius: 8,
+  border: '1px solid var(--border-default)', display: 'flex', alignItems: 'center',
 };

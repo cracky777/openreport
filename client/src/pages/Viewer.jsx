@@ -7,9 +7,12 @@ import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { TbDownload, TbFileTypePdf, TbPhoto, TbTableExport, TbMaximize, TbMinimize, TbPrinter, TbRefresh } from 'react-icons/tb';
+import { useTheme } from '../hooks/useTheme';
+import PagesColumn from '../components/PagesColumn/PagesColumn';
 
 export default function Viewer() {
   const { id } = useParams();
+  const { getThemeVars } = useTheme();
   const [report, setReport] = useState(null);
   const [model, setModel] = useState(null);
   const [error, setError] = useState(null);
@@ -523,22 +526,22 @@ export default function Viewer() {
   };
 
   if (error) {
-    return <div style={{ padding: 60, textAlign: 'center', color: '#dc2626' }}>{error}</div>;
+    return <div style={{ padding: 60, textAlign: 'center', color: 'var(--state-danger)' }}>{error}</div>;
   }
   if (!report) {
-    return <div style={{ padding: 40, color: '#94a3b8' }}>Loading...</div>;
+    return <div style={{ padding: 40, color: 'var(--text-disabled)' }}>Loading...</div>;
   }
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#f1f5f9' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' }}>
       {/* Viewer toolbar — compact */}
       <header className="no-print" style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '4px 10px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0',
+        padding: '4px 10px', backgroundColor: 'var(--bg-panel)', borderBottom: '1px solid var(--border-default)',
         flexShrink: 0,
       }}>
         <img src="/favicon.svg" alt="Open Report" style={{ height: 22 }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>{report.title}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>{report.title}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <button onClick={handleRefresh} disabled={refreshing} style={{ ...toolBtnSmall, opacity: refreshing ? 0.5 : 1, cursor: refreshing ? 'not-allowed' : 'pointer' }} title="Refresh all widgets">
             <TbRefresh size={14} style={{ animation: refreshing ? 'spin 0.8s linear infinite' : undefined }} />
@@ -562,64 +565,50 @@ export default function Viewer() {
         </div>
       </header>
 
-      {/* Report area with sidebar navigation */}
-      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-        {/* Page sidebar (only if multi-page) */}
-        {pages.length > 1 && (
-          <nav className="no-print" style={{
-            width: 160, flexShrink: 0, backgroundColor: '#fff', borderRight: '1px solid #e2e8f0',
-            overflowY: 'auto', padding: '8px 0',
-          }}>
-            <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', padding: '4px 12px 8px', letterSpacing: '0.05em' }}>Pages</div>
-            {pages.map((page, idx) => (
-              <button key={page.id}
-                onClick={() => {
-                  pageStateRef.current[currentPageIdx] = { widgets, reportFilters, slicerSelections, crossHighlight };
-                  const saved = pageStateRef.current[idx];
-                  setCurrentPageIdx(idx);
-                  if (saved) {
-                    skipNextRefetch.current = true;
-                    setWidgets(saved.widgets);
-                    setReportFilters(saved.reportFilters);
-                    setSlicerSelections(saved.slicerSelections || {});
-                    setCrossHighlight(saved.crossHighlight);
-                  } else {
-                    skipNextRefetch.current = true;
-                    setWidgets(page.widgets || {});
-                    setReportFilters({});
-                    setSlicerSelections({});
-                    setCrossHighlight(null);
-                  }
-                }}
-                style={{
-                  display: 'block', width: '100%', padding: '8px 12px', border: 'none',
-                  textAlign: 'left', cursor: 'pointer', fontSize: 12,
-                  backgroundColor: idx === currentPageIdx ? '#f5f3ff' : 'transparent',
-                  color: idx === currentPageIdx ? '#7c3aed' : '#475569',
-                  fontWeight: idx === currentPageIdx ? 600 : 400,
-                  borderLeft: idx === currentPageIdx ? '3px solid #7c3aed' : '3px solid transparent',
-                }}
-              >{page.name}</button>
-            ))}
-          </nav>
-        )}
-
-        {/* Report canvas */}
-        <div style={{ flex: 1, minHeight: 0 }}>
-          <ReportCanvas
-            layout={pages[currentPageIdx]?.layout || report.layout}
-            widgets={widgets}
-            readOnly
-            settings={report.settings}
-            reportFilters={slicerSelections}
-            onSlicerFilter={handleSlicerFilter}
-            onCrossFilter={handleCrossFilter}
-            onDrillUp={handleDrillUp}
-            onDrillReset={handleDrillReset}
-            crossHighlight={crossHighlight}
-            reportRef={canvasRef}
+      {/* Report area — canvas + pages column live inside the report theme wrapper so the column inherits the report's theme. */}
+      <div
+        data-theme={report?.settings?.theme?.key || 'light'}
+        style={{ display: 'flex', flex: 1, minHeight: 0, ...(report?.settings?.theme?.vars || getThemeVars('light')) }}
+      >
+        {(pages.length > 1 || report?.settings?.pageNav?.title || report?.settings?.pageNav?.logo) && (
+          <PagesColumn
+            editMode={false}
+            pages={pages}
+            currentPageIdx={currentPageIdx}
+            onSwitch={(idx) => {
+              if (idx === currentPageIdx) return;
+              pageStateRef.current[currentPageIdx] = { widgets, reportFilters, slicerSelections, crossHighlight };
+              const saved = pageStateRef.current[idx];
+              setCurrentPageIdx(idx);
+              skipNextRefetch.current = true;
+              if (saved) {
+                setWidgets(saved.widgets);
+                setReportFilters(saved.reportFilters);
+                setSlicerSelections(saved.slicerSelections || {});
+                setCrossHighlight(saved.crossHighlight);
+              } else {
+                setWidgets(pages[idx].widgets || {});
+                setReportFilters({});
+                setSlicerSelections({});
+                setCrossHighlight(null);
+              }
+            }}
+            config={report?.settings?.pageNav}
           />
-        </div>
+        )}
+        <ReportCanvas
+          layout={pages[currentPageIdx]?.layout || report.layout}
+          widgets={widgets}
+          readOnly
+          settings={report.settings}
+          reportFilters={slicerSelections}
+          onSlicerFilter={handleSlicerFilter}
+          onCrossFilter={handleCrossFilter}
+          onDrillUp={handleDrillUp}
+          onDrillReset={handleDrillReset}
+          crossHighlight={crossHighlight}
+          reportRef={canvasRef}
+        />
       </div>
 
       {/* Print styles */}
@@ -635,31 +624,31 @@ export default function Viewer() {
 
 const toolbarStyle = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  padding: '8px 20px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0',
+  padding: '8px 20px', backgroundColor: 'var(--bg-panel)', borderBottom: '1px solid var(--border-default)',
   flexShrink: 0,
 };
 
 const toolBtn = {
-  padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6,
-  background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center',
-  color: '#475569',
+  padding: '6px 8px', border: '1px solid var(--border-default)', borderRadius: 6,
+  background: 'var(--bg-panel)', cursor: 'pointer', display: 'flex', alignItems: 'center',
+  color: 'var(--text-secondary)',
 };
 
 const toolBtnSmall = {
-  padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4,
-  background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center',
-  color: '#64748b', fontSize: 12,
+  padding: '4px 6px', border: '1px solid var(--border-default)', borderRadius: 4,
+  background: 'var(--bg-panel)', cursor: 'pointer', display: 'flex', alignItems: 'center',
+  color: 'var(--text-muted)', fontSize: 12,
 };
 
 const dropdownStyle = {
   position: 'absolute', top: '100%', right: 0, marginTop: 4,
-  backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+  backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 8,
   boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 20, minWidth: 160,
   overflow: 'hidden',
 };
 
 const dropdownItem = {
   display: 'flex', alignItems: 'center', width: '100%', padding: '8px 14px',
-  border: 'none', background: 'none', cursor: 'pointer', fontSize: 13,
-  color: '#334155', textAlign: 'left',
+  border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13,
+  color: 'var(--text-secondary)', textAlign: 'left',
 };

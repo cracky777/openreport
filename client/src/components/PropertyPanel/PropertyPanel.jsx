@@ -4,6 +4,7 @@ import DataPanel from '../DataPanel/DataPanel';
 import DropZone from '../DropZone/DropZone';
 import TablePropertySections from './TablePropertySections';
 import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase } from 'react-icons/tb';
+import { useResizableWidth } from '../../hooks/useResizableWidth';
 
 function getWidgetDisplayInfo(widget) {
   if (!widget) return { label: '', icon: null };
@@ -49,15 +50,25 @@ const useSectionState = () => {
 };
 
 // Left column: widget configuration (always present, collapsible)
-export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBringToFront, onSendToBack, onBringForward, onSendBackward, model }) {
+export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBringToFront, onSendToBack, onBringForward, onSendBackward, model, onResizeStart, onResizeEnd }) {
   const [collapsed, setCollapsed] = useState(false);
   const sections = useSectionState();
+  const { width, handleProps } = useResizableWidth({ storageKey: 'openreport.configPanelWidth', defaultWidth: 210, min: 180, max: 480, onDragStart: onResizeStart, onDragEnd: onResizeEnd });
+  const dynamicConfigStyle = { ...configPanelStyle, width, maxWidth: width, position: 'relative' };
+
+  // Toggle: pin the canvas so it doesn't reflow during the column animation, then unpin once
+  // the animation has settled. Same pattern used by the PagesColumn.
+  const toggleCollapsed = (val) => {
+    onResizeStart?.();
+    setCollapsed(val);
+    setTimeout(() => onResizeEnd?.(), PANEL_COLLAPSE_TRANSITION_MS + 30);
+  };
 
   if (collapsed) {
     return (
-      <div style={collapsedPanelStyle} onClick={() => setCollapsed(false)} title="Open config panel">
+      <div style={collapsedPanelStyle} onClick={() => toggleCollapsed(false)} title="Open config panel">
         <span style={collapsedChevronStyle}><TbChevronsLeft size={14} /></span>
-        <TbAdjustments size={14} color="#7c3aed" />
+        <TbAdjustments size={14} color="var(--accent-primary)" />
         <span style={collapsedLabelStyle}>Configuration</span>
       </div>
     );
@@ -65,18 +76,19 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
 
   if (!widgetId || !widget) {
     return (
-      <div style={configPanelStyle}>
+      <div style={dynamicConfigStyle}>
+        <div {...handleProps} />
         <div style={panelHeader}>
           <span style={panelHeaderTitle}>
-            <TbAdjustments size={14} color="#7c3aed" />
+            <TbAdjustments size={14} color="var(--accent-primary)" />
             Configuration
           </span>
-          <button onClick={() => setCollapsed(true)} style={chevronBtn} title="Collapse panel"
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.color = '#0f172a'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#64748b'; }}
+          <button onClick={() => toggleCollapsed(true)} style={chevronBtn} title="Collapse panel"
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--border-strong)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
           ><TbChevronsRight size={14} /></button>
         </div>
-        <div style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', marginTop: 40 }}>
+        <div style={{ color: 'var(--text-disabled)', fontSize: 13, textAlign: 'center', marginTop: 40 }}>
           Select a widget to configure it
         </div>
       </div>
@@ -193,25 +205,25 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     return copy;
   };
 
-  const handleDrop = (zone) => (fieldName, fieldType, sourceZone, dropIndex) => {
+  const handleDrop = (zone) => (fieldName, fieldType, sourceZone, dropIndex, replace) => {
     // Remove from source zone if cross-zone move
     const removeUpdates = sourceZone && sourceZone !== zone ? removeFromZone(sourceZone, fieldName) : {};
 
     const addUpdates = {};
     if (zone === 'groupBy') {
-      addUpdates.groupBy = insertAt(removeUpdates.groupBy || groupBy, fieldName, dropIndex);
+      addUpdates.groupBy = replace ? [fieldName] : insertAt(removeUpdates.groupBy || groupBy, fieldName, dropIndex);
     } else if (zone === 'pivotColumns') {
-      addUpdates.columnDimensions = insertAt(removeUpdates.columnDimensions || columnDims, fieldName, dropIndex);
+      addUpdates.columnDimensions = replace ? [fieldName] : insertAt(removeUpdates.columnDimensions || columnDims, fieldName, dropIndex);
     } else if (zone === 'columns') {
       // Table: add to both dims/measures lists and columnOrder
-      if (fieldType === 'dimension') addUpdates.selectedDimensions = [...(removeUpdates.selectedDimensions || selectedDims), fieldName];
-      else addUpdates.selectedMeasures = [...(removeUpdates.selectedMeasures || selectedMeass), fieldName];
+      if (fieldType === 'dimension') addUpdates.selectedDimensions = replace ? [fieldName] : [...(removeUpdates.selectedDimensions || selectedDims), fieldName];
+      else addUpdates.selectedMeasures = replace ? [fieldName] : [...(removeUpdates.selectedMeasures || selectedMeass), fieldName];
       const curOrder = (removeUpdates.columnOrder || binding.columnOrder || [...selectedDims, ...selectedMeass]).filter((f) => f !== fieldName);
-      addUpdates.columnOrder = insertAt(curOrder, fieldName, dropIndex);
+      addUpdates.columnOrder = replace ? [fieldName] : insertAt(curOrder, fieldName, dropIndex);
     } else if (fieldType === 'dimension') {
-      addUpdates.selectedDimensions = insertAt(removeUpdates.selectedDimensions || selectedDims, fieldName, dropIndex);
+      addUpdates.selectedDimensions = replace ? [fieldName] : insertAt(removeUpdates.selectedDimensions || selectedDims, fieldName, dropIndex);
     } else if (fieldType === 'measure') {
-      addUpdates.selectedMeasures = insertAt(removeUpdates.selectedMeasures || selectedMeass, fieldName, dropIndex);
+      addUpdates.selectedMeasures = replace ? [fieldName] : insertAt(removeUpdates.selectedMeasures || selectedMeass, fieldName, dropIndex);
     }
 
     if (sourceZone && sourceZone !== zone) {
@@ -260,7 +272,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       return (
         <Section title="" bare>
           <DropZone label="Axis" accepts={['dimension']} fields={selectedDims} zoneName="axis"
-            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
+            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos} />
           <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
             onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
           <DropZone label="Values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="values"
@@ -273,7 +285,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       return (
         <Section title="" bare>
           <DropZone label="Axis" accepts={['dimension']} fields={selectedDims} zoneName="axis"
-            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
+            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos} />
           <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
             onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
           <DropZone label="Values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="values"
@@ -318,7 +330,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       return (
         <Section title="" bare>
           <DropZone label="Axis" accepts={['dimension']} fields={selectedDims} zoneName="axis"
-            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
+            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos} />
           <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
             onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
           <DropZone label="Bar values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={comboBarMeas} zoneName="comboBar"
@@ -333,7 +345,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       return (
         <Section title="" bare>
           <DropZone label="Category" accepts={['dimension']} fields={selectedDims} zoneName="category"
-            onDrop={handleDrop('category')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
+            onDrop={handleDrop('category')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos} />
           <DropZone label="Value" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="value"
             onDrop={handleDrop('value')} onRemove={handleRemove} onReorder={handleReorder('measures')} fieldInfos={fieldInfos} />
         </Section>
@@ -415,15 +427,16 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
   };
 
   return (
-    <div style={configPanelStyle}>
+    <div style={dynamicConfigStyle}>
+      <div {...handleProps} />
       <div style={panelHeader}>
         <span style={panelHeaderTitle}>
-          <TbAdjustments size={14} color="#7c3aed" />
+          <TbAdjustments size={14} color="var(--accent-primary)" />
           Configuration
         </span>
-        <button onClick={() => setCollapsed(true)} style={chevronBtn} title="Collapse panel"
-          onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.color = '#0f172a'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#64748b'; }}
+        <button onClick={() => toggleCollapsed(true)} style={chevronBtn} title="Collapse panel"
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--border-strong)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
         ><TbChevronsRight size={14} /></button>
       </div>
 
@@ -436,11 +449,11 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <>
             <div style={headerStyle}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
                   {Icon && <Icon size={18} />} {info.label}
                 </span>
                 {typeof rowCount === 'number' && (
-                  <span style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>
                     {maxReached ? '1,000,000 rows (limit reached)' : `${rowCount.toLocaleString('fr-FR')} rows`}
                   </span>
                 )}
@@ -477,13 +490,13 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 onClick={() => updateConfig('barDirection', d.value)}
                 style={{
                   padding: '5px 7px', border: '1px solid',
-                  borderColor: dir === d.value ? '#7c3aed' : '#e2e8f0',
+                  borderColor: dir === d.value ? 'var(--accent-primary)' : 'var(--border-default)',
                   borderRadius: 4, cursor: 'pointer',
-                  background: dir === d.value ? '#f5f3ff' : '#fff',
+                  background: dir === d.value ? 'var(--bg-active)' : 'var(--bg-panel)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
               >
-                <TbChartBar size={16} style={{ transform: `rotate(${d.rotate}deg)`, color: dir === d.value ? '#7c3aed' : '#94a3b8' }} />
+                <TbChartBar size={16} style={{ transform: `rotate(${d.rotate}deg)`, color: dir === d.value ? 'var(--accent-primary)' : 'var(--text-disabled)' }} />
               </button>
             ))}
           </div>
@@ -505,13 +518,13 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 onClick={() => updateConfig('gaugeDirection', d.value)}
                 style={{
                   padding: '5px 7px', border: '1px solid',
-                  borderColor: dir === d.value ? '#7c3aed' : '#e2e8f0',
+                  borderColor: dir === d.value ? 'var(--accent-primary)' : 'var(--border-default)',
                   borderRadius: 4, cursor: 'pointer',
-                  background: dir === d.value ? '#f5f3ff' : '#fff',
+                  background: dir === d.value ? 'var(--bg-active)' : 'var(--bg-panel)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
               >
-                <TbChartBar size={16} style={{ transform: `rotate(${d.rotate}deg)`, color: dir === d.value ? '#7c3aed' : '#94a3b8' }} />
+                <TbChartBar size={16} style={{ transform: `rotate(${d.rotate}deg)`, color: dir === d.value ? 'var(--accent-primary)' : 'var(--text-disabled)' }} />
               </button>
             ))}
           </div>
@@ -1106,7 +1119,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {legendValues.map((name, i) => (
                 <div key={name} style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: 6 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: '#334155', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <ColorInput
                       value={customColors[name] || COLORS[i % COLORS.length]}
@@ -1128,7 +1141,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                         style={{ ...inputStyle, flex: 1, fontSize: 10, marginBottom: 0, padding: '2px 4px' }} />
                       {customImages[name] && (
                         <button onClick={() => { const next = { ...customImages }; delete next[name]; updateConfig('legendImages', next); }}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 12, padding: 0 }}>×</button>
+                          style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-disabled)', fontSize: 12, padding: 0 }}>×</button>
                       )}
                     </div>
                   )}
@@ -1286,7 +1299,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               <Field label="Border color">
                 <input type="color" value={widget.config?.itemBorderColor || '#ffffff'}
                   onChange={(e) => updateConfig('itemBorderColor', e.target.value)}
-                  style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+                  style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
               </Field>
               <Field label="Border width" vertical>
                 <RangeInput min={0} max={8} value={widget.config?.itemBorderWidth ?? 1}
@@ -1334,12 +1347,12 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <Field label="Fill color">
             <input type="color" value={widget.config?.gaugeColor || '#7c3aed'}
               onChange={(e) => updateConfig('gaugeColor', e.target.value)}
-              style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+              style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
           </Field>
           <Field label="Track color">
             <input type="color" value={widget.config?.gaugeTrackColor || '#e2e8f0'}
               onChange={(e) => updateConfig('gaugeTrackColor', e.target.value)}
-              style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+              style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
           </Field>
           <Field label="Color on threshold">
             <input type="checkbox" checked={widget.config?.gaugeConditionalColor || false}
@@ -1349,7 +1362,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <Field label="Over-threshold color">
               <input type="color" value={widget.config?.gaugeOverColor || '#dc2626'}
                 onChange={(e) => updateConfig('gaugeOverColor', e.target.value)}
-                style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+                style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
             </Field>
           )}
           {!widget.dataBinding?.gaugeThresholdMeasure && (
@@ -1363,7 +1376,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <Field label="Threshold color">
             <input type="color" value={widget.config?.gaugeThresholdColor || '#dc2626'}
               onChange={(e) => updateConfig('gaugeThresholdColor', e.target.value)}
-              style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+              style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
           </Field>
           <Field label="Show value">
             <input type="checkbox" checked={widget.config?.gaugeShowValue ?? true}
@@ -1385,7 +1398,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <Field label="Color">
               <input type="color" value={widget.config?.gaugeValueColor || '#0f172a'}
                 onChange={(e) => updateConfig('gaugeValueColor', e.target.value)}
-                style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+                style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
             </Field>
           </SubSection>
           <SubSection label="Label font">
@@ -1396,7 +1409,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <Field label="Color">
               <input type="color" value={widget.config?.gaugeLabelColor || '#64748b'}
                 onChange={(e) => updateConfig('gaugeLabelColor', e.target.value)}
-                style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+                style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
             </Field>
           </SubSection>
           {(widget.config?.gaugeShowMinMax ?? false) && (
@@ -1408,7 +1421,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               <Field label="Color">
                 <input type="color" value={widget.config?.gaugeAxisColor || '#94a3b8'}
                   onChange={(e) => updateConfig('gaugeAxisColor', e.target.value)}
-                  style={{ width: 32, height: 20, padding: 0, border: '1px solid #e2e8f0', borderRadius: 3 }} />
+                  style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
               </Field>
               {widget.config?.subType !== 'column' && (
                 <>
@@ -1431,29 +1444,39 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
 }
 
 // Right column: model dimensions & measures (always visible, collapsible)
-export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, model, onModelUpdate, reportFilters }) {
+export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, model, onModelUpdate, reportFilters, onResizeStart, onResizeEnd }) {
   const [collapsed, setCollapsed] = useState(false);
+  const { width, handleProps } = useResizableWidth({ storageKey: 'openreport.dataPanelWidth', defaultWidth: 220, min: 200, max: 480, onDragStart: onResizeStart, onDragEnd: onResizeEnd });
+  const dynamicDataStyle = { ...dataPanelStyle, width, maxWidth: width, position: 'relative' };
+
+  // Toggle: pin the canvas during the column animation, then unpin once it has settled.
+  const toggleCollapsed = (val) => {
+    onResizeStart?.();
+    setCollapsed(val);
+    setTimeout(() => onResizeEnd?.(), PANEL_COLLAPSE_TRANSITION_MS + 30);
+  };
 
   if (collapsed) {
     return (
-      <div style={collapsedPanelStyle} onClick={() => setCollapsed(false)} title="Open data panel">
+      <div style={collapsedPanelStyle} onClick={() => toggleCollapsed(false)} title="Open data panel">
         <span style={collapsedChevronStyle}><TbChevronsLeft size={14} /></span>
-        <TbDatabase size={14} color="#0891b2" />
+        <TbDatabase size={14} color="var(--accent-cyan)" />
         <span style={collapsedLabelStyle}>Data</span>
       </div>
     );
   }
 
   return (
-    <div style={dataPanelStyle}>
+    <div style={dynamicDataStyle}>
+      <div {...handleProps} />
       <div style={panelHeader}>
         <span style={panelHeaderTitle}>
-          <TbDatabase size={14} color="#0891b2" />
+          <TbDatabase size={14} color="var(--accent-cyan)" />
           Data
         </span>
-        <button onClick={() => setCollapsed(true)} style={chevronBtn} title="Collapse panel"
-          onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.color = '#0f172a'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#64748b'; }}
+        <button onClick={() => toggleCollapsed(true)} style={chevronBtn} title="Collapse panel"
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--border-strong)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
         ><TbChevronsRight size={14} /></button>
       </div>
       <DataPanel widgetId={widgetId} widget={widget} onUpdate={onUpdate} onUpdateSilent={onUpdateSilent} model={model} onModelUpdate={onModelUpdate} reportFilters={reportFilters} />
@@ -1474,9 +1497,9 @@ function Section({ title, children, defaultOpen, sectionState, bare }) {
   return (
     <div style={sectionStyle}>
       <div onClick={toggle} style={{ ...sectionHeaderStyle, cursor: toggle ? 'pointer' : 'default' }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>{title}</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{title}</span>
         {toggle && (
-          <span style={{ display: 'inline-flex', color: '#94a3b8', transition: 'transform 0.15s', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>
+          <span style={{ display: 'inline-flex', color: 'var(--text-disabled)', transition: 'transform 0.15s', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>
             <TbChevronDown size={14} />
           </span>
         )}
@@ -1493,7 +1516,7 @@ function Section({ title, children, defaultOpen, sectionState, bare }) {
 function SubSection({ label, children }) {
   return (
     <div style={{ marginTop: 6, marginBottom: 6 }}>
-      <div style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-disabled)', textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
       <div style={subSectionStyle}>
         {children}
       </div>
@@ -1505,14 +1528,14 @@ function Field({ label, children, vertical }) {
   if (vertical) {
     return (
       <div style={{ marginBottom: 6 }}>
-        <div style={{ fontSize: 12, color: '#475569', marginBottom: 3 }}>{label}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 3 }}>{label}</div>
         <div>{children}</div>
       </div>
     );
   }
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 6 }}>
-      <span style={{ fontSize: 12, color: '#475569', whiteSpace: 'nowrap', flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', flexShrink: 0 }}>{label}</span>
       <div style={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>{children}</div>
     </div>
   );
@@ -1565,8 +1588,8 @@ function RangeInput({ min, max, step, value, onChange, suffix }) {
         onChange={onChange} style={{ flex: 1, minWidth: 0 }} />
       <input type="number" min={min} max={max} step={step || 1} value={value}
         onChange={onChange}
-        style={{ width: 48, minWidth: 48, padding: '2px 3px', border: '1px solid #e2e8f0', borderRadius: 3, fontSize: 11, textAlign: 'center', outline: 'none', boxSizing: 'border-box', flexShrink: 0 }} />
-      {suffix && <span style={{ fontSize: 10, color: '#94a3b8', flexShrink: 0 }}>{suffix}</span>}
+        style={{ width: 48, minWidth: 48, padding: '2px 3px', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 11, textAlign: 'center', outline: 'none', boxSizing: 'border-box', flexShrink: 0 }} />
+      {suffix && <span style={{ fontSize: 10, color: 'var(--text-disabled)', flexShrink: 0 }}>{suffix}</span>}
     </div>
   );
 }
@@ -1582,10 +1605,10 @@ function ColorInput({ value, onChange }) {
         onClick={() => onChange(isTransparent ? '#ffffff' : 'transparent')}
         title={isTransparent ? 'Set color' : 'Set transparent'}
         style={{
-          width: 22, height: 22, border: '1px solid #e2e8f0', borderRadius: 3,
+          width: 22, height: 22, border: '1px solid var(--border-default)', borderRadius: 3,
           cursor: 'pointer', fontSize: 11, lineHeight: 1,
-          background: isTransparent ? '#fff' : 'repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 50%/12px 12px',
-          color: isTransparent ? '#7c3aed' : '#94a3b8',
+          background: isTransparent ? 'var(--bg-panel)' : 'repeating-conic-gradient(var(--border-default) 0% 25%, var(--bg-panel) 0% 50%) 50%/12px 12px',
+          color: isTransparent ? 'var(--accent-primary)' : 'var(--text-disabled)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           padding: 0, flexShrink: 0,
         }}
@@ -1686,17 +1709,17 @@ function PivotOptionsSection({ widget, updateConfig, Section, Field, inputStyle,
 
 const sectionStyle = {
   marginBottom: 8,
-  border: '1px solid #e2e8f0',
+  border: '1px solid var(--border-default)',
   borderRadius: 8,
   overflow: 'hidden',
-  background: '#fff',
+  background: 'var(--bg-panel)',
   boxShadow: '0 1px 1px rgba(15,23,42,0.02)',
 };
 
 const sectionHeaderStyle = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
   padding: '8px 12px',
-  background: '#ffffff',
+  background: 'var(--bg-panel)',
   borderBottom: '1px solid transparent',
   cursor: 'pointer',
   userSelect: 'none',
@@ -1708,32 +1731,34 @@ const subSectionStyle = {
   padding: '8px 8px',
   border: '1px solid #eef2f7',
   borderRadius: 6,
-  background: '#f8fafc',
+  background: 'var(--bg-subtle)',
   overflow: 'hidden',
 };
 
+const PANEL_COLLAPSE_TRANSITION_MS = 200;
+
 const configPanelStyle = {
-  width: 210, maxWidth: 210, backgroundColor: '#fafbfc', borderLeft: '1px solid #e2e8f0',
+  width: 210, maxWidth: 210, backgroundColor: 'var(--bg-panel-alt)', borderLeft: '1px solid var(--border-default)',
   padding: 12, overflowY: 'auto', flexShrink: 0,
-  transition: 'width 0.2s ease, max-width 0.2s ease, padding 0.2s ease',
+  transition: `width ${PANEL_COLLAPSE_TRANSITION_MS}ms ease, max-width ${PANEL_COLLAPSE_TRANSITION_MS}ms ease`,
 };
 
 const collapsedPanelStyle = {
-  backgroundColor: '#fafbfc', borderLeft: '1px solid #e2e8f0',
+  backgroundColor: 'var(--bg-panel-alt)', borderLeft: '1px solid var(--border-default)',
   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start',
   flexShrink: 0, overflow: 'hidden', cursor: 'pointer',
-  padding: '10px 8px', gap: 10, width: 34,
-  transition: 'all 0.2s ease',
+  padding: '10px 8px', gap: 10, width: 34, maxWidth: 34,
+  transition: `width ${PANEL_COLLAPSE_TRANSITION_MS}ms ease, max-width ${PANEL_COLLAPSE_TRANSITION_MS}ms ease`,
 };
 
 const collapsedChevronStyle = {
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-  width: 22, height: 22, background: '#fff', border: '1px solid #e2e8f0',
-  borderRadius: 6, color: '#64748b',
+  width: 22, height: 22, background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
+  borderRadius: 6, color: 'var(--text-muted)',
 };
 
 const collapsedLabelStyle = {
-  fontSize: 11, fontWeight: 600, color: '#64748b', letterSpacing: '0.08em',
+  fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em',
   textTransform: 'uppercase',
   writingMode: 'vertical-rl', textOrientation: 'mixed',
 };
@@ -1741,51 +1766,51 @@ const collapsedLabelStyle = {
 const panelHeader = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
   gap: 8,
-  marginBottom: 14, paddingBottom: 10, borderBottom: '1px solid #e2e8f0',
+  marginBottom: 14, paddingBottom: 10, borderBottom: '1px solid var(--border-default)',
 };
 
 const panelHeaderTitle = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
-  fontSize: 12, fontWeight: 700, color: '#334155', letterSpacing: '0.04em', textTransform: 'uppercase',
+  fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.04em', textTransform: 'uppercase',
 };
 
 const chevronBtn = {
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-  width: 24, height: 24, color: '#64748b',
-  background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6,
+  width: 24, height: 24, color: 'var(--text-muted)',
+  background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 6,
   cursor: 'pointer', padding: 0,
   transition: 'background 0.12s, border-color 0.12s, color 0.12s',
 };
 
 const dataPanelStyle = {
-  width: 220, maxWidth: 220, backgroundColor: '#fafbfc', borderLeft: '1px solid #e2e8f0',
+  width: 220, maxWidth: 220, backgroundColor: 'var(--bg-panel-alt)', borderLeft: '1px solid var(--border-default)',
   padding: 12, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-  transition: 'width 0.2s ease, max-width 0.2s ease, padding 0.2s ease',
+  transition: `width ${PANEL_COLLAPSE_TRANSITION_MS}ms ease, max-width ${PANEL_COLLAPSE_TRANSITION_MS}ms ease`,
 };
 
 const headerStyle = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
   gap: 8,
-  marginBottom: 14, paddingBottom: 10, borderBottom: '1px solid #e2e8f0',
+  marginBottom: 14, paddingBottom: 10, borderBottom: '1px solid var(--border-default)',
 };
 
 const radioRow = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' };
 
 const layerBtn = {
-  color: '#475569', background: '#fff', border: '1px solid #e2e8f0',
+  color: 'var(--text-secondary)', background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
   borderRadius: 6, padding: '5px 7px', cursor: 'pointer',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
   transition: 'background 0.12s, border-color 0.12s, color 0.12s',
 };
 
 const deleteStyle = {
-  color: '#dc2626', background: '#fff', border: '1px solid #fecaca',
+  color: 'var(--state-danger)', background: 'var(--bg-panel)', border: '1px solid var(--state-danger-border)',
   borderRadius: 6, padding: '5px 7px', cursor: 'pointer',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
   transition: 'background 0.12s, border-color 0.12s',
 };
 
 const inputStyle = {
-  width: '100%', padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 4,
+  width: '100%', padding: '6px 8px', border: '1px solid var(--border-default)', borderRadius: 4,
   fontSize: 13, marginBottom: 8, outline: 'none', boxSizing: 'border-box',
 };

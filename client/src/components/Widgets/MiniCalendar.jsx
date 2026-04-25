@@ -52,12 +52,12 @@ export default memo(function MiniCalendar({ value, onChange, min, max, rangeStar
     <div style={{ fontSize: 11, userSelect: 'none' }} onClick={(e) => e.stopPropagation()}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, padding: '0 2px' }}>
         <button type="button" onClick={(e) => { e.stopPropagation(); e.preventDefault(); setViewDate(new Date(year, month - 1, 1)); }} style={navBtn}>◀</button>
-        <span style={{ fontWeight: 600, fontSize: 11, color: '#334155' }}>{MONTHS[month]} {year}</span>
+        <span style={{ fontWeight: 600, fontSize: 11, color: 'var(--text-secondary)' }}>{MONTHS[month]} {year}</span>
         <button type="button" onClick={(e) => { e.stopPropagation(); e.preventDefault(); setViewDate(new Date(year, month + 1, 1)); }} style={navBtn}>▶</button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1 }}>
         {DAYS.map((d) => (
-          <div key={d} style={{ textAlign: 'center', fontSize: 9, color: '#94a3b8', fontWeight: 600, padding: 2 }}>{d}</div>
+          <div key={d} style={{ textAlign: 'center', fontSize: 9, color: 'var(--text-disabled)', fontWeight: 600, padding: 2 }}>{d}</div>
         ))}
         {cells.map((day, i) => {
           const sel = isSelected(day) || isRangeEdge(day);
@@ -86,6 +86,6 @@ export default memo(function MiniCalendar({ value, onChange, min, max, rangeStar
 });
 
 const navBtn = {
-  background: 'none', border: 'none', cursor: 'pointer', fontSize: 10,
-  color: '#64748b', padding: '4px 8px', borderRadius: 4, lineHeight: 1,
+  background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 10,
+  color: 'var(--text-muted)', padding: '4px 8px', borderRadius: 4, lineHeight: 1,
 };

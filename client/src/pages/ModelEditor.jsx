@@ -283,7 +283,7 @@ export default function ModelEditor() {
     }
   };
 
-  if (loading) return <div style={{ padding: 40, color: '#94a3b8' }}>Loading model...</div>;
+  if (loading) return <div style={{ padding: 40, color: 'var(--text-disabled)' }}>Loading model...</div>;
 
   // Build table data for SchemaCanvas (only selected tables with loaded columns)
   const schemaTablesData = {};
@@ -296,7 +296,7 @@ export default function ModelEditor() {
     : allTables;
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#f1f5f9' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' }}>
       {/* Header */}
       <header style={headerShellStyle}>
         <BackButton to="/models" />
@@ -304,11 +304,11 @@ export default function ModelEditor() {
           type="text" value={name} onChange={(e) => setName(e.target.value)}
           style={{
             fontSize: 16, fontWeight: 600, border: '1px solid transparent', outline: 'none',
-            background: 'transparent', color: '#0f172a', minWidth: 180, maxWidth: 320,
+            background: 'transparent', color: 'var(--text-primary)', minWidth: 180, maxWidth: 320,
             padding: '4px 8px', borderRadius: 6,
             transition: 'background 0.12s, border-color 0.12s',
           }}
-          onFocus={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
+          onFocus={(e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
           onBlur={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
         />
         {datasource?.name && (
@@ -316,19 +316,19 @@ export default function ModelEditor() {
             onClick={openDsChange}
             title="Change datasource"
             style={{ ...headerBadgeStyle, cursor: 'pointer' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#f5f3ff'; e.currentTarget.style.borderColor = '#c4b5fd'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = '#faf8ff'; e.currentTarget.style.borderColor = '#ede9fe'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-active)'; e.currentTarget.style.borderColor = 'var(--accent-primary)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent-primary-soft)'; e.currentTarget.style.borderColor = 'var(--accent-primary-border)'; }}
           >
             {datasource.name}
-            <span style={{ fontSize: 9, color: '#7c3aed', marginLeft: 2 }}>▼</span>
+            <span style={{ fontSize: 9, color: 'var(--accent-primary)', marginLeft: 2 }}>▼</span>
           </button>
         )}
         <div style={{ flex: 1 }} />
         {/* Steps */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 2,
-          padding: '3px 4px', background: '#f8fafc',
-          border: '1px solid #e2e8f0', borderRadius: 10, marginRight: 8,
+          padding: '3px 4px', background: 'var(--bg-subtle)',
+          border: '1px solid var(--border-default)', borderRadius: 10, marginRight: 8,
         }}>
           {STEPS.map((s, i) => {
             const active = step === i;
@@ -342,8 +342,8 @@ export default function ModelEditor() {
                 style={{
                   padding: '6px 12px', fontSize: 12, fontWeight: active ? 600 : 500,
                   border: 'none', borderRadius: 6,
-                  background: active ? '#ffffff' : 'transparent',
-                  color: active ? '#7c3aed' : '#475569', cursor: 'pointer',
+                  background: active ? 'var(--bg-panel)' : 'transparent',
+                  color: active ? 'var(--accent-primary)' : 'var(--text-secondary)', cursor: 'pointer',
                   boxShadow: active ? '0 1px 3px rgba(15,23,42,0.08), inset 0 0 0 1px rgba(124,58,237,0.2)' : 'none',
                   transition: 'background 0.12s, color 0.12s, box-shadow 0.12s',
                 }}
@@ -365,14 +365,14 @@ export default function ModelEditor() {
             style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)', zIndex: 100 }} />
           <div style={{
             position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-            background: '#fff', borderRadius: 10, padding: 20, minWidth: 400, maxWidth: 480,
+            background: 'var(--bg-panel)', borderRadius: 10, padding: 20, minWidth: 400, maxWidth: 480,
             boxShadow: '0 10px 30px rgba(15,23,42,0.25)', zIndex: 101,
           }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', marginBottom: 4 }}>Change datasource</div>
-            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 14, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Change datasource</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
               The model's tables, dimensions, measures and joins will be preserved. Any references to tables/columns that don't exist in the new datasource will be flagged on the model editor and on the widgets that use them.
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 280, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 6, padding: 4 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 280, overflowY: 'auto', border: '1px solid var(--border-default)', borderRadius: 6, padding: 4 }}>
               {allDatasources.map((ds) => {
                 const isCurrent = ds.id === model?.datasource_id;
                 return (
@@ -382,29 +382,29 @@ export default function ModelEditor() {
                     style={{
                       textAlign: 'left', padding: '8px 12px', border: 'none',
                       borderRadius: 5, cursor: isCurrent ? 'default' : 'pointer',
-                      background: isCurrent ? '#f5f3ff' : 'transparent',
-                      color: isCurrent ? '#7c3aed' : '#0f172a',
+                      background: isCurrent ? 'var(--bg-active)' : 'transparent',
+                      color: isCurrent ? 'var(--accent-primary)' : 'var(--text-primary)',
                       display: 'flex', flexDirection: 'column', gap: 2,
                     }}
-                    onMouseEnter={(e) => { if (!isCurrent) e.currentTarget.style.background = '#f8fafc'; }}
+                    onMouseEnter={(e) => { if (!isCurrent) e.currentTarget.style.background = 'var(--bg-subtle)'; }}
                     onMouseLeave={(e) => { if (!isCurrent) e.currentTarget.style.background = 'transparent'; }}
                   >
                     <span style={{ fontSize: 13, fontWeight: 500 }}>
-                      {ds.name} {isCurrent && <span style={{ fontSize: 10, color: '#7c3aed', marginLeft: 6 }}>current</span>}
+                      {ds.name} {isCurrent && <span style={{ fontSize: 10, color: 'var(--accent-primary)', marginLeft: 6 }}>current</span>}
                     </span>
-                    <span style={{ fontSize: 11, color: '#64748b' }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                       {ds.db_type?.toUpperCase()} — {ds.host ? `${ds.host}:${ds.port}/${ds.db_name}` : ds.db_name}
                     </span>
                   </button>
                 );
               })}
               {allDatasources.length === 0 && (
-                <div style={{ padding: 16, fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>No datasources available</div>
+                <div style={{ padding: 16, fontSize: 12, color: 'var(--text-disabled)', textAlign: 'center' }}>No datasources available</div>
               )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
               <button onClick={() => setShowDsChange(false)}
-                style={{ padding: '6px 14px', fontSize: 13, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, color: '#475569', cursor: 'pointer' }}>
+                style={{ padding: '6px 14px', fontSize: 13, background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}>
                 Cancel
               </button>
             </div>
@@ -418,7 +418,7 @@ export default function ModelEditor() {
           <div style={{ maxWidth: 700, margin: '0 auto' }}>
             <div style={cardStyle}>
               <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Select Tables</h2>
-              <p style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
                 Choose the tables you want to include in this model.
               </p>
               <input
@@ -428,15 +428,15 @@ export default function ModelEditor() {
               />
               <div style={{ maxHeight: 400, overflow: 'auto' }}>
                 {tablesLoading && (
-                  <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>Loading tables from database...</div>
+                  <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-disabled)' }}>Loading tables from database...</div>
                 )}
                 {tablesError && (
-                  <div style={{ padding: 12, background: '#fef2f2', color: '#dc2626', borderRadius: 6, fontSize: 13, marginBottom: 8 }}>
+                  <div style={{ padding: 12, background: 'var(--state-danger-soft)', color: 'var(--state-danger)', borderRadius: 6, fontSize: 13, marginBottom: 8 }}>
                     {tablesError}
                   </div>
                 )}
                 {!tablesLoading && !tablesError && filteredTables.length === 0 && (
-                  <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>
+                  <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-disabled)' }}>
                     {tableSearch ? 'No tables match your search' : 'No tables found in this database'}
                   </div>
                 )}
@@ -448,12 +448,12 @@ export default function ModelEditor() {
                       onChange={() => toggleTable(table)}
                       style={{ width: 18, height: 18, cursor: 'pointer' }}
                     />
-                    <span style={{ fontSize: 14, color: '#0f172a' }}>{table}</span>
+                    <span style={{ fontSize: 14, color: 'var(--text-primary)' }}>{table}</span>
                   </label>
                 ))}
               </div>
               <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 13, color: '#64748b' }}>{selectedTables.length} table(s) selected</span>
+                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{selectedTables.length} table(s) selected</span>
                 <button
                   onClick={enterStep1}
                   disabled={selectedTables.length === 0}
@@ -472,7 +472,7 @@ export default function ModelEditor() {
       {brokenRefs.length > 0 && (
         <div style={{
           margin: '12px 24px 0', padding: '10px 14px', borderRadius: 8,
-          background: '#fef3c7', border: '1px solid #fde68a', color: '#92400e',
+          background: 'var(--state-warning-soft)', border: '1px solid #fde68a', color: 'var(--state-warning)',
           fontSize: 13, display: 'flex', alignItems: 'flex-start', gap: 10,
         }}>
           <span style={{ fontSize: 18, lineHeight: 1 }}>⚠️</span>
@@ -480,10 +480,10 @@ export default function ModelEditor() {
             <div style={{ fontWeight: 600, marginBottom: 4 }}>
               {brokenRefs.length} broken reference{brokenRefs.length > 1 ? 's' : ''} detected
             </div>
-            <div style={{ fontSize: 12, color: '#78350f', lineHeight: 1.5 }}>
+            <div style={{ fontSize: 12, color: 'var(--state-warning)', lineHeight: 1.5 }}>
               Some tables or columns used by this model are no longer present in the datasource. Queries using them will fail. Review and fix them below.
             </div>
-            <ul style={{ margin: '6px 0 0 18px', padding: 0, fontSize: 12, color: '#78350f' }}>
+            <ul style={{ margin: '6px 0 0 18px', padding: 0, fontSize: 12, color: 'var(--state-warning)' }}>
               {brokenRefs.slice(0, 6).map((r, i) => (
                 <li key={i}>
                   <strong>{r.kind}</strong>{' '}
@@ -499,7 +499,7 @@ export default function ModelEditor() {
           <button onClick={runValidation} disabled={validating}
             style={{
               padding: '4px 10px', fontSize: 12, fontWeight: 500,
-              background: '#fff', color: '#92400e', border: '1px solid #fcd34d',
+              background: 'var(--bg-panel)', color: 'var(--state-warning)', border: '1px solid #fcd34d',
               borderRadius: 6, cursor: validating ? 'wait' : 'pointer', whiteSpace: 'nowrap',
             }}>
             {validating ? 'Checking…' : 'Re-check'}
@@ -511,8 +511,8 @@ export default function ModelEditor() {
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <div style={{
             position: 'absolute', top: 12, left: 12, zIndex: 10,
-            background: '#fff', borderRadius: 6, padding: '6px 12px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)', fontSize: 12, color: '#64748b',
+            background: 'var(--bg-panel)', borderRadius: 6, padding: '6px 12px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)', fontSize: 12, color: 'var(--text-muted)',
           }}>
             Drag column dots to create joins. Click D/M to mark dimensions/measures.
           </div>
@@ -542,7 +542,7 @@ export default function ModelEditor() {
               <input
                 type="text" value={description} onChange={(e) => setDescription(e.target.value)}
                 placeholder="Model description (optional)"
-                style={{ width: '100%', border: 'none', outline: 'none', fontSize: 14, color: '#475569' }}
+                style={{ width: '100%', border: 'none', outline: 'none', fontSize: 14, color: 'var(--text-secondary)' }}
               />
             </div>
 
@@ -550,7 +550,7 @@ export default function ModelEditor() {
             <div style={cardStyle}>
               <h3 style={cardTitle}>Dimensions ({dimensions.length})</h3>
               {dimensions.length === 0 ? (
-                <p style={{ color: '#94a3b8', fontSize: 13 }}>
+                <p style={{ color: 'var(--text-disabled)', fontSize: 13 }}>
                   No dimensions yet. Go to "Schema & Joins" and click D next to columns.
                 </p>
               ) : (
@@ -568,11 +568,11 @@ export default function ModelEditor() {
                     {dimensions.map((d) => {
                       const broken = brokenRefs.find((r) => r.kind === 'dimension' && r.name === d.name);
                       return (
-                      <tr key={d.name} style={broken ? { background: '#fef3c7' } : undefined} title={broken ? (broken.issue === 'missing_table' ? `Table "${broken.table}" not found` : broken.issue === 'missing_column' ? `Column "${broken.column}" missing in "${broken.table}"` : broken.issue) : undefined}>
+                      <tr key={d.name} style={broken ? { background: 'var(--state-warning-soft)' } : undefined} title={broken ? (broken.issue === 'missing_table' ? `Table "${broken.table}" not found` : broken.issue === 'missing_column' ? `Column "${broken.column}" missing in "${broken.table}"` : broken.issue) : undefined}>
                         <td style={tdStyle}>{broken && <span style={{ marginRight: 4 }}>⚠️</span>}{d.table}</td>
                         <td style={tdStyle}>{d.column}</td>
                         <td style={tdStyle}>
-                          <span style={{ ...badge, background: '#f5f3ff', color: '#7c3aed' }}>{d.type}</span>
+                          <span style={{ ...badge, background: 'var(--bg-active)', color: 'var(--accent-primary)' }}>{d.type}</span>
                         </td>
                         <td style={tdStyle}>
                           <input
@@ -600,8 +600,8 @@ export default function ModelEditor() {
               </div>
 
               {showCalcMeasure && (
-                <div style={{ padding: 12, background: '#f8fafc', borderRadius: 6, marginBottom: 12, border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 8 }}>New calculated measure</div>
+                <div style={{ padding: 12, background: 'var(--bg-subtle)', borderRadius: 6, marginBottom: 12, border: '1px solid var(--border-default)' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>New calculated measure</div>
                   <input
                     type="text" placeholder="Label (e.g. Amount per capita)"
                     value={calcMeasure.label} onChange={(e) => setCalcMeasure({ ...calcMeasure, label: e.target.value })}
@@ -620,7 +620,7 @@ export default function ModelEditor() {
               )}
 
               {measures.length === 0 && !showCalcMeasure ? (
-                <p style={{ color: '#94a3b8', fontSize: 13 }}>
+                <p style={{ color: 'var(--text-disabled)', fontSize: 13 }}>
                   No measures yet. Go to "Schema & Joins" and click M, or add a SQL measure above.
                 </p>
               ) : (
@@ -638,18 +638,18 @@ export default function ModelEditor() {
                     {measures.map((m) => {
                       const broken = brokenRefs.find((r) => r.kind === 'measure' && r.name === m.name);
                       return (
-                      <tr key={m.name} style={broken ? { background: '#fef3c7' } : undefined} title={broken ? (broken.issue === 'missing_table' ? `Table "${broken.table}" not found` : broken.issue === 'missing_column' ? `Column "${broken.column}" missing in "${broken.table}"` : broken.issue) : undefined}>
-                        <td style={tdStyle}>{broken && <span style={{ marginRight: 4 }}>⚠️</span>}{m.aggregation === 'custom' ? <span style={{ color: '#8b5cf6', fontSize: 11 }}>SQL</span> : m.table}</td>
+                      <tr key={m.name} style={broken ? { background: 'var(--state-warning-soft)' } : undefined} title={broken ? (broken.issue === 'missing_table' ? `Table "${broken.table}" not found` : broken.issue === 'missing_column' ? `Column "${broken.column}" missing in "${broken.table}"` : broken.issue) : undefined}>
+                        <td style={tdStyle}>{broken && <span style={{ marginRight: 4 }}>⚠️</span>}{m.aggregation === 'custom' ? <span style={{ color: 'var(--accent-primary)', fontSize: 11 }}>SQL</span> : m.table}</td>
                         <td style={tdStyle} title={m.expression || ''}>
                           {m.aggregation === 'custom' ? (
-                            <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#64748b' }}>
+                            <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)' }}>
                               {m.expression?.length > 30 ? m.expression.substring(0, 30) + '...' : m.expression}
                             </span>
                           ) : m.column}
                         </td>
                         <td style={tdStyle}>
                           {m.aggregation === 'custom' ? (
-                            <span style={{ fontSize: 11, color: '#8b5cf6', fontWeight: 600 }}>custom</span>
+                            <span style={{ fontSize: 11, color: 'var(--accent-primary)', fontWeight: 600 }}>custom</span>
                           ) : (
                           <select
                             style={inlineInput}
@@ -686,16 +686,16 @@ export default function ModelEditor() {
             <div style={cardStyle}>
               <h3 style={cardTitle}>Joins ({joins.length})</h3>
               {joins.length === 0 ? (
-                <p style={{ color: '#94a3b8', fontSize: 13 }}>No joins. Go to "Schema & Joins" to drag between column dots.</p>
+                <p style={{ color: 'var(--text-disabled)', fontSize: 13 }}>No joins. Go to "Schema & Joins" to drag between column dots.</p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {joins.map((j, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#f8fafc', borderRadius: 6, fontSize: 13 }}>
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--bg-subtle)', borderRadius: 6, fontSize: 13 }}>
                       <span style={{ fontWeight: 600 }}>{j.from_table}</span>
-                      <span style={{ color: '#64748b' }}>.{j.from_column}</span>
-                      <span style={{ ...badge, background: '#f5f3ff', color: '#7c3aed' }}>{j.type}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>.{j.from_column}</span>
+                      <span style={{ ...badge, background: 'var(--bg-active)', color: 'var(--accent-primary)' }}>{j.type}</span>
                       <span style={{ fontWeight: 600 }}>{j.to_table}</span>
-                      <span style={{ color: '#64748b' }}>.{j.to_column}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>.{j.to_column}</span>
                       <button onClick={() => setJoins((prev) => prev.filter((_, idx) => idx !== i))} style={{ ...removeBtn, marginLeft: 'auto' }}>x</button>
                     </div>
                   ))}
@@ -709,7 +709,7 @@ export default function ModelEditor() {
         <div style={{
           position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
           padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 9999,
-          backgroundColor: saveMsg === 'Saved' ? '#22c55e' : '#ef4444', color: '#fff',
+          backgroundColor: saveMsg === 'Saved' ? 'var(--state-success)' : 'var(--state-danger)', color: '#fff',
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
         }}>{saveMsg === 'Saved' ? '✓ Model saved' : '✗ Save failed'}</div>
       )}
@@ -719,12 +719,12 @@ export default function ModelEditor() {
 
 const primaryBtn = {
   padding: '8px 16px', fontSize: 14, fontWeight: 600, border: 'none',
-  borderRadius: 6, background: '#7c3aed', color: '#fff', cursor: 'pointer',
+  borderRadius: 6, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
 };
-const cardStyle = { backgroundColor: '#fff', padding: 20, borderRadius: 8, border: '1px solid #e2e8f0' };
-const cardTitle = { fontSize: 15, fontWeight: 600, color: '#0f172a', marginBottom: 12 };
+const cardStyle = { backgroundColor: 'var(--bg-panel)', padding: 20, borderRadius: 8, border: '1px solid var(--border-default)' };
+const cardTitle = { fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 };
 const searchInput = {
-  width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0',
+  width: '100%', padding: '8px 10px', border: '1px solid var(--border-default)',
   borderRadius: 6, fontSize: 14, outline: 'none', marginBottom: 12, boxSizing: 'border-box',
 };
 const tableCheckRow = {
@@ -732,30 +732,30 @@ const tableCheckRow = {
   borderBottom: '1px solid #f1f5f9', cursor: 'pointer',
 };
 const tableStyleCSS = { width: '100%', borderCollapse: 'collapse', fontSize: 13 };
-const thStyle = { textAlign: 'left', padding: '8px 10px', borderBottom: '2px solid #e2e8f0', color: '#64748b', fontWeight: 600, fontSize: 12 };
-const tdStyle = { padding: '6px 10px', borderBottom: '1px solid #f1f5f9', color: '#334155' };
+const thStyle = { textAlign: 'left', padding: '8px 10px', borderBottom: '2px solid #e2e8f0', color: 'var(--text-muted)', fontWeight: 600, fontSize: 12 };
+const tdStyle = { padding: '6px 10px', borderBottom: '1px solid #f1f5f9', color: 'var(--text-secondary)' };
 const inlineInput = {
-  padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4,
+  padding: '4px 6px', border: '1px solid var(--border-default)', borderRadius: 4,
   fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box',
 };
 const badge = { padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 };
 const removeBtn = {
-  fontSize: 12, color: '#dc2626', background: 'none', border: '1px solid #fca5a5',
+  fontSize: 12, color: 'var(--state-danger)', background: 'transparent', border: '1px solid #fca5a5',
   borderRadius: 4, padding: '2px 8px', cursor: 'pointer',
 };
 const addCalcBtn = {
   fontSize: 12, fontWeight: 600, padding: '4px 10px', border: '1px solid #8b5cf6',
-  borderRadius: 4, background: '#f5f3ff', color: '#8b5cf6', cursor: 'pointer',
+  borderRadius: 4, background: 'var(--bg-active)', color: 'var(--accent-primary)', cursor: 'pointer',
 };
 const calcInput = {
-  width: '100%', padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 4,
+  width: '100%', padding: '6px 8px', border: '1px solid var(--border-default)', borderRadius: 4,
   fontSize: 13, outline: 'none', marginBottom: 8, boxSizing: 'border-box',
 };
 const calcCancelBtn = {
-  fontSize: 12, padding: '4px 10px', border: '1px solid #e2e8f0',
-  borderRadius: 4, background: '#fff', color: '#64748b', cursor: 'pointer',
+  fontSize: 12, padding: '4px 10px', border: '1px solid var(--border-default)',
+  borderRadius: 4, background: 'var(--bg-panel)', color: 'var(--text-muted)', cursor: 'pointer',
 };
 const calcSaveBtn = {
   fontSize: 12, fontWeight: 600, padding: '4px 10px', border: 'none',
-  borderRadius: 4, background: '#8b5cf6', color: '#fff', cursor: 'pointer',
+  borderRadius: 4, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
 };

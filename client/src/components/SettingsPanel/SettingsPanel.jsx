@@ -1,8 +1,16 @@
 import { useState } from 'react';
+import { TbCheck } from 'react-icons/tb';
+import { useTheme } from '../../hooks/useTheme';
 
 export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
+  const { themes: availableThemes } = useTheme();
   const update = (key, value) => {
     onSettingsChange({ ...settings, [key]: value });
+  };
+  const setReportTheme = (themeKey) => {
+    const t = availableThemes?.[themeKey];
+    if (!t) return;
+    onSettingsChange({ ...settings, theme: { key: themeKey, ...t } });
   };
 
   const handleImageUpload = (e) => {
@@ -19,9 +27,41 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
     <div style={overlayStyle} onClick={onClose}>
       <div style={panelStyle} onClick={(e) => e.stopPropagation()}>
         <div style={headerStyle}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>Settings</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Settings</span>
           <button onClick={onClose} style={closeBtn}>x</button>
         </div>
+
+        <Section title="Report Theme">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {Object.entries(availableThemes || {}).map(([key, t]) => {
+              const active = settings?.theme?.key === key;
+              return (
+                <button key={key} onClick={() => setReportTheme(key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '8px 10px', borderRadius: 6,
+                    border: '1px solid ' + (active ? 'var(--accent-primary)' : 'var(--border-default)'),
+                    background: active ? 'var(--bg-active)' : 'var(--bg-panel)',
+                    color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                    fontSize: 12, fontWeight: active ? 600 : 500,
+                    cursor: 'pointer', textAlign: 'left',
+                    transition: 'background 0.12s, border-color 0.12s',
+                  }}
+                >
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{
+                      display: 'inline-block', width: 16, height: 16, borderRadius: 4,
+                      background: t.vars?.['--bg-app'] || '#fff',
+                      border: '1px solid ' + (t.vars?.['--border-default'] || '#e2e8f0'),
+                    }} />
+                    <span>{t.label || key}</span>
+                  </span>
+                  {active && <TbCheck size={14} />}
+                </button>
+              );
+            })}
+          </div>
+        </Section>
 
         <Section title="View Mode">
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -35,9 +75,9 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
                 onClick={() => update('viewMode', mode.value)}
                 style={{
                   ...presetBtn,
-                  background: (settings.viewMode || 'fitToWidth') === mode.value ? '#f5f3ff' : '#fff',
-                  borderColor: (settings.viewMode || 'fitToWidth') === mode.value ? '#7c3aed' : '#e2e8f0',
-                  color: (settings.viewMode || 'fitToWidth') === mode.value ? '#7c3aed' : '#475569',
+                  background: (settings.viewMode || 'fitToWidth') === mode.value ? 'var(--bg-active)' : 'var(--bg-panel)',
+                  borderColor: (settings.viewMode || 'fitToWidth') === mode.value ? 'var(--accent-primary)' : 'var(--border-default)',
+                  color: (settings.viewMode || 'fitToWidth') === mode.value ? 'var(--accent-primary)' : 'var(--text-secondary)',
                   fontWeight: (settings.viewMode || 'fitToWidth') === mode.value ? 600 : 400,
                 }}
               >
@@ -80,8 +120,8 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
                 onClick={() => { update('pageWidth', preset.w); update('pageHeight', preset.h); }}
                 style={{
                   ...presetBtn,
-                  background: settings.pageWidth === preset.w && settings.pageHeight === preset.h ? '#f5f3ff' : '#fff',
-                  borderColor: settings.pageWidth === preset.w && settings.pageHeight === preset.h ? '#7c3aed' : '#e2e8f0',
+                  background: settings.pageWidth === preset.w && settings.pageHeight === preset.h ? 'var(--bg-active)' : 'var(--bg-panel)',
+                  borderColor: settings.pageWidth === preset.w && settings.pageHeight === preset.h ? 'var(--accent-primary)' : 'var(--border-default)',
                 }}
               >
                 {preset.label}
@@ -146,9 +186,9 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
               </Field>
               {settings.backgroundImage && (
                 <div style={{ marginTop: 8 }}>
-                  <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>Preview:</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Preview:</div>
                   <div style={{
-                    width: '100%', height: 80, borderRadius: 4, border: '1px solid #e2e8f0',
+                    width: '100%', height: 80, borderRadius: 4, border: '1px solid var(--border-default)',
                     backgroundImage: `url(${settings.backgroundImage})`,
                     backgroundSize: 'cover', backgroundPosition: 'center',
                   }} />
@@ -159,8 +199,8 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
                         onClick={() => update('backgroundSize', mode)}
                         style={{
                           ...presetBtn,
-                          background: (settings.backgroundSize || 'cover') === mode ? '#f5f3ff' : '#fff',
-                          borderColor: (settings.backgroundSize || 'cover') === mode ? '#7c3aed' : '#e2e8f0',
+                          background: (settings.backgroundSize || 'cover') === mode ? 'var(--bg-active)' : 'var(--bg-panel)',
+                          borderColor: (settings.backgroundSize || 'cover') === mode ? 'var(--accent-primary)' : 'var(--border-default)',
                         }}
                       >
                         {mode}
@@ -169,7 +209,7 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
                   </div>
                   <button
                     onClick={() => update('backgroundImage', null)}
-                    style={{ ...presetBtn, color: '#dc2626', borderColor: '#fca5a5', marginTop: 6 }}
+                    style={{ ...presetBtn, color: 'var(--state-danger)', borderColor: 'var(--state-danger)', marginTop: 6 }}
                   >
                     Remove image
                   </button>
@@ -194,7 +234,7 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
               onChange={(e) => update('borderRadius', parseInt(e.target.value))}
               style={{ width: 80 }}
             />
-            <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 4 }}>{settings.borderRadius ?? 8}px</span>
+            <span style={{ fontSize: 11, color: 'var(--text-disabled)', marginLeft: 4 }}>{settings.borderRadius ?? 8}px</span>
           </Field>
           <Field label="Shadow">
             <input
@@ -214,7 +254,7 @@ function Section({ title, children }) {
   return (
     <div style={{
       marginBottom: 8,
-      border: '1px solid #e2e8f0',
+      border: '1px solid var(--border-default)',
       borderRadius: 6,
       overflow: 'hidden',
     }}>
@@ -223,13 +263,13 @@ function Section({ title, children }) {
         style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           padding: '6px 10px',
-          background: '#f8fafc',
+          background: 'var(--bg-subtle)',
           cursor: 'pointer',
           userSelect: 'none',
         }}
       >
-        <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>{title}</span>
-        <span style={{ fontSize: 10, color: '#94a3b8', transition: 'transform 0.15s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }}>▼</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{title}</span>
+        <span style={{ fontSize: 10, color: 'var(--text-disabled)', transition: 'transform 0.15s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }}>▼</span>
       </div>
       {open && <div style={{ padding: '8px 10px 4px' }}>{children}</div>}
     </div>
@@ -239,7 +279,7 @@ function Section({ title, children }) {
 function Field({ label, children }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 6 }}>
-      <span style={{ fontSize: 12, color: '#475569', whiteSpace: 'nowrap', flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', flexShrink: 0 }}>{label}</span>
       <div style={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>{children}</div>
     </div>
   );
@@ -252,26 +292,26 @@ const overlayStyle = {
 };
 
 const panelStyle = {
-  width: 280, backgroundColor: '#fff', height: '100%',
+  width: 280, backgroundColor: 'var(--bg-panel)', height: '100%',
   boxShadow: '-4px 0 12px rgba(0,0,0,0.1)', padding: 16, overflowY: 'auto',
 };
 
 const headerStyle = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid #e2e8f0',
+  marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid var(--border-default)',
 };
 
 const closeBtn = {
-  fontSize: 18, background: 'none', border: 'none', color: '#64748b',
+  fontSize: 18, background: 'transparent', border: 'none', color: 'var(--text-muted)',
   cursor: 'pointer', fontWeight: 700,
 };
 
 const inputStyle = {
-  padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 4,
+  padding: '6px 8px', border: '1px solid var(--border-default)', borderRadius: 4,
   fontSize: 13, outline: 'none', width: 100, textAlign: 'right',
 };
 
 const presetBtn = {
-  fontSize: 11, padding: '4px 8px', border: '1px solid #e2e8f0',
-  borderRadius: 4, background: '#fff', cursor: 'pointer', color: '#475569',
+  fontSize: 11, padding: '4px 8px', border: '1px solid var(--border-default)',
+  borderRadius: 4, background: 'var(--bg-panel)', cursor: 'pointer', color: 'var(--text-secondary)',
 };

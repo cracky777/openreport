@@ -28,9 +28,9 @@ export function getColumnTotalFn(tc, colName) {
 
 export function getGridConfig(tc) {
   const d = {
-    horizontalLines: true, horizontalColor: '#e2e8f0', horizontalWidth: 1,
-    verticalLines: false, verticalColor: '#e2e8f0', verticalWidth: 1,
-    outerBorder: false, outerBorderColor: '#e2e8f0', outerBorderWidth: 1,
+    horizontalLines: true, horizontalColor: 'var(--border-default)', horizontalWidth: 1,
+    verticalLines: false, verticalColor: 'var(--border-default)', verticalWidth: 1,
+    outerBorder: false, outerBorderColor: 'var(--border-default)', outerBorderWidth: 1,
     cellPadding: 8,
   };
   return { ...d, ...(tc?.grid || {}) };
@@ -39,8 +39,8 @@ export function getGridConfig(tc) {
 export function getRowConfig(tc) {
   const d = {
     height: 'normal', striped: true,
-    stripeColor1: '#ffffff', stripeColor2: '#f8fafc',
-    hoverHighlight: true, hoverColor: '#eef2ff',
+    stripeColor1: 'var(--bg-panel)', stripeColor2: 'var(--bg-subtle)',
+    hoverHighlight: true, hoverColor: 'var(--bg-active)',
   };
   return { ...d, ...(tc?.rows || {}) };
 }
@@ -48,8 +48,8 @@ export function getRowConfig(tc) {
 export function getTotalsConfig(tc) {
   const d = {
     enabled: false, defaultFn: 'sum', fontBold: true,
-    bgColor: '#f1f5f9', fontColor: '#1e293b',
-    borderTopWidth: 2, borderTopColor: '#94a3b8',
+    bgColor: 'var(--bg-hover)', fontColor: 'var(--text-primary)',
+    borderTopWidth: 2, borderTopColor: 'var(--border-strong)',
   };
   return { ...d, ...(tc?.totals || {}) };
 }

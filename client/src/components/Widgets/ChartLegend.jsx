@@ -104,7 +104,7 @@ export default memo(function ChartLegend({ items, position, onToggle, hiddenSeri
                 background: hidden ? '#ccc' : item.color,
               }} />
               <span title={item.name} style={{
-                fontSize: 11, color: '#475569', lineHeight: 1.2,
+                fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.2,
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 maxWidth: isVertical ? 86 : 120,
               }}>{item.name}</span>
@@ -131,7 +131,7 @@ export default memo(function ChartLegend({ items, position, onToggle, hiddenSeri
 });
 
 const arrowBtn = {
-  background: 'none', border: 'none', cursor: 'pointer',
-  fontSize: 10, color: '#94a3b8', padding: '2px 4px',
+  background: 'transparent', border: 'none', cursor: 'pointer',
+  fontSize: 10, color: 'var(--text-disabled)', padding: '2px 4px',
   lineHeight: 1, flexShrink: 0,
 };

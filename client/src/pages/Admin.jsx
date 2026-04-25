@@ -6,9 +6,9 @@ import { TbShield, TbEdit, TbEye, TbTrash, TbUserPlus, TbKey } from 'react-icons
 import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton } from '../components/PageHeader/PageHeader';
 
 const ROLES = [
-  { value: 'admin', label: 'Admin', color: '#dc2626', icon: TbShield, desc: 'Full access + user management' },
+  { value: 'admin', label: 'Admin', color: 'var(--state-danger)', icon: TbShield, desc: 'Full access + user management' },
   { value: 'editor', label: 'Editor', color: '#f59e0b', icon: TbEdit, desc: 'Create/edit reports, models, datasources' },
-  { value: 'viewer', label: 'Viewer', color: '#7c3aed', icon: TbEye, desc: 'View reports only' },
+  { value: 'viewer', label: 'Viewer', color: 'var(--accent-primary)', icon: TbEye, desc: 'View reports only' },
 ];
 
 export default function Admin() {
@@ -66,15 +66,15 @@ export default function Admin() {
   };
 
   if (user?.role !== 'admin') {
-    return <div style={{ padding: 60, textAlign: 'center', color: '#dc2626' }}>Admin access required</div>;
+    return <div style={{ padding: 60, textAlign: 'center', color: 'var(--state-danger)' }}>Admin access required</div>;
   }
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#f1f5f9' }}>
+    <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-app)' }}>
       <header style={headerShellStyle}>
         <BackButton to="/" />
         <h1 style={{ ...headerTitleStyle, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <TbShield size={18} color="#7c3aed" /> Admin Console
+          <TbShield size={18} color="var(--accent-primary)" /> Admin Console
         </h1>
         <div style={{ flex: 1 }} />
         <PrimaryButton onClick={() => setShowCreate(true)}>
@@ -88,7 +88,7 @@ export default function Admin() {
           {ROLES.map((r) => {
             const Icon = r.icon;
             return (
-              <div key={r.value} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b' }}>
+              <div key={r.value} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
                 <Icon size={14} color={r.color} /> <strong style={{ color: r.color }}>{r.label}</strong> — {r.desc}
               </div>
             );
@@ -119,9 +119,9 @@ export default function Admin() {
 
         {/* Users table */}
         {loading ? (
-          <div style={{ textAlign: 'center', color: '#94a3b8', marginTop: 40 }}>Loading...</div>
+          <div style={{ textAlign: 'center', color: 'var(--text-disabled)', marginTop: 40 }}>Loading...</div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: '#fff', borderRadius: 8, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'var(--bg-panel)', borderRadius: 8, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
                 <th style={thStyle}>User</th>
@@ -151,7 +151,7 @@ export default function Admin() {
                           <TbKey size={14} />
                         </button>
                         {u.id !== user.id && (
-                          <button onClick={() => deleteUser(u.id)} title="Delete" style={{ ...iconBtn, color: '#dc2626' }}>
+                          <button onClick={() => deleteUser(u.id)} title="Delete" style={{ ...iconBtn, color: 'var(--state-danger)' }}>
                             <TbTrash size={14} />
                           </button>
                         )}
@@ -175,10 +175,10 @@ export default function Admin() {
   );
 }
 
-const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: '#7c3aed', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center' };
-const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer' };
-const inputStyle = { padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box' };
-const formCard = { backgroundColor: '#fff', padding: 20, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 20 };
-const thStyle = { padding: '10px 14px', textAlign: 'left', fontSize: 12, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' };
-const tdStyle = { padding: '10px 14px', fontSize: 13, color: '#334155' };
-const iconBtn = { background: 'none', border: '1px solid #e2e8f0', borderRadius: 4, padding: '4px 6px', cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center' };
+const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center' };
+const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: 'var(--bg-panel)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer' };
+const inputStyle = { padding: '8px 10px', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box' };
+const formCard = { backgroundColor: 'var(--bg-panel)', padding: 20, borderRadius: 8, border: '1px solid var(--border-default)', marginBottom: 20 };
+const thStyle = { padding: '10px 14px', textAlign: 'left', fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' };
+const tdStyle = { padding: '10px 14px', fontSize: 13, color: 'var(--text-secondary)' };
+const iconBtn = { background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '4px 6px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' };

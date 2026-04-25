@@ -43,7 +43,10 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
     // External / cross-zone drop
     if (fields.includes(fieldName)) return;
     if (accepts && !accepts.includes(fieldType)) return;
-    onDrop(fieldName, fieldType, sourceZone || null, idx);
+    // Single-field zone with an existing field: signal "replace" so the parent does an atomic swap
+    // (calling onRemove + onDrop separately would race because both updates read stale React state).
+    const replace = !multiple && fields.length > 0;
+    onDrop(fieldName, fieldType, sourceZone || null, idx, replace);
   };
 
   const startItemDrag = (e, i) => {
@@ -76,9 +79,14 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
   // Detect if the current drag is from this zone (for visual only)
   const draggedField = dragIdx != null ? fields[dragIdx] : null;
 
+  // Single-field zone already occupied → any external drop is a replace, not an insert.
+  // Suppress position bars and highlight the whole zone instead.
+  const isReplaceMode = !multiple && fields.length > 0;
+  const isHovering = dropIdx != null;
+
   return (
     <div style={{ marginBottom: 10 }}>
-      <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>{label}</div>
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -94,10 +102,10 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
         onDrop={handleDrop}
         style={{
           minHeight: 36,
-          border: dropIdx != null ? '2px dashed #7c3aed' : '1px dashed #cbd5e1',
+          border: isHovering ? '2px dashed #7c3aed' : '1px dashed #cbd5e1',
           borderRadius: 6,
           padding: 4,
-          backgroundColor: dropIdx != null ? '#f5f3ff' : '#fafafa',
+          backgroundColor: isHovering ? 'var(--bg-active)' : 'var(--bg-subtle)',
           display: 'flex',
           flexDirection: 'column',
           gap: 2,
@@ -107,33 +115,35 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
           const isDim = dimensionNames ? dimensionNames.has(field) : accepts?.includes('dimension');
           const missing = Object.keys(fieldInfos).length > 0 && !fieldInfos[field];
           const isDragging = draggedField === field;
-          const showBar = dropIdx === i && !(isDragging && (dragIdx === i || dragIdx === i - 1));
+          const showBar = !isReplaceMode && dropIdx === i && !(isDragging && (dragIdx === i || dragIdx === i - 1));
+          const willBeReplaced = isReplaceMode && isHovering;
           return (
             <div key={field} draggable
               onDragStart={(e) => startItemDrag(e, i)}
               onDragEnd={endItemDrag}
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDrop(i); }}
             >
-              {showBar && <div style={{ height: 2, background: '#7c3aed', borderRadius: 1, marginBottom: 2 }} />}
+              {showBar && <div style={{ height: 2, background: 'var(--accent-primary)', borderRadius: 1, marginBottom: 2 }} />}
               <span title={missing ? undefined : getTooltip(field)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 3,
                   fontSize: 11, padding: '3px 6px', borderRadius: 4,
-                  background: missing ? '#fef2f2' : isDim ? '#f5f3ff' : '#f0fdf4',
-                  color: missing ? '#dc2626' : isDim ? '#7c3aed' : '#16a34a',
-                  fontWeight: 500, opacity: isDragging ? 0.4 : 1,
+                  background: missing ? 'var(--state-danger-soft)' : isDim ? 'var(--bg-active)' : 'var(--state-success-soft)',
+                  color: missing ? 'var(--state-danger)' : isDim ? 'var(--accent-primary)' : '#16a34a',
+                  fontWeight: 500, opacity: isDragging ? 0.4 : willBeReplaced ? 0.45 : 1,
                   cursor: 'grab', userSelect: 'none',
+                  textDecoration: willBeReplaced ? 'line-through' : 'none',
                 }}
               >
-                <span style={{ fontSize: 9, color: '#94a3b8', marginRight: 2 }}>⠿</span>
+                <span style={{ fontSize: 9, color: 'var(--text-disabled)', marginRight: 2 }}>⠿</span>
                 {/* Aggregation badge for measures */}
                 {!isDim && measureInfos?.[field] && measureInfos[field].aggregation !== 'custom' && onAggChange && (
                   <span
                     onClick={(e) => { e.stopPropagation(); setAggMenuField(aggMenuField === field ? null : field); }}
                     style={{
                       fontSize: 8, fontWeight: 700, textTransform: 'uppercase',
-                      color: '#16a34a', cursor: 'pointer', marginRight: 2,
-                      padding: '0 3px', borderRadius: 2, background: '#dcfce7',
+                      color: 'var(--state-success)', cursor: 'pointer', marginRight: 2,
+                      padding: '0 3px', borderRadius: 2, background: 'var(--state-success-soft)',
                       flexShrink: 0, lineHeight: '14px', position: 'relative',
                     }}
                     title="Click to change aggregation"
@@ -142,14 +152,14 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
                   </span>
                 )}
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{getDisplayName(field)}</span>
-                {missing && <span title="This field no longer exists in the data model" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, borderRadius: '50%', background: '#dc2626', color: '#fff', fontSize: 9, fontWeight: 700, flexShrink: 0 }}>!</span>}
-                <button onClick={() => onRemove(field)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: missing ? '#dc2626' : '#94a3b8', fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
+                {missing && <span title="This field no longer exists in the data model" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, borderRadius: '50%', background: 'var(--state-danger)', color: 'var(--bg-panel)', fontSize: 9, fontWeight: 700, flexShrink: 0 }}>!</span>}
+                <button onClick={() => onRemove(field)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: missing ? 'var(--state-danger)' : 'var(--text-disabled)', fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
               </span>
               {/* Aggregation dropdown menu */}
               {aggMenuField === field && (
                 <div style={{
-                  display: 'flex', flexWrap: 'wrap', gap: 2, padding: '3px 4px', background: '#f8fafc',
-                  borderRadius: 4, border: '1px solid #e2e8f0', marginTop: 2,
+                  display: 'flex', flexWrap: 'wrap', gap: 2, padding: '3px 4px', background: 'var(--bg-subtle)',
+                  borderRadius: 4, border: '1px solid var(--border-default)', marginTop: 2,
                 }}>
                   {AGG_OPTIONS.map((opt) => (
                     <button key={opt.value}
@@ -157,8 +167,8 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
                       style={{
                         fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 3,
                         border: 'none', cursor: 'pointer',
-                        background: measureInfos[field]?.aggregation === opt.value ? '#7c3aed' : '#fff',
-                        color: measureInfos[field]?.aggregation === opt.value ? '#fff' : '#475569',
+                        background: measureInfos[field]?.aggregation === opt.value ? 'var(--accent-primary)' : 'var(--bg-panel)',
+                        color: measureInfos[field]?.aggregation === opt.value ? '#fff' : 'var(--text-secondary)',
                       }}
                     >{opt.label}</button>
                   ))}
@@ -168,12 +178,12 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
           );
         })}
         {/* Drop indicator at end */}
-        {dropIdx === fields.length && !(draggedField && dragIdx === fields.length - 1) && (
-          <div style={{ height: 2, background: '#7c3aed', borderRadius: 1 }} />
+        {!isReplaceMode && dropIdx === fields.length && !(draggedField && dragIdx === fields.length - 1) && (
+          <div style={{ height: 2, background: 'var(--accent-primary)', borderRadius: 1 }} />
         )}
         {/* Empty zone placeholder */}
         {fields.length === 0 && dropIdx == null && (
-          <span style={{ fontSize: 11, color: '#94a3b8', padding: '4px 6px', pointerEvents: 'none' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-disabled)', padding: '4px 6px', pointerEvents: 'none' }}>
             Drop {accepts?.includes('dimension') && accepts?.includes('measure') ? 'fields' : accepts?.includes('dimension') ? 'dimension' : 'measure'} here
           </span>
         )}

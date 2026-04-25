@@ -316,16 +316,16 @@ export default function SchemaCanvas({
           }}>!</span>
           <span style={{ fontSize: 12, color: '#991b1b', fontWeight: 500 }}>{cycleWarning}</span>
           <button onClick={() => setCycleWarning(null)} style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: '#dc2626', fontSize: 16, padding: 0, lineHeight: 1, flexShrink: 0,
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            color: 'var(--state-danger)', fontSize: 16, padding: 0, lineHeight: 1, flexShrink: 0,
           }}>x</button>
         </div>
       )}
 
       {/* Zoom controls */}
-      <div style={{ position: 'absolute', bottom: 12, right: 12, zIndex: 10, display: 'flex', gap: 4, background: '#fff', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.12)', padding: 4 }}>
+      <div style={{ position: 'absolute', bottom: 12, right: 12, zIndex: 10, display: 'flex', gap: 4, background: 'var(--bg-panel)', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.12)', padding: 4 }}>
         <button onClick={() => setZoom((z) => Math.min(2, z + 0.15))} style={zoomBtn}>+</button>
-        <span style={{ fontSize: 11, padding: '4px 6px', color: '#64748b', minWidth: 36, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
+        <span style={{ fontSize: 11, padding: '4px 6px', color: 'var(--text-muted)', minWidth: 36, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
         <button onClick={() => setZoom((z) => Math.max(0.3, z - 0.15))} style={zoomBtn}>-</button>
         <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} style={{ ...zoomBtn, fontSize: 10, width: 'auto', padding: '4px 8px' }}>Reset</button>
       </div>
@@ -605,7 +605,7 @@ export default function SchemaCanvas({
 }
 
 const zoomBtn = {
-  width: 28, height: 28, border: '1px solid #e2e8f0', borderRadius: 4,
-  background: '#fff', cursor: 'pointer', fontSize: 16, fontWeight: 600,
-  color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  width: 28, height: 28, border: '1px solid var(--border-default)', borderRadius: 4,
+  background: 'var(--bg-panel)', cursor: 'pointer', fontSize: 16, fontWeight: 600,
+  color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
