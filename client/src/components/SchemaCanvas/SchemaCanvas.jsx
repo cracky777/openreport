@@ -293,8 +293,12 @@ export default function SchemaCanvas({
     });
   }, [positions, onPositionsChange]);
 
-  const isDimension = (table, col) => dimensions.some((d) => d.table === table && d.column === col);
-  const isMeasure = (table, col) => measures.some((m) => m.table === table && m.column === col);
+  // Match by normalized (trimmed, case-insensitive) name so the D/M badges stay
+  // visible even if the column / table name was stored with subtle differences
+  // (BOM, trailing whitespace, casing) compared to what the schema endpoint returns.
+  const norm = (s) => String(s ?? '').trim().toLowerCase();
+  const isDimension = (table, col) => dimensions.some((d) => norm(d.table) === norm(table) && norm(d.column) === norm(col));
+  const isMeasure = (table, col) => measures.some((m) => norm(m.table) === norm(table) && norm(m.column) === norm(col));
 
   return (
     <div

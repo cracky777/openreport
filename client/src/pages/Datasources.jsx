@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { TbUpload } from 'react-icons/tb';
 import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
+import { DatasourcesHeader } from '../cloud';
 
 const DB_TYPES = [
   { value: 'postgres', label: 'PostgreSQL', defaultPort: 5432 },
@@ -183,6 +184,7 @@ export default function Datasources() {
       </header>
 
       <main style={{ maxWidth: 800, margin: '0 auto', padding: '32px 20px' }}>
+        {DatasourcesHeader && <DatasourcesHeader />}
         {uploadProgress && (
           <div style={{
             padding: '10px 16px', marginBottom: 16, borderRadius: 6, fontSize: 13,

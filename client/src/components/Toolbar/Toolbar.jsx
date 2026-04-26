@@ -129,7 +129,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           href={modelId ? `/models/${modelId}` : undefined}
           target="_blank"
           rel="noopener noreferrer"
-          title={modelId ? 'Open data model (new tab)' : undefined}
+          title={modelId ? `${modelName} — open data model (new tab)` : modelName}
           style={modelPillStyle(!!modelId)}
           onMouseEnter={(e) => {
             if (!modelId) return;
@@ -147,7 +147,11 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           }}
         >
           <TbDatabase size={14} color="var(--accent-primary)" style={{ flexShrink: 0 }} />
-          <span style={{ fontWeight: 500, color: 'var(--accent-primary-text)' }}>{modelName}</span>
+          <span style={{
+            fontWeight: 500, color: 'var(--accent-primary-text)',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            minWidth: 0, flex: '0 1 auto',
+          }}>{modelName}</span>
           {modelId && (
             <TbPencil data-pencil size={12} color="var(--accent-primary)" style={{ opacity: 0.5, transition: 'opacity 0.12s', flexShrink: 0 }} />
           )}
@@ -540,6 +544,6 @@ function modelPillStyle(clickable) {
     fontSize: 12, color: 'var(--accent-primary-text)',
     textDecoration: 'none', cursor: clickable ? 'pointer' : 'default',
     transition: 'background 0.12s, border-color 0.12s',
-    maxWidth: 240, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+    maxWidth: 160, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
   };
 }

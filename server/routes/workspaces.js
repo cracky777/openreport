@@ -58,14 +58,30 @@ router.get('/:id', requireAuth, (req, res) => {
   if (!access && !isGlobalAdmin) return res.status(404).json({ error: 'Workspace not found' });
 
   const ws = access?.workspace || db.prepare('SELECT * FROM workspaces WHERE id = ?').get(req.params.id);
-  const reports = db.prepare(`
-    SELECT r.id, r.title, r.updated_at, r.is_public, r.model_id,
-      m.name as model_name
+  const reportsRaw = db.prepare(`
+    SELECT r.id, r.title, r.updated_at, r.is_public, r.model_id, r.workspace_id,
+      m.name as model_name,
+      d.id as datasource_id, d.db_type, d.extra_config
     FROM reports r
     LEFT JOIN models m ON m.id = r.model_id
+    LEFT JOIN datasources d ON d.id = m.datasource_id
     WHERE r.workspace_id = ?
     ORDER BY r.updated_at DESC
   `).all(req.params.id);
+
+  // Surface uploaded-file size on local (DuckDB) datasources so the workspace UI
+  // can show storage usage per report without an extra round-trip.
+  const reports = reportsRaw.map((r) => {
+    const out = { id: r.id, title: r.title, updated_at: r.updated_at, is_public: r.is_public, model_id: r.model_id, workspace_id: r.workspace_id, model_name: r.model_name, datasource_id: r.datasource_id, db_type: r.db_type };
+    if (r.db_type === 'duckdb' && r.extra_config) {
+      try {
+        const cfg = JSON.parse(r.extra_config);
+        if (typeof cfg.fileSize === 'number') out.fileSize = cfg.fileSize;
+        if (cfg.sourceFile) out.sourceFile = cfg.sourceFile;
+      } catch { /* ignore */ }
+    }
+    return out;
+  });
 
   const members = db.prepare(`
     SELECT u.id, u.email, u.display_name, wm.role

@@ -154,7 +154,11 @@ router.get('/:id/tables/:table/columns', requireAuth, async (req, res) => {
     const columns = await conn.getColumns(req.params.table);
     res.json({ columns });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    // Log the full stack so we can diagnose 500s on /columns (e.g. wide DuckDB tables).
+    console.error('[GET /datasources/:id/tables/:table/columns] failed for', {
+      datasource: req.params.id, table: req.params.table, db_type: source.db_type,
+    }, err);
+    res.status(500).json({ error: err.message || String(err) });
   } finally {
     conn?.close();
   }

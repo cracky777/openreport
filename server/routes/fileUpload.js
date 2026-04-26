@@ -73,9 +73,24 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
     const filePath = file.path.replace(/\\/g, '/'); // DuckDB needs forward slashes
     let importSQL;
 
+    // CSV/TSV import handled inline so we can fall back to Latin-1 if UTF-8 fails.
+    // Many real-world CSVs (e.g. FAOSTAT, exports from Excel) are Windows-1252 / Latin-1
+    // and DuckDB returns garbled errors when it tries to parse them as UTF-8.
     if (ext === '.csv' || ext === '.tsv') {
       const delimiter = ext === '.tsv' ? '\t' : ',';
-      importSQL = `CREATE TABLE "${tableName}" AS SELECT * FROM read_csv_auto('${filePath}', delim='${delimiter}', header=true, sample_size=-1)`;
+      const buildSQL = (encoding) =>
+        `CREATE TABLE "${tableName}" AS SELECT * FROM read_csv_auto('${filePath}', delim='${delimiter}', header=true, sample_size=-1${encoding ? `, encoding='${encoding}'` : ''})`;
+      try {
+        await dbInstance.run(buildSQL());                 // try UTF-8 (default) first
+      } catch (firstErr) {
+        try { await dbInstance.run(`DROP TABLE IF EXISTS "${tableName}"`); } catch { /* ignore */ }
+        try {
+          await dbInstance.run(buildSQL('latin-1'));      // retry with Latin-1
+        } catch {
+          throw firstErr;                                 // surface the original UTF-8 error
+        }
+      }
+      importSQL = null;                                   // already executed above
     } else if (ext === '.xlsx' || ext === '.xls') {
       // Convert Excel to CSV via xlsx library, then import CSV into DuckDB
       const XLSX = require('xlsx');
@@ -150,7 +165,12 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
     await new Promise((r) => setTimeout(r, 200));
     try { fs.unlinkSync(duckdbPath); } catch { /* ignore */ }
     try { fs.unlinkSync(duckdbPath + '.wal'); } catch { /* ignore */ }
-    res.status(500).json({ error: `Import failed: ${err.message}` });
+    // Sanitize error message: DuckDB sometimes embeds raw bytes from a malformed file,
+    // which renders as gibberish (e.g. "Invalid Error: p���d"). Strip non-printable
+    // chars and cap the length so the client gets a readable message.
+    const rawMsg = String(err && err.message ? err.message : err);
+    const cleanMsg = rawMsg.replace(/[^\x20-\x7E\r\n\t]/g, '?').slice(0, 500);
+    res.status(500).json({ error: `Import failed: ${cleanMsg}` });
   }
 });
 

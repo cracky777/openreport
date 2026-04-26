@@ -39,6 +39,8 @@ export default function Dashboard() {
   const [uploadError, setUploadError] = useState('');
   const createFileRef = useRef(null);
   const [newWsName, setNewWsName] = useState('');
+  const [editingWsName, setEditingWsName] = useState(false);
+  const [editedWsName, setEditedWsName] = useState('');
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [newMemberRole, setNewMemberRole] = useState('viewer');
   const [userSuggestions, setUserSuggestions] = useState([]);
@@ -155,21 +157,31 @@ export default function Dashboard() {
       const uploadRes = await api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       const ds = uploadRes.data.datasource;
 
-      // If reused, check if a model already exists for this datasource
+      // Step 2: locate or create the model for this datasource, and decide whether
+      // it still needs auto-flagging. Any leftover empty model (from a previously
+      // failed auto-flag) gets re-flagged in place — otherwise reuse skipped flagging
+      // and the user landed in an empty editor.
       let modelId;
+      let needsAutoFlag = true;
       if (uploadRes.data.reused) {
         const existingModel = models.find((m) => m.datasource_id === ds.id);
         if (existingModel) {
           modelId = existingModel.id;
+          try {
+            const fullRes = await api.get(`/models/${existingModel.id}`);
+            const m = fullRes.data.model;
+            const hasTables = (m.selected_tables || []).length > 0;
+            const hasFields = (m.dimensions || []).length > 0 || (m.measures || []).length > 0;
+            if (hasTables && hasFields) needsAutoFlag = false;
+          } catch { /* fetch failed, just re-flag to be safe */ }
         }
       }
-
       if (!modelId) {
-        // 2. Create a model from the datasource
         const modelRes = await api.post('/models', { name: ds.name, datasourceId: ds.id });
         modelId = modelRes.data.model.id;
+      }
 
-        // 3. Load columns for the table and auto-add all as dimensions
+      if (needsAutoFlag) {
         const colRes = await api.get(`/datasources/${ds.id}/tables/${ds.tableName}/columns`);
         const cols = colRes.data.columns || [];
         const numericTypes = ['integer', 'bigint', 'numeric', 'decimal', 'real', 'double', 'float', 'int', 'smallint', 'double precision'];
@@ -247,6 +259,20 @@ export default function Dashboard() {
     await api.delete(`/workspaces/${wsId}`);
     setWorkspaces((p) => p.filter((w) => w.id !== wsId));
     if (selectedWs === wsId) setSelectedWs(null);
+  };
+
+  const saveWorkspaceName = async () => {
+    const name = editedWsName.trim();
+    if (!name || !selectedWs) { setEditingWsName(false); return; }
+    const current = workspaces.find((w) => w.id === selectedWs);
+    if (current && current.name === name) { setEditingWsName(false); return; }
+    try {
+      await api.put(`/workspaces/${selectedWs}`, { name });
+      setWorkspaces((p) => p.map((w) => w.id === selectedWs ? { ...w, name } : w));
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to rename workspace');
+    }
+    setEditingWsName(false);
   };
 
   const addMember = async () => {
@@ -463,9 +489,36 @@ export default function Dashboard() {
         <main style={{ flex: 1, overflow: 'auto', padding: '24px 32px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{wsName}</h2>
+              {editingWsName && selectedWs && wsUserRole === 'admin' ? (
+                <input
+                  autoFocus
+                  value={editedWsName}
+                  onChange={(e) => setEditedWsName(e.target.value)}
+                  onBlur={saveWorkspaceName}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveWorkspaceName();
+                    else if (e.key === 'Escape') setEditingWsName(false);
+                  }}
+                  style={{
+                    fontSize: 18, fontWeight: 600, color: 'var(--text-primary)',
+                    background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
+                    outline: 'none', borderRadius: 6, padding: '2px 8px', minWidth: 200,
+                  }}
+                />
+              ) : (
+                <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{wsName}</h2>
+              )}
               {selectedWs && (
                 <>
+                  {wsUserRole === 'admin' && !editingWsName && (
+                    <button
+                      onClick={() => { setEditedWsName(wsName); setEditingWsName(true); }}
+                      style={{ ...iconBtn, color: 'var(--text-muted)' }}
+                      title="Rename workspace"
+                    >
+                      <TbEdit size={14} />
+                    </button>
+                  )}
                   <button onClick={() => setShowMembers(!showMembers)} style={{ ...iconBtn, color: 'var(--text-muted)' }} title="Members">
                     <TbUsers size={16} />
                   </button>
@@ -651,17 +704,32 @@ export default function Dashboard() {
               {wsReports.map((report) => (
                 <div key={report.id} style={cardStyle}>
                   <div onClick={() => window.open(`/view/${report.id}`, '_blank')}
-                    style={{ cursor: 'pointer', padding: 20, flex: 1 }}>
-                    <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{report.title}</h3>
-                    {report.model_name && <p style={{ fontSize: 12, color: 'var(--accent-primary)', marginBottom: 4 }}>{report.model_name}</p>}
+                    style={{ cursor: 'pointer', padding: 20, flex: 1, minWidth: 0 }}>
+                    <h3
+                      title={report.title}
+                      style={{
+                        fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4,
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      }}
+                    >{report.title}</h3>
+                    {report.model_name && (
+                      <p style={{ fontSize: 12, color: 'var(--accent-primary)', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={report.model_name}>
+                        {report.model_name}
+                      </p>
+                    )}
+                    {typeof report.fileSize === 'number' && (
+                      <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
+                        {formatFileSize(report.fileSize)}
+                      </p>
+                    )}
                     <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Updated {new Date(report.updated_at).toLocaleDateString()}</p>
                   </div>
-                  <div style={{ padding: '8px 20px 16px', display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <button onClick={() => window.open(`/view/${report.id}`, '_blank')} title="View" style={{ ...iconBtn, color: 'var(--accent-primary)', borderColor: 'var(--accent-primary)' }}><TbEye size={16} /></button>
-                    {canEdit && <button onClick={() => navigate(`/edit/${report.id}`)} title="Edit" style={{ ...iconBtn, color: 'var(--text-secondary)', borderColor: 'var(--border-default)' }}><TbEdit size={16} /></button>}
+                  <div style={{ padding: '8px 20px 16px', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button onClick={() => window.open(`/view/${report.id}`, '_blank')} title="View" {...cardActionBtn('accent')}><TbEye size={16} /></button>
+                    {canEdit && <button onClick={() => navigate(`/edit/${report.id}`)} title="Edit" {...cardActionBtn()}><TbEdit size={16} /></button>}
                     {canEdit && (
                       <button onClick={() => togglePublic(report)} title={report.is_public ? 'Make private' : 'Share public link'}
-                        style={{ ...iconBtn, color: report.is_public ? '#16a34a' : '#94a3b8', borderColor: report.is_public ? '#bbf7d0' : '#e2e8f0' }}>
+                        {...cardActionBtn(report.is_public ? 'success' : 'muted')}>
                         {report.is_public ? <TbShare size={16} /> : <TbShareOff size={16} />}
                       </button>
                     )}
@@ -669,12 +737,12 @@ export default function Dashboard() {
                     {canEdit && workspaces.length > 0 && (
                       <select value={report.workspace_id || ''} onChange={(e) => moveReport(report.id, e.target.value || null)}
                         title="Move to workspace"
-                        style={{ padding: '4px 6px', border: '1px solid var(--border-default)', borderRadius: 4, fontSize: 10, color: 'var(--text-muted)', cursor: 'pointer', maxWidth: 80 }}>
+                        style={cardSelectStyle}>
                         <option value="">My Reports</option>
                         {workspaces.map((ws) => <option key={ws.id} value={ws.id}>{ws.name}</option>)}
                       </select>
                     )}
-                    {canEdit && <button onClick={() => deleteReport(report.id)} title="Delete" style={{ ...iconBtn, color: 'var(--state-danger)', borderColor: 'var(--state-danger)' }}><TbTrash size={16} /></button>}
+                    {canEdit && <button onClick={() => deleteReport(report.id)} title="Delete" {...cardActionBtn('danger')}><TbTrash size={16} /></button>}
                   </div>
                 </div>
               ))}
@@ -729,6 +797,53 @@ const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border:
 const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: 'var(--bg-panel)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer' };
 const iconBtn = { background: 'transparent', border: '1px solid', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
 const cardStyle = { backgroundColor: 'var(--bg-panel)', borderRadius: 8, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.15s', overflow: 'hidden' };
+
+// Workspace card buttons share the visual language of the editor toolbar / page header
+// (rounded 8px, subtle background, hover lifts) instead of the older square iconBtn.
+// Returns the props to spread on a <button> — including onMouseEnter/Leave for hover —
+// because inline styles can't express :hover by themselves.
+const CARD_BTN_VARIANTS = {
+  accent:  { color: 'var(--accent-primary)',  hoverBg: 'var(--accent-primary-soft)', hoverBorder: 'var(--accent-primary)' },
+  success: { color: '#16a34a',                hoverBg: '#dcfce7',                    hoverBorder: '#16a34a' },
+  danger:  { color: 'var(--state-danger)',    hoverBg: 'var(--state-danger-soft)',   hoverBorder: 'var(--state-danger)' },
+  muted:   { color: 'var(--text-muted)',      hoverBg: 'var(--bg-hover)',            hoverBorder: 'var(--border-strong)' },
+  default: { color: 'var(--text-secondary)',  hoverBg: 'var(--bg-hover)',            hoverBorder: 'var(--border-strong)' },
+};
+function cardActionBtn(variant) {
+  const c = CARD_BTN_VARIANTS[variant] || CARD_BTN_VARIANTS.default;
+  const base = {
+    padding: '6px 10px', borderRadius: 8,
+    background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
+    color: c.color, cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    transition: 'background 0.12s, border-color 0.12s, color 0.12s, transform 0.12s',
+  };
+  return {
+    style: base,
+    onMouseEnter: (e) => {
+      e.currentTarget.style.background = c.hoverBg;
+      e.currentTarget.style.borderColor = c.hoverBorder;
+    },
+    onMouseLeave: (e) => {
+      e.currentTarget.style.background = base.background;
+      e.currentTarget.style.borderColor = 'var(--border-default)';
+    },
+  };
+}
+
+const cardSelectStyle = {
+  padding: '6px 10px', borderRadius: 8, fontSize: 11,
+  background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
+  color: 'var(--text-secondary)', cursor: 'pointer', maxWidth: 110,
+  transition: 'background 0.12s, border-color 0.12s',
+};
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes < 1024) return `${bytes || 0} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
 const inputStyle = { width: '100%', padding: '8px 10px', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box', background: 'var(--bg-panel)', color: 'var(--text-primary)' };
 const labelStyle = { display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4, fontWeight: 500 };
 const modalOverlay = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 };

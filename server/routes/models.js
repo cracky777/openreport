@@ -252,6 +252,9 @@ router.get('/:id/validate', requireAuth, async (req, res) => {
     // Check measures
     for (const m of measures) {
       if (m.sqlExpression) continue;
+      // Custom measures from the report editor (aggregation: 'custom') are free-form SQL
+      // expressions over the model, not direct table.column references — skip column checks.
+      if (m.aggregation === 'custom') continue;
       if (!m.table) { issues.push({ kind: 'measure', name: m.name, issue: 'no_table', label: m.label }); continue; }
       const cols = await getCols(m.table);
       if (cols === null) {

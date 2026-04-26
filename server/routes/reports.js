@@ -39,13 +39,28 @@ function canAccessReport(report, user) {
 
 // List reports for current user
 router.get('/', requireAuth, (req, res) => {
-  const reports = db.prepare(`
-    SELECT r.id, r.title, r.model_id, r.workspace_id, r.is_public, r.created_at, r.updated_at, m.name as model_name
+  const rows = db.prepare(`
+    SELECT r.id, r.title, r.model_id, r.workspace_id, r.is_public, r.created_at, r.updated_at,
+      m.name as model_name,
+      d.id as datasource_id, d.db_type, d.extra_config
     FROM reports r
     LEFT JOIN models m ON m.id = r.model_id
+    LEFT JOIN datasources d ON d.id = m.datasource_id
     WHERE r.user_id = ?
     ORDER BY r.updated_at DESC
   `).all(req.user.id);
+  // Same shape as /workspaces/:id — surface fileSize for local (DuckDB) datasources.
+  const reports = rows.map((r) => {
+    const out = { id: r.id, title: r.title, model_id: r.model_id, workspace_id: r.workspace_id, is_public: r.is_public, created_at: r.created_at, updated_at: r.updated_at, model_name: r.model_name, datasource_id: r.datasource_id, db_type: r.db_type };
+    if (r.db_type === 'duckdb' && r.extra_config) {
+      try {
+        const cfg = JSON.parse(r.extra_config);
+        if (typeof cfg.fileSize === 'number') out.fileSize = cfg.fileSize;
+        if (cfg.sourceFile) out.sourceFile = cfg.sourceFile;
+      } catch { /* ignore */ }
+    }
+    return out;
+  });
   res.json({ reports });
 });
 
