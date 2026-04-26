@@ -59,6 +59,17 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/workspaces', workspaceRoutes);
 app.use('/api/upload', fileUploadRoutes);
 
+// Cloud edition extension point — loaded only when explicitly enabled so the
+// public OSS build never depends on the private cloud module. See CLOUD-DEV.md.
+if (process.env.OPENREPORT_CLOUD === '1') {
+  try {
+    require('./cloud').register(app);
+  } catch (err) {
+    console.error('[cloud] Failed to load cloud module:', err.message);
+    process.exit(1);
+  }
+}
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', version: '0.1.0' });

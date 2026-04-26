@@ -9,6 +9,9 @@ import Datasources from './pages/Datasources';
 import Models from './pages/Models';
 import ModelEditor from './pages/ModelEditor';
 import Admin from './pages/Admin';
+// Cloud-edition routes — empty in the OSS build, populated in the cloud build.
+// The same import path resolves to either the stub or the real implementation.
+import cloudRoutes from './cloud';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -36,6 +39,14 @@ function App() {
           <Route path="/models/:id" element={<PrivateRoute><ModelEditor /></PrivateRoute>} />
           <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
           <Route path="/view/:id" element={<Viewer />} />
+          {/* Cloud-edition routes — empty array in the OSS build. */}
+          {(cloudRoutes || []).map((r) => (
+            <Route
+              key={r.path}
+              path={r.path}
+              element={r.requiresAuth ? <PrivateRoute>{r.element}</PrivateRoute> : r.element}
+            />
+          ))}
         </Routes>
       </BrowserRouter>
       </AuthProvider>
