@@ -5,6 +5,7 @@ const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
+const uploadHooks = require('../hooks/upload');
 
 const router = express.Router();
 
@@ -35,6 +36,15 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   const file = req.file;
+
+  // Run any registered upload checks (e.g. cloud-edition per-plan quota).
+  // OSS users have no checks registered, so this is a no-op for them.
+  const veto = await uploadHooks.runChecks(req, file);
+  if (veto) {
+    try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+    return res.status(413).json({ error: veto });
+  }
+
   const ext = path.extname(file.originalname).toLowerCase();
   const name = req.body.name || path.basename(file.originalname, ext);
   const tableName = sanitizeTableName(path.basename(file.originalname, ext));
@@ -115,6 +125,7 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
       sourceFile: file.originalname,
       tableName,
       rowCount,
+      fileSize: file.size,            // bytes — used by cloud quota enforcement
       importedAt: new Date().toISOString(),
     }));
 
