@@ -79,6 +79,16 @@ export default function Admin() {
           <TbShield size={18} color="var(--accent-primary)" /> Admin Console
         </h1>
         <div style={{ flex: 1 }} />
+        {/* Cloud-only links (Billing, etc.) sit in the header next to Add User. Empty in OSS. */}
+        {(cloudAdminLinks || []).map((link) => {
+          const Icon = link.icon || TbExternalLink;
+          return (
+            <Link key={link.to} to={link.to} style={cloudHeaderLink}>
+              <Icon size={16} />
+              <span>{link.label}</span>
+            </Link>
+          );
+        })}
         <PrimaryButton onClick={() => setShowCreate(true)}>
           <TbUserPlus size={16} /> Add User
         </PrimaryButton>
@@ -96,28 +106,6 @@ export default function Admin() {
             );
           })}
         </div>
-
-        {/* Cloud-only admin links (Billing, etc.). Empty list = nothing rendered in OSS. */}
-        {cloudAdminLinks && cloudAdminLinks.length > 0 && (
-          <div style={{
-            display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap',
-          }}>
-            {cloudAdminLinks.map((link) => {
-              const Icon = link.icon || TbExternalLink;
-              return (
-                <Link key={link.to} to={link.to} style={cloudLinkCard}>
-                  <Icon size={18} color="var(--accent-primary)" />
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{link.label}</span>
-                    {link.description && (
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{link.description}</span>
-                    )}
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
 
         {/* Create user modal */}
         {showCreate && (
@@ -206,9 +194,11 @@ const formCard = { backgroundColor: 'var(--bg-panel)', padding: 20, borderRadius
 const thStyle = { padding: '10px 14px', textAlign: 'left', fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' };
 const tdStyle = { padding: '10px 14px', fontSize: 13, color: 'var(--text-secondary)' };
 const iconBtn = { background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '4px 6px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' };
-const cloudLinkCard = {
-  display: 'flex', alignItems: 'center', gap: 10,
-  padding: '10px 14px', textDecoration: 'none',
+const cloudHeaderLink = {
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  padding: '8px 14px', fontSize: 13, fontWeight: 600,
+  textDecoration: 'none',
+  color: 'var(--text-secondary)',
   background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
-  borderRadius: 6, transition: 'border-color 0.12s',
+  borderRadius: 6, marginRight: 8,
 };
