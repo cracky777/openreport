@@ -25,3 +25,4 @@
 
 export default [];
 export const adminLinks = [];
+export const userMenuLinks = [];

@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbTableOptions, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown } from 'react-icons/tb';
+import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbTableOptions, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbExternalLink } from 'react-icons/tb';
 import { useTheme } from '../hooks/useTheme';
+// Cloud edition contributes user-menu entries (e.g. Billing). Empty in OSS builds.
+import { userMenuLinks as cloudUserMenuLinks } from '../cloud';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -361,6 +363,28 @@ export default function Dashboard() {
                     );
                   })}
                 </div>
+                {/* Cloud-only entries (Billing, Account, etc.). Empty array in OSS = nothing rendered. */}
+                {cloudUserMenuLinks && cloudUserMenuLinks.length > 0 && (
+                  <>
+                    <div style={userMenuDivider} />
+                    {cloudUserMenuLinks.map((link) => {
+                      const Icon = link.icon || TbExternalLink;
+                      return (
+                        <Link
+                          key={link.to}
+                          to={link.to}
+                          onClick={() => setUserMenuOpen(false)}
+                          style={{ ...userMenuItem, textDecoration: 'none' }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                        >
+                          <Icon size={15} />
+                          <span>{link.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </>
+                )}
                 <div style={userMenuDivider} />
                 <button
                   onClick={() => { setUserMenuOpen(false); logout(); }}
