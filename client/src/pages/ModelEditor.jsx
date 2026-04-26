@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import SchemaCanvas from '../components/SchemaCanvas/SchemaCanvas';
+import RLSDialog from '../components/SchemaCanvas/RLSDialog';
 import SqlExpressionInput from '../components/SqlExpressionInput/SqlExpressionInput';
 import api from '../utils/api';
 import { headerShellStyle, BackButton, PrimaryButton, headerBadgeStyle } from '../components/PageHeader/PageHeader';
@@ -27,6 +28,8 @@ export default function ModelEditor() {
   const [dimensions, setDimensions] = useState([]);
   const [measures, setMeasures] = useState([]);
   const [joins, setJoins] = useState([]);
+  const [rls, setRls] = useState({}); // { enabled, table, primaryKey, rules: { rowKey: [patterns] } }
+  const [rlsDialogTable, setRlsDialogTable] = useState(null); // tableName when dialog is open
   const [saving, setSaving] = useState(false);
   const [showCalcMeasure, setShowCalcMeasure] = useState(false);
   const [calcMeasure, setCalcMeasure] = useState({ label: '', expression: '' });
@@ -85,6 +88,7 @@ export default function ModelEditor() {
       setDimensions(m.dimensions || []);
       setMeasures(m.measures || []);
       setJoins(m.joins || []);
+      setRls(m.rls || {});
       // Reload datasource meta
       const dsRes = await api.get(`/datasources/${m.datasource_id}`);
       setDatasource(dsRes.data.datasource);
@@ -130,6 +134,7 @@ export default function ModelEditor() {
         setDimensions(m.dimensions || []);
         setMeasures(m.measures || []);
         setJoins(m.joins || []);
+        setRls(m.rls || {});
 
         const dsRes = await api.get(`/datasources/${m.datasource_id}`);
         setDatasource(dsRes.data.datasource);
@@ -269,7 +274,7 @@ export default function ModelEditor() {
     try {
       await api.put(`/models/${id}`, {
         name, description, selected_tables: selectedTables,
-        table_positions: tablePositions, dimensions, measures, joins,
+        table_positions: tablePositions, dimensions, measures, joins, rls,
       });
       setSaveMsg('Saved');
       setTimeout(() => setSaveMsg(null), 2000);
@@ -529,7 +534,19 @@ export default function ModelEditor() {
             datasourceId={model?.datasource_id}
             isNumeric={isNumeric}
             isDateType={isDateType}
+            rlsTable={rls?.enabled ? rls?.table : null}
+            onOpenRLS={(tableName) => setRlsDialogTable(tableName)}
           />
+          {rlsDialogTable && (
+            <RLSDialog
+              modelId={id}
+              tableName={rlsDialogTable}
+              tableColumns={tableColumns[rlsDialogTable] || []}
+              rls={rls}
+              onChange={setRls}
+              onClose={() => setRlsDialogTable(null)}
+            />
+          )}
         </div>
       )}
 

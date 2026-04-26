@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS models (
   dimensions TEXT NOT NULL DEFAULT '[]',
   measures TEXT NOT NULL DEFAULT '[]',
   joins TEXT NOT NULL DEFAULT '[]',
+  rls TEXT NOT NULL DEFAULT '{}',
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,

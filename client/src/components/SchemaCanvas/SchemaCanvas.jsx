@@ -38,6 +38,8 @@ export default function SchemaCanvas({
   datasourceId,
   isNumeric,
   isDateType,
+  rlsTable, // the table currently flagged as the RLS table (if any)
+  onOpenRLS, // (tableName) => void — opens the RLS dialog for that table
 }) {
   const svgRef = useRef(null);
   const containerRef = useRef(null);
@@ -513,6 +515,30 @@ export default function SchemaCanvas({
                     onClick={(e) => { e.stopPropagation(); cycleTableType(tableName); }}>
                     click to set type
                   </text>
+                )}
+
+                {/* RLS badge — top-right of the type bar. Click opens the RLS configuration dialog. */}
+                {onOpenRLS && (
+                  <g
+                    onClick={(e) => { e.stopPropagation(); onOpenRLS(tableName); }}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <title>{rlsTable === tableName ? 'Row-level security enabled — click to configure' : 'Configure row-level security'}</title>
+                    <rect
+                      x={TABLE_WIDTH - 38} y={HEADER_HEIGHT + 3}
+                      width={32} height={14} rx={7}
+                      fill={rlsTable === tableName ? '#7c3aed' : '#fff'}
+                      fillOpacity={rlsTable === tableName ? 1 : 0.7}
+                      stroke={rlsTable === tableName ? '#7c3aed' : '#cbd5e1'}
+                      strokeWidth={1}
+                    />
+                    <text
+                      x={TABLE_WIDTH - 22} y={HEADER_HEIGHT + 13}
+                      textAnchor="middle" fontSize={8}
+                      fill={rlsTable === tableName ? '#fff' : '#64748b'} fontWeight={700}
+                      style={{ pointerEvents: 'none' }}
+                    >RLS</text>
+                  </g>
                 )}
 
                 {/* Columns */}

@@ -3,8 +3,20 @@ const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const { createConnection } = require('../utils/dbConnector');
+const { canAccessReport } = require('./reports');
 
 const router = express.Router();
+
+// Returns true if the user has access to the model, either directly (owner / global admin)
+// or indirectly through a report that uses the model (public or workspace-shared).
+function canAccessModel(model, user) {
+  if (!model) return false;
+  if (user && user.role === 'admin') return true;
+  if (user && user.id === model.user_id) return true;
+  // Check every report that uses this model — if the user can access any of them, they can use the model.
+  const reports = db.prepare('SELECT * FROM reports WHERE model_id = ?').all(model.id);
+  return reports.some((r) => canAccessReport(r, user));
+}
 
 // Quote a table name, handling schema.table format
 // "datakhi_elections.d_population" → "datakhi_elections"."d_population"
@@ -14,6 +26,53 @@ function quoteTable(name) {
     return name.split('.').map((p) => `"${p}"`).join('.');
   }
   return `"${name}"`;
+}
+
+// Compute the set of tables reachable from a starting table via the join graph.
+// Used to verify the RLS table can constrain every queried table — otherwise an
+// unconnected table would slip through via cross join.
+function tablesReachableFrom(startTable, joins) {
+  const reachable = new Set([startTable]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const j of joins || []) {
+      if (reachable.has(j.from_table) && !reachable.has(j.to_table)) { reachable.add(j.to_table); changed = true; }
+      if (reachable.has(j.to_table) && !reachable.has(j.from_table)) { reachable.add(j.from_table); changed = true; }
+    }
+  }
+  return reachable;
+}
+
+// Convert a glob-style pattern (with * as wildcard) to a case-insensitive RegExp.
+// Examples:
+//   "alice@openreport.io"   → matches that exact email
+//   "*@openreport.io"       → any email in the openreport.io domain
+//   "alice*"                → emails starting with "alice"
+//   "*admin*"               → emails containing "admin"
+//   "*"                     → matches any authenticated user
+function patternToRegex(pattern) {
+  const escaped = String(pattern).replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+  return new RegExp(`^${escaped}$`, 'i');
+}
+
+function emailMatchesPattern(email, pattern) {
+  if (!pattern) return false;
+  try { return patternToRegex(pattern).test(email || ''); } catch { return false; }
+}
+
+// Given an rls config { enabled, table, primaryKey, rules: { rowKey: [patterns...] } }
+// return the list of allowed row-key values for a given user email, or null if no rule matched.
+function getAllowedRlsKeys(rls, email) {
+  if (!rls || !rls.enabled || !rls.rules) return null;
+  const allowed = [];
+  for (const [rowKey, patterns] of Object.entries(rls.rules)) {
+    if (!Array.isArray(patterns)) continue;
+    if (patterns.some((p) => emailMatchesPattern(email, p))) {
+      allowed.push(rowKey);
+    }
+  }
+  return allowed;
 }
 
 // List models for current user
@@ -28,10 +87,18 @@ router.get('/', requireAuth, (req, res) => {
   res.json({ models });
 });
 
-// Get single model with full details
+// Get single model with full details (owner, global admin, or anyone with access to a report using it)
 router.get('/:id', requireAuth, (req, res) => {
-  const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-  if (!model) return res.status(404).json({ error: 'Model not found' });
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
+  if (!model || !canAccessModel(model, req.user)) return res.status(404).json({ error: 'Model not found' });
+
+  // Strip the RLS rules map (other users' email patterns) from the response for anyone
+  // who isn't the owner or a global admin. The viewer's own access is enforced server-side
+  // by /query — they don't need to see who else has access.
+  const isOwner = req.user.id === model.user_id;
+  const isAdmin = req.user.role === 'admin';
+  const fullRls = JSON.parse(model.rls || '{}');
+  const safeRls = (isOwner || isAdmin) ? fullRls : {};
 
   res.json({
     model: {
@@ -41,6 +108,7 @@ router.get('/:id', requireAuth, (req, res) => {
       dimensions: JSON.parse(model.dimensions),
       measures: JSON.parse(model.measures),
       joins: JSON.parse(model.joins),
+      rls: safeRls,
       dateColumn: model.date_column || null,
     },
   });
@@ -67,7 +135,7 @@ router.put('/:id', requireAuth, (req, res) => {
   const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!model) return res.status(404).json({ error: 'Model not found' });
 
-  const { name, description, selected_tables, table_positions, dimensions, measures, joins, dateColumn, datasourceId } = req.body;
+  const { name, description, selected_tables, table_positions, dimensions, measures, joins, rls, dateColumn, datasourceId } = req.body;
 
   // If caller is moving the model to a different datasource, verify ownership
   if (datasourceId && datasourceId !== model.datasource_id) {
@@ -85,6 +153,7 @@ router.put('/:id', requireAuth, (req, res) => {
       dimensions = COALESCE(?, dimensions),
       measures = COALESCE(?, measures),
       joins = COALESCE(?, joins),
+      rls = COALESCE(?, rls),
       date_column = CASE WHEN ? = 1 THEN ? ELSE date_column END,
       updated_at = datetime('now')
     WHERE id = ?
@@ -97,6 +166,7 @@ router.put('/:id', requireAuth, (req, res) => {
     dimensions ? JSON.stringify(dimensions) : null,
     measures ? JSON.stringify(measures) : null,
     joins ? JSON.stringify(joins) : null,
+    rls !== undefined ? JSON.stringify(rls || {}) : null,
     dateColumn !== undefined ? 1 : 0,
     dateColumn !== undefined ? (dateColumn || '') : '',
     req.params.id
@@ -111,6 +181,7 @@ router.put('/:id', requireAuth, (req, res) => {
       dimensions: JSON.parse(updated.dimensions),
       measures: JSON.parse(updated.measures),
       joins: JSON.parse(updated.joins),
+      rls: JSON.parse(updated.rls || '{}'),
       dateColumn: updated.date_column || null,
     },
   });
@@ -243,21 +314,69 @@ router.delete('/:id', requireAuth, (req, res) => {
   res.json({ message: 'Model deleted' });
 });
 
-// Query model: build SQL from selected dimensions + measures
-// Accessible if: user owns the model OR model is linked to a public report
-router.post('/:id/query', async (req, res) => {
-  let model;
-  if (req.isAuthenticated()) {
-    model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-  }
-  if (!model) {
-    // Check if model belongs to a public report
-    const publicReport = db.prepare('SELECT id FROM reports WHERE model_id = ? AND is_public = 1').get(req.params.id);
-    if (publicReport) {
-      model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
-    }
-  }
+// Fetch rows from the table designated as the RLS table, so the UI can display them
+// for per-row user/pattern mapping. Owner-only.
+// Optional `search` param performs a server-side LIKE filter on the primary key column,
+// allowing the UI to look up rows beyond the 1000-row display cap.
+router.get('/:id/rls/rows', requireAuth, async (req, res) => {
+  const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!model) return res.status(404).json({ error: 'Model not found' });
+
+  const { table, primaryKey, columns, search } = req.query;
+  if (!table || !primaryKey) return res.status(400).json({ error: 'table and primaryKey are required' });
+
+  const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
+  if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
+
+  // Build a SELECT for the requested columns (default: just the primary key).
+  // Column names are validated against the actual table schema to prevent injection.
+  let conn;
+  try {
+    conn = createConnection(datasource);
+    const cols = await conn.getColumns(table);
+    const colSet = new Set((cols || []).map((c) => {
+      if (typeof c === 'string') return c;
+      return c?.column_name ?? c?.name ?? c?.Name ?? c?.COLUMN_NAME ?? '';
+    }).filter(Boolean));
+
+    if (!colSet.has(primaryKey)) return res.status(400).json({ error: `Primary key column "${primaryKey}" not found in table` });
+
+    const requestedCols = (typeof columns === 'string' ? columns.split(',') : []).map((s) => s.trim()).filter(Boolean);
+    const safeCols = [primaryKey, ...requestedCols.filter((c) => c !== primaryKey && colSet.has(c))];
+    const selectList = safeCols.map((c) => `"${c}"`).join(', ');
+
+    let sql = `SELECT ${selectList} FROM ${quoteTable(table)}`;
+    const trimmedSearch = (search || '').toString().trim();
+    if (trimmedSearch) {
+      const escaped = trimmedSearch.replace(/'/g, "''");
+      // CAST to VARCHAR so the LIKE works regardless of the column's native type (number, date, etc.)
+      sql += ` WHERE LOWER(CAST(${quoteTable(table)}."${primaryKey}" AS VARCHAR)) LIKE LOWER('%${escaped}%')`;
+    }
+    sql += ` ORDER BY "${primaryKey}" LIMIT 1000`;
+
+    const rawRows = await conn.query(sql);
+    const rows = rawRows.map((r) => {
+      const obj = {};
+      for (const [k, v] of Object.entries(r)) {
+        if (v instanceof Date) obj[k] = v.toISOString().split('T')[0];
+        else obj[k] = v;
+      }
+      return obj;
+    });
+    res.json({ rows, columns: Array.from(colSet), truncated: rows.length >= 1000 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn?.close();
+  }
+});
+
+// Query model: build SQL from selected dimensions + measures.
+// Accessible if the user has access to any report linked to this model
+// (owner, global admin, public report, or workspace member).
+router.post('/:id/query', async (req, res) => {
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
+  if (!model || !canAccessModel(model, req.user)) return res.status(404).json({ error: 'Model not found' });
 
   const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
   if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
@@ -269,6 +388,18 @@ router.post('/:id/query', async (req, res) => {
   const allDimensions = JSON.parse(model.dimensions);
   const allMeasures = JSON.parse(model.measures);
   const allJoins = JSON.parse(model.joins);
+  const rls = JSON.parse(model.rls || '{}');
+
+  // RLS: model owner and global admins bypass. Everyone else (including unauthenticated
+  // viewers of public reports) is filtered by the rule set against their email.
+  const isOwner = req.isAuthenticated() && req.user.id === model.user_id;
+  const isAdmin = req.isAuthenticated() && req.user.role === 'admin';
+  const rlsApplies = rls && rls.enabled && rls.table && rls.primaryKey && !isOwner && !isAdmin;
+  let allowedRlsKeys = null;
+  if (rlsApplies) {
+    const email = req.isAuthenticated() ? req.user.email : '';
+    allowedRlsKeys = getAllowedRlsKeys(rls, email);
+  }
 
   // Detect missing references and report them explicitly instead of silently dropping
   const missingDims = (dimensionNames || []).filter((name) => !allDimensions.find((d) => d.name === name));
@@ -410,6 +541,30 @@ router.post('/:id/query', async (req, res) => {
     }
   });
 
+  // RLS WHERE injection: must be added after all dim/measure tables are registered
+  // (so the JOIN graph picks up the RLS table) but before building the FROM clause.
+  if (rlsApplies) {
+    // Safety: every table queried must be reachable from the RLS table via joins.
+    // Otherwise the SQL would fall back to a cross-join and the unreachable table's
+    // rows would all leak through, multiplied by the count of allowed RLS rows.
+    const reachable = tablesReachableFrom(rls.table, allJoins);
+    const unreachable = Array.from(tablesUsed).filter((t) => !reachable.has(t));
+    if (unreachable.length > 0) {
+      // Deny everything rather than risk leaking rows from an unconstrained table.
+      tablesUsed.add(rls.table);
+      whereParts.push('1 = 0');
+    } else {
+      tablesUsed.add(rls.table);
+      if (!allowedRlsKeys || allowedRlsKeys.length === 0) {
+        // No matching rule for this user → deny everything.
+        whereParts.push('1 = 0');
+      } else {
+        const escaped = allowedRlsKeys.map((v) => `'${String(v).replace(/'/g, "''")}'`).join(', ');
+        whereParts.push(`CAST(${quoteTable(rls.table)}."${rls.primaryKey}" AS VARCHAR) IN (${escaped})`);
+      }
+    }
+  }
+
   // Build FROM + JOINs
   const tableList = Array.from(tablesUsed);
   let fromClause = quoteTable(tableList[0]);
@@ -468,7 +623,19 @@ router.post('/:id/query', async (req, res) => {
       }
       return obj;
     });
-    res.json({ rows, rowCount: rows.length, maxReached: rows.length >= MAX_ROWS, sql });
+    res.json({
+      rows, rowCount: rows.length, maxReached: rows.length >= MAX_ROWS, sql,
+      _rls: {
+        configured: !!(rls && rls.enabled),
+        applies: !!rlsApplies,
+        bypass: isOwner ? 'owner' : isAdmin ? 'admin' : null,
+        table: rls?.table || null,
+        primaryKey: rls?.primaryKey || null,
+        ruleCount: rls?.rules ? Object.keys(rls.rules).length : 0,
+        userEmail: req.isAuthenticated() ? req.user.email : null,
+        allowedKeys: allowedRlsKeys,
+      },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message, sql });
   } finally {

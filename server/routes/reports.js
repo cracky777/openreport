@@ -5,6 +5,38 @@ const db = require('../db');
 
 const router = express.Router();
 
+// Strip widget.data from a widgets map. Used to prevent the owner's pre-baked
+// snapshot from leaking to non-owner viewers (it bypasses RLS). The viewer will
+// re-query each widget itself, going through the RLS-aware /models/:id/query path.
+function stripWidgetData(widgets) {
+  if (!widgets || typeof widgets !== 'object') return widgets;
+  const out = {};
+  for (const [id, w] of Object.entries(widgets)) {
+    if (!w || typeof w !== 'object') { out[id] = w; continue; }
+    const { data: _data, ...rest } = w;
+    out[id] = rest;
+  }
+  return out;
+}
+
+// Authorization helper used by report viewing and downstream model/query routes.
+// A user can access a report if they own it, it's public, they are a global admin,
+// or they're a member of the workspace containing it.
+function canAccessReport(report, user) {
+  if (!report) return false;
+  if (report.is_public) return true;
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (user.id === report.user_id) return true;
+  if (report.workspace_id) {
+    const ws = db.prepare('SELECT owner_id FROM workspaces WHERE id = ?').get(report.workspace_id);
+    if (ws && ws.owner_id === user.id) return true;
+    const member = db.prepare('SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?').get(report.workspace_id, user.id);
+    if (member) return true;
+  }
+  return false;
+}
+
 // List reports for current user
 router.get('/', requireAuth, (req, res) => {
   const reports = db.prepare(`
@@ -17,7 +49,7 @@ router.get('/', requireAuth, (req, res) => {
   res.json({ reports });
 });
 
-// Get single report (public or owned)
+// Get single report (public, owned, workspace-member, or global admin).
 router.get('/:id', (req, res) => {
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
 
@@ -25,18 +57,31 @@ router.get('/:id', (req, res) => {
     return res.status(404).json({ error: 'Report not found' });
   }
 
-  if (!report.is_public && (!req.user || req.user.id !== report.user_id)) {
+  if (!canAccessReport(report, req.user)) {
     return res.status(403).json({ error: 'Access denied' });
   }
 
   const parsedSettings = JSON.parse(report.settings);
+  let widgets = JSON.parse(report.widgets);
+  let pages = parsedSettings.pages || null;
+
+  // For anyone other than the owner, strip the owner's pre-baked widget data so it
+  // never reaches the client without going through the RLS-aware re-query path.
+  // The owner sees their snapshot for fast Editor opens; everyone else fetches fresh
+  // data subject to row-level security.
+  const isOwner = req.user && req.user.id === report.user_id;
+  if (!isOwner) {
+    widgets = stripWidgetData(widgets);
+    if (pages) pages = pages.map((p) => ({ ...p, widgets: stripWidgetData(p.widgets) }));
+  }
+
   res.json({
     report: {
       ...report,
       layout: JSON.parse(report.layout),
-      widgets: JSON.parse(report.widgets),
+      widgets,
       settings: parsedSettings,
-      pages: parsedSettings.pages || null,
+      pages,
     },
   });
 });
@@ -131,3 +176,4 @@ router.delete('/:id', requireAuth, (req, res) => {
 });
 
 module.exports = router;
+module.exports.canAccessReport = canAccessReport;

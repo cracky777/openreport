@@ -189,10 +189,34 @@ export default function Viewer() {
     }
   }, [slicerSelections, handleDrillDown, isWidgetDrillable, isWidgetAtLeaf]);
 
-  // Refetch when filters change (NOT on page restore — saved state is already correct)
+  // Refetch when filters change. Also force a refetch the first time the model becomes
+  // available so the viewer receives fresh data — saved widget data reflects the owner's
+  // view at save time, but RLS rules require us to re-query as the current user.
   const prevFiltersJson = useRef('{}');
   const skipNextRefetch = useRef(false);
   const prevRefreshCounter = useRef(0);
+  const modelInitialFetchDoneRef = useRef(false);
+  useEffect(() => {
+    if (model && !modelInitialFetchDoneRef.current) {
+      modelInitialFetchDoneRef.current = true;
+      // Clear the saved (owner-snapshot) widget data immediately so the viewer
+      // never sees unfiltered rows during the brief moment before the RLS-aware
+      // refetch resolves. The widgets will render their loading state instead.
+      // Text widgets aren't refetched, so we leave them untouched.
+      setWidgets((prev) => {
+        const next = {};
+        for (const [wId, w] of Object.entries(prev || {})) {
+          if (!w || w.type === 'text') {
+            next[wId] = w;
+          } else {
+            next[wId] = { ...w, data: undefined, _loading: true };
+          }
+        }
+        return next;
+      });
+      setRefreshCounter((n) => n + 1);
+    }
+  }, [model]);
   useEffect(() => {
     if (skipNextRefetch.current) {
       skipNextRefetch.current = false;
@@ -214,9 +238,11 @@ export default function Viewer() {
     // Use current page widgets — prefer the live `widgets` state (contains fresh drill mutations)
     const currentWidgets = widgets && Object.keys(widgets).length > 0 ? widgets : (pages[currentPageIdx]?.widgets || {});
 
-    // Collect widgets to fetch, then mark them all as loading in one batch
+    // Collect widgets to fetch, then mark them all as loading in one batch.
+    // Filter widgets are now included so their distinct value list is also RLS-filtered
+    // (previously they reused the owner's saved values, which leaked unauthorized rows).
     const toFetch = Object.entries(currentWidgets).filter(([wId, w]) => {
-      if (!w || w.type === 'filter' || w.type === 'text') return false;
+      if (!w || w.type === 'text') return false;
       if (!refreshRequested && wId === sourceId) return false;
       const b = w.dataBinding || {};
       const hasMeas = w.type === 'scatter' ? !!(b.scatterMeasures?.x && b.scatterMeasures?.y)
@@ -270,19 +296,36 @@ export default function Viewer() {
       const allDims = [...dims, ...grpBy.filter((g) => !dims.includes(g)), ...colDimsB.filter((g) => !dims.includes(g) && !grpBy.includes(g))];
       const mergedFilters = { ...(reportFilters || {}), ...drillFilters };
 
+      // Filter widgets need a distinct list of values for their bound dimension. They must NOT
+      // be filtered by reportFilters (so the slicer doesn't filter itself), but RLS still applies.
+      const isFilterWidget = w.type === 'filter';
+      const queryFilters = isFilterWidget ? {} : mergedFilters;
+      const queryLimit = isFilterWidget ? 1000000 : (w.config?.dataLimit || 1000);
+
       api.post(`/models/${model.id}/query`, {
         dimensionNames: allDims, measureNames: meass,
-        limit: w.config?.dataLimit || 1000, filters: mergedFilters,
+        limit: queryLimit, filters: queryFilters,
+        distinct: isFilterWidget || undefined,
       }).then((res) => {
         const rows = res.data?.rows;
         if (!rows || rows.length === 0) {
           // Empty result — clear widget data so it reflects the filter instead of keeping stale data
-          setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data: { _rowCount: 0 } } }));
+          const emptyData = isFilterWidget
+            ? { values: [], label: dims[0] || '', _rowCount: 0 }
+            : { _rowCount: 0 };
+          setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data: emptyData } }));
           return;
         }
         let newData = {};
         const keys = Object.keys(rows[0]);
-        if (w.type === 'pivotTable') {
+        if (w.type === 'filter') {
+          const dimDef = (model.dimensions || []).find((x) => x.name === dims[0]);
+          newData = {
+            values: [...new Set(rows.map((r) => r[keys[0]]).filter((v) => v != null))],
+            label: dims[0] || '',
+            _isDate: dimDef?.type === 'date',
+          };
+        } else if (w.type === 'pivotTable') {
           const rowDimNames = [...dims];
           newData = { rawRows: rows,
             _rowDims: rowDimNames.map((d) => { const def = (model.dimensions || []).find((x) => x.name === d); return def?.label || def?.name || d; }),
