@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import { TbShield, TbEdit, TbEye, TbTrash, TbUserPlus, TbKey } from 'react-icons/tb';
+import { TbShield, TbEdit, TbEye, TbTrash, TbUserPlus, TbKey, TbExternalLink } from 'react-icons/tb';
 import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton } from '../components/PageHeader/PageHeader';
+// Cloud edition contributes extra admin links here (e.g. Billing). Empty in OSS builds.
+import { adminLinks as cloudAdminLinks } from '../cloud';
 
 const ROLES = [
   { value: 'admin', label: 'Admin', color: 'var(--state-danger)', icon: TbShield, desc: 'Full access + user management' },
@@ -95,6 +97,28 @@ export default function Admin() {
           })}
         </div>
 
+        {/* Cloud-only admin links (Billing, etc.). Empty list = nothing rendered in OSS. */}
+        {cloudAdminLinks && cloudAdminLinks.length > 0 && (
+          <div style={{
+            display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap',
+          }}>
+            {cloudAdminLinks.map((link) => {
+              const Icon = link.icon || TbExternalLink;
+              return (
+                <Link key={link.to} to={link.to} style={cloudLinkCard}>
+                  <Icon size={18} color="var(--accent-primary)" />
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{link.label}</span>
+                    {link.description && (
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{link.description}</span>
+                    )}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+
         {/* Create user modal */}
         {showCreate && (
           <div style={formCard}>
@@ -182,3 +206,9 @@ const formCard = { backgroundColor: 'var(--bg-panel)', padding: 20, borderRadius
 const thStyle = { padding: '10px 14px', textAlign: 'left', fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' };
 const tdStyle = { padding: '10px 14px', fontSize: 13, color: 'var(--text-secondary)' };
 const iconBtn = { background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '4px 6px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' };
+const cloudLinkCard = {
+  display: 'flex', alignItems: 'center', gap: 10,
+  padding: '10px 14px', textDecoration: 'none',
+  background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
+  borderRadius: 6, transition: 'border-color 0.12s',
+};
