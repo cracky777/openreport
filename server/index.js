@@ -20,11 +20,24 @@ const fileUploadRoutes = require('./routes/fileUpload');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// CORS — in production, CORS_ORIGIN can be a single origin or a comma-separated
+// list of origins (handy when an API and a static front-end live on different
+// domains). In dev we accept any localhost / 127.0.0.1 origin (any port) plus
+// file:// so a separate marketing site can hit the API while you iterate.
+function buildCorsOrigin() {
+  // In dev, accept any origin (localhost ports, file:// pages, etc.). The cors
+  // package reflects the request's Origin header back so credentials still
+  // work. Production stays strict via CORS_ORIGIN.
+  if (process.env.NODE_ENV !== 'production') return true;
+  const raw = process.env.CORS_ORIGIN;
+  if (!raw) return true;
+  const list = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  return list.length > 1 ? list : list[0];
+}
+
 // Middleware
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? (process.env.CORS_ORIGIN || true)
-    : 'http://localhost:5173',
+  origin: buildCorsOrigin(),
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));

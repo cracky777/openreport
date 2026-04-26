@@ -24,13 +24,15 @@ import { TbDownload, TbFileTypePdf, TbPhoto, TbTableExport, TbPrinter, TbBraces 
 const EXPORT_FORMAT_VERSION = 'open-report.report.v1';
 
 export default function ExportMenu({
-  report,           // full report object (title, layout, widgets, settings, pages, model_id, ...)
-  widgets,          // live widgets map (with .data baked in for charts/tables)
-  canvasRef,        // ref to the DOM node to rasterize for PDF/PNG
-  onBeforeCapture,  // optional () => Promise|void — hide editor chrome before capture
-  onAfterCapture,   // optional () => void — restore chrome
-  buttonStyle,      // optional override for the trigger button
-  align = 'right',  // 'right' | 'left' — dropdown alignment
+  report,            // full report object (title, layout, widgets, settings, pages, model_id, ...)
+  widgets,           // live widgets map (with .data baked in for charts/tables)
+  canvasRef,         // ref to the DOM node to rasterize for PDF/PNG
+  onBeforeCapture,   // optional () => Promise|void — hide editor chrome before capture
+  onAfterCapture,    // optional () => void — restore chrome
+  buttonStyle,       // optional override for the trigger button
+  variant,           // 'toolbar' uses the editor toolbar's utilityIconBtn look (transparent, 18px icon, hover lift). Default = compact bordered.
+  align = 'right',   // 'right' | 'left' — dropdown alignment
+  allowRawExport = false, // expose the JSON-bundle export. Editor sets true; Viewer / public links don't.
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -161,27 +163,63 @@ export default function ExportMenu({
     window.print();
   };
 
-  const triggerStyle = buttonStyle || defaultBtn;
+  const isToolbarVariant = variant === 'toolbar';
+  const triggerStyle = buttonStyle || (isToolbarVariant ? toolbarBtn : defaultBtn);
+  const iconSize = isToolbarVariant ? 18 : 14;
+  const iconColor = isToolbarVariant ? 'var(--text-secondary)' : undefined;
+
+  // Toolbar variant matches the surrounding utilityIconBtn pattern: transparent
+  // background, hover lifts with bg-panel + shadow + translateY(-1px).
+  const onTriggerEnter = (e) => {
+    if (!isToolbarVariant) return;
+    e.currentTarget.style.background = 'var(--bg-panel)';
+    e.currentTarget.style.boxShadow = 'var(--shadow-md)';
+    e.currentTarget.style.transform = 'translateY(-1px)';
+  };
+  const onTriggerLeave = (e) => {
+    if (!isToolbarVariant) return;
+    e.currentTarget.style.background = 'transparent';
+    e.currentTarget.style.boxShadow = 'none';
+    e.currentTarget.style.transform = 'translateY(0)';
+  };
 
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
-      <button onClick={() => setOpen((o) => !o)} style={triggerStyle} title="Export">
-        <TbDownload size={14} />
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={triggerStyle}
+        onMouseEnter={onTriggerEnter}
+        onMouseLeave={onTriggerLeave}
+        title={isToolbarVariant ? undefined : 'Export'}
+      >
+        <TbDownload size={iconSize} color={iconColor} />
       </button>
       {open && (
         <div style={{ ...dropdownStyle, [align]: 0 }}>
-          <button onClick={exportPDF}    style={dropdownItem}><TbFileTypePdf size={16} style={iconM} />Export PDF</button>
-          <button onClick={exportPNG}    style={dropdownItem}><TbPhoto       size={16} style={iconM} />Export PNG</button>
-          <button onClick={exportExcel}  style={dropdownItem}><TbTableExport size={16} style={iconM} />Export Excel</button>
-          <button onClick={handlePrint}  style={dropdownItem}><TbPrinter     size={16} style={iconM} />Print</button>
-          <div style={separator} />
-          <button onClick={exportRawJSON} style={dropdownItem}>
-            <TbBraces size={16} style={iconM} />
-            <span>
-              Export raw (JSON)
-              <span style={subLabel}>Re-importable into another account</span>
-            </span>
+          <button onClick={exportPDF}    style={dropdownItem} onMouseEnter={hoverItemEnter} onMouseLeave={hoverItemLeave}>
+            <TbFileTypePdf size={16} style={iconM} />Export PDF
           </button>
+          <button onClick={exportPNG}    style={dropdownItem} onMouseEnter={hoverItemEnter} onMouseLeave={hoverItemLeave}>
+            <TbPhoto       size={16} style={iconM} />Export PNG
+          </button>
+          <button onClick={exportExcel}  style={dropdownItem} onMouseEnter={hoverItemEnter} onMouseLeave={hoverItemLeave}>
+            <TbTableExport size={16} style={iconM} />Export Excel
+          </button>
+          <button onClick={handlePrint}  style={dropdownItem} onMouseEnter={hoverItemEnter} onMouseLeave={hoverItemLeave}>
+            <TbPrinter     size={16} style={iconM} />Print
+          </button>
+          {allowRawExport && (
+            <>
+              <div style={separator} />
+              <button onClick={exportRawJSON} style={dropdownItem} onMouseEnter={hoverItemEnter} onMouseLeave={hoverItemLeave}>
+                <TbBraces size={16} style={iconM} />
+                <span>
+                  Export raw (JSON)
+                  <span style={subLabel}>Re-importable into another account</span>
+                </span>
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -194,6 +232,16 @@ const defaultBtn = {
   color: 'var(--text-muted)', fontSize: 12,
 };
 
+// Mirrors `utilityIconBtn` from Toolbar.jsx so the editor's Refresh / Settings / Export
+// row reads as a single visual group.
+const toolbarBtn = {
+  padding: '6px 8px', border: 'none', borderRadius: 6,
+  background: 'transparent', cursor: 'pointer',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  transition: 'background 0.15s, box-shadow 0.15s, transform 0.15s',
+  lineHeight: 1,
+};
+
 const dropdownStyle = {
   position: 'absolute', top: '100%', marginTop: 4,
   backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 8,
@@ -203,9 +251,14 @@ const dropdownStyle = {
 
 const dropdownItem = {
   display: 'flex', alignItems: 'center', width: '100%', padding: '8px 14px',
-  border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13,
+  border: 'none', background: 'var(--bg-panel)', cursor: 'pointer', fontSize: 13,
   color: 'var(--text-secondary)', textAlign: 'left',
+  transition: 'background 0.12s',
 };
+
+// Same hover behaviour as the widget sub-menus in Toolbar.jsx — bg-panel ↔ bg-hover.
+const hoverItemEnter = (e) => { e.currentTarget.style.background = 'var(--bg-hover)'; };
+const hoverItemLeave = (e) => { e.currentTarget.style.background = 'var(--bg-panel)'; };
 
 const iconM = { marginRight: 8, flexShrink: 0 };
 

@@ -371,14 +371,18 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           </button>
           <WidgetTooltip text="Report settings" show={hoverKey === 'settings'} />
         </div>
+        {exportMenu && (
+          <>
+            <div style={{ width: 1, height: 20, background: 'var(--border-default)' }} />
+            <div style={{ position: 'relative' }}
+              onMouseEnter={() => scheduleHover('export')}
+              onMouseLeave={clearHover}>
+              {exportMenu}
+              <WidgetTooltip text="Export report" show={hoverKey === 'export'} />
+            </div>
+          </>
+        )}
       </div>
-
-      {/* Export menu — slot filled by the Editor (PDF / PNG / Excel / Print / Raw JSON). */}
-      {exportMenu && (
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          {exportMenu}
-        </div>
-      )}
 
       {/* Preview — icon only with tooltip, sits next to Save */}
       <div style={{ position: 'relative' }}

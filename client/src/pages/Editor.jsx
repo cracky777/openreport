@@ -1070,12 +1070,8 @@ export default function Editor() {
               widgets={widgets}
               canvasRef={canvasRef}
               onBeforeCapture={() => setSelectedWidget(null)}
-              buttonStyle={{
-                padding: '6px 8px', border: 'none', borderRadius: 6,
-                background: 'transparent', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: 'var(--text-secondary)', transition: 'background 0.15s',
-              }}
+              variant="toolbar"
+              allowRawExport
             />
           );
         })()}
