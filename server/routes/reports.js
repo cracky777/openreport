@@ -101,6 +101,82 @@ router.get('/:id', (req, res) => {
   });
 });
 
+// Import report from a raw JSON bundle (the file produced by the client-side
+// "Export raw (JSON)" action). The bundle's shape is:
+//   { format: 'open-report.report.v1', exportedAt, report: { title, model_id, layout, widgets, settings, pages } }
+// We DON'T try to recreate the source datasource or model — the importer must
+// pick one they already have access to via `modelId` in the query/body.
+// model_name in the bundle is only used to surface a hint in the response.
+router.post('/import', requireAuth, (req, res) => {
+  const { bundle, modelId, workspaceId } = req.body || {};
+  if (!bundle || typeof bundle !== 'object') {
+    return res.status(400).json({ error: 'Missing or invalid bundle' });
+  }
+  if (bundle.format !== 'open-report.report.v1') {
+    return res.status(400).json({ error: `Unsupported bundle format: ${bundle.format}` });
+  }
+  const src = bundle.report;
+  if (!src || typeof src !== 'object') {
+    return res.status(400).json({ error: 'Bundle is missing the "report" object' });
+  }
+  if (!modelId) {
+    return res.status(400).json({ error: 'A target modelId is required to import' });
+  }
+
+  // The model must belong to the calling user (or they must be admin) — we
+  // never let an import silently bind to someone else's model.
+  const model = db.prepare('SELECT id, user_id FROM models WHERE id = ?').get(modelId);
+  if (!model) return res.status(404).json({ error: 'Target model not found' });
+  if (req.user.role !== 'admin' && model.user_id !== req.user.id) {
+    return res.status(403).json({ error: 'You do not own the target model' });
+  }
+
+  const id = uuidv4();
+  const title = (src.title ? `${src.title} (imported)` : 'Imported report').slice(0, 200);
+  const layout = Array.isArray(src.layout) ? src.layout : [];
+  // Strip any cached widget data from the bundle — viewers re-query against
+  // their own model going forward, subject to their RLS.
+  const cleanWidgets = (map) => {
+    if (!map || typeof map !== 'object') return {};
+    const out = {};
+    for (const [wId, w] of Object.entries(map)) {
+      if (w && typeof w === 'object') {
+        const { data: _d, ...rest } = w;
+        out[wId] = rest;
+      }
+    }
+    return out;
+  };
+  const widgets = cleanWidgets(src.widgets);
+  const settings = (src.settings && typeof src.settings === 'object') ? { ...src.settings } : {};
+  if (Array.isArray(src.pages)) {
+    settings.pages = src.pages.map((p) => ({
+      id: p.id, name: p.name,
+      layout: Array.isArray(p.layout) ? p.layout : [],
+      widgets: cleanWidgets(p.widgets),
+    }));
+  }
+
+  db.prepare(`
+    INSERT INTO reports (id, user_id, model_id, title, workspace_id, layout, widgets, settings)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id, req.user.id, modelId, title, workspaceId || null,
+    JSON.stringify(layout), JSON.stringify(widgets), JSON.stringify(settings),
+  );
+
+  const created = db.prepare('SELECT * FROM reports WHERE id = ?').get(id);
+  res.status(201).json({
+    report: {
+      ...created,
+      layout: JSON.parse(created.layout),
+      widgets: JSON.parse(created.widgets),
+      settings: JSON.parse(created.settings),
+    },
+    sourceModelHint: src.model_name || null,
+  });
+});
+
 // Create report
 router.post('/', requireAuth, (req, res) => {
   const id = uuidv4();

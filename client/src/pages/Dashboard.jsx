@@ -41,6 +41,12 @@ export default function Dashboard() {
   const [newWsName, setNewWsName] = useState('');
   const [editingWsName, setEditingWsName] = useState(false);
   const [editedWsName, setEditedWsName] = useState('');
+  // Import-from-JSON-bundle flow
+  const importFileRef = useRef(null);
+  const [importBundle, setImportBundle] = useState(null);   // parsed { format, report, ... } or null
+  const [importModelId, setImportModelId] = useState('');
+  const [importError, setImportError] = useState('');
+  const [importing, setImporting] = useState(false);
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [newMemberRole, setNewMemberRole] = useState('viewer');
   const [userSuggestions, setUserSuggestions] = useState([]);
@@ -172,7 +178,7 @@ export default function Dashboard() {
             const m = fullRes.data.model;
             const hasTables = (m.selected_tables || []).length > 0;
             const hasFields = (m.dimensions || []).length > 0 || (m.measures || []).length > 0;
-            if (hasTables && hasFields) needsAutoFlag = false;
+            if (hasTables && hasFields) needsAutoFlag = false;   // already populated, leave it
           } catch { /* fetch failed, just re-flag to be safe */ }
         }
       }
@@ -259,6 +265,56 @@ export default function Dashboard() {
     await api.delete(`/workspaces/${wsId}`);
     setWorkspaces((p) => p.filter((w) => w.id !== wsId));
     if (selectedWs === wsId) setSelectedWs(null);
+  };
+
+  // === Import a report bundle (.openreport.json file) ===
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file
+    if (!file) return;
+    setImportError('');
+    try {
+      const text = await file.text();
+      const bundle = JSON.parse(text);
+      if (bundle.format !== 'open-report.report.v1') {
+        setImportError(`Unsupported file format: ${bundle.format || 'unknown'}`);
+        return;
+      }
+      setImportBundle(bundle);
+      // Pre-select the original model if the user happens to have access to it
+      const orig = bundle.report?.model_id;
+      const matchedModel = orig && models.find((m) => m.id === orig);
+      setImportModelId(matchedModel?.id || '');
+    } catch (err) {
+      setImportError(`Cannot read file: ${err.message}`);
+    }
+  };
+
+  const submitImport = async () => {
+    if (!importBundle || !importModelId) return;
+    setImporting(true);
+    try {
+      const res = await api.post('/reports/import', {
+        bundle: importBundle,
+        modelId: importModelId,
+        workspaceId: selectedWs || undefined,
+      });
+      const newId = res.data.report?.id;
+      setImportBundle(null);
+      setImportModelId('');
+      if (newId) navigate(`/edit/${newId}`);
+    } catch (err) {
+      setImportError(err.response?.data?.error || err.message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const cancelImport = () => {
+    setImportBundle(null);
+    setImportModelId('');
+    setImportError('');
   };
 
   const saveWorkspaceName = async () => {
@@ -530,7 +586,25 @@ export default function Dashboard() {
                 </>
               )}
             </div>
-            {canEdit && <button onClick={() => { setNewTitle(''); setNewModelId(''); setCreateMode(null); setUploadError(''); setShowCreate(true); }} style={primaryBtn}>+ New Report</button>}
+            {canEdit && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  ref={importFileRef}
+                  type="file"
+                  accept=".json,application/json"
+                  style={{ display: 'none' }}
+                  onChange={handleImportFile}
+                />
+                <button
+                  onClick={() => { setImportError(''); importFileRef.current?.click(); }}
+                  style={{ ...primaryBtn, background: 'var(--bg-panel)', color: 'var(--accent-primary)', border: '1px solid var(--accent-primary-border)' }}
+                  title="Import a report from a .openreport.json file"
+                >
+                  Import
+                </button>
+                <button onClick={() => { setNewTitle(''); setNewModelId(''); setCreateMode(null); setUploadError(''); setShowCreate(true); }} style={primaryBtn}>+ New Report</button>
+              </div>
+            )}
           </div>
 
           {/* Members panel */}
@@ -596,6 +670,53 @@ export default function Dashboard() {
                   </button>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Import-from-bundle modal */}
+          {importBundle && (
+            <div style={modalOverlay} onClick={cancelImport}>
+              <div style={{ ...modalCard, width: 460 }} onClick={(e) => e.stopPropagation()}>
+                <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Import report</h3>
+                <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+                  Source: <strong>{importBundle.report?.title || 'Untitled'}</strong>
+                  {importBundle.report?.model_name && (
+                    <> &middot; originally bound to model <code>{importBundle.report.model_name}</code></>
+                  )}
+                </p>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={labelStyle}>Bind to data model</label>
+                  <select
+                    value={importModelId}
+                    onChange={(e) => setImportModelId(e.target.value)}
+                    style={inputStyle}
+                  >
+                    <option value="">— pick one —</option>
+                    {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                    Widgets will be re-queried against the model you pick. Field references in the bundle must match this model's dimensions and measures.
+                  </p>
+                </div>
+                {importError && (
+                  <div style={{ padding: 8, marginBottom: 12, background: 'var(--state-danger-soft)', color: '#dc2626', borderRadius: 6, fontSize: 13 }}>
+                    {importError}
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  <button onClick={cancelImport} style={{ ...primaryBtn, background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border-default)' }}>Cancel</button>
+                  <button onClick={submitImport} disabled={!importModelId || importing} style={primaryBtn}>
+                    {importing ? 'Importing…' : 'Import'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Top-level import error (when file failed to parse before opening the modal) */}
+          {importError && !importBundle && (
+            <div style={{ padding: 10, marginBottom: 16, background: 'var(--state-danger-soft)', color: '#dc2626', borderRadius: 6, fontSize: 13 }}>
+              {importError}
             </div>
           )}
 
@@ -798,10 +919,7 @@ const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: 'var(--bg-
 const iconBtn = { background: 'transparent', border: '1px solid', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
 const cardStyle = { backgroundColor: 'var(--bg-panel)', borderRadius: 8, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.15s', overflow: 'hidden' };
 
-// Workspace card buttons share the visual language of the editor toolbar / page header
-// (rounded 8px, subtle background, hover lifts) instead of the older square iconBtn.
-// Returns the props to spread on a <button> — including onMouseEnter/Leave for hover —
-// because inline styles can't express :hover by themselves.
+// Workspace card buttons share the visual language of the editor toolbar / page header.
 const CARD_BTN_VARIANTS = {
   accent:  { color: 'var(--accent-primary)',  hoverBg: 'var(--accent-primary-soft)', hoverBorder: 'var(--accent-primary)' },
   success: { color: '#16a34a',                hoverBg: '#dcfce7',                    hoverBorder: '#16a34a' },

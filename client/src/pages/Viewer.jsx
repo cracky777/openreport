@@ -2,13 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import ReportCanvas from '../components/Canvas/ReportCanvas';
 import api from '../utils/api';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
-import * as XLSX from 'xlsx';
-import { saveAs } from 'file-saver';
-import { TbDownload, TbFileTypePdf, TbPhoto, TbTableExport, TbMaximize, TbMinimize, TbPrinter, TbRefresh } from 'react-icons/tb';
+import { TbMaximize, TbMinimize, TbRefresh } from 'react-icons/tb';
 import { useTheme } from '../hooks/useTheme';
 import PagesColumn from '../components/PagesColumn/PagesColumn';
+import ExportMenu from '../components/ExportMenu/ExportMenu';
 
 export default function Viewer() {
   const { id } = useParams();
@@ -29,7 +26,6 @@ export default function Viewer() {
   crossHighlightRef.current = crossHighlight;
   const crossFilterSourceRef = useRef(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const canvasRef = useRef(null);
   const [pages, setPages] = useState([]);
   const [currentPageIdx, setCurrentPageIdx] = useState(0);
@@ -484,89 +480,6 @@ export default function Viewer() {
     return () => document.removeEventListener('fullscreenchange', handler);
   }, []);
 
-  // Export PDF
-  const exportPDF = async () => {
-    setExportMenuOpen(false);
-    const el = canvasRef.current;
-    if (!el) return;
-    // Temporarily remove scale transform for accurate capture
-    const origTransform = el.style.transform;
-    el.style.transform = 'none';
-    const pw = report.settings?.pageWidth || 1140;
-    const ph = report.settings?.pageHeight || 800;
-    const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: null, width: pw, height: ph });
-    el.style.transform = origTransform;
-    const imgData = canvas.toDataURL('image/png');
-    const orientation = pw > ph ? 'landscape' : 'portrait';
-    const pdf = new jsPDF({ orientation, unit: 'px', format: [pw, ph] });
-    pdf.addImage(imgData, 'PNG', 0, 0, pw, ph);
-    pdf.save(`${report.title || 'report'}.pdf`);
-  };
-
-  // Export PNG
-  const exportPNG = async () => {
-    setExportMenuOpen(false);
-    const el = canvasRef.current;
-    if (!el) return;
-    const origTransform = el.style.transform;
-    el.style.transform = 'none';
-    const pw = report.settings?.pageWidth || 1140;
-    const ph = report.settings?.pageHeight || 800;
-    const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: null, width: pw, height: ph });
-    el.style.transform = origTransform;
-    canvas.toBlob((blob) => {
-      if (blob) saveAs(blob, `${report.title || 'report'}.png`);
-    });
-  };
-
-  // Export CSV — all widget data
-  const exportCSV = () => {
-    setExportMenuOpen(false);
-    const wb = XLSX.utils.book_new();
-    let sheetCount = 0;
-
-    Object.entries(widgets).forEach(([wId, w]) => {
-      if (!w.data) return;
-      let sheetData = [];
-      const name = w.config?.title || w.type || `Widget ${sheetCount + 1}`;
-
-      if (w.data.columns && w.data.rows) {
-        // Table
-        sheetData = [w.data.columns, ...w.data.rows];
-      } else if (w.data.labels && w.data.values) {
-        // Bar/Line
-        sheetData = [['Label', 'Value'], ...w.data.labels.map((l, i) => [l, w.data.values[i]])];
-      } else if (w.data.labels && w.data.series) {
-        // Multi-series
-        const headers = ['Label', ...w.data.series.map((s) => s.name)];
-        sheetData = [headers, ...w.data.labels.map((l, i) => [l, ...w.data.series.map((s) => s.values[i])])];
-      } else if (w.data.items) {
-        // Pie
-        sheetData = [['Name', 'Value'], ...w.data.items.map((it) => [it.name, it.value])];
-      } else if (w.data.rawRows) {
-        // Pivot raw data
-        const keys = Object.keys(w.data.rawRows[0] || {});
-        sheetData = [keys, ...w.data.rawRows.map((r) => keys.map((k) => r[k]))];
-      } else {
-        return;
-      }
-
-      const ws = XLSX.utils.aoa_to_sheet(sheetData);
-      XLSX.utils.book_append_sheet(wb, ws, name.substring(0, 31));
-      sheetCount++;
-    });
-
-    if (sheetCount > 0) {
-      const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-      saveAs(new Blob([buf]), `${report.title || 'report'}.xlsx`);
-    }
-  };
-
-  // Print
-  const handlePrint = () => {
-    setExportMenuOpen(false);
-    window.print();
-  };
 
   if (error) {
     return <div style={{ padding: 60, textAlign: 'center', color: 'var(--state-danger)' }}>{error}</div>;
@@ -589,19 +502,12 @@ export default function Viewer() {
           <button onClick={handleRefresh} disabled={refreshing} style={{ ...toolBtnSmall, opacity: refreshing ? 0.5 : 1, cursor: refreshing ? 'not-allowed' : 'pointer' }} title="Refresh all widgets">
             <TbRefresh size={14} style={{ animation: refreshing ? 'spin 0.8s linear infinite' : undefined }} />
           </button>
-          <div style={{ position: 'relative' }}>
-            <button onClick={() => setExportMenuOpen(!exportMenuOpen)} style={toolBtnSmall} title="Export">
-              <TbDownload size={14} />
-            </button>
-            {exportMenuOpen && (
-              <div style={dropdownStyle}>
-                <button onClick={exportPDF} style={dropdownItem}><TbFileTypePdf size={16} style={{ marginRight: 6 }} />Export PDF</button>
-                <button onClick={exportPNG} style={dropdownItem}><TbPhoto size={16} style={{ marginRight: 6 }} />Export PNG</button>
-                <button onClick={exportCSV} style={dropdownItem}><TbTableExport size={16} style={{ marginRight: 6 }} />Export Excel</button>
-                <button onClick={handlePrint} style={dropdownItem}><TbPrinter size={16} style={{ marginRight: 6 }} />Print</button>
-              </div>
-            )}
-          </div>
+          <ExportMenu
+            report={report}
+            widgets={widgets}
+            canvasRef={canvasRef}
+            buttonStyle={toolBtnSmall}
+          />
           <button onClick={toggleFullscreen} style={toolBtnSmall} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
             {isFullscreen ? <TbMinimize size={14} /> : <TbMaximize size={14} />}
           </button>
@@ -683,15 +589,3 @@ const toolBtnSmall = {
   color: 'var(--text-muted)', fontSize: 12,
 };
 
-const dropdownStyle = {
-  position: 'absolute', top: '100%', right: 0, marginTop: 4,
-  backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 8,
-  boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 20, minWidth: 160,
-  overflow: 'hidden',
-};
-
-const dropdownItem = {
-  display: 'flex', alignItems: 'center', width: '100%', padding: '8px 14px',
-  border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13,
-  color: 'var(--text-secondary)', textAlign: 'left',
-};

@@ -26,7 +26,7 @@ function WidgetTooltip({ text, show }) {
   );
 }
 
-export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, isReportDirty }) {
+export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, isReportDirty, exportMenu }) {
   const navigate = useNavigate();
   const [openMenu, setOpenMenu] = useState(null); // 'bar' | 'line' | null
   const [hoverKey, setHoverKey] = useState(null);
@@ -372,6 +372,13 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           <WidgetTooltip text="Report settings" show={hoverKey === 'settings'} />
         </div>
       </div>
+
+      {/* Export menu — slot filled by the Editor (PDF / PNG / Excel / Print / Raw JSON). */}
+      {exportMenu && (
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          {exportMenu}
+        </div>
+      )}
 
       {/* Preview — icon only with tooltip, sits next to Save */}
       <div style={{ position: 'relative' }}

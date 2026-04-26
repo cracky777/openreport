@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import ReportCanvas from '../components/Canvas/ReportCanvas';
 import Toolbar from '../components/Toolbar/Toolbar';
+import ExportMenu from '../components/ExportMenu/ExportMenu';
 import { WidgetConfigPanel, DataModelPanel } from '../components/PropertyPanel/PropertyPanel';
 import { WIDGET_TYPES } from '../components/Widgets';
 import SettingsPanel from '../components/SettingsPanel/SettingsPanel';
@@ -537,6 +538,8 @@ export default function Editor() {
   // resize the canvas — neither layout nor paint of the widgets is touched. When the animation
   // ends, the canvas re-enters flex and reflows once to its new size.
   const canvasWrapperRef = useRef(null);
+  // Ref attached to the actual report canvas DOM node — used by ExportMenu for PDF/PNG capture.
+  const canvasRef = useRef(null);
   const [pinnedRect, setPinnedRect] = useState(null);
   const pinCanvas = useCallback(() => {
     const el = canvasWrapperRef.current;
@@ -1041,6 +1044,41 @@ export default function Editor() {
         reportId={id}
         onRefresh={handleRefresh}
         refreshing={refreshing}
+        exportMenu={(() => {
+          // Build a report-shaped object pulling the multi-page snapshot — JSON export
+          // needs every page, not just the one currently visible. Layout/widgets at the
+          // top level mirror the current page (for filename + Excel current-sheet export).
+          const curPage = pages[currentPageIdx];
+          const pagesData = { ...pagesDataRef.current };
+          if (curPage) pagesData[curPage.id] = { layout, widgets };
+          const fullPages = pages.map((p) => ({
+            id: p.id, name: p.name,
+            layout: pagesData[p.id]?.layout || [],
+            widgets: pagesData[p.id]?.widgets || {},
+          }));
+          return (
+            <ExportMenu
+              report={{
+                title,
+                model_id: model?.id || null,
+                model_name: model?.name || null,
+                layout,
+                widgets,
+                settings,
+                pages: fullPages,
+              }}
+              widgets={widgets}
+              canvasRef={canvasRef}
+              onBeforeCapture={() => setSelectedWidget(null)}
+              buttonStyle={{
+                padding: '6px 8px', border: 'none', borderRadius: 6,
+                background: 'transparent', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: 'var(--text-secondary)', transition: 'background 0.15s',
+              }}
+            />
+          );
+        })()}
         isReportDirty={() => {
           // Compute the current snapshot (includes the currently-edited page + all cached pages)
           const curPage = pages[currentPageIdx];
@@ -1108,6 +1146,7 @@ export default function Editor() {
               onDrillUp={handleDrillUp}
               onDrillReset={handleDrillReset}
               crossHighlight={crossHighlight}
+              reportRef={canvasRef}
             />
           </div>
         </div>
