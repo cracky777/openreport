@@ -28,3 +28,9 @@ export const adminLinks = [];
 // Cloud-only slot rendered above the Datasources list (e.g. storage usage bar).
 // Null in OSS — set to a React component in the cloud edition.
 export const DatasourcesHeader = null;
+// Cloud-only slot rendered in the Dashboard topbar (e.g. org switcher).
+// Null in OSS — set to a React component in the cloud edition.
+export const TopbarSwitcher = null;
+// Cloud-only slot injected into the Dashboard user-menu dropdown (e.g. a
+// "Platform supervisor" link). Null in OSS.
+export const UserMenuExtras = null;

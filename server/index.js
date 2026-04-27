@@ -21,9 +21,10 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // CORS — in production, CORS_ORIGIN can be a single origin or a comma-separated
-// list of origins (handy when an API and a static front-end live on different
-// domains). In dev we accept any localhost / 127.0.0.1 origin (any port) plus
-// file:// so a separate marketing site can hit the API while you iterate.
+// list (e.g. "https://app.openreport.io,https://openreport.io" so the static
+// marketing site can POST to /api/billing/waitlist). In dev we accept any
+// localhost origin so the static site (served from any port via python -m
+// http.server, http-server, etc.) can hit the API while you iterate.
 function buildCorsOrigin() {
   // In dev, accept any origin (localhost ports, file:// pages, etc.). The cors
   // package reflects the request's Origin header back so credentials still
@@ -63,17 +64,10 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/datasources', datasourceRoutes);
-app.use('/api/models', modelRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/workspaces', workspaceRoutes);
-app.use('/api/upload', fileUploadRoutes);
-
-// Cloud edition extension point — loaded only when explicitly enabled so the
-// public OSS build never depends on the private cloud module. See CLOUD-DEV.md.
+// Cloud edition extension point — loaded BEFORE OSS routes so the cloud module
+// can mount tenant-scoped shadows for /api/workspaces, /api/reports, etc. that
+// take precedence (Express picks the first matching handler). In OSS mode this
+// is a no-op and the OSS routes below run as today.
 if (process.env.OPENREPORT_CLOUD === '1') {
   try {
     require('./cloud').register(app);
@@ -82,6 +76,15 @@ if (process.env.OPENREPORT_CLOUD === '1') {
     process.exit(1);
   }
 }
+
+// Routes — only reached for paths the cloud module didn't shadow
+app.use('/api/auth', authRoutes);
+app.use('/api/reports', reportRoutes);
+app.use('/api/datasources', datasourceRoutes);
+app.use('/api/models', modelRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/workspaces', workspaceRoutes);
+app.use('/api/upload', fileUploadRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

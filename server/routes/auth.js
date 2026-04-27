@@ -3,10 +3,11 @@ const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { passport, requireAuth } = require('../middleware/auth');
 const db = require('../db');
+const authHooks = require('../hooks/auth');
 
 const router = express.Router();
 
-router.post('/register', (req, res) => {
+router.post('/register', async (req, res) => {
   const { email, password, displayName } = req.body;
 
   if (!email || !password) {
@@ -29,6 +30,11 @@ router.post('/register', (req, res) => {
   );
 
   const user = { id, email, display_name: displayName || email.split('@')[0], role };
+
+  // Post-register hooks (cloud edition uses these to provision a personal
+  // organization, send a welcome email, and consume pending invitations).
+  // Errors are caught inside the registry — never break the signup response.
+  await authHooks.runPostRegister({ user, req });
 
   req.login(user, (err) => {
     if (err) return res.status(500).json({ error: 'Login failed after registration' });

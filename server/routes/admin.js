@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { requireAdmin } = require('../middleware/auth');
 const db = require('../db');
+const authHooks = require('../hooks/auth');
 
 const router = express.Router();
 
@@ -33,7 +34,7 @@ router.put('/users/:id/role', requireAdmin, (req, res) => {
 });
 
 // Create user (admin only)
-router.post('/users', requireAdmin, (req, res) => {
+router.post('/users', requireAdmin, async (req, res) => {
   const { email, password, displayName, role } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
@@ -47,7 +48,15 @@ router.post('/users', requireAdmin, (req, res) => {
   db.prepare('INSERT INTO users (id, email, password_hash, display_name, role) VALUES (?, ?, ?, ?, ?)').run(
     id, email, passwordHash, displayName || email.split('@')[0], userRole
   );
-  res.status(201).json({ user: { id, email, display_name: displayName || email.split('@')[0], role: userRole } });
+
+  // Same post-register hooks as /api/auth/register: in cloud mode this provisions
+  // a personal org for the new user. The hook receives the creator's `req` so
+  // the cloud's session-based active-org logic doesn't accidentally swap onto
+  // the new user's org for the admin who triggered the creation.
+  const newUser = { id, email, display_name: displayName || email.split('@')[0], role: userRole };
+  await authHooks.runPostRegister({ user: newUser, req: { session: null, user: req.user } });
+
+  res.status(201).json({ user: newUser });
 });
 
 // Delete user

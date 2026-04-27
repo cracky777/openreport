@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbTableOptions, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown } from 'react-icons/tb';
 import { useTheme } from '../hooks/useTheme';
+import { TopbarSwitcher, UserMenuExtras } from '../cloud';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -28,6 +29,13 @@ export default function Dashboard() {
   const [wsMembers, setWsMembers] = useState([]);
   const [wsOwner, setWsOwner] = useState(null);
   const [wsUserRole, setWsUserRole] = useState(null);
+  // Cloud-only flag returned by GET /api/workspaces/:id when the workspace's
+  // org is a Personal one. Lets us hide sharing controls. Undefined in OSS
+  // (single-tenant) where every workspace is fair game.
+  const [wsIsPersonalOrg, setWsIsPersonalOrg] = useState(false);
+  // Cloud-only flag — true when the API exposed the members list (i.e. the
+  // caller is ws_admin / org_admin). Hides the Members button for editors / viewers.
+  const [wsCanSeeMembers, setWsCanSeeMembers] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showCreateWs, setShowCreateWs] = useState(false);
@@ -74,7 +82,30 @@ export default function Dashboard() {
     setUserSuggestions([]);
   };
 
-  const canEdit = user?.role !== 'viewer';
+  // Cloud-aware permission state. Falls back to OSS-style user.role check
+  // when /api/cloud/orgs/active/current returns nothing (OSS or pre-cloud user).
+  const [activeOrgRole, setActiveOrgRole] = useState(null); // 'admin' | 'editor' | 'viewer' | null
+  useEffect(() => {
+    api.get('/cloud/orgs/active/current')
+      .then((res) => setActiveOrgRole(res.data.role || null))
+      .catch(() => setActiveOrgRole(null));
+  }, [selectedWs]); // refetch when org context might have shifted
+
+  // Org-level write capability: needed to create workspaces, manage datasources/models.
+  // In OSS (no cloud) we fall back to the legacy user.role check.
+  const canEditOrg = activeOrgRole
+    ? (activeOrgRole === 'admin' || activeOrgRole === 'editor')
+    : (user?.role !== 'viewer');
+
+  // Capability inside the currently-selected context. For workspace views: ws_admin/editor
+  // OR org_admin override. For "My Reports" (no workspace): same as canEditOrg.
+  const canEditCurrent = selectedWs
+    ? (wsUserRole === 'admin' || wsUserRole === 'editor' || activeOrgRole === 'admin')
+    : canEditOrg;
+
+  // Backwards-compat alias used by OSS code paths still expecting `canEdit`.
+  // It now resolves to canEditCurrent for the workspace-card actions.
+  const canEdit = canEditCurrent;
 
   // Load data
   useEffect(() => {
@@ -140,6 +171,8 @@ export default function Dashboard() {
       setWsMembers([]);
       setWsOwner(null);
       setWsUserRole(null);
+      setWsIsPersonalOrg(false);
+      setWsCanSeeMembers(false);
       return;
     }
     api.get(`/workspaces/${selectedWs}`).then((res) => {
@@ -147,6 +180,14 @@ export default function Dashboard() {
       setWsMembers(res.data.members || []);
       setWsOwner(res.data.owner);
       setWsUserRole(res.data.userRole);
+      setWsIsPersonalOrg(!!res.data.is_personal_org);
+      // Cloud responses include can_see_members (true for ws_admin / org_admin).
+      // OSS responses don't — fall back to "user is workspace admin" for OSS compat.
+      setWsCanSeeMembers(
+        res.data.can_see_members !== undefined
+          ? !!res.data.can_see_members
+          : res.data.userRole === 'admin'
+      );
     }).catch(() => {});
   }, [selectedWs, reports]);
 
@@ -368,13 +409,14 @@ export default function Dashboard() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' }}>
       {/* Header */}
       <header style={headerStyle}>
-        <h1 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: -0.5, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <h1 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: -0.5, display: 'flex', alignItems: 'center', gap: 12 }}>
           <img src={logoSrc} alt="Open Report" style={{ height: 28 }} />
+          {TopbarSwitcher && <TopbarSwitcher />}
         </h1>
         <nav style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {(canEdit || user?.role === 'admin') && (
+          {(canEditOrg || user?.role === 'admin') && (
             <div style={navPillGroup}>
-              {canEdit && (
+              {canEditOrg && (
                 <>
                   <button onClick={() => navigate('/datasources')} style={navBtnStyled}
                     onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
@@ -443,6 +485,12 @@ export default function Dashboard() {
                     );
                   })}
                 </div>
+                {UserMenuExtras && (
+                  <>
+                    <div style={userMenuDivider} />
+                    <UserMenuExtras onNavigate={() => setUserMenuOpen(false)} />
+                  </>
+                )}
                 <div style={userMenuDivider} />
                 <button
                   onClick={() => { setUserMenuOpen(false); logout(); }}
@@ -478,7 +526,7 @@ export default function Dashboard() {
             </button>
           ))}
 
-          {canEdit && (
+          {canEditOrg && (
             <div style={{ padding: '8px 12px' }}>
               {showCreateWs ? (
                 <div style={{
@@ -575,9 +623,11 @@ export default function Dashboard() {
                       <TbEdit size={14} />
                     </button>
                   )}
-                  <button onClick={() => setShowMembers(!showMembers)} style={{ ...iconBtn, color: 'var(--text-muted)' }} title="Members">
-                    <TbUsers size={16} />
-                  </button>
+                  {!wsIsPersonalOrg && wsCanSeeMembers && (
+                    <button onClick={() => setShowMembers(!showMembers)} style={{ ...iconBtn, color: 'var(--text-muted)' }} title="Members">
+                      <TbUsers size={16} />
+                    </button>
+                  )}
                   {wsUserRole === 'admin' && (
                     <button onClick={() => deleteWorkspace(selectedWs)} style={{ ...iconBtn, color: 'var(--state-danger)' }} title="Delete workspace">
                       <TbTrash size={14} />
@@ -608,7 +658,7 @@ export default function Dashboard() {
           </div>
 
           {/* Members panel */}
-          {showMembers && selectedWs && (
+          {showMembers && selectedWs && !wsIsPersonalOrg && wsCanSeeMembers && (
             <div style={membersPanel}>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Members</div>
               {wsOwner && (
