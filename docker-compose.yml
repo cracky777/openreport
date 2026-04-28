@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: openreport
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - SESSION_SECRET=${SESSION_SECRET:-change-this-to-a-random-secret}
+    volumes:
+      - app-data:/app/server/data
+    networks:
+      - openreport-net
+
+  nginx:
+    image: nginx:alpine
+    container_name: openreport-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - certbot-etc:/etc/letsencrypt:ro
+      - certbot-var:/var/lib/letsencrypt
+    depends_on:
+      - app
+    networks:
+      - openreport-net
+
+  certbot:
+    image: certbot/certbot
+    container_name: openreport-certbot
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-var:/var/lib/letsencrypt
+    depends_on:
+      - nginx
+    # Run manually: docker compose run certbot certonly --webroot -w /var/lib/letsencrypt -d yourdomain.com
+
+volumes:
+  app-data:
+  certbot-etc:
+  certbot-var:
+
+networks:
+  openreport-net:

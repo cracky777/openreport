@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+CLAUDE.md
+.env.local
+*.db
+*.sqlite
+.DS_Store
+Thumbs.db
+coverage/
+.vscode/
+!.vscode/extensions.json
+server/data/
+.claude/settings.local.json

@@ -1,0 +1,98 @@
+{
+  "light": {
+    "label": "Light",
+    "kind": "light",
+    "vars": {
+      "--bg-app": "#f1f5f9",
+      "--bg-panel": "#ffffff",
+      "--bg-panel-alt": "#fafbfc",
+      "--bg-subtle": "#f8fafc",
+      "--bg-hover": "#f1f5f9",
+      "--bg-active": "#f5f3ff",
+      "--bg-canvas": "#ffffff",
+
+      "--text-primary": "#0f172a",
+      "--text-secondary": "#334155",
+      "--text-muted": "#64748b",
+      "--text-disabled": "#94a3b8",
+      "--text-inverse": "#ffffff",
+
+      "--border-default": "#e2e8f0",
+      "--border-strong": "#cbd5e1",
+      "--border-subtle": "#eef2f7",
+
+      "--accent-primary": "#7c3aed",
+      "--accent-primary-hover": "#6d28d9",
+      "--accent-primary-soft": "#f5f3ff",
+      "--accent-primary-border": "#ede9fe",
+      "--accent-primary-text": "#4c1d95",
+
+      "--accent-cyan": "#0891b2",
+      "--accent-cyan-soft": "#ecfeff",
+      "--accent-cyan-border": "#e0f7fa",
+
+      "--state-success": "#16a34a",
+      "--state-success-soft": "#f0fdf4",
+      "--state-danger": "#dc2626",
+      "--state-danger-soft": "#fef2f2",
+      "--state-danger-border": "#fecaca",
+      "--state-warning": "#92400e",
+      "--state-warning-soft": "#fef3c7",
+      "--state-warning-border": "#fde68a",
+
+      "--shadow-sm": "0 1px 3px rgba(15, 23, 42, 0.05)",
+      "--shadow-md": "0 2px 8px rgba(15, 23, 42, 0.08)",
+      "--shadow-lg": "0 10px 30px rgba(15, 23, 42, 0.25)",
+      "--shadow-purple": "0 1px 3px rgba(124, 58, 237, 0.2)",
+      "--shadow-purple-lg": "0 4px 12px rgba(124, 58, 237, 0.3)"
+    }
+  },
+  "dark": {
+    "label": "Dark",
+    "kind": "dark",
+    "vars": {
+      "--bg-app": "#0b1220",
+      "--bg-panel": "#111827",
+      "--bg-panel-alt": "#0f172a",
+      "--bg-subtle": "#1e293b",
+      "--bg-hover": "#1f2a3d",
+      "--bg-active": "#3b2a6b",
+      "--bg-canvas": "#0f172a",
+
+      "--text-primary": "#f1f5f9",
+      "--text-secondary": "#cbd5e1",
+      "--text-muted": "#94a3b8",
+      "--text-disabled": "#64748b",
+      "--text-inverse": "#0f172a",
+
+      "--border-default": "#1e293b",
+      "--border-strong": "#334155",
+      "--border-subtle": "#1a2334",
+
+      "--accent-primary": "#a78bfa",
+      "--accent-primary-hover": "#c4b5fd",
+      "--accent-primary-soft": "#2a1e55",
+      "--accent-primary-border": "#3b2a6b",
+      "--accent-primary-text": "#ddd6fe",
+
+      "--accent-cyan": "#22d3ee",
+      "--accent-cyan-soft": "#083344",
+      "--accent-cyan-border": "#155e75",
+
+      "--state-success": "#4ade80",
+      "--state-success-soft": "#052e16",
+      "--state-danger": "#f87171",
+      "--state-danger-soft": "#450a0a",
+      "--state-danger-border": "#7f1d1d",
+      "--state-warning": "#fbbf24",
+      "--state-warning-soft": "#3b2f11",
+      "--state-warning-border": "#92400e",
+
+      "--shadow-sm": "0 1px 3px rgba(0, 0, 0, 0.4)",
+      "--shadow-md": "0 2px 8px rgba(0, 0, 0, 0.5)",
+      "--shadow-lg": "0 10px 30px rgba(0, 0, 0, 0.6)",
+      "--shadow-purple": "0 1px 3px rgba(167, 139, 250, 0.3)",
+      "--shadow-purple-lg": "0 4px 12px rgba(167, 139, 250, 0.4)"
+    }
+  }
+}
