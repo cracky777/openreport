@@ -63,7 +63,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           transformOrigin: 'center center',
           background: widget.config?.transparentBg
             ? 'transparent'
-            : (buildGradientCSS(widget.config?.gradientBg) || widget.config?.backgroundColor || 'var(--bg-panel)'),
+            : (buildGradientCSS(widget.config?.gradientBg) || widget.config?.backgroundColor || (widget.type === 'filter' ? 'transparent' : 'var(--bg-panel)')),
           borderRadius: (widget.type === 'shape' && widget.config?.shape === 'round') ? '50%' : (widget.config?.borderRadius ?? 8),
           border: isSelected
             ? '2px solid var(--accent-primary)'
