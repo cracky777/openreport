@@ -5,6 +5,7 @@ import api from '../utils/api';
 import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbTableOptions, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown } from 'react-icons/tb';
 import { useTheme } from '../hooks/useTheme';
 import { TopbarSwitcher, UserMenuExtras } from '../cloud';
+import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -231,7 +232,7 @@ export default function Dashboard() {
       if (needsAutoFlag) {
         const colRes = await api.get(`/datasources/${ds.id}/tables/${ds.tableName}/columns`);
         const cols = colRes.data.columns || [];
-        const numericTypes = ['integer', 'bigint', 'numeric', 'decimal', 'real', 'double', 'float', 'int', 'smallint', 'double precision'];
+        const numericTypes = ['integer', 'bigint', 'numeric', 'decimal', 'real', 'double', 'float', 'int', 'smallint', 'double precision', 'interval'];
         const dateTypes = ['date', 'timestamp', 'timestamptz', 'timestamp with time zone', 'timestamp without time zone', 'datetime', 'time', 'smalldatetime', 'datetime2'];
         const dimensions = [];
         const measures = [];
@@ -799,7 +800,7 @@ export default function Dashboard() {
                         <span style={{ fontWeight: 600, fontSize: 13 }}>Import File</span>
                         <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>CSV, Excel, Parquet, JSON</span>
                       </button>
-                      <button onClick={() => { setShowCreate(false); navigate('/datasources'); }} style={sourceCard}>
+                      <button onClick={() => setCreateMode('connection')} style={sourceCard}>
                         <TbDatabase size={28} color="#f59e0b" />
                         <span style={{ fontWeight: 600, fontSize: 13 }}>Database</span>
                         <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>Connect to a database</span>
@@ -858,6 +859,20 @@ export default function Dashboard() {
                       <button onClick={() => { setCreateMode(null); setUploadError(''); }} style={secondaryBtn}>← Back</button>
                     </div>
                   </div>
+                )}
+
+                {/* Step 2c: New database connection — create the datasource here, then chain into the model editor */}
+                {createMode === 'connection' && (
+                  <DatasourceForm
+                    onSaved={async ({ datasource, isNew }) => {
+                      setShowCreate(false);
+                      setCreateMode(null);
+                      if (isNew) {
+                        await createModelAndNavigate(navigate, datasource);
+                      }
+                    }}
+                    onCancel={() => setCreateMode(null)}
+                  />
                 )}
               </div>
             </div>

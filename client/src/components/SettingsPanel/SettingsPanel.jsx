@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { TbCheck } from 'react-icons/tb';
 import { useTheme } from '../../hooks/useTheme';
+import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
 
-export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
+export default function SettingsPanel({ settings, onSettingsChange, onClose, model }) {
   const { themes: availableThemes } = useTheme();
   const update = (key, value) => {
     onSettingsChange({ ...settings, [key]: value });
@@ -62,6 +63,45 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
             })}
           </div>
         </Section>
+
+        {model && (() => {
+          const rules = Array.isArray(settings?.reportFilters) ? settings.reportFilters : [];
+          const setRules = (next) => update('reportFilters', next);
+          const addField = (e) => {
+            const v = e.target.value;
+            if (!v) return;
+            const [kind, name] = v.split('::');
+            const isMeasure = kind === 'm';
+            setRules([...rules, buildDefaultFilterRule(model, name, isMeasure)]);
+            e.target.value = '';
+          };
+          return (
+            <Section title="Report filters">
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.4 }}>
+                Applied to every widget on every page (in addition to slicers and per-widget filters).
+              </div>
+              <select onChange={addField} value=""
+                style={{ ...inputStyle, marginBottom: 8 }}>
+                <option value="">+ Add a filter on…</option>
+                {(model.dimensions || []).length > 0 && (
+                  <optgroup label="Dimensions">
+                    {model.dimensions.map((d) => (
+                      <option key={'d::' + d.name} value={'d::' + d.name}>{d.label || d.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {(model.measures || []).length > 0 && (
+                  <optgroup label="Measures">
+                    {model.measures.map((m) => (
+                      <option key={'m::' + m.name} value={'m::' + m.name}>{m.label || m.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              <FilterRulesEditor model={model} modelId={model.id} rules={rules} onChange={setRules} />
+            </Section>
+          );
+        })()}
 
         <Section title="View Mode">
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>

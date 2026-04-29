@@ -384,7 +384,7 @@ router.post('/:id/query', async (req, res) => {
   const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
   if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
 
-  const { dimensionNames, measureNames, limit, offset, filters, distinct, measureAggOverrides } = req.body;
+  const { dimensionNames, measureNames, limit, offset, filters, widgetFilters, distinct, measureAggOverrides } = req.body;
   // dimensionNames: ["orders.customer_name", "orders.status"]
   // measureNames: ["orders.total_amount_sum", "orders.count"]
 
@@ -457,6 +457,62 @@ router.post('/:id/query', async (req, res) => {
           whereParts.push(`CAST(${col} AS VARCHAR) IN (${escaped})`);
         }
       }
+    }
+  }
+
+  // Per-widget filters with rich operators. Built here for dimension filters
+  // (added to WHERE) and later for measure filters (added to HAVING after the
+  // measure aggregation expressions are constructed). Custom-expression
+  // measures are not yet supported in HAVING.
+  const havingParts = [];
+  const escVal = (v) => `'${String(v).replace(/'/g, "''")}'`;
+  const isEmpty = (v) => v == null || v === '';
+  function buildScalarClause(colExpr, op, value, values, isDateCol) {
+    const cast = isDateCol ? `CAST(${colExpr} AS DATE)` : colExpr;
+    const list = Array.isArray(values) ? values : (Array.isArray(value) ? value : null);
+    const numericFor = (v) => isDateCol ? escVal(v) : Number(v);
+    switch (op) {
+      case 'in':
+        if (!list?.length) return null;
+        return `CAST(${colExpr} AS VARCHAR) IN (${list.map(escVal).join(', ')})`;
+      case 'not_in':
+        if (!list?.length) return null;
+        return `CAST(${colExpr} AS VARCHAR) NOT IN (${list.map(escVal).join(', ')})`;
+      case 'eq':  return isEmpty(value) ? null : `${cast} = ${escVal(value)}`;
+      case 'neq': return isEmpty(value) ? null : `${cast} <> ${escVal(value)}`;
+      case 'gt':  return isEmpty(value) ? null : `${cast} > ${numericFor(value)}`;
+      case 'gte': return isEmpty(value) ? null : `${cast} >= ${numericFor(value)}`;
+      case 'lt':  return isEmpty(value) ? null : `${cast} < ${numericFor(value)}`;
+      case 'lte': return isEmpty(value) ? null : `${cast} <= ${numericFor(value)}`;
+      case 'between': {
+        const [a, b] = list || [];
+        if (isEmpty(a) || isEmpty(b)) return null;
+        return isDateCol
+          ? `${cast} BETWEEN ${escVal(a)} AND ${escVal(b)}`
+          : `${cast} BETWEEN ${Number(a)} AND ${Number(b)}`;
+      }
+      case 'contains':     return isEmpty(value) ? null : `CAST(${colExpr} AS VARCHAR) LIKE ${escVal('%' + value + '%')}`;
+      case 'not_contains': return isEmpty(value) ? null : `CAST(${colExpr} AS VARCHAR) NOT LIKE ${escVal('%' + value + '%')}`;
+      case 'starts_with':  return isEmpty(value) ? null : `CAST(${colExpr} AS VARCHAR) LIKE ${escVal(value + '%')}`;
+      case 'ends_with':    return isEmpty(value) ? null : `CAST(${colExpr} AS VARCHAR) LIKE ${escVal('%' + value)}`;
+      case 'is_empty':     return `(${colExpr} IS NULL OR CAST(${colExpr} AS VARCHAR) = '')`;
+      case 'is_not_empty': return `(${colExpr} IS NOT NULL AND CAST(${colExpr} AS VARCHAR) <> '')`;
+      default: return null;
+    }
+  }
+  // Apply dimension filters now (WHERE). Measure filters are deferred until
+  // the SELECT is built, then pushed onto havingParts below.
+  const measureFiltersDeferred = [];
+  if (Array.isArray(widgetFilters)) {
+    for (const f of widgetFilters) {
+      if (!f || typeof f !== 'object' || !f.field || !f.op) continue;
+      if (f.isMeasure) { measureFiltersDeferred.push(f); continue; }
+      const dimDef = allDimensions.find((d) => d.name === f.field);
+      if (!dimDef) continue;
+      tablesUsed.add(dimDef.table);
+      const col = `${quoteTable(dimDef.table)}."${dimDef.column}"`;
+      const clause = buildScalarClause(col, f.op, f.value, f.values, dimDef.type === 'date');
+      if (clause) whereParts.push(clause);
     }
   }
 
@@ -544,6 +600,34 @@ router.post('/:id/query', async (req, res) => {
     }
   });
 
+  // Apply per-widget MEASURE filters as HAVING clauses, now that aggregation
+  // expressions are known. Skips custom expressions (not yet supported in HAVING).
+  let topNOverride = null; // { aggExpr, n, direction: 'DESC' | 'ASC' }
+  for (const f of measureFiltersDeferred) {
+    const measDef = allMeasures.find((mm) => mm.name === f.field);
+    if (!measDef) continue;
+    if (measDef.aggregation === 'custom') continue; // unsupported for now
+    const aggExpr = measDef.aggregation === 'count'
+      ? 'COUNT(*)'
+      : (measDef.table && measDef.column
+          ? `${(measDef.aggregation || 'sum').toUpperCase()}(${quoteTable(measDef.table)}."${measDef.column}")`
+          : null);
+    if (!aggExpr) continue;
+    if (measDef.table) tablesUsed.add(measDef.table);
+    // Top N / Bottom N — these aren't WHERE/HAVING clauses; they override
+    // ORDER BY and LIMIT after aggregation. First top/bottom filter wins.
+    if ((f.op === 'top_n' || f.op === 'bottom_n')) {
+      if (topNOverride) continue;
+      const n = parseInt(f.value, 10);
+      if (Number.isFinite(n) && n > 0) {
+        topNOverride = { aggExpr, n, direction: f.op === 'top_n' ? 'DESC' : 'ASC' };
+      }
+      continue;
+    }
+    const clause = buildScalarClause(aggExpr, f.op, f.value, f.values, false);
+    if (clause) havingParts.push(clause);
+  }
+
   // RLS WHERE injection: must be added after all dim/measure tables are registered
   // (so the JOIN graph picks up the RLS table) but before building the FROM clause.
   if (rlsApplies) {
@@ -599,18 +683,38 @@ router.post('/:id/query', async (req, res) => {
     sql += ` GROUP BY ${groupByParts.join(', ')}`;
   }
 
-  // Stable ordering: ORDER BY the first dimension to keep consistent colors across refetches
-  if (groupByParts.length > 0) {
-    sql += ` ORDER BY ${groupByParts[0]}`;
-  } else if (selectParts.length > 0) {
-    sql += ` ORDER BY 1`;
+  if (havingParts.length > 0 && selectedMeasures.length > 0) {
+    sql += ` HAVING ${havingParts.join(' AND ')}`;
   }
 
   const MAX_ROWS = 1000000;
-  const requestedLimit = Math.min(limit || 1000, MAX_ROWS);
-  sql += ` LIMIT ${requestedLimit}`;
-  if (offset) {
-    sql += ` OFFSET ${offset}`;
+  // Top/Bottom N filter (set above) replaces both the default ORDER BY (which
+  // is by the first dimension for stability) and the configured LIMIT.
+  if (topNOverride) {
+    // NULLs would otherwise dominate (Postgres) or sit at the bottom (MySQL)
+    // of ORDER BY DESC. Force them to the bottom regardless of direction.
+    const nullsClause = (dbType === 'mysql')
+      ? '' // MySQL handled below
+      : ' NULLS LAST';
+    if (dbType === 'mysql') {
+      // MySQL doesn't support NULLS LAST — emulate with `<col> IS NULL` first.
+      sql += ` ORDER BY ${topNOverride.aggExpr} IS NULL, ${topNOverride.aggExpr} ${topNOverride.direction}`;
+    } else {
+      sql += ` ORDER BY ${topNOverride.aggExpr} ${topNOverride.direction}${nullsClause}`;
+    }
+    sql += ` LIMIT ${topNOverride.n}`;
+  } else {
+    // Stable ordering: ORDER BY the first dimension to keep consistent colors across refetches
+    if (groupByParts.length > 0) {
+      sql += ` ORDER BY ${groupByParts[0]}`;
+    } else if (selectParts.length > 0) {
+      sql += ` ORDER BY 1`;
+    }
+    const requestedLimit = Math.min(limit || 1000, MAX_ROWS);
+    sql += ` LIMIT ${requestedLimit}`;
+    if (offset) {
+      sql += ` OFFSET ${offset}`;
+    }
   }
 
   let conn;

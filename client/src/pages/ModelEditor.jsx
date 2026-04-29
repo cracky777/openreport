@@ -208,13 +208,15 @@ export default function ModelEditor() {
   const isNumeric = (dataType) => {
     const t = dataType.toLowerCase();
     return ['integer', 'bigint', 'numeric', 'decimal', 'real', 'double precision',
-      'float', 'int', 'smallint', 'tinyint', 'mediumint', 'double', 'serial', 'bigserial'].includes(t);
+      'float', 'int', 'smallint', 'tinyint', 'mediumint', 'double', 'serial', 'bigserial',
+      // Postgres interval — durations are aggregable in SQL (SUM/AVG return interval).
+      'interval'].includes(t);
   };
 
   const isDateType = (dataType) => {
     const t = dataType.toLowerCase();
     return ['date', 'timestamp', 'timestamptz', 'timestamp with time zone',
-      'timestamp without time zone', 'datetime', 'time', 'interval',
+      'timestamp without time zone', 'datetime', 'time',
       'smalldatetime', 'datetime2', 'datetimeoffset'].includes(t);
   };
 

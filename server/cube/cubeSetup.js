@@ -58,7 +58,7 @@ function setupCube(app) {
               const colName = col.column_name;
               const isNumeric = ['integer', 'bigint', 'numeric', 'decimal', 'real',
                 'double precision', 'float', 'int', 'smallint', 'tinyint',
-                'mediumint', 'double'].includes(col.data_type.toLowerCase());
+                'mediumint', 'double', 'interval'].includes(col.data_type.toLowerCase());
 
               dimensions[colName] = {
                 sql: `\`${colName}\``,

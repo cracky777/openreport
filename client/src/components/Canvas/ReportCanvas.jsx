@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, useCallback, memo, useMemo } from 'react';
 import Draggable from 'react-draggable';
 import { WIDGET_TYPES } from '../Widgets';
 import MaxRowsWarning from '../Widgets/MaxRowsWarning';
+import { evaluateColorCondition } from '../../utils/conditionalFormat';
 
 function buildGradientCSS(g) {
   if (!g?.enabled) return null;
@@ -18,7 +19,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter }) {
   const nodeRef = useRef(null);
   const WidgetType = WIDGET_TYPES[widget.type];
   if (!WidgetType) return null;
@@ -61,9 +62,16 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           width: '100%', height: '100%',
           transform: widget.config?.rotation ? `rotate(${widget.config.rotation}deg)` : undefined,
           transformOrigin: 'center center',
-          background: widget.config?.transparentBg
-            ? 'transparent'
-            : (buildGradientCSS(widget.config?.gradientBg) || widget.config?.backgroundColor || (widget.type === 'filter' ? 'transparent' : 'var(--bg-panel)')),
+          background: (() => {
+            // Conditional formatting (driven by colorMeasure binding) takes priority
+            // over the static container background settings when a rule matches.
+            const cc = widget.config?.colorCondition;
+            const cond = cc?.enabled ? evaluateColorCondition(cc, widget.data?._colorValue) : null;
+            if (cond) return cond;
+            return widget.config?.transparentBg
+              ? 'transparent'
+              : (buildGradientCSS(widget.config?.gradientBg) || widget.config?.backgroundColor || (widget.type === 'filter' ? 'transparent' : 'var(--bg-panel)'));
+          })(),
           borderRadius: (widget.type === 'shape' && widget.config?.shape === 'round') ? '50%' : (widget.config?.borderRadius ?? 8),
           border: isSelected
             ? '2px solid var(--accent-primary)'
@@ -123,6 +131,28 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             position: 'absolute', top: 8, right: 40, zIndex: 10,
           }}>
             <div style={spinnerStyle} />
+          </div>
+        )}
+
+        {/* Edit Interactions overlay — appears on every non-source widget while
+            the user is configuring which targets a click on the source filters. */}
+        {editInteractionsActive && onToggleCrossFilter && (
+          <div
+            onClick={(e) => { e.stopPropagation(); onToggleCrossFilter(item.i); }}
+            style={{
+              position: 'absolute', top: 6, right: 6, zIndex: 12,
+              display: 'flex', alignItems: 'center', gap: 4,
+              padding: '4px 8px', borderRadius: 16, fontSize: 11, fontWeight: 600,
+              background: isExcludedFromSource ? 'var(--bg-panel)' : 'var(--accent-primary)',
+              color: isExcludedFromSource ? 'var(--text-secondary)' : '#fff',
+              border: `1px solid ${isExcludedFromSource ? 'var(--border-default)' : 'var(--accent-primary)'}`,
+              cursor: 'pointer', userSelect: 'none',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+            }}
+            title={isExcludedFromSource ? 'Click to enable cross-filter from the selected widget' : 'Click to disable cross-filter from the selected widget'}
+          >
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: isExcludedFromSource ? 'var(--text-disabled)' : '#fff' }} />
+            {isExcludedFromSource ? 'None' : 'Filter'}
           </div>
         )}
 
@@ -221,6 +251,8 @@ export default function ReportCanvas({
   onDrillReset,
   crossHighlight,
   reportRef,
+  editInteractions,
+  onToggleCrossFilter,
 }) {
   const [resizing, setResizing] = useState(null);
   const containerRef = useRef(null);
@@ -367,6 +399,14 @@ export default function ReportCanvas({
           if (!widget) return null;
           if (!WIDGET_TYPES[widget.type]) return null;
 
+          // Show the Edit Interactions overlay on every widget except the
+          // currently-selected source. The overlay reads the source's
+          // `crossFilterExclusions` to render its filter / off state.
+          const editInteractionsActive = editInteractions && selectedWidget && selectedWidget !== item.i;
+          const sourceWidget = selectedWidget ? widgets[selectedWidget] : null;
+          const sourceExclusions = sourceWidget?.config?.crossFilterExclusions || [];
+          const isExcludedFromSource = sourceExclusions.includes(item.i);
+
           return (
             <WidgetItem
               key={item.i}
@@ -387,6 +427,9 @@ export default function ReportCanvas({
               crossHighlight={crossHighlight}
               snapGrid={snapGrid}
               reportFilters={reportFilters}
+              editInteractionsActive={editInteractionsActive}
+              isExcludedFromSource={isExcludedFromSource}
+              onToggleCrossFilter={onToggleCrossFilter}
             />
           );
         })}

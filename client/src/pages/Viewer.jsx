@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import ReportCanvas from '../components/Canvas/ReportCanvas';
 import api from '../utils/api';
+import { sanitizeWidgetFilters } from '../utils/widgetFilters';
+import { parseFiltersFromUrl, syncFiltersToUrl } from '../utils/urlFilters';
+import { filterForTarget } from '../utils/crossFilter';
 import { TbMaximize, TbMinimize, TbRefresh } from 'react-icons/tb';
 import { useTheme } from '../hooks/useTheme';
 import PagesColumn from '../components/PagesColumn/PagesColumn';
@@ -17,6 +20,18 @@ export default function Viewer() {
   const widgetsRef = useRef({});
   widgetsRef.current = widgets;
   const [reportFilters, setReportFilters] = useState({});
+  const urlFiltersAppliedRef = useRef(false);
+  // Once the model is loaded, seed reportFilters from the URL `?f_<col>=…` params.
+  // URL filters win over saved slicer defaults so a shared link is reproducible.
+  useEffect(() => {
+    if (!model || urlFiltersAppliedRef.current) return;
+    urlFiltersAppliedRef.current = true;
+    const fromUrl = parseFiltersFromUrl(window.location.search, model);
+    if (fromUrl && Object.keys(fromUrl).length > 0) {
+      setReportFilters((prev) => ({ ...prev, ...fromUrl }));
+    }
+  }, [model]);
+  useEffect(() => { syncFiltersToUrl(reportFilters, model); }, [reportFilters, model]);
   // Tracks only slicer-driven selections (not cross-filters) — drives FilterWidget visual state
   const [slicerSelections, setSlicerSelections] = useState({});
   const [refreshCounter, setRefreshCounter] = useState(0);
@@ -62,7 +77,9 @@ export default function Viewer() {
         }
         if (Object.keys(initialSlicerSel).length > 0) {
           setSlicerSelections(initialSlicerSel);
-          setReportFilters(initialSlicerSel);
+          // URL filters take priority over saved slicer selections so a
+          // shared filtered link wins over per-widget defaults.
+          setReportFilters((prev) => ({ ...initialSlicerSel, ...prev }));
         }
 
         if (r.model_id) {
@@ -238,13 +255,21 @@ export default function Viewer() {
     // Filter widgets are now included so their distinct value list is also RLS-filtered
     // (previously they reused the owner's saved values, which leaked unauthorized rows).
     const toFetch = Object.entries(currentWidgets).filter(([wId, w]) => {
-      if (!w || w.type === 'text') return false;
+      if (!w) return false;
       if (!refreshRequested && wId === sourceId) return false;
       const b = w.dataBinding || {};
       const hasMeas = w.type === 'scatter' ? !!(b.scatterMeasures?.x && b.scatterMeasures?.y)
         : w.type === 'combo' ? ((b.comboBarMeasures?.length > 0) || (b.comboLineMeasures?.length > 0))
         : (b.selectedMeasures?.length > 0);
-      return (b.selectedDimensions?.length > 0 || hasMeas);
+      const hasMainBinding = (b.selectedDimensions?.length > 0 || hasMeas);
+      // Conditional formatting may need fetching even on a widget that has
+      // only a colour-measure binding (e.g. shapes).
+      const hasColorMeas = !!b.colorMeasure && w.config?.colorCondition?.enabled === true;
+      // Filter widgets always fetch — they need RLS-filtered distinct values
+      // for their bound dimension.
+      if (w.type === 'filter') return hasMainBinding;
+      if (w.type === 'text') return hasColorMeas;
+      return hasMainBinding || hasColorMeas;
     });
     if (toFetch.length > 0) {
       setWidgets((prev) => {
@@ -290,7 +315,10 @@ export default function Viewer() {
       }
 
       const allDims = [...dims, ...grpBy.filter((g) => !dims.includes(g)), ...colDimsB.filter((g) => !dims.includes(g) && !grpBy.includes(g))];
-      const mergedFilters = { ...(reportFilters || {}), ...drillFilters };
+      // Apply cross-filter exclusions per target before merging drill filters.
+      const baseFilters = { ...(reportFilters || {}) };
+      const targetFilters = filterForTarget(wId, baseFilters, currentWidgets, crossHighlightRef.current);
+      const mergedFilters = { ...targetFilters, ...drillFilters };
 
       // Filter widgets need a distinct list of values for their bound dimension. They must NOT
       // be filtered by reportFilters (so the slicer doesn't filter itself), but RLS still applies.
@@ -298,17 +326,42 @@ export default function Viewer() {
       const queryFilters = isFilterWidget ? {} : mergedFilters;
       const queryLimit = isFilterWidget ? 1000000 : (w.config?.dataLimit || 1000);
 
-      api.post(`/models/${model.id}/query`, {
-        dimensionNames: allDims, measureNames: meass,
-        limit: queryLimit, filters: queryFilters,
-        distinct: isFilterWidget || undefined,
-      }).then((res) => {
+      const reportLevelFilters = Array.isArray(report?.settings?.reportFilters) ? report.settings.reportFilters : [];
+      const widgetOwnFilters = Array.isArray(w.dataBinding?.widgetFilters) ? w.dataBinding.widgetFilters : [];
+      const widgetFilters = [...reportLevelFilters, ...widgetOwnFilters];
+      const colorMeasure = (w.config?.colorCondition?.enabled === true) ? w.dataBinding?.colorMeasure : undefined;
+      const hasMainBinding = (allDims.length > 0 || meass.length > 0);
+      const mainPromise = hasMainBinding
+        ? api.post(`/models/${model.id}/query`, {
+            dimensionNames: allDims, measureNames: meass,
+            limit: queryLimit, filters: queryFilters,
+            widgetFilters: sanitizeWidgetFilters(widgetFilters),
+            distinct: isFilterWidget || undefined,
+          })
+        : Promise.resolve({ data: { rows: [] } });
+      const colorPromise = colorMeasure
+        ? api.post(`/models/${model.id}/query`, {
+            dimensionNames: [], measureNames: [colorMeasure], limit: 1,
+            filters: queryFilters,
+            widgetFilters: sanitizeWidgetFilters(widgetFilters),
+          }).catch(() => null)
+        : Promise.resolve(null);
+      Promise.all([mainPromise, colorPromise]).then(([res, colorRes]) => {
+        let _colorValue;
+        if (colorRes) {
+          const cRow = colorRes.data?.rows?.[0];
+          if (cRow) {
+            const v = Object.values(cRow)[0];
+            const num = typeof v === 'number' ? v : parseFloat(v);
+            if (!isNaN(num)) _colorValue = num;
+          }
+        }
         const rows = res.data?.rows;
         if (!rows || rows.length === 0) {
           // Empty result — clear widget data so it reflects the filter instead of keeping stale data
           const emptyData = isFilterWidget
-            ? { values: [], label: dims[0] || '', _rowCount: 0 }
-            : { _rowCount: 0 };
+            ? { values: [], label: dims[0] || '', _rowCount: 0, _colorValue }
+            : { _rowCount: 0, _colorValue };
           setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data: emptyData } }));
           return;
         }
@@ -441,6 +494,7 @@ export default function Viewer() {
           newData._drillDepth = drillPath.length;
           newData._isDrillLeaf = drillPath.length >= fullHierarchy.length - 1;
         }
+        newData._colorValue = _colorValue;
         setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data: newData } }));
       }).catch((err) => {
         const msg = err?.response?.data?.error || err?.message || 'Query failed';

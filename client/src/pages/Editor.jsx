@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import ReportCanvas from '../components/Canvas/ReportCanvas';
@@ -11,6 +11,9 @@ import PagesColumn, { PAGES_COLUMN_TRANSITION_MS } from '../components/PagesColu
 import { useHistory } from '../hooks/useHistory';
 import { useTheme } from '../hooks/useTheme';
 import api from '../utils/api';
+import { sanitizeWidgetFilters } from '../utils/widgetFilters';
+import { parseFiltersFromUrl, syncFiltersToUrl } from '../utils/urlFilters';
+import { filterForTarget } from '../utils/crossFilter';
 
 // Convert data between widget formats
 function convertData(data, fromType, toType) {
@@ -114,9 +117,39 @@ export default function Editor() {
 
   const [report, setReport] = useState(null);
   const [model, setModel] = useState(null);
+  // Report-level settings (theme, page size, report filters, etc.). Declared
+  // early so useEffect dep arrays referencing `settings.reportFilters` don't
+  // trip the temporal dead zone.
+  const [settings, setSettings] = useState({});
+  // Stable string version of the report-level filters list — used as a useEffect
+  // dep so the data fetcher only re-fires when the actual content changes (not
+  // every time `settings` gets a new object reference for some unrelated key).
+  const settingsFiltersKey = useMemo(
+    () => JSON.stringify(Array.isArray(settings?.reportFilters) ? settings.reportFilters : []),
+    [settings?.reportFilters]
+  );
   const [selectedWidget, setSelectedWidget] = useState(null);
+  // Edit Interactions mode — Power BI–style toggle for configuring per-pair
+  // cross-filter behaviour. While active, each non-source widget shows a
+  // filter / off toggle in its top-right corner. The handler is declared
+  // further down because it depends on the history hook.
+  const [editInteractions, setEditInteractions] = useState(false);
   const [clipboard, setClipboard] = useState(null);
   const [reportFilters, setReportFilters] = useState({});
+  const urlFiltersAppliedRef = useRef(false);
+  // Once the model is loaded, seed reportFilters from the URL `?f_<col>=…` params.
+  // Runs once per model instance; further changes flow back to the URL via the
+  // sync effect below.
+  useEffect(() => {
+    if (!model || urlFiltersAppliedRef.current) return;
+    urlFiltersAppliedRef.current = true;
+    const fromUrl = parseFiltersFromUrl(window.location.search, model);
+    if (fromUrl && Object.keys(fromUrl).length > 0) {
+      setReportFilters((prev) => ({ ...prev, ...fromUrl }));
+    }
+  }, [model]);
+  // Mirror reportFilters into the URL so a filtered view is bookmarkable.
+  useEffect(() => { syncFiltersToUrl(reportFilters, model); }, [reportFilters, model]);
   const [slicerSelections, setSlicerSelections] = useState({});
   // Cross-highlight: which widget is the source and what value is highlighted
   const [crossHighlight, setCrossHighlight] = useState(null); // { widgetId, dim, value }
@@ -126,6 +159,28 @@ export default function Editor() {
   // Undo/redo state: tracks layout + widgets together (for current page)
   const history = useHistory({ layout: [], widgets: {} });
   const { layout, widgets } = history.state;
+
+  // Edit Interactions handler (defined after history is initialised). Toggles
+  // the target's id in the currently-selected source widget's exclusion list.
+  const handleToggleCrossFilter = useCallback((targetId) => {
+    const sourceId = selectedWidget;
+    if (!sourceId || sourceId === targetId) return;
+    history.set((prev) => {
+      const src = prev.widgets?.[sourceId];
+      if (!src) return prev;
+      const exclusions = Array.isArray(src.config?.crossFilterExclusions) ? src.config.crossFilterExclusions : [];
+      const next = exclusions.includes(targetId)
+        ? exclusions.filter((x) => x !== targetId)
+        : [...exclusions, targetId];
+      return {
+        ...prev,
+        widgets: {
+          ...prev.widgets,
+          [sourceId]: { ...src, config: { ...(src.config || {}), crossFilterExclusions: next } },
+        },
+      };
+    });
+  }, [selectedWidget, history]);
   // Ref mirror so click handlers always read the freshest widget state (closures can be stale)
   const widgetsRef = useRef(widgets);
   widgetsRef.current = widgets;
@@ -153,8 +208,16 @@ export default function Editor() {
     };
     setSlicerSelections((prev) => sameContent(prev, fromWidgets) ? prev : fromWidgets);
     setReportFilters((prev) => {
-      // reportFilters = slicer ∪ crossHighlight; update slicer portion to match widgets
-      const next = { ...fromWidgets };
+      // reportFilters = (URL/external for dims without a slicer) ∪ slicer ∪ crossHighlight
+      // Keep prev entries whose dim isn't backed by a slicer — these come from
+      // the URL `?filters=` param and shouldn't be wiped when the widget set
+      // changes.
+      const slicerDims = new Set(Object.keys(fromWidgets));
+      const preserved = {};
+      for (const [k, v] of Object.entries(prev || {})) {
+        if (!slicerDims.has(k)) preserved[k] = v;
+      }
+      const next = { ...preserved, ...fromWidgets };
       const ch = crossHighlightRef.current;
       if (ch?.dim) next[ch.dim] = [ch.value];
       return sameContent(prev, next) ? prev : next;
@@ -258,6 +321,10 @@ export default function Editor() {
   const prevFiltersJson = useRef('{}');
   const abortControllerRef = useRef(null);
   const debounceTimerRef = useRef(null);
+  // Tracks widgets marked _loading by the in-progress fetcher run. Cleared
+  // when the fetch settles. If the effect's cleanup cancels the debounce
+  // before it fires, we revert these flags so the spinner doesn't stick.
+  const pendingLoadingRef = useRef(null);
   const skipNextRefetch = useRef(false); // set to true when filters are restored from saved state
   const prevRefreshCounter = useRef(0);
 
@@ -269,7 +336,12 @@ export default function Editor() {
   }, []);
 
   useEffect(() => {
-    const json = JSON.stringify(reportFilters || {});
+    // Compare against report-level filters (from Settings) too — changing the
+    // Settings filter list must trigger a refetch.
+    const json = JSON.stringify({
+      r: reportFilters || {},
+      s: Array.isArray(settings?.reportFilters) ? settings.reportFilters : [],
+    });
     const sourceId = crossFilterSourceRef.current;
     const refreshRequested = refreshCounter !== prevRefreshCounter.current;
     prevRefreshCounter.current = refreshCounter;
@@ -293,14 +365,18 @@ export default function Editor() {
     const currentWidgets = history.state.widgets;
 
     const toFetch = Object.entries(currentWidgets).filter(([wId, w]) => {
-      if (!w || w.type === 'filter' || w.type === 'text') return false;
+      if (!w) return false;
       // On explicit refresh, refetch ALL (including cross-filter source)
       if (!refreshRequested && wId === sourceId) return false;
       const b = w.dataBinding || {};
       const hasMeas = w.type === 'scatter' ? !!(b.scatterMeasures?.x && b.scatterMeasures?.y)
         : w.type === 'combo' ? (b.comboBarMeasures?.length > 0 || b.comboLineMeasures?.length > 0)
         : b.selectedMeasures?.length > 0;
-      return (b.selectedDimensions?.length > 0 || hasMeas);
+      const hasMainBinding = (b.selectedDimensions?.length > 0 || hasMeas);
+      // Conditional formatting — only counted as a reason to fetch when the toggle is on.
+      const hasColorMeas = !!b.colorMeasure && w.config?.colorCondition?.enabled === true;
+      if ((w.type === 'filter' || w.type === 'text') && !hasColorMeas) return false;
+      return hasMainBinding || hasColorMeas;
     });
 
     if (toFetch.length === 0) return;
@@ -313,6 +389,9 @@ export default function Editor() {
       });
       return next;
     });
+    // Remember which widgets we marked so the cleanup can revert if the
+    // debounce gets cancelled before the fetch fires.
+    pendingLoadingRef.current = toFetch.map(([wId]) => wId);
 
     // Debounce 150ms — if user clicks rapidly, only the last one fires
     debounceTimerRef.current = setTimeout(() => {
@@ -356,14 +435,47 @@ export default function Editor() {
         }
 
         const allDims = [...dims, ...grpBy.filter((g) => !dims.includes(g)), ...colDimsB.filter((g) => !dims.includes(g) && !grpBy.includes(g))];
-        const mergedFilters = { ...(reportFilters || {}), ...drillFilters };
+        // Cross-filter "Edit interactions" — drop filter dims that come from a
+        // source widget which excludes this target. Drill filters are
+        // self-imposed by the same widget so they're preserved unchanged.
+        const baseFilters = { ...(reportFilters || {}) };
+        const targetFilters = filterForTarget(wId, baseFilters, currentWidgets, crossHighlightRef.current);
+        const mergedFilters = { ...targetFilters, ...drillFilters };
 
-        return api.post(`/models/${model.id}/query`, {
-          dimensionNames: allDims, measureNames: [...new Set(meass)],
-          limit: w.config?.dataLimit || 1000, filters: mergedFilters,
-        }, { signal: controller.signal }).then((res) => {
+        const colorMeasure = (w.config?.colorCondition?.enabled === true) ? binding.colorMeasure : undefined;
+        // Combine report-level filters (from Settings) with the widget's own filters.
+        const reportLevelFilters = Array.isArray(settings?.reportFilters) ? settings.reportFilters : [];
+        const widgetOwnFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
+        const widgetFilters = [...reportLevelFilters, ...widgetOwnFilters];
+        const hasMainBinding = (allDims.length > 0 || meass.length > 0);
+        const mainPromise = hasMainBinding
+          ? api.post(`/models/${model.id}/query`, {
+              dimensionNames: allDims, measureNames: [...new Set(meass)],
+              limit: w.config?.dataLimit || 1000, filters: mergedFilters,
+              widgetFilters: sanitizeWidgetFilters(widgetFilters),
+            }, { signal: controller.signal })
+          : Promise.resolve({ data: { rows: [] } });
+        const colorPromise = colorMeasure
+          ? api.post(`/models/${model.id}/query`, {
+              dimensionNames: [], measureNames: [colorMeasure], limit: 1, filters: mergedFilters,
+              widgetFilters: sanitizeWidgetFilters(widgetFilters),
+            }, { signal: controller.signal }).catch(() => null)
+          : Promise.resolve(null);
+
+        return Promise.all([mainPromise, colorPromise]).then(([res, colorRes]) => {
+          // Conditional formatting — extract a single aggregated value from the color query
+          let _colorValue;
+          if (colorRes) {
+            const cRow = colorRes.data?.rows?.[0];
+            if (cRow) {
+              const v = Object.values(cRow)[0];
+              const num = typeof v === 'number' ? v : parseFloat(v);
+              if (!isNaN(num)) _colorValue = num;
+            }
+          }
+
           const rows = res.data?.rows;
-          if (!rows || rows.length === 0) return { wId, data: { _rowCount: 0 } };
+          if (!rows || rows.length === 0) return { wId, data: { _rowCount: 0, _colorValue } };
           let newData = {};
           const keys = Object.keys(rows[0]);
           if (w.type === 'pivotTable') {
@@ -506,6 +618,7 @@ export default function Editor() {
             newData._drillDepth = drillPath.length;
             newData._isDrillLeaf = drillPath.length >= fullHierarchy.length - 1;
           }
+          newData._colorValue = _colorValue;
           return { wId, data: newData };
         }).catch((err) => {
           if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return { wId, data: null };
@@ -516,6 +629,9 @@ export default function Editor() {
 
       // Wait for ALL to complete, then batch update (silent — data fetch is not undoable)
       Promise.all(promises).then((results) => {
+        // The fetch fired — the loading flags will be replaced below, no need
+        // for the cleanup safety net to revert them.
+        pendingLoadingRef.current = null;
         if (controller.signal.aborted) { setRefreshing(false); return; }
         history.setSilent((prev) => {
           const next = { ...prev, widgets: { ...prev.widgets } };
@@ -532,13 +648,26 @@ export default function Editor() {
 
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      // If we marked widgets as loading but the debounced fetch never fired,
+      // revert those flags so the spinner doesn't stick. (Cleared once the
+      // fetch actually starts so the in-flight Promise.all owns the cleanup.)
+      const pending = pendingLoadingRef.current;
+      if (pending && pending.length > 0) {
+        pendingLoadingRef.current = null;
+        history.setSilent((prev) => {
+          const next = { ...prev, widgets: { ...prev.widgets } };
+          for (const wId of pending) {
+            if (next.widgets[wId]) next.widgets[wId] = { ...next.widgets[wId], _loading: false };
+          }
+          return next;
+        });
+      }
     };
-  }, [reportFilters, model, refreshCounter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reportFilters, model, refreshCounter, settingsFiltersKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('');
-  const [settings, setSettings] = useState({});
   const [showSettings, setShowSettings] = useState(false);
 
   // Multi-page support
@@ -804,12 +933,16 @@ export default function Editor() {
         delete newBinding.groupBy;
       }
 
+      // Strip the cache marker so the data panel re-fetches with the new
+      // widget type's expected shape instead of reusing the converted (best
+      // effort) blob.
+      const { _fetchedBinding, ...convertedDataNoCache } = convertedData || {};
       setWidgets((prev) => ({
         ...prev,
         [selectedWidget]: {
           ...existing,
           type,
-          data: convertedData,
+          data: convertedDataNoCache,
           dataBinding: newBinding,
           config: {
             ...existing.config,
@@ -928,6 +1061,15 @@ export default function Editor() {
     const currentRows = widget.data?.rows || [];
     const dataLimit = widget.config?.dataLimit || 1000;
 
+    // Apply the same filter stack as the main fetcher so paginated rows match
+    // the user's filter selection. Without this, scrolling appends unfiltered
+    // data to a filtered table.
+    const baseFilters = { ...(reportFilters || {}) };
+    const targetFilters = filterForTarget(widgetId, baseFilters, widgets, crossHighlightRef.current);
+    const reportLevelFilters = Array.isArray(settings?.reportFilters) ? settings.reportFilters : [];
+    const widgetOwnFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
+    const combinedWidgetFilters = [...reportLevelFilters, ...widgetOwnFilters];
+
     // Mark as loading (silent — not undoable)
     history.setSilent((prev) => ({
       ...prev,
@@ -940,6 +1082,8 @@ export default function Editor() {
         measureNames: meass,
         limit: dataLimit,
         offset: currentRows.length,
+        filters: targetFilters,
+        widgetFilters: sanitizeWidgetFilters(combinedWidgetFilters),
       });
 
       const newRows = res.data.rows;
@@ -975,7 +1119,7 @@ export default function Editor() {
         widgets: { ...prev.widgets, [widgetId]: { ...prev.widgets[widgetId], data: { ...prev.widgets[widgetId].data, _loadingMore: false } } },
       }));
     }
-  }, [widgets, model, history]);
+  }, [widgets, model, history, reportFilters, settings?.reportFilters]);
 
   const reloadModel = useCallback(async () => {
     if (!report?.model_id) return;
@@ -1046,6 +1190,9 @@ export default function Editor() {
         reportTitle={title}
         onTitleChange={setTitle}
         onAddWidget={handleAddWidget}
+        editInteractions={editInteractions}
+        onToggleEditInteractions={() => setEditInteractions((v) => !v)}
+        canEditInteractions={!!selectedWidget}
         onSave={handleSave}
         saving={saving}
         modelName={model?.name}
@@ -1157,6 +1304,8 @@ export default function Editor() {
               onDrillReset={handleDrillReset}
               crossHighlight={crossHighlight}
               reportRef={canvasRef}
+              editInteractions={editInteractions}
+              onToggleCrossFilter={handleToggleCrossFilter}
             />
           </div>
         </div>
@@ -1192,6 +1341,7 @@ export default function Editor() {
           settings={settings}
           onSettingsChange={setSettings}
           onClose={() => setShowSettings(false)}
+          model={model}
         />
       )}
       {saveMsg && (

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB_TYPES, GAUGE_SUB_TYPES, OBJECT_SUB_TYPES } from '../Widgets';
-import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbDatabase, TbPencil, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbTrash, TbDownload } from 'react-icons/tb';
+import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbDatabase, TbPencil, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbTrash, TbDownload, TbHandClick } from 'react-icons/tb';
 import { useCustomVisuals } from '../../hooks/useCustomVisuals';
 
 // Ordered groups for the widget toolbar
@@ -27,7 +27,7 @@ function WidgetTooltip({ text, show }) {
   );
 }
 
-export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, isReportDirty, exportMenu, workspaceId }) {
+export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions }) {
   const navigate = useNavigate();
   const [openMenu, setOpenMenu] = useState(null); // 'bar' | 'line' | null
   const [hoverKey, setHoverKey] = useState(null);
@@ -519,6 +519,35 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                 <TbRefresh size={18} color="var(--text-secondary)" style={{ animation: refreshing ? 'spin 0.8s linear infinite' : undefined }} />
               </button>
               <WidgetTooltip text="Refresh all widgets" show={hoverKey === 'refresh' && !refreshing} />
+            </div>
+            <div style={{ width: 1, height: 20, background: 'var(--border-default)' }} />
+          </>
+        )}
+        {onToggleEditInteractions && (
+          <>
+            <div style={{ position: 'relative' }}
+              onMouseEnter={() => scheduleHover('editInteractions')}
+              onMouseLeave={clearHover}>
+              <button
+                onClick={onToggleEditInteractions}
+                disabled={!canEditInteractions && !editInteractions}
+                style={{
+                  ...utilityIconBtn,
+                  background: editInteractions ? 'var(--accent-primary-soft)' : 'transparent',
+                  boxShadow: editInteractions ? `inset 0 0 0 1px var(--accent-primary)` : undefined,
+                  opacity: (!canEditInteractions && !editInteractions) ? 0.4 : 1,
+                  cursor: (!canEditInteractions && !editInteractions) ? 'not-allowed' : 'pointer',
+                }}
+                onMouseEnter={(e) => { if (canEditInteractions || editInteractions) { e.currentTarget.style.background = editInteractions ? 'var(--accent-primary-soft)' : 'var(--bg-panel)'; e.currentTarget.style.boxShadow = editInteractions ? `inset 0 0 0 1px var(--accent-primary)` : 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = editInteractions ? 'var(--accent-primary-soft)' : 'transparent'; e.currentTarget.style.boxShadow = editInteractions ? `inset 0 0 0 1px var(--accent-primary)` : 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
+              >
+                <TbHandClick size={18} color={editInteractions ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
+              </button>
+              <WidgetTooltip
+                text={canEditInteractions || editInteractions
+                  ? (editInteractions ? 'Exit Edit interactions' : 'Edit interactions (which widgets a click filters)')
+                  : 'Select a widget first to edit interactions'}
+                show={hoverKey === 'editInteractions'} />
             </div>
             <div style={{ width: 1, height: 20, background: 'var(--border-default)' }} />
           </>

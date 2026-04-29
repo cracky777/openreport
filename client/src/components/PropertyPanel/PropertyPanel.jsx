@@ -3,6 +3,8 @@ import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB
 import DataPanel from '../DataPanel/DataPanel';
 import DropZone from '../DropZone/DropZone';
 import TablePropertySections from './TablePropertySections';
+import DimensionMultiSelect from './DimensionMultiSelect';
+import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
 import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase } from 'react-icons/tb';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
 
@@ -664,6 +666,35 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
         );
       })()}
 
+      {/* ── Per-widget filters (in/not in/comparisons/between/top-N) ── */}
+      {widget.type !== 'filter' && widget.type !== 'text' && widget.type !== 'shape' && (() => {
+        const wf = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
+        const setWF = (next) => updateBinding({ widgetFilters: next });
+        const addFilter = (fieldName, isMeasure) => {
+          setWF([...wf, buildDefaultFilterRule(model, fieldName, isMeasure)]);
+        };
+        return (
+          <Section title="Filters" sectionState={sections}>
+            <DropZone
+              label="Add filter"
+              accepts={['dimension', 'measure']}
+              measureInfos={measureInfos}
+              fields={[]}
+              zoneName="widgetFilter"
+              onDrop={(name, fieldType) => addFilter(name, fieldType === 'measure')}
+              fieldInfos={fieldInfos}
+            />
+            <FilterRulesEditor
+              model={model}
+              modelId={model?.id}
+              rules={wf}
+              onChange={setWF}
+              styles={{ inputStyle, cardStyle: ruleCardStyle, labelStyle: ruleLabelStyle }}
+            />
+          </Section>
+        );
+      })()}
+
       <Section title="Title">
         <input type="text" value={widget.config?.title || ''} onChange={(e) => updateConfig('title', e.target.value)}
           placeholder="Widget title" style={inputStyle} />
@@ -805,6 +836,94 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <RangeInput min={0} max={360} value={widget.config?.rotation ?? 0} suffix="°"
             onChange={(e) => updateConfig('rotation', parseInt(e.target.value))} />
         </Field>
+        <Field label="Conditional formatting">
+          <input type="checkbox" checked={widget.config?.colorCondition?.enabled === true}
+            onChange={(e) => updateConfig('colorCondition', { ...(widget.config?.colorCondition || {}), enabled: e.target.checked })} />
+        </Field>
+        {widget.config?.colorCondition?.enabled && (
+          <SubSection label="Conditional formatting">
+            <DropZone
+              label="Color value"
+              accepts={['measure']}
+              measureInfos={measureInfos}
+              onAggChange={handleAggChange}
+              fields={binding.colorMeasure ? [binding.colorMeasure] : []}
+              zoneName="colorMeasure"
+              onDrop={(name) => updateBinding({ colorMeasure: name })}
+              onRemove={() => {
+                const next = { ...binding };
+                delete next.colorMeasure;
+                onUpdate(widgetId, { ...widget, dataBinding: next, data: { ...(widget.data || {}), _colorValue: undefined } });
+              }}
+              fieldInfos={fieldInfos}
+            />
+            {binding.colorMeasure && (() => {
+              const cc = widget.config?.colorCondition || { rules: [] };
+              const rules = Array.isArray(cc.rules) ? cc.rules : [];
+              const setCC = (patch) => updateConfig('colorCondition', { ...cc, ...patch });
+              const updateRule = (idx, patch) => {
+                const next = [...rules];
+                next[idx] = { ...next[idx], ...patch };
+                setCC({ rules: next });
+              };
+              const addRule = () => setCC({ rules: [...rules, { op: '<', value: 0, color: '#dc2626' }] });
+              const removeRule = (idx) => setCC({ rules: rules.filter((_, i) => i !== idx) });
+              return (
+                <div style={{ marginTop: 6 }}>
+                  {rules.length === 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--text-disabled)', fontStyle: 'italic', marginBottom: 6 }}>
+                      No rule yet
+                    </div>
+                  )}
+                  {rules.map((r, i) => (
+                    <div key={i} style={ruleCardStyle}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={ruleLabelStyle}>If value</span>
+                        <button onClick={() => removeRule(i)} title="Delete rule"
+                          style={{ marginLeft: 'auto', background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 4px', color: 'var(--text-disabled)', fontSize: 14, lineHeight: 1 }}
+                          onMouseEnter={(e) => e.currentTarget.style.color = 'var(--state-danger)'}
+                          onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-disabled)'}>
+                          ×
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                        <select value={r.op || '<'} onChange={(e) => updateRule(i, { op: e.target.value })}
+                          style={{ ...inputStyle, marginBottom: 0, width: 52, padding: '4px 4px' }}>
+                          <option value="<">&lt;</option>
+                          <option value="<=">≤</option>
+                          <option value="=">=</option>
+                          <option value="!=">≠</option>
+                          <option value=">=">≥</option>
+                          <option value=">">&gt;</option>
+                        </select>
+                        <input type="number" value={r.value ?? ''}
+                          onChange={(e) => updateRule(i, { value: e.target.value === '' ? '' : Number(e.target.value) })}
+                          style={{ ...inputStyle, marginBottom: 0, flex: 1, minWidth: 0 }} />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                        <span style={ruleLabelStyle}>Color</span>
+                        <ColorInput value={r.color || '#7c3aed'} onChange={(v) => updateRule(i, { color: v })} />
+                      </div>
+                    </div>
+                  ))}
+                  <button onClick={addRule}
+                    style={{ marginTop: 6, padding: '5px 10px', fontSize: 11, background: 'var(--bg-subtle)',
+                      border: '1px dashed var(--border-default)', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer', width: '100%' }}>
+                    + Add rule
+                  </button>
+                  <Field label="Default color" style={{ marginTop: 10 }}>
+                    <ColorInput value={cc.defaultColor || ''} onChange={(v) => setCC({ defaultColor: v })} />
+                  </Field>
+                  {widget.data?._colorValue != null && (
+                    <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 6 }}>
+                      Current value: {widget.data._colorValue}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </SubSection>
+        )}
       </Section>
 
       {/* ── Chart options ── */}
@@ -1881,6 +2000,20 @@ const subSectionStyle = {
   borderRadius: 6,
   background: 'var(--bg-subtle)',
   overflow: 'hidden',
+};
+
+const ruleCardStyle = {
+  padding: '8px',
+  marginBottom: 6,
+  border: '1px solid var(--border-default)',
+  borderRadius: 6,
+  background: 'var(--bg-panel)',
+};
+
+const ruleLabelStyle = {
+  fontSize: 11,
+  color: 'var(--text-secondary)',
+  fontWeight: 500,
 };
 
 const PANEL_COLLAPSE_TRANSITION_MS = 200;

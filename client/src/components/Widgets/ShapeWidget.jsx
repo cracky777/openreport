@@ -1,6 +1,12 @@
-export default function ShapeWidget({ config }) {
+import { evaluateColorCondition } from '../../utils/conditionalFormat';
+
+export default function ShapeWidget({ config, data }) {
   const shape = config?.shape || 'square';
-  const fill = config?.shapeFill || '#7c3aed';
+  // When a colorMeasure is bound and a rule matches, override the static fill
+  // so arrow/line shapes also reflect the conditional formatting.
+  const cc = config?.colorCondition;
+  const conditionalColor = cc?.enabled ? evaluateColorCondition(cc, data?._colorValue) : null;
+  const fill = conditionalColor || config?.shapeFill || '#7c3aed';
   const stroke = config?.shapeStroke || '#6d28d9';
   const strokeWidth = config?.shapeStrokeWidth ?? 2;
   const opacity = config?.shapeOpacity ?? 100;
@@ -12,7 +18,7 @@ export default function ShapeWidget({ config }) {
         <div style={{
           width: '100%',
           height: thickness,
-          backgroundColor: config?.lineColor || '#6d28d9',
+          backgroundColor: conditionalColor || config?.lineColor || '#6d28d9',
         }} />
       </div>
     );

@@ -564,12 +564,25 @@ export default function SchemaCanvas({
                       {isId && (
                         <text x={8} y={cy + 4} fontSize={9} fill="#f59e0b">K</text>
                       )}
-                      <text x={isId ? 18 : 8} y={cy + 4} fontSize={11} fill="#334155" style={{ fontWeight: isId ? 600 : 400 }}>
-                        {col.column_name}
-                      </text>
-                      <text x={TABLE_WIDTH - (isDate ? 56 : 48)} y={cy + 4} fontSize={9} fill={isDate ? '#d97706' : '#94a3b8'} textAnchor="end">
-                        {isDate ? '📅 ' : ''}{col.data_type}
-                      </text>
+                      {(() => {
+                        const NAME_MAX = isId ? 16 : 17;
+                        const TYPE_MAX = 10;
+                        const truncate = (s, n) => (s && s.length > n ? s.slice(0, n - 1) + '…' : s);
+                        const nameTruncated = (col.column_name || '').length > NAME_MAX;
+                        const typeTruncated = (col.data_type || '').length > TYPE_MAX;
+                        return (
+                          <>
+                            <text x={isId ? 18 : 8} y={cy + 4} fontSize={11} fill="#334155" style={{ fontWeight: isId ? 600 : 400 }}>
+                              {truncate(col.column_name, NAME_MAX)}
+                              {nameTruncated && <title>{col.column_name}</title>}
+                            </text>
+                            <text x={TABLE_WIDTH - (isDate ? 56 : 48)} y={cy + 4} fontSize={9} fill={isDate ? '#d97706' : '#94a3b8'} textAnchor="end">
+                              {isDate ? '📅 ' : ''}{truncate(col.data_type, TYPE_MAX)}
+                              {typeTruncated && <title>{col.data_type}</title>}
+                            </text>
+                          </>
+                        );
+                      })()}
 
                       {/* D / M buttons */}
                       <text x={TABLE_WIDTH - 36} y={cy + 4} fontSize={9}

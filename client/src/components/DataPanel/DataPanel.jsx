@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../../utils/api';
 import SqlExpressionInput from '../SqlExpressionInput/SqlExpressionInput';
+import { sanitizeWidgetFilters } from '../../utils/widgetFilters';
 
 export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, model, onModelUpdate, reportFilters }) {
   const [status, setStatus] = useState(null);
@@ -63,7 +64,18 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   const gaugeKey = widget?.type === 'gauge' ? `threshold:${gaugeThresholdMeasure || ''}|max:${gaugeMaxMeasure || ''}` : '';
   const aggOverrides = binding.measureAggOverrides || {};
   const aggKey = Object.keys(aggOverrides).length > 0 ? JSON.stringify(aggOverrides) : '';
-  const bindingKey = hasWidget ? `${selectedDims.join(',')}:${selectedMeass.join(',')}:${groupBy.join(',')}:${columnDims.join(',')}:${scatterKey}:${comboKey}:${gaugeKey}:${aggKey}:${modelVersion}:${filtersKey}` : '';
+  // Include widget.type in the key so converting between widget types (e.g. pivot
+  // → table) triggers a re-fetch with the new shape.
+  const typeKey = widget?.type || '';
+  // Conditional formatting — colour-by-measure binding contributes to the key so the
+  // fetcher re-runs when the measure or the enabled flag changes.
+  const colorEnabled = widget?.config?.colorCondition?.enabled === true;
+  const colorMeasure = colorEnabled ? (binding.colorMeasure || '') : '';
+  const colorKey = `cm:${colorMeasure}`;
+  // Per-widget filters — refetch when any filter rule changes
+  const widgetFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
+  const widgetFiltersKey = widgetFilters.length > 0 ? `wf:${JSON.stringify(widgetFilters)}` : '';
+  const bindingKey = hasWidget ? `${selectedDims.join(',')}:${selectedMeass.join(',')}:${groupBy.join(',')}:${columnDims.join(',')}:${scatterKey}:${comboKey}:${gaugeKey}:${aggKey}:${colorKey}:${widgetFiltersKey}:${modelVersion}:${filtersKey}:${typeKey}` : '';
   // Full key including widgetId to detect widget switch
   const selectionKey = hasWidget ? `${widgetId}:${bindingKey}` : '';
 
@@ -84,7 +96,9 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
     const meass = parts[2]?.split(',').filter(Boolean) || [];
     const grpBy = parts[3]?.split(',').filter(Boolean) || [];
 
-    if (dims.length === 0 && meass.length === 0) {
+    const hasMainBinding = dims.length > 0 || meass.length > 0;
+    const hasColorMeas = !!colorMeasure;
+    if (!hasMainBinding && !hasColorMeas) {
       setStatus(null);
       return;
     }
@@ -147,14 +161,41 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         const uniqueMeass = [...new Set(meass)];
 
         const mergedFiltersLocal = isFilterWidget ? {} : { ...(reportFilters || {}), ...drillFiltersLocal };
-        const res = await api.post(`/models/${model.id}/query`, {
-          dimensionNames: allDims,
-          measureNames: uniqueMeass,
-          measureAggOverrides: Object.keys(aggOverrides).length > 0 ? aggOverrides : undefined,
-          limit: isFilterWidget ? 1000000 : (capturedWidget.config?.dataLimit || 1000),
-          filters: mergedFiltersLocal,
-          distinct: isFilterWidget || undefined,
-        }, { signal: abortController.signal });
+
+        // Main query (skipped when only colour-by-measure is bound, e.g. for shape/text widgets)
+        const mainPromise = hasMainBinding
+          ? api.post(`/models/${model.id}/query`, {
+              dimensionNames: allDims,
+              measureNames: uniqueMeass,
+              measureAggOverrides: Object.keys(aggOverrides).length > 0 ? aggOverrides : undefined,
+              limit: isFilterWidget ? 1000000 : (capturedWidget.config?.dataLimit || 1000),
+              filters: mergedFiltersLocal,
+              widgetFilters: sanitizeWidgetFilters(widgetFilters),
+              distinct: isFilterWidget || undefined,
+            }, { signal: abortController.signal })
+          : Promise.resolve({ data: { rows: [] } });
+
+        // Conditional formatting — single-row aggregate of the bound colour measure
+        const colorPromise = hasColorMeas
+          ? api.post(`/models/${model.id}/query`, {
+              dimensionNames: [],
+              measureNames: [colorMeasure],
+              limit: 1,
+              filters: mergedFiltersLocal,
+              widgetFilters: sanitizeWidgetFilters(widgetFilters),
+            }, { signal: abortController.signal }).catch(() => null)
+          : Promise.resolve(null);
+
+        const [res, colorRes] = await Promise.all([mainPromise, colorPromise]);
+        let _colorValue;
+        if (colorRes) {
+          const cRow = colorRes.data?.rows?.[0];
+          if (cRow) {
+            const v = Object.values(cRow)[0];
+            const num = typeof v === 'number' ? v : parseFloat(v);
+            if (!isNaN(num)) _colorValue = num;
+          }
+        }
 
         if (cancelled) return;
 
@@ -432,6 +473,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           else if (axisDim?.type === 'date') newData._datePart = 'full_date';
         }
         newData._rowCount = rows.length;
+        newData._colorValue = _colorValue;
         // Expose drill metadata so canvas can render the up/reset buttons
         if (isDrillableLocal) {
           newData._hierarchy = fullHierarchyLocal.map((dn) => {
