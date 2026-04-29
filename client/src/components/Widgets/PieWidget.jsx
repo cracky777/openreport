@@ -3,6 +3,7 @@ import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import ChartLegend from './ChartLegend';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
+import { lerpColor } from '../../utils/tableConfigHelpers';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -52,6 +53,21 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
     const customColors = config?.legendColors || {};
     const getColor = (name) => customColors[name] || COLORS[getStableIdx(name) % COLORS.length];
 
+    const gradient = config?.valueGradient;
+    const useGradient = gradient?.enabled === true;
+    let getValueColor = null;
+    if (useGradient) {
+      let gMin = Infinity, gMax = -Infinity;
+      for (const it of data.items) if (it?.value != null && !isNaN(it.value)) { if (it.value < gMin) gMin = it.value; if (it.value > gMax) gMax = it.value; }
+      const minColor = gradient.minColor || '#dcfce7';
+      const maxColor = gradient.maxColor || '#7c3aed';
+      getValueColor = (val) => {
+        if (val == null || isNaN(val) || gMin === Infinity) return minColor;
+        const pct = gMax > gMin ? Math.max(0, Math.min(1, (val - gMin) / (gMax - gMin))) : 0;
+        return lerpColor(minColor, maxColor, pct);
+      };
+    }
+
     const buildLabel = (params) => {
       const val = abbreviateNumber(params.value, dataLabelAbbr) ?? formatNumber(params.value, fmt);
       if (dataLabelContent === 'name') return params.name;
@@ -87,7 +103,7 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
             ...it,
             itemStyle: {
               ...it.itemStyle,
-              color: getColor(it.name, colorIdx >= 0 ? colorIdx : 0),
+              color: useGradient ? getValueColor(it.value) : getColor(it.name, colorIdx >= 0 ? colorIdx : 0),
               opacity: highlightValue ? (it.name === highlightValue ? 1 : 0.3) : 1,
             },
           };
@@ -116,7 +132,8 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
     const legendItems = data.items.map((item, i) => ({ name: item.name, color: getColor(item.name, i) }));
     return { option: opt, legendItems };
   }, [data, hasData, showLegend, legendPosition, config?.donut, showDataLabels, dataLabelContent,
-      dataLabelAbbr, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, sortOrder, highlightValue, config?.legendColors, config?.dataLabelPosition]);
+      dataLabelAbbr, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, sortOrder, highlightValue, config?.legendColors, config?.dataLabelPosition,
+      config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];

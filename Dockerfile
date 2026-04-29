@@ -20,6 +20,9 @@ RUN cd server && npm ci --omit=dev
 # Copy server source
 COPY server/ ./server/
 
+# Custom visual starter template — served by /api/custom-visual-template.zip
+COPY examples/custom-visual-template/ ./examples/custom-visual-template/
+
 # Copy built frontend
 COPY --from=frontend-build /app/client/dist ./client/dist
 

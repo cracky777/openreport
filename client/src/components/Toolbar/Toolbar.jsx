@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB_TYPES, GAUGE_SUB_TYPES, OBJECT_SUB_TYPES } from '../Widgets';
-import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbDatabase, TbPencil, TbArrowBackUp, TbArrowForwardUp } from 'react-icons/tb';
+import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbDatabase, TbPencil, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbTrash, TbDownload } from 'react-icons/tb';
+import { useCustomVisuals } from '../../hooks/useCustomVisuals';
 
 // Ordered groups for the widget toolbar
 const WIDGET_GROUPS = [
@@ -26,12 +27,15 @@ function WidgetTooltip({ text, show }) {
   );
 }
 
-export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, isReportDirty, exportMenu }) {
+export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, isReportDirty, exportMenu, workspaceId }) {
   const navigate = useNavigate();
   const [openMenu, setOpenMenu] = useState(null); // 'bar' | 'line' | null
   const [hoverKey, setHoverKey] = useState(null);
   const hoverTimerRef = useRef(null);
   const [previewPrompt, setPreviewPrompt] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState(null); // {type: 'error'|'success', msg}
+  const fileInputRef = useRef(null);
+  const customVisualsApi = useCustomVisuals(workspaceId);
 
   const openPreview = () => {
     window.open(`/view/${reportId}`, '_blank');
@@ -44,6 +48,55 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
   const handleAddWithSubType = (type, subType) => {
     onAddWidget(type, subType);
     setOpenMenu(null);
+  };
+
+  const handleAddCustomVisual = (visual) => {
+    onAddWidget('customVisual', null, {
+      visualId: visual.id,
+      visualName: visual.name,
+      bundleUrl: visual.bundleUrl,
+      manifest: visual.manifest,
+    });
+    setOpenMenu(null);
+  };
+
+  const handleUploadVisual = async (file) => {
+    if (!file || !workspaceId) return;
+    setUploadStatus(null);
+    const fd = new FormData();
+    fd.append('package', file);
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/visuals`, {
+        method: 'POST', credentials: 'include', body: fd,
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `Upload failed (${res.status})`);
+      }
+      const j = await res.json();
+      setUploadStatus({ type: 'success', msg: `Installed ${j.visual.name}` });
+      customVisualsApi.refresh();
+      setTimeout(() => setUploadStatus(null), 3000);
+    } catch (err) {
+      setUploadStatus({ type: 'error', msg: String(err.message || err) });
+    }
+  };
+
+  const handleDeleteVisual = async (visualId) => {
+    if (!workspaceId) return;
+    if (!window.confirm('Delete this custom visual? Widgets that use it will stop rendering.')) return;
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/visuals/${visualId}`, {
+        method: 'DELETE', credentials: 'include',
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `Delete failed (${res.status})`);
+      }
+      customVisualsApi.refresh();
+    } catch (err) {
+      setUploadStatus({ type: 'error', msg: String(err.message || err) });
+    }
   };
 
   const scheduleHover = (key) => {
@@ -335,6 +388,118 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             </div></div>
           )}
         </div>
+
+        {/* Custom visuals — workspace-uploaded plugins. Hidden when no workspace. */}
+        {workspaceId && (
+          <>
+            <div style={{ width: 1, height: 22, background: 'var(--border-default)', margin: '0 4px' }} />
+            <div style={{ position: 'relative' }}
+              onMouseEnter={() => { setOpenMenu('customVisuals'); scheduleHover('customVisuals'); }}
+              onMouseLeave={() => { setOpenMenu(null); clearHover(); }}
+            >
+              <button
+                style={widgetBtnStyle(openMenu === 'customVisuals', 'var(--accent-primary)')}
+                onMouseEnter={(e) => {
+                  if (openMenu !== 'customVisuals') {
+                    e.currentTarget.style.background = 'var(--bg-panel)';
+                    e.currentTarget.style.boxShadow = 'var(--shadow-md)';
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (openMenu !== 'customVisuals') {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.boxShadow = 'none';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }
+                }}
+              >
+                <TbPuzzle size={18} color="var(--accent-primary)" />
+                <span style={{ fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 }}>▼</span>
+              </button>
+              <WidgetTooltip text="Custom visuals" show={hoverKey === 'customVisuals' && openMenu !== 'customVisuals'} />
+              {openMenu === 'customVisuals' && (
+                <div style={{ ...dropdownStyle, minWidth: 240 }}>
+                  <div style={dropdownInner}>
+                    {customVisualsApi.error && !customVisualsApi.loading && (
+                      <div style={{ padding: '12px 14px', fontSize: 11, color: 'var(--state-danger)', background: 'rgba(220,38,38,0.06)' }}>
+                        {customVisualsApi.error}
+                      </div>
+                    )}
+                    {customVisualsApi.visuals.length === 0 && !customVisualsApi.loading && !customVisualsApi.error && (
+                      <div style={{ padding: '12px 14px', fontSize: 12, color: 'var(--text-disabled)', fontStyle: 'italic' }}>
+                        No custom visual installed
+                      </div>
+                    )}
+                    {customVisualsApi.loading && (
+                      <div style={{ padding: '12px 14px', fontSize: 12, color: 'var(--text-disabled)' }}>Loading...</div>
+                    )}
+                    {customVisualsApi.visuals.map((v) => (
+                      <div key={v.id} style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-default)' }}>
+                        <button onClick={() => handleAddCustomVisual(v)} style={{ ...dropdownItem, flex: 1, display: 'flex', alignItems: 'center', borderBottom: 'none' }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
+                          {v.iconUrl
+                            ? <img src={v.iconUrl} alt="" style={{ width: 16, height: 16, marginRight: 8, flexShrink: 0, objectFit: 'contain' }} />
+                            : <TbPuzzle size={14} color="var(--accent-primary)" style={{ marginRight: 8, flexShrink: 0 }} />}
+                          <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                            <div style={{ fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.name}</div>
+                            <div style={{ fontSize: 10, color: 'var(--text-disabled)' }}>v{v.version}</div>
+                          </div>
+                        </button>
+                        {customVisualsApi.canManage && (
+                          <button onClick={() => handleDeleteVisual(v.id)} title="Delete"
+                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '8px 10px', color: 'var(--text-disabled)' }}
+                            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--state-danger)'}
+                            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-disabled)'}>
+                            <TbTrash size={14} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {customVisualsApi.canManage && (
+                      <>
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          style={{ ...dropdownItem, display: 'flex', alignItems: 'center', color: 'var(--accent-primary)', fontWeight: 500 }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
+                          <TbUpload size={14} style={{ marginRight: 8 }} />
+                          Upload custom visual (.zip)
+                        </button>
+                        <a
+                          href="/api/custom-visual-template.zip"
+                          download="custom-visual-template.zip"
+                          style={{ ...dropdownItem, display: 'flex', alignItems: 'center', color: 'var(--text-secondary)', textDecoration: 'none' }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
+                          <TbDownload size={14} style={{ marginRight: 8 }} />
+                          Download starter template
+                        </a>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept=".zip"
+                          style={{ display: 'none' }}
+                          onChange={(e) => { handleUploadVisual(e.target.files?.[0]); e.target.value = ''; }}
+                        />
+                      </>
+                    )}
+                    {uploadStatus && (
+                      <div style={{
+                        padding: '8px 14px', fontSize: 11,
+                        color: uploadStatus.type === 'error' ? 'var(--state-danger)' : 'var(--state-success)',
+                        background: uploadStatus.type === 'error' ? 'rgba(220,38,38,0.08)' : 'rgba(22,163,74,0.08)',
+                      }}>
+                        {uploadStatus.msg}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Utility icons pill group: Refresh + Settings */}

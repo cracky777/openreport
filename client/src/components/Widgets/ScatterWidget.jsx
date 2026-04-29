@@ -3,6 +3,7 @@ import * as echarts from 'echarts';
 import formatNumber from '../../utils/formatNumber';
 import ChartLegend from './ChartLegend';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
+import { lerpColor } from '../../utils/tableConfigHelpers';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -51,6 +52,25 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
     const hasSeries = data.seriesGroups && data.seriesGroups.length > 0;
     const hasSize = data._hasSize;
 
+    // Value-driven gradient — colour by `size` when a size measure is bound, otherwise fall back to y.
+    const gradient = config?.valueGradient;
+    const useGradient = gradient?.enabled === true;
+    let getValueColor = null;
+    if (useGradient) {
+      const allPoints = hasSeries ? data.seriesGroups.flatMap((g) => g.points) : points;
+      const valueOf = (p) => hasSize && p.size != null ? p.size : p.y;
+      let gMin = Infinity, gMax = -Infinity;
+      for (const p of allPoints) { const v = valueOf(p); if (v != null && !isNaN(v)) { if (v < gMin) gMin = v; if (v > gMax) gMax = v; } }
+      const minColor = gradient.minColor || '#dcfce7';
+      const maxColor = gradient.maxColor || '#7c3aed';
+      getValueColor = (p) => {
+        const v = valueOf(p);
+        if (v == null || isNaN(v) || gMin === Infinity) return minColor;
+        const pct = gMax > gMin ? Math.max(0, Math.min(1, (v - gMin) / (gMax - gMin))) : 0;
+        return lerpColor(minColor, maxColor, pct);
+      };
+    }
+
     // Compute min/max size values for scaling
     let sizeMin = Infinity, sizeMax = -Infinity;
     if (hasSize) {
@@ -71,6 +91,7 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
       _rawLabel: p.label,
       _size: p.size,
       symbolSize: scaleSize(p.size),
+      ...(useGradient ? { itemStyle: { color: getValueColor(p) } } : {}),
     }));
 
     let seriesList;
@@ -155,7 +176,8 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
 
     return { option: opt, legendItems };
     } catch (e) { console.error('ScatterWidget error:', e); return { option: null, legendItems: [] }; }
-  }, [data, hasData, config?.color, showXAxis, showYAxis, symbolSize, showDataLabels, showLegend, legendPosition, hiddenSeries, highlightValue, config?.legendColors, config?.legendSymbols, config?.legendImages, config?.xAxisTitle, config?.yAxisTitle, config?.headerFontSize, config?.headerColor, config?.headerBold, config?.showXHeader, config?.showYHeader, config?.showXAxisTitle, config?.showYAxisTitle, config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor]);
+  }, [data, hasData, config?.color, showXAxis, showYAxis, symbolSize, showDataLabels, showLegend, legendPosition, hiddenSeries, highlightValue, config?.legendColors, config?.legendSymbols, config?.legendImages, config?.xAxisTitle, config?.yAxisTitle, config?.headerFontSize, config?.headerColor, config?.headerBold, config?.showXHeader, config?.showYHeader, config?.showXAxisTitle, config?.showYAxisTitle, config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
+      config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];

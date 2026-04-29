@@ -7,6 +7,7 @@
     "@cubejs-backend/postgres-driver": "^1.6.33",
     "@cubejs-backend/server-core": "^1.6.33",
     "@google-cloud/bigquery": "^8.1.1",
+    "adm-zip": "^0.5.17",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.7.0",
     "better-sqlite3-session-store": "^0.1.0",

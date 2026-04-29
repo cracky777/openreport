@@ -5,6 +5,7 @@ import ChartLegend from './ChartLegend';
 import { sortDateLabels, sortDateSeries, formatDateLabel } from '../../utils/dateHelpers';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
+import { lerpColor } from '../../utils/tableConfigHelpers';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -82,6 +83,27 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
 
     const customColors = config?.legendColors || {};
     const getColor = (name) => customColors[name] || COLORS[getStableIdx(name) % COLORS.length];
+
+    // Value-driven gradient (overrides per-series colors when enabled).
+    // Skipped on stacked subtypes — segments coloured by value would mislead the eye.
+    const gradient = config?.valueGradient;
+    const useGradient = gradient?.enabled === true && subType !== 'stacked' && subType !== 'stacked100';
+    let getValueColor = null;
+    if (useGradient) {
+      let gMin = Infinity, gMax = -Infinity;
+      if (data?.series?.length) {
+        for (const s of data.series) for (const v of s.values || []) if (v != null && !isNaN(v)) { if (v < gMin) gMin = v; if (v > gMax) gMax = v; }
+      } else if (data?.values) {
+        for (const v of data.values) if (v != null && !isNaN(v)) { if (v < gMin) gMin = v; if (v > gMax) gMax = v; }
+      }
+      const minColor = gradient.minColor || '#dcfce7';
+      const maxColor = gradient.maxColor || '#7c3aed';
+      getValueColor = (val) => {
+        if (val == null || isNaN(val) || gMin === Infinity) return minColor;
+        const pct = gMax > gMin ? Math.max(0, Math.min(1, (val - gMin) / (gMax - gMin))) : 0;
+        return lerpColor(minColor, maxColor, pct);
+      };
+    }
 
     let seriesData = data.series && data.series.length > 0 ? [...data.series] : null;
     if (seriesData && hideZeros) {
@@ -219,7 +241,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
                 rect = {
                   type: 'rect',
                   shape: { x, y, width, height: barHeight },
-                  style: { ...api.style(), fill: getColor(s.name, colorIdx), opacity: dimmed ? 0.3 : 1 },
+                  style: { ...api.style(), fill: useGradient ? getValueColor(value) : getColor(s.name, colorIdx), opacity: dimmed ? 0.3 : 1 },
                 };
 
                 // Label positioning (horizontal: value runs along X)
@@ -254,7 +276,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
                 rect = {
                   type: 'rect',
                   shape: { x, y: top[1], width: barWidth, height: base[1] - top[1] },
-                  style: { ...api.style(), fill: getColor(s.name, colorIdx), opacity: dimmed ? 0.3 : 1 },
+                  style: { ...api.style(), fill: useGradient ? getValueColor(value) : getColor(s.name, colorIdx), opacity: dimmed ? 0.3 : 1 },
                 };
 
                 const barHeight = base[1] - top[1];
@@ -331,7 +353,9 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
     } else {
       series.push({
         type: 'bar',
-        data: sortedIndices.map((i) => data.values[i] || 0),
+        data: useGradient
+          ? sortedIndices.map((i) => { const v = data.values[i] || 0; return { value: v, itemStyle: { color: getValueColor(v) } }; })
+          : sortedIndices.map((i) => data.values[i] || 0),
         itemStyle: { color: config?.color || '#5470c6' },
         label: { show: showDataLabels, position: dataLabelPosition, fontSize: 10,
           rotate: dataLabelRotate, color: dataLabelColor,
@@ -431,10 +455,12 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
       s.emphasis = { disabled: true };
       if (s.type === 'bar' && s.data) {
         s.data = s.data.map((val, i) => {
-          const v = typeof val === 'object' ? val.value ?? val : val;
+          const isObj = typeof val === 'object' && val !== null;
+          const v = isObj ? val.value ?? val : val;
+          const prevStyle = isObj ? val.itemStyle || {} : {};
           // Compare highlight against raw labels (not formatted)
           const o = hl && rawLabels ? (rawLabels[i] === hl ? 1 : 0.3) : 1;
-          return { value: v, itemStyle: { opacity: o } };
+          return { value: v, itemStyle: { ...prevStyle, opacity: o } };
         });
       }
     });
@@ -447,7 +473,8 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors, config?.barDirection,
       config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
-      config?.xAxisTitle, config?.yAxisTitle, config?.showXAxisTitle, config?.showYAxisTitle]);
+      config?.xAxisTitle, config?.yAxisTitle, config?.showXAxisTitle, config?.showYAxisTitle,
+      config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];

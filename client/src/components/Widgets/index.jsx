@@ -11,8 +11,9 @@ import ScatterWidget from './ScatterWidget';
 import ComboWidget from './ComboWidget';
 import GaugeWidget from './GaugeWidget';
 import TreeMapWidget from './TreeMapWidget';
+import CustomVisualWidget from './CustomVisualWidget';
 
-import { TbChartBar, TbChartLine, TbChartPie, TbChartBubble, TbTable, TbLayoutGrid, TbHash, TbFilter, TbTypography, TbChartAreaLine, TbChartColumn, TbChartHistogram, TbChartBarPopular, TbShape, TbTypography as TbText, TbMinus, TbSquare, TbCircle, TbArrowRight, TbGauge, TbChartTreemap } from 'react-icons/tb';
+import { TbChartBar, TbChartLine, TbChartPie, TbChartBubble, TbTable, TbLayoutGrid, TbHash, TbFilter, TbTypography, TbChartAreaLine, TbChartColumn, TbChartHistogram, TbChartBarPopular, TbShape, TbTypography as TbText, TbMinus, TbSquare, TbCircle, TbArrowRight, TbGauge, TbChartTreemap, TbPuzzle } from 'react-icons/tb';
 
 export const WIDGET_TYPES = {
   bar: { component: BarWidget, label: 'Bar Chart', icon: TbChartBar, defaultSize: { w: 24, h: 16 }, hasSubTypes: true },
@@ -28,6 +29,9 @@ export const WIDGET_TYPES = {
   filter: { component: FilterWidget, label: 'Filter', icon: TbFilter, defaultSize: { w: 10, h: 16 } },
   text: { component: TextWidget, label: 'Text', icon: TbTypography, defaultSize: { w: 16, h: 6 } },
   shape: { component: ShapeWidget, label: 'Shape', icon: TbShape, defaultSize: { w: 200, h: 200 }, hidden: true },
+  // Custom (workspace-uploaded) visuals share a single widget type; the
+  // specific visual is identified by config.visualId / config.bundleUrl.
+  customVisual: { component: CustomVisualWidget, label: 'Custom Visual', icon: TbPuzzle, defaultSize: { w: 24, h: 16 }, hidden: true },
 };
 
 export const OBJECT_SUB_TYPES = [
@@ -66,4 +70,4 @@ export const GAUGE_SUB_TYPES = [
   { value: 'column', label: 'Column Gauge', icon: TbChartBar },
 ];
 
-export { BarWidget, LineWidget, PieWidget, ScatterWidget, ComboWidget, TableWidget, ScorecardWidget, TextWidget, FilterWidget, PivotTableWidget, GaugeWidget, TreeMapWidget };
+export { BarWidget, LineWidget, PieWidget, ScatterWidget, ComboWidget, TableWidget, ScorecardWidget, TextWidget, FilterWidget, PivotTableWidget, GaugeWidget, TreeMapWidget, CustomVisualWidget };

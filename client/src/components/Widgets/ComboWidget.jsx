@@ -5,6 +5,7 @@ import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
+import { lerpColor } from '../../utils/tableConfigHelpers';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -66,6 +67,24 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     const customColors = config?.legendColors || {};
     const allBarNames = (data.barSeries || []).map((s) => s.name);
     const allLineNames = (data.lineSeries || []).map((s) => s.name);
+
+    // Value-driven gradient — applies to bar segments only (lines keep their series color).
+    // Skipped on stacked combo since stacked segments coloured by value mislead the eye.
+    const gradient = config?.valueGradient;
+    const useGradient = gradient?.enabled === true && !isStacked;
+    let getValueColor = null;
+    if (useGradient) {
+      let gMin = Infinity, gMax = -Infinity;
+      for (const s of (data.barSeries || [])) for (const v of s.values || []) if (v != null && !isNaN(v)) { if (v < gMin) gMin = v; if (v > gMax) gMax = v; }
+      const minColor = gradient.minColor || '#dcfce7';
+      const maxColor = gradient.maxColor || '#7c3aed';
+      getValueColor = (val) => {
+        if (val == null || isNaN(val) || gMin === Infinity) return minColor;
+        const pct = gMax > gMin ? Math.max(0, Math.min(1, (val - gMin) / (gMax - gMin))) : 0;
+        return lerpColor(minColor, maxColor, pct);
+      };
+    }
+
     const colorMap = {};
     allBarNames.forEach((n) => { colorMap[n] = customColors[n] || COLORS[getStableIdx(n) % COLORS.length]; });
     allLineNames.forEach((n) => { colorMap[n] = customColors[n] || COLORS[getStableIdx(n) % COLORS.length]; });
@@ -160,7 +179,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
               return {
                 type: 'rect',
                 shape: { x, y, width, height: barHeight },
-                style: { ...api.style(), fill: color, opacity: dimmed ? 0.3 : 1 },
+                style: { ...api.style(), fill: useGradient ? getValueColor(value) : color, opacity: dimmed ? 0.3 : 1 },
               };
             }
 
@@ -174,7 +193,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
             return {
               type: 'rect',
               shape: { x, y: top[1], width: barWidth, height: base[1] - top[1] },
-              style: { ...api.style(), fill: color, opacity: dimmed ? 0.3 : 1 },
+              style: { ...api.style(), fill: useGradient ? getValueColor(value) : color, opacity: dimmed ? 0.3 : 1 },
             };
           },
         });
@@ -187,7 +206,9 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
         series.push({
           type: 'bar',
           name: s.name,
-          data: sortedIndices.map((idx) => s.values[idx] || 0),
+          data: useGradient
+            ? sortedIndices.map((idx) => { const v = s.values[idx] || 0; return { value: v, itemStyle: { color: getValueColor(v) } }; })
+            : sortedIndices.map((idx) => s.values[idx] || 0),
           stack: isStacked ? 'bar' : undefined,
           itemStyle: { color },
           emphasis: { disabled: true },
@@ -235,9 +256,11 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
         if (s.type === 'custom') return; // custom bars handle highlight in renderItem
         if (s.data) {
           s.data = s.data.map((val, i) => {
-            const v = typeof val === 'object' ? val?.value ?? val : val;
+            const isObj = typeof val === 'object' && val !== null;
+            const v = isObj ? val.value ?? val : val;
+            const prevStyle = isObj ? val.itemStyle || {} : {};
             const o = rawLabels[i] === hl ? 1 : 0.3;
-            return { value: v, itemStyle: { opacity: o } };
+            return { value: v, itemStyle: { ...prevStyle, opacity: o } };
           });
         }
       });
@@ -378,7 +401,8 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
       config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
       config?.secondaryYAxisLabelFontSize, config?.secondaryYAxisLabelColor,
       config?.xAxisTitle, config?.yAxisTitle, config?.secondaryYAxisTitle,
-      config?.showXAxisTitle, config?.showYAxisTitle, config?.showSecondaryYAxisTitle]);
+      config?.showXAxisTitle, config?.showYAxisTitle, config?.showSecondaryYAxisTitle,
+      config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];

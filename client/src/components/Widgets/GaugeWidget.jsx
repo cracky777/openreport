@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, memo, useMemo } from 'react';
 import * as echarts from 'echarts';
 import formatNumber from '../../utils/formatNumber';
+import { lerpColor } from '../../utils/tableConfigHelpers';
 
 // Extract numeric value from scorecard-shaped data (handles legacy string values from old saves)
 const extractValue = (data) => {
@@ -42,7 +43,19 @@ export default memo(function GaugeWidget({ data, config, chartWidth, chartHeight
     && threshold !== null
     && value !== null
     && value > threshold;
-  const gaugeColor = useOverColor ? (config?.gaugeOverColor || '#dc2626') : baseColor;
+  // Min→Max gradient — when enabled, fill colour interpolates between minColor and maxColor
+  // based on the value's position in [min, max]. Takes priority over the conditional/threshold colour.
+  const gradient = config?.valueGradient;
+  const useGradient = gradient?.enabled === true && hasData && max !== min;
+  const gradientColor = useGradient
+    ? lerpColor(
+        gradient.minColor || '#dcfce7',
+        gradient.maxColor || '#7c3aed',
+        Math.max(0, Math.min(1, (value - min) / (max - min)))
+      )
+    : null;
+  const gaugeColor = gradientColor
+    ?? (useOverColor ? (config?.gaugeOverColor || '#dc2626') : baseColor);
 
   const displayValue = useMemo(() => {
     if (!hasData) return '';

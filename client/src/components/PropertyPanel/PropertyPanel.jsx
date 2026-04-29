@@ -414,6 +414,23 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       );
     }
 
+    if (type === 'customVisual') {
+      const manifest = widget.config?.manifest || {};
+      const ds = manifest.dataSchema || {};
+      const dimSlots = Array.isArray(ds.dimensions) ? ds.dimensions : [];
+      const measSlots = Array.isArray(ds.measures) ? ds.measures : [];
+      const dimLabel = dimSlots.map((d) => d.label || d.role || 'Dimensions').join(' / ') || 'Dimensions';
+      const measLabel = measSlots.map((m) => m.label || m.role || 'Measures').join(' / ') || 'Measures';
+      return (
+        <Section title="" bare>
+          <DropZone label={dimLabel} accepts={['dimension']} fields={selectedDims} zoneName="axis"
+            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos} />
+          <DropZone label={measLabel} accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="values"
+            onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos} />
+        </Section>
+      );
+    }
+
     if (type === 'filter') {
       return (
         <Section title="" bare>
@@ -799,6 +816,51 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 onChange={(v) => updateConfig('color', v)} />
             </Field>
           )}
+          {/* Color gradient (min→max) — overrides per-series colors when enabled. Skipped on stacked bar/combo at render time. */}
+          {(widget.type === 'bar' || widget.type === 'treemap' || widget.type === 'scatter' || widget.type === 'pie' || widget.type === 'combo') && (() => {
+            const grad = widget.config?.valueGradient || {};
+            const setGrad = (patch) => updateConfig('valueGradient', { ...grad, ...patch });
+            const isStackedBar = widget.type === 'bar' && (widget.config?.subType === 'stacked' || widget.config?.subType === 'stacked100');
+            const isStackedCombo = widget.type === 'combo' && (widget.config?.subType ?? 'stackedCombo') === 'stackedCombo';
+            return (
+              <>
+                <Field label="Color gradient">
+                  <input type="checkbox" checked={grad.enabled === true}
+                    onChange={(e) => setGrad({ enabled: e.target.checked })} />
+                </Field>
+                {grad.enabled && (
+                  <>
+                    <Field label="Min color">
+                      <ColorInput value={grad.minColor || '#dcfce7'} onChange={(v) => setGrad({ minColor: v })} />
+                    </Field>
+                    <Field label="Max color">
+                      <ColorInput value={grad.maxColor || '#7c3aed'} onChange={(v) => setGrad({ maxColor: v })} />
+                    </Field>
+                    {isStackedBar && (
+                      <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 }}>
+                        Disabled on stacked bars — switch to Grouped/100% to use the gradient.
+                      </div>
+                    )}
+                    {isStackedCombo && (
+                      <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 }}>
+                        Disabled on Stacked Combo — switch to Clustered Combo to use the gradient.
+                      </div>
+                    )}
+                    {widget.type === 'scatter' && (
+                      <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 }}>
+                        Coloured by Size measure if bound, otherwise by Y.
+                      </div>
+                    )}
+                    {widget.type === 'combo' && !isStackedCombo && (
+                      <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 }}>
+                        Applied to bar segments only — line series keep their own colour.
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            );
+          })()}
           {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'combo') && (
             <Field label="Value format">
               <select value={widget.config?.valueAbbreviation || 'none'}
@@ -1354,6 +1416,29 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               onChange={(e) => updateConfig('gaugeTrackColor', e.target.value)}
               style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
           </Field>
+          {/* Color gradient (min→max) — overrides Fill color and threshold colour when enabled. */}
+          {(() => {
+            const grad = widget.config?.valueGradient || {};
+            const setGrad = (patch) => updateConfig('valueGradient', { ...grad, ...patch });
+            return (
+              <>
+                <Field label="Color gradient">
+                  <input type="checkbox" checked={grad.enabled === true}
+                    onChange={(e) => setGrad({ enabled: e.target.checked })} />
+                </Field>
+                {grad.enabled && (
+                  <>
+                    <Field label="Min color">
+                      <ColorInput value={grad.minColor || '#dcfce7'} onChange={(v) => setGrad({ minColor: v })} />
+                    </Field>
+                    <Field label="Max color">
+                      <ColorInput value={grad.maxColor || '#7c3aed'} onChange={(v) => setGrad({ maxColor: v })} />
+                    </Field>
+                  </>
+                )}
+              </>
+            );
+          })()}
           <Field label="Color on threshold">
             <input type="checkbox" checked={widget.config?.gaugeConditionalColor || false}
               onChange={(e) => updateConfig('gaugeConditionalColor', e.target.checked)} />
@@ -1439,6 +1524,69 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           )}
         </Section>
       )}
+
+      {/* Custom visual options — auto-generated from manifest.configSchema */}
+      {widget.type === 'customVisual' && (() => {
+        const cs = widget.config?.manifest?.configSchema;
+        if (!Array.isArray(cs) || cs.length === 0) return null;
+        return (
+          <Section title={widget.config?.visualName || 'Custom Visual'} sectionState={sections}>
+            {cs.map((opt) => {
+              if (!opt || typeof opt !== 'object' || !opt.key) return null;
+              const value = widget.config?.[opt.key] ?? opt.default;
+              const label = opt.label || opt.key;
+              if (opt.type === 'boolean') {
+                return (
+                  <Field key={opt.key} label={label}>
+                    <input type="checkbox" checked={value === true}
+                      onChange={(e) => updateConfig(opt.key, e.target.checked)} />
+                  </Field>
+                );
+              }
+              if (opt.type === 'number') {
+                return (
+                  <Field key={opt.key} label={label}>
+                    <input type="number" value={value ?? ''}
+                      min={opt.min} max={opt.max} step={opt.step}
+                      onChange={(e) => updateConfig(opt.key, e.target.value === '' ? undefined : Number(e.target.value))}
+                      style={{ ...inputStyle, width: 80, marginBottom: 0 }} />
+                  </Field>
+                );
+              }
+              if (opt.type === 'color') {
+                return (
+                  <Field key={opt.key} label={label}>
+                    <ColorInput value={value || opt.default || '#7c3aed'}
+                      onChange={(v) => updateConfig(opt.key, v)} />
+                  </Field>
+                );
+              }
+              if (opt.type === 'string') {
+                return (
+                  <Field key={opt.key} label={label}>
+                    <input type="text" value={value || ''}
+                      onChange={(e) => updateConfig(opt.key, e.target.value)}
+                      style={{ ...inputStyle, marginBottom: 0 }} />
+                  </Field>
+                );
+              }
+              if (opt.type === 'select') {
+                const opts = Array.isArray(opt.options) ? opt.options : [];
+                return (
+                  <Field key={opt.key} label={label}>
+                    <select value={value ?? (opts[0]?.value ?? '')}
+                      onChange={(e) => updateConfig(opt.key, e.target.value)}
+                      style={{ ...inputStyle, marginBottom: 0 }}>
+                      {opts.map((o) => <option key={o.value} value={o.value}>{o.label || o.value}</option>)}
+                    </select>
+                  </Field>
+                );
+              }
+              return null;
+            })}
+          </Section>
+        );
+      })()}
     </div>
   );
 }

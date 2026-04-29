@@ -7,7 +7,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
-const { passport } = require('./middleware/auth');
+const { passport, requireAuth } = require('./middleware/auth');
 
 const authRoutes = require('./routes/auth');
 const reportRoutes = require('./routes/reports');
@@ -15,6 +15,7 @@ const datasourceRoutes = require('./routes/datasources');
 const modelRoutes = require('./routes/models');
 const adminRoutes = require('./routes/admin');
 const workspaceRoutes = require('./routes/workspaces');
+const customVisualRoutes = require('./routes/customVisuals');
 const fileUploadRoutes = require('./routes/fileUpload');
 
 const app = express();
@@ -87,12 +88,37 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/datasources', datasourceRoutes);
 app.use('/api/models', modelRoutes);
 app.use('/api/admin', adminRoutes);
+// Custom visuals share the /api/workspaces prefix — mount BEFORE workspaces so
+// /:wsId/visuals/... is matched here instead of falling through to a 404 in the
+// workspaces router.
+app.use('/api/workspaces', customVisualRoutes);
 app.use('/api/workspaces', workspaceRoutes);
 app.use('/api/upload', fileUploadRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', version: '0.1.0' });
+});
+
+// Custom visual starter template — packaged on the fly from examples/custom-visual-template/
+// so the contract documentation always tracks the running server version.
+app.get('/api/custom-visual-template.zip', requireAuth, (req, res) => {
+  try {
+    const AdmZip = require('adm-zip');
+    const dir = path.join(__dirname, '..', 'examples', 'custom-visual-template');
+    if (!fs.existsSync(dir)) return res.status(404).json({ error: 'Template not found on server' });
+    const zip = new AdmZip();
+    for (const name of ['manifest.json', 'visual.js', 'icon.svg', 'README.md']) {
+      const p = path.join(dir, name);
+      if (fs.existsSync(p)) zip.addLocalFile(p);
+    }
+    res.type('application/zip')
+       .setHeader('Content-Disposition', 'attachment; filename="custom-visual-template.zip"')
+       .send(zip.toBuffer());
+  } catch (err) {
+    console.error('[custom-visual-template]', err);
+    res.status(500).json({ error: 'Failed to build template' });
+  }
 });
 
 // Serve React frontend in production (BEFORE Cube.js to avoid route conflicts)

@@ -2,6 +2,7 @@ import { useRef, useEffect, memo, useMemo } from 'react';
 import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
+import { lerpColor } from '../../utils/tableConfigHelpers';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -33,6 +34,21 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
     const customColors = config?.legendColors || {};
     const getColor = (name) => customColors[name] || COLORS[getStableIdx(name) % COLORS.length];
 
+    const gradient = config?.valueGradient;
+    const useGradient = gradient?.enabled === true;
+    let getValueColor = null;
+    if (useGradient) {
+      let gMin = Infinity, gMax = -Infinity;
+      for (const it of data.items) if (it?.value != null && !isNaN(it.value)) { if (it.value < gMin) gMin = it.value; if (it.value > gMax) gMax = it.value; }
+      const minColor = gradient.minColor || '#dcfce7';
+      const maxColor = gradient.maxColor || '#7c3aed';
+      getValueColor = (val) => {
+        if (val == null || isNaN(val) || gMin === Infinity) return minColor;
+        const pct = gMax > gMin ? Math.max(0, Math.min(1, (val - gMin) / (gMax - gMin))) : 0;
+        return lerpColor(minColor, maxColor, pct);
+      };
+    }
+
     let items = [...data.items];
     if (sortOrder === 'desc') items.sort((a, b) => b.value - a.value);
     else if (sortOrder === 'asc') items.sort((a, b) => a.value - b.value);
@@ -54,7 +70,7 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
       name: it.name,
       value: it.value,
       itemStyle: {
-        color: getColor(it.name, i),
+        color: useGradient ? getValueColor(it.value) : getColor(it.name, i),
         borderColor: showBorder ? borderColor : 'transparent',
         borderWidth: showBorder ? borderWidth : 0,
         opacity: highlightValue && it.name !== highlightValue ? 0.3 : 1,
@@ -99,7 +115,8 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
     };
 
     return { option: opt };
-  }, [data, hasData, sortOrder, showDataLabels, dataLabelContent, dataLabelAbbr, dataLabelColor, dataLabelSize, showBorder, borderColor, borderWidth, highlightValue, config?.legendColors]);
+  }, [data, hasData, sortOrder, showDataLabels, dataLabelContent, dataLabelAbbr, dataLabelColor, dataLabelSize, showBorder, borderColor, borderWidth, highlightValue, config?.legendColors,
+      config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 
   const option = memoResult?.option;
 

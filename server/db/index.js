@@ -27,6 +27,24 @@ try { db.exec("ALTER TABLE datasources ADD COLUMN extra_config TEXT DEFAULT '{}'
 try { db.exec("ALTER TABLE models ADD COLUMN date_column TEXT DEFAULT ''"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE models ADD COLUMN rls TEXT NOT NULL DEFAULT '{}'"); } catch { /* already exists */ }
 
+// Custom visuals — workspace-scoped plugin registry. Uploaded as .zip by ws_admin,
+// rendered in a sandboxed iframe at runtime.
+db.exec(`CREATE TABLE IF NOT EXISTS custom_visuals (
+  workspace_id TEXT NOT NULL,
+  visual_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  version TEXT NOT NULL,
+  manifest TEXT NOT NULL,
+  bundle TEXT NOT NULL,
+  icon BLOB,
+  icon_mime TEXT,
+  uploaded_by TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (workspace_id, visual_id),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE CASCADE
+)`);
+
 // Promote first user to admin if no admin exists
 const adminCount = db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'admin'").get();
 if (adminCount.c === 0) {
