@@ -1,5 +1,7 @@
 import { useRef, useState, useEffect, useCallback, memo, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import Draggable from 'react-draggable';
+import { TbCode, TbX, TbCopy } from 'react-icons/tb';
 import { WIDGET_TYPES } from '../Widgets';
 import MaxRowsWarning from '../Widgets/MaxRowsWarning';
 import { evaluateColorCondition } from '../../utils/conditionalFormat';
@@ -19,8 +21,9 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch }) {
   const nodeRef = useRef(null);
+  const [showSql, setShowSql] = useState(false);
   const WidgetType = WIDGET_TYPES[widget.type];
   if (!WidgetType) return null;
 
@@ -125,13 +128,57 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           />
         </div>
 
-        {/* Loading spinner */}
+        {/* Loading spinner + Cancel button. The cancel aborts the in-flight
+            fetch so the user isn't stuck with a permanent spinner on a slow
+            query. */}
         {widget._loading && (
-          <div style={{
-            position: 'absolute', top: 8, right: 40, zIndex: 10,
-          }}>
+          <div style={{ position: 'absolute', top: 6, right: 38, zIndex: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
             <div style={spinnerStyle} />
+            {!readOnly && onCancelFetch && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onCancelFetch(); }}
+                title="Cancel query"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  height: 22, padding: '0 8px', borderRadius: 11,
+                  fontSize: 11, fontWeight: 500,
+                  background: 'var(--bg-panel)', color: 'var(--state-danger)',
+                  border: '1px solid var(--state-danger)', cursor: 'pointer',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                }}
+              >
+                Cancel
+              </button>
+            )}
           </div>
+        )}
+
+        {/* "View SQL" — small icon button on selected widgets that hit the
+            query API. Opens a portal modal showing the raw SQL. Hidden in
+            read-only mode, during Edit Interactions, and on widgets that
+            don't query (text / shape / filter / custom visual). */}
+        {isSelected && !readOnly && !editInteractionsActive
+          && !['text', 'shape', 'filter', 'customVisual'].includes(widget.type) && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowSql(true); }}
+            title="View the SQL query"
+            style={{
+              position: 'absolute', top: 6, right: 6, zIndex: 11,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 24, height: 24, borderRadius: 12, padding: 0,
+              border: '1px solid var(--border-default)', background: 'var(--bg-panel)',
+              color: 'var(--text-secondary)', cursor: 'pointer',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.borderColor = 'var(--accent-primary)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
+          >
+            <TbCode size={14} />
+          </button>
+        )}
+        {showSql && createPortal(
+          <SqlViewerModal sql={widget.data?._sql} onClose={() => setShowSql(false)} />,
+          document.body,
         )}
 
         {/* Edit Interactions overlay — appears on every non-source widget while
@@ -253,6 +300,7 @@ export default function ReportCanvas({
   reportRef,
   editInteractions,
   onToggleCrossFilter,
+  onCancelFetch,
 }) {
   const [resizing, setResizing] = useState(null);
   const containerRef = useRef(null);
@@ -430,6 +478,7 @@ export default function ReportCanvas({
               editInteractionsActive={editInteractionsActive}
               isExcludedFromSource={isExcludedFromSource}
               onToggleCrossFilter={onToggleCrossFilter}
+              onCancelFetch={onCancelFetch}
             />
           );
         })}
@@ -456,3 +505,60 @@ const drillBtnStyle = {
   cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
 };
+
+function SqlViewerModal({ sql, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(sql || '');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard blocked — silently ignore */ }
+  };
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 9999,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 10,
+        width: 'min(720px, 92vw)', maxHeight: '80vh', display: 'flex', flexDirection: 'column',
+        boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+      }}>
+        <div style={{
+          padding: '12px 14px', borderBottom: '1px solid var(--border-default)',
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>SQL query</span>
+          <span style={{ flex: 1 }} />
+          <button onClick={handleCopy} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '5px 10px', fontSize: 12, fontWeight: 500,
+            background: copied ? 'var(--state-success-soft)' : 'var(--bg-subtle)',
+            color: copied ? 'var(--state-success)' : 'var(--text-secondary)',
+            border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer',
+          }}>
+            <TbCopy size={13} />
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+          <button onClick={onClose} style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 26, height: 26, padding: 0, borderRadius: 6,
+            background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-disabled)',
+          }}>
+            <TbX size={14} />
+          </button>
+        </div>
+        <pre style={{
+          margin: 0, padding: 14, overflow: 'auto', flex: 1,
+          fontSize: 12, lineHeight: 1.5,
+          fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
+          color: 'var(--text-primary)', background: 'var(--bg-subtle)',
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        }}>
+          {sql || '(no SQL captured for this widget)'}
+        </pre>
+      </div>
+    </div>
+  );
+}

@@ -272,6 +272,15 @@ export default function ModelEditor() {
 
   const [saveMsg, setSaveMsg] = useState(null);
   const handleSave = async () => {
+    // Sanity check: warn before saving an empty model. Reports built on a
+    // model with no flagged columns can't bind anything and will look broken.
+    if (selectedTables.length > 0 && dimensions.length === 0 && measures.length === 0) {
+      const ok = window.confirm(
+        'No dimensions, measures or date columns have been flagged on this model. '
+        + 'Reports built on it will have nothing to display. Save anyway?'
+      );
+      if (!ok) return;
+    }
     setSaving(true);
     try {
       await api.put(`/models/${id}`, {
@@ -281,6 +290,19 @@ export default function ModelEditor() {
       setSaveMsg('Saved');
       setTimeout(() => setSaveMsg(null), 2000);
       runValidation();
+      // If the user came here from the dashboard new-report wizard
+      // (?then=newReport), bounce back so they can finish creating the report
+      // with the freshly-configured model preselected. Forward any title
+      // they had typed so the wizard restores it.
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('then') === 'newReport') {
+        const back = new URLSearchParams();
+        back.set('newReport', '1');
+        back.set('modelId', id);
+        const t = params.get('title');
+        if (t) back.set('title', t);
+        navigate(`/?${back.toString()}`);
+      }
     } catch (err) {
       console.error('Save failed:', err);
       setSaveMsg('Save failed');
@@ -514,6 +536,26 @@ export default function ModelEditor() {
         </div>
       )}
 
+      {/* No fields flagged yet — visible warning so the user doesn't save an
+          empty model and end up with widgets that have nothing to bind to. */}
+      {selectedTables.length > 0 && dimensions.length === 0 && measures.length === 0 && (
+        <div style={{
+          margin: '12px 24px 0', padding: '10px 14px', borderRadius: 8,
+          background: 'var(--state-warning-soft)', border: '1px solid #fde68a', color: 'var(--state-warning)',
+          fontSize: 13, display: 'flex', alignItems: 'flex-start', gap: 10,
+        }}>
+          <span style={{ fontSize: 18, lineHeight: 1 }}>⚠️</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+              No columns flagged for this model
+            </div>
+            <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+              You haven't added any dimension, measure or date column yet. Click the <strong>D</strong> (dimension) or <strong>M</strong> (measure) tag next to a column in the schema to flag it. Without flagged columns, reports built on this model won't have anything to display.
+            </div>
+          </div>
+        </div>
+      )}
+
       {step === 1 && (
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <div style={{
@@ -538,6 +580,18 @@ export default function ModelEditor() {
             isDateType={isDateType}
             rlsTable={rls?.enabled ? rls?.table : null}
             onOpenRLS={(tableName) => setRlsDialogTable(tableName)}
+            onRemoveTable={(tableName) => {
+              setSelectedTables((prev) => prev.filter((t) => t !== tableName));
+              setTablePositions((prev) => {
+                const next = { ...prev };
+                delete next[tableName];
+                return next;
+              });
+              setJoins((prev) => prev.filter((j) => j.from_table !== tableName && j.to_table !== tableName));
+              setDimensions((prev) => prev.filter((d) => d.table !== tableName));
+              setMeasures((prev) => prev.filter((m) => m.table !== tableName));
+              if (rls?.table === tableName) setRls({});
+            }}
           />
           {rlsDialogTable && (
             <RLSDialog

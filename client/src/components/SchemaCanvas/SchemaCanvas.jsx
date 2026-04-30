@@ -40,6 +40,7 @@ export default function SchemaCanvas({
   isDateType,
   rlsTable, // the table currently flagged as the RLS table (if any)
   onOpenRLS, // (tableName) => void — opens the RLS dialog for that table
+  onRemoveTable, // (tableName) => void — remove the table from the model schema
 }) {
   const svgRef = useRef(null);
   const containerRef = useRef(null);
@@ -485,16 +486,31 @@ export default function SchemaCanvas({
                   return (
                     <g>
                       {countText && (
-                        <text x={TABLE_WIDTH - 22} y={15} fontSize={9} fill="#94a3b8" fontWeight={400}
+                        <text x={TABLE_WIDTH - 36} y={15} fontSize={9} fill="#94a3b8" fontWeight={400}
                           textAnchor="end" style={{ pointerEvents: 'none' }}>
                           {countText} rows
                         </text>
                       )}
-                      <text x={TABLE_WIDTH - 8} y={15} fontSize={10} fill="#64748b"
+                      <text x={TABLE_WIDTH - 22} y={15} fontSize={10} fill="#64748b"
                         textAnchor="end" style={{ cursor: 'pointer' }}
                         onClick={(e) => { e.stopPropagation(); fetchTableCount(tableName); }}>
                         ↻
                       </text>
+                      {onRemoveTable && (
+                        <g onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm(`Remove table "${tableName}" from the model? Joins, dimensions and measures referencing it will also be removed.`)) {
+                              onRemoveTable(tableName);
+                            }
+                          }}
+                          style={{ cursor: 'pointer' }}>
+                          <title>Remove table from model</title>
+                          <circle cx={TABLE_WIDTH - 10} cy={12} r={7} fill="rgba(255,255,255,0.15)" />
+                          <text x={TABLE_WIDTH - 10} y={16} fontSize={11} fill="#fff" fontWeight={700}
+                            textAnchor="middle" style={{ pointerEvents: 'none' }}>×</text>
+                        </g>
+                      )}
                     </g>
                   );
                 })()}

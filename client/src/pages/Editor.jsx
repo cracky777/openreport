@@ -335,6 +335,27 @@ export default function Editor() {
     setRefreshCounter((n) => n + 1);
   }, []);
 
+  // Cancel an in-flight data fetch and clear the loading flags so the user
+  // isn't stuck with a permanent spinner on a slow query.
+  const handleCancelFetch = useCallback(() => {
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    if (debounceTimerRef.current) { clearTimeout(debounceTimerRef.current); debounceTimerRef.current = null; }
+    const pending = pendingLoadingRef.current;
+    pendingLoadingRef.current = null;
+    history.setSilent((prev) => {
+      const next = { ...prev, widgets: { ...prev.widgets } };
+      // Clear _loading on every widget currently marked, plus any explicitly tracked.
+      for (const wId of Object.keys(next.widgets)) {
+        const w = next.widgets[wId];
+        if (w?._loading || (pending && pending.includes(wId))) {
+          next.widgets[wId] = { ...w, _loading: false, data: { ...(w.data || {}), _error: 'Query canceled' } };
+        }
+      }
+      return next;
+    });
+    setRefreshing(false);
+  }, [history]);
+
   useEffect(() => {
     // Compare against report-level filters (from Settings) too — changing the
     // Settings filter list must trigger a refetch.
@@ -448,13 +469,33 @@ export default function Editor() {
         const widgetOwnFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
         const widgetFilters = [...reportLevelFilters, ...widgetOwnFilters];
         const hasMainBinding = (allDims.length > 0 || meass.length > 0);
+        const mainQueryBody = {
+          dimensionNames: allDims, measureNames: [...new Set(meass)],
+          limit: w.config?.dataLimit || 1000, filters: mergedFilters,
+          widgetFilters: sanitizeWidgetFilters(widgetFilters),
+        };
         const mainPromise = hasMainBinding
-          ? api.post(`/models/${model.id}/query`, {
-              dimensionNames: allDims, measureNames: [...new Set(meass)],
-              limit: w.config?.dataLimit || 1000, filters: mergedFilters,
-              widgetFilters: sanitizeWidgetFilters(widgetFilters),
-            }, { signal: controller.signal })
+          ? api.post(`/models/${model.id}/query`, mainQueryBody, { signal: controller.signal })
           : Promise.resolve({ data: { rows: [] } });
+        // Fire a sqlOnly request in parallel — the server returns the assembled
+        // SQL without executing it, so the SQL viewer modal can show the
+        // query even while a slow main query is still running. Best-effort.
+        if (hasMainBinding) {
+          api.post(`/models/${model.id}/query`, { ...mainQueryBody, sqlOnly: true }, { signal: controller.signal })
+            .then((r) => {
+              const previewSql = r?.data?.sql;
+              if (!previewSql) return;
+              history.setSilent((prev) => {
+                const w2 = prev.widgets?.[wId];
+                if (!w2 || w2.data?._sql) return prev; // main query already settled — don't overwrite
+                return {
+                  ...prev,
+                  widgets: { ...prev.widgets, [wId]: { ...w2, data: { ...(w2.data || {}), _sql: previewSql } } },
+                };
+              });
+            })
+            .catch(() => { /* ignore — we'll just lack the preview */ });
+        }
         const colorPromise = colorMeasure
           ? api.post(`/models/${model.id}/query`, {
               dimensionNames: [], measureNames: [colorMeasure], limit: 1, filters: mergedFilters,
@@ -475,7 +516,8 @@ export default function Editor() {
           }
 
           const rows = res.data?.rows;
-          if (!rows || rows.length === 0) return { wId, data: { _rowCount: 0, _colorValue } };
+          const sql = res.data?.sql || null;
+          if (!rows || rows.length === 0) return { wId, data: { _rowCount: 0, _colorValue, _sql: sql } };
           let newData = {};
           const keys = Object.keys(rows[0]);
           if (w.type === 'pivotTable') {
@@ -619,6 +661,7 @@ export default function Editor() {
             newData._isDrillLeaf = drillPath.length >= fullHierarchy.length - 1;
           }
           newData._colorValue = _colorValue;
+          newData._sql = sql;
           return { wId, data: newData };
         }).catch((err) => {
           if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return { wId, data: null };
@@ -1306,6 +1349,7 @@ export default function Editor() {
               reportRef={canvasRef}
               editInteractions={editInteractions}
               onToggleCrossFilter={handleToggleCrossFilter}
+              onCancelFetch={handleCancelFetch}
             />
           </div>
         </div>

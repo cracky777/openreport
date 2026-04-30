@@ -176,13 +176,21 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
  * model → navigate to model editor (table selection)". Exposed so both the
  * Datasources page and the Dashboard new-report modal share the same flow.
  */
-export async function createModelAndNavigate(navigate, datasource) {
+export async function createModelAndNavigate(navigate, datasource, options = {}) {
   if (!datasource?.id) return false;
   try {
     const res = await api.post('/models', { name: datasource.name || 'New Model', datasourceId: datasource.id, description: '' });
     const modelId = res.data?.model?.id;
     if (modelId) {
-      navigate(`/models/${modelId}`);
+      // `then=newReport` tells the model editor to bounce back to the
+      // dashboard's new-report wizard once the user saves the model.
+      // `title` carries the report title the user already typed so it
+      // survives the round trip.
+      const params = new URLSearchParams();
+      if (options.then) params.set('then', options.then);
+      if (options.title) params.set('title', options.title);
+      const qs = params.toString();
+      navigate(`/models/${modelId}${qs ? '?' + qs : ''}`);
       return true;
     }
   } catch (err) {

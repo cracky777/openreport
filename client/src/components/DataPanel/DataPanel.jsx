@@ -474,6 +474,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         }
         newData._rowCount = rows.length;
         newData._colorValue = _colorValue;
+        newData._sql = res.data?.sql || null;
         // Expose drill metadata so canvas can render the up/reset buttons
         if (isDrillableLocal) {
           newData._hierarchy = fullHierarchyLocal.map((dn) => {

@@ -132,6 +132,30 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Resume the new-report wizard when bouncing back from /models/:id?then=newReport.
+  // The model editor sends ?newReport=1&modelId=<id>&title=<title> on save in that
+  // flow; we re-open the wizard pre-filled with the model + the title the user
+  // had typed before going to the model editor, then strip the params.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('newReport') !== '1') return;
+    const mid = params.get('modelId');
+    if (mid) {
+      setNewModelId(mid);
+      setCreateMode('model');
+      setShowCreate(true);
+    }
+    const restoredTitle = params.get('title');
+    if (restoredTitle) setNewTitle(restoredTitle);
+    // Strip the params so a refresh doesn't keep re-opening the wizard
+    params.delete('newReport');
+    params.delete('modelId');
+    params.delete('title');
+    const qs = params.toString();
+    const newUrl = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
+    window.history.replaceState({}, '', newUrl);
+  }, []);
+
   // Close user menu on outside click / Escape
   useEffect(() => {
     if (!userMenuOpen) return;
@@ -165,17 +189,21 @@ export default function Dashboard() {
     } catch { /* ignore quota / privacy-mode errors */ }
   }, [selectedWs, lastWsKey]);
 
-  // Load workspace content
+  // Load workspace content. Split into two effects so a local change to
+  // `reports` (e.g. delete) doesn't trigger a server re-fetch that could
+  // overwrite the local optimistic update with stale data.
   useEffect(() => {
-    if (!selectedWs) {
-      setWsReports(reports.filter((r) => !r.workspace_id));
-      setWsMembers([]);
-      setWsOwner(null);
-      setWsUserRole(null);
-      setWsIsPersonalOrg(false);
-      setWsCanSeeMembers(false);
-      return;
-    }
+    if (selectedWs) return; // workspace view → handled by the next effect
+    setWsReports(reports.filter((r) => !r.workspace_id));
+    setWsMembers([]);
+    setWsOwner(null);
+    setWsUserRole(null);
+    setWsIsPersonalOrg(false);
+    setWsCanSeeMembers(false);
+  }, [selectedWs, reports]);
+
+  useEffect(() => {
+    if (!selectedWs) return;
     api.get(`/workspaces/${selectedWs}`).then((res) => {
       setWsReports(res.data.reports || []);
       setWsMembers(res.data.members || []);
@@ -190,7 +218,7 @@ export default function Dashboard() {
           : res.data.userRole === 'admin'
       );
     }).catch(() => {});
-  }, [selectedWs, reports]);
+  }, [selectedWs]);
 
   const handleFileForReport = async (e) => {
     const file = e.target.files?.[0];
@@ -773,11 +801,13 @@ export default function Dashboard() {
 
           {/* Create report modal — wizard */}
           {showCreate && (
-            <div style={modalOverlay} onClick={() => { setShowCreate(false); setCreateMode(null); setUploadError(''); }}>
-              <div style={{ ...modalCard, width: 480 }} onClick={(e) => e.stopPropagation()}>
+            <div style={modalOverlay}>
+              <div style={{ ...modalCard, width: 480 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>New Report{selectedWs ? ` in ${wsName}` : ''}</h3>
 
-                {/* Title — always visible */}
+                {/* Title — always visible. Persisted through the database-connection
+                    round trip via URL param so the user gets it back when they
+                    return from the model editor. */}
                 <div style={{ marginBottom: 12 }}>
                   <label style={labelStyle}>Title</label>
                   <input style={inputStyle} value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Report title" />
@@ -868,7 +898,7 @@ export default function Dashboard() {
                       setShowCreate(false);
                       setCreateMode(null);
                       if (isNew) {
-                        await createModelAndNavigate(navigate, datasource);
+                        await createModelAndNavigate(navigate, datasource, { then: 'newReport', title: newTitle });
                       }
                     }}
                     onCancel={() => setCreateMode(null)}

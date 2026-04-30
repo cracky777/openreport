@@ -384,7 +384,7 @@ router.post('/:id/query', async (req, res) => {
   const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
   if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
 
-  const { dimensionNames, measureNames, limit, offset, filters, widgetFilters, distinct, measureAggOverrides } = req.body;
+  const { dimensionNames, measureNames, limit, offset, filters, widgetFilters, distinct, measureAggOverrides, sqlOnly } = req.body;
   // dimensionNames: ["orders.customer_name", "orders.status"]
   // measureNames: ["orders.total_amount_sum", "orders.count"]
 
@@ -715,6 +715,13 @@ router.post('/:id/query', async (req, res) => {
     if (offset) {
       sql += ` OFFSET ${offset}`;
     }
+  }
+
+  // sqlOnly mode — return the assembled SQL without executing. Useful for
+  // inspecting a slow / hanging query from the editor without waiting for
+  // the server to actually run it.
+  if (sqlOnly) {
+    return res.json({ sql, rows: [], rowCount: 0, sqlOnly: true });
   }
 
   let conn;
