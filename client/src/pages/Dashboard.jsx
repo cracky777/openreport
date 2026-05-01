@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown } from 'react-icons/tb';
+import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbPencil, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink } from 'react-icons/tb';
 import { useTheme } from '../hooks/useTheme';
 import { TopbarSwitcher, UserMenuExtras } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
@@ -432,14 +432,89 @@ export default function Dashboard() {
   };
 
   const moveReport = async (reportId, wsId) => {
-    if (wsId) {
-      await api.put(`/workspaces/${wsId}/reports/${reportId}`);
+    // "My Reports" → personal workspace id (everything must live in a real
+    // workspace post-migration). Falls back to the legacy null path on older
+    // installs that haven't been migrated yet.
+    const target = wsId || personalWorkspace?.id || null;
+    if (target) {
+      await api.put(`/workspaces/${target}/reports/${reportId}`);
     } else {
       await api.put(`/reports/${reportId}`, { workspace_id: null });
     }
-    // Refresh
     const res = await api.get('/reports');
     setReports(res.data.reports);
+  };
+
+  // 3-dots menu state (per-card) + the modals it opens.
+  const [cardMenu, setCardMenu] = useState(null);          // reportId of the open menu, or null
+  const [renameModal, setRenameModal] = useState(null);    // { report, value }
+  const [moveModal, setMoveModal] = useState(null);        // { report, targetWs }
+  const [historyModal, setHistoryModal] = useState(null);  // { report, versions, loading }
+  const cardMenuRef = useRef(null);
+
+  // Close the card menu on outside click / Escape
+  useEffect(() => {
+    if (!cardMenu) return;
+    const onClick = (e) => {
+      if (cardMenuRef.current && !cardMenuRef.current.contains(e.target)) setCardMenu(null);
+    };
+    const onEsc = (e) => { if (e.key === 'Escape') setCardMenu(null); };
+    document.addEventListener('mousedown', onClick);
+    document.addEventListener('keydown', onEsc);
+    return () => { document.removeEventListener('mousedown', onClick); document.removeEventListener('keydown', onEsc); };
+  }, [cardMenu]);
+
+  const duplicateReport = async (report) => {
+    setCardMenu(null);
+    await api.post(`/reports/${report.id}/duplicate`);
+    // Refresh both views. The "My Reports" tab derives from `reports`, but the
+    // workspace view fills `wsReports` from a separate /workspaces/:id fetch
+    // that only fires when selectedWs changes — so we re-pull it here too.
+    const reportsRes = await api.get('/reports');
+    setReports(reportsRes.data.reports);
+    if (selectedWs) {
+      const wsRes = await api.get(`/workspaces/${selectedWs}`);
+      setWsReports(wsRes.data.reports || []);
+    }
+  };
+
+  const submitRename = async () => {
+    if (!renameModal || !renameModal.value.trim()) return;
+    const id = renameModal.report.id;
+    const newTitle = renameModal.value.trim();
+    await api.put(`/reports/${id}`, { title: newTitle });
+    setReports((p) => p.map((r) => r.id === id ? { ...r, title: newTitle } : r));
+    setWsReports((p) => p.map((r) => r.id === id ? { ...r, title: newTitle } : r));
+    setRenameModal(null);
+  };
+
+  const submitMove = async () => {
+    if (!moveModal) return;
+    await moveReport(moveModal.report.id, moveModal.targetWs);
+    setMoveModal(null);
+  };
+
+  const openHistory = async (report) => {
+    setCardMenu(null);
+    setHistoryModal({ report, versions: [], loading: true });
+    try {
+      const res = await api.get(`/reports/${report.id}/history`);
+      setHistoryModal({ report, versions: res.data.versions || [], loading: false });
+    } catch (err) {
+      setHistoryModal({ report, versions: [], loading: false, error: err.response?.data?.error || err.message });
+    }
+  };
+
+  const restoreVersion = async (versionId) => {
+    if (!historyModal) return;
+    if (!confirm('Restore this version? The current state will be saved as a new history entry.')) return;
+    await api.post(`/reports/${historyModal.report.id}/history/${versionId}/restore`);
+    // Refresh the history list to reflect the new "current snapshot" version
+    const res = await api.get(`/reports/${historyModal.report.id}/history`);
+    setHistoryModal({ ...historyModal, versions: res.data.versions || [] });
+    // Refresh the report list so the title in the card reflects the restored state
+    const reportsRes = await api.get('/reports');
+    setReports(reportsRes.data.reports);
   };
 
   const wsName = selectedWs ? workspaces.find((w) => w.id === selectedWs)?.name || 'Workspace' : 'My Reports';
@@ -766,7 +841,7 @@ export default function Dashboard() {
           {/* Import-from-bundle modal */}
           {importBundle && (
             <div style={modalOverlay} onClick={cancelImport}>
-              <div style={{ ...modalCard, width: 460 }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ ...actionModalCard, width: 460 }} onClick={(e) => e.stopPropagation()}>
                 <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Import report</h3>
                 <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
                   Source: <strong>{importBundle.report?.title || 'Untitled'}</strong>
@@ -813,7 +888,7 @@ export default function Dashboard() {
           {/* Create report modal — wizard */}
           {showCreate && (
             <div style={modalOverlay}>
-              <div style={{ ...modalCard, width: 480 }}>
+              <div style={{ ...actionModalCard, width: 480 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>New Report{selectedWs ? ` in ${wsName}` : ''}</h3>
 
                 {/* Title — always visible. Persisted through the database-connection
@@ -977,14 +1052,60 @@ export default function Dashboard() {
                         {report.is_public ? <TbShare size={16} /> : <TbShareOff size={16} />}
                       </button>
                     )}
-                    {/* Move to workspace */}
-                    {canEdit && workspaces.length > 0 && (
-                      <select value={report.workspace_id || ''} onChange={(e) => moveReport(report.id, e.target.value || null)}
-                        title="Move to workspace"
-                        style={cardSelectStyle}>
-                        <option value="">My Reports</option>
-                        {workspaces.map((ws) => <option key={ws.id} value={ws.id}>{ws.name}</option>)}
-                      </select>
+                    {canEdit && (
+                      <div style={{ position: 'relative', marginLeft: 'auto' }}
+                        ref={cardMenu === report.id ? cardMenuRef : null}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setCardMenu(cardMenu === report.id ? null : report.id); }}
+                          title="More actions"
+                          {...cardActionBtn(cardMenu === report.id ? 'accent' : 'muted')}
+                        >
+                          <TbDotsVertical size={16} />
+                        </button>
+                        {cardMenu === report.id && (
+                          <div style={cardMenuPanel}>
+                            <button style={cardMenuItem}
+                              onClick={() => { setCardMenu(null); setRenameModal({ report, value: report.title }); }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                              <TbPencil size={14} /> Rename
+                            </button>
+                            <button style={cardMenuItem}
+                              onClick={() => duplicateReport(report)}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                              <TbCopy size={14} /> Duplicate
+                            </button>
+                            <button style={cardMenuItem}
+                              onClick={() => { setCardMenu(null); setMoveModal({ report, targetWs: report.workspace_id || '' }); }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                              <TbArrowsRightLeft size={14} /> Move to workspace
+                            </button>
+                            {report.is_public ? (
+                              <button style={cardMenuItem}
+                                onClick={() => {
+                                  setCardMenu(null);
+                                  const url = `${window.location.origin}/view/${report.id}`;
+                                  navigator.clipboard?.writeText(url);
+                                  alert(`Public link copied:\n${url}`);
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                                <TbLink size={14} /> Copy public link
+                              </button>
+                            ) : null}
+                            {user?.role === 'admin' && (
+                              <button style={cardMenuItem}
+                                onClick={() => openHistory(report)}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                                <TbHistory size={14} /> History
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -993,6 +1114,92 @@ export default function Dashboard() {
           )}
         </main>
       </div>
+
+      {/* Rename modal */}
+      {renameModal && (
+        <div style={actionModalBackdrop} onClick={() => setRenameModal(null)}>
+          <div style={actionModalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={actionModalTitle}>Rename report</div>
+            <input autoFocus value={renameModal.value}
+              onChange={(e) => setRenameModal({ ...renameModal, value: e.target.value })}
+              onKeyDown={(e) => { if (e.key === 'Enter') submitRename(); }}
+              style={actionModalInput} placeholder="Report title" />
+            <div style={actionModalActions}>
+              <button style={actionModalBtnSecondary} onClick={() => setRenameModal(null)}>Cancel</button>
+              <button style={actionModalBtnPrimary} onClick={submitRename} disabled={!renameModal.value.trim()}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Move modal */}
+      {moveModal && (
+        <div style={actionModalBackdrop} onClick={() => setMoveModal(null)}>
+          <div style={actionModalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={actionModalTitle}>Move "{moveModal.report.title}"</div>
+            <select value={moveModal.targetWs}
+              onChange={(e) => setMoveModal({ ...moveModal, targetWs: e.target.value })}
+              style={actionModalInput}>
+              {personalWorkspace && (
+                <option value={personalWorkspace.id}>My Reports</option>
+              )}
+              {workspaces.map((ws) => (
+                <option key={ws.id} value={ws.id}>{ws.name}</option>
+              ))}
+            </select>
+            <div style={actionModalActions}>
+              <button style={actionModalBtnSecondary} onClick={() => setMoveModal(null)}>Cancel</button>
+              <button style={actionModalBtnPrimary} onClick={submitMove}
+                disabled={!moveModal.targetWs || moveModal.targetWs === moveModal.report.workspace_id}>
+                Move
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* History modal — admin only. Lists snapshots; restoring one snapshots
+          the current state first so the rollback is itself reversible. */}
+      {historyModal && (
+        <div style={actionModalBackdrop} onClick={() => setHistoryModal(null)}>
+          <div style={{ ...actionModalCard, minWidth: 460, maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <div style={actionModalTitle}>History — {historyModal.report.title}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+              The 20 most recent saves. Restoring a version saves the current state as a new entry first.
+            </div>
+            {historyModal.loading ? (
+              <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-disabled)' }}>Loading...</div>
+            ) : historyModal.error ? (
+              <div style={{ padding: 12, color: 'var(--state-danger)', fontSize: 13 }}>{historyModal.error}</div>
+            ) : historyModal.versions.length === 0 ? (
+              <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-disabled)', fontSize: 13 }}>
+                No previous versions yet.
+              </div>
+            ) : (
+              <div style={{ maxHeight: 360, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 6 }}>
+                {historyModal.versions.map((v) => (
+                  <div key={v.id} style={historyRow}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {v.title}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        {new Date(v.saved_at).toLocaleString()} · {v.saved_by_name || v.saved_by_email || 'unknown'}
+                      </div>
+                    </div>
+                    <button style={historyRestoreBtn} onClick={() => restoreVersion(v.id)} title="Restore this version">
+                      <TbArrowBackUp size={14} /> Restore
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={actionModalActions}>
+              <button style={actionModalBtnSecondary} onClick={() => setHistoryModal(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1039,7 +1246,7 @@ function themeRowBtn(active) {
 const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer' };
 const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: 'var(--bg-panel)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer' };
 const iconBtn = { background: 'transparent', border: '1px solid', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
-const cardStyle = { position: 'relative', backgroundColor: 'var(--bg-panel)', borderRadius: 8, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.15s', overflow: 'hidden' };
+const cardStyle = { position: 'relative', backgroundColor: 'var(--bg-panel)', borderRadius: 8, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.15s' };
 const cardCloseBtn = {
   position: 'absolute', top: 6, right: 6, zIndex: 2,
   width: 22, height: 22, padding: 0,
@@ -1047,6 +1254,71 @@ const cardCloseBtn = {
   border: 'none', background: 'transparent', borderRadius: 4,
   color: 'var(--text-disabled)', cursor: 'pointer',
   transition: 'background 0.12s, color 0.12s',
+};
+
+// 3-dots dropdown shown next to the action row of each report card.
+const cardMenuPanel = {
+  position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 20,
+  minWidth: 200, padding: 4,
+  background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
+  borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+  display: 'flex', flexDirection: 'column',
+};
+const cardMenuItem = {
+  display: 'flex', alignItems: 'center', gap: 8,
+  padding: '8px 12px', fontSize: 13,
+  background: 'transparent', border: 'none', borderRadius: 4,
+  color: 'var(--text-secondary)', cursor: 'pointer', textAlign: 'left',
+  whiteSpace: 'nowrap', transition: 'background 0.12s',
+};
+
+// Lightweight modal styles for the report card actions (rename / move /
+// history). Prefixed `actionModal*` to avoid colliding with the older
+// `modalOverlay` / `modalCard` further down (used by the create-report wizard).
+const actionModalBackdrop = {
+  position: 'fixed', inset: 0, zIndex: 1000,
+  background: 'rgba(15,23,42,0.35)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+};
+const actionModalCard = {
+  background: 'var(--bg-panel)', borderRadius: 10, padding: 20,
+  minWidth: 360, maxWidth: 480,
+  boxShadow: '0 10px 30px rgba(15,23,42,0.25)',
+};
+const actionModalTitle = {
+  fontSize: 15, fontWeight: 600, color: 'var(--text-primary)',
+  marginBottom: 14,
+};
+const actionModalInput = {
+  width: '100%', padding: '8px 10px', fontSize: 13,
+  background: 'var(--bg-app)', border: '1px solid var(--border-default)',
+  borderRadius: 6, color: 'var(--text-primary)', outline: 'none',
+  marginBottom: 14, boxSizing: 'border-box',
+};
+const actionModalActions = {
+  display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4,
+};
+const actionModalBtnSecondary = {
+  padding: '6px 14px', fontSize: 13,
+  background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
+  borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer',
+};
+const actionModalBtnPrimary = {
+  padding: '6px 14px', fontSize: 13, fontWeight: 600,
+  background: 'var(--accent-primary)', border: 'none',
+  borderRadius: 8, color: '#fff', cursor: 'pointer',
+  boxShadow: '0 1px 3px rgba(124,58,237,0.2)',
+};
+const historyRow = {
+  display: 'flex', alignItems: 'center', gap: 10,
+  padding: '10px 12px', borderBottom: '1px solid var(--border-default)',
+};
+const historyRestoreBtn = {
+  display: 'inline-flex', alignItems: 'center', gap: 4,
+  padding: '5px 10px', fontSize: 12, fontWeight: 500,
+  background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
+  borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer',
+  flexShrink: 0,
 };
 
 // Workspace card buttons share the visual language of the editor toolbar / page header.
@@ -1078,13 +1350,6 @@ function cardActionBtn(variant) {
     },
   };
 }
-
-const cardSelectStyle = {
-  padding: '6px 10px', borderRadius: 8, fontSize: 11,
-  background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
-  color: 'var(--text-secondary)', cursor: 'pointer', maxWidth: 110,
-  transition: 'background 0.12s, border-color 0.12s',
-};
 
 function formatFileSize(bytes) {
   if (!bytes || bytes < 1024) return `${bytes || 0} B`;

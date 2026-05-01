@@ -7,6 +7,66 @@ import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
 
+const OTHERS_COLOR = '#94a3b8';
+
+// Top-N collapse for bar charts. Folds the long tail of categories into a
+// single neutral "Others" bar so high-cardinality drill-downs stay readable.
+// Operates on the data shape the rest of the component expects: returns a new
+// `{ labels, values, series }` triplet (values for single-series; series for
+// grouped/stacked). The Others bucket sums per series independently.
+function applyBarTopN(rawData, options) {
+  if (!rawData || !Array.isArray(rawData.labels)) return rawData;
+  const { enabled, n, label = 'Others' } = options;
+  if (!enabled) return rawData;
+  const limit = Math.max(1, Math.floor(Number(n) || 0));
+  if (!Number.isFinite(limit) || limit >= rawData.labels.length) return rawData;
+
+  const hasSeriesIn = Array.isArray(rawData.series) && rawData.series.length > 0;
+  // Per-label total to rank (sum across all series, or use values for single-series)
+  const totals = rawData.labels.map((_, i) => {
+    if (hasSeriesIn) {
+      let t = 0;
+      for (const s of rawData.series) t += Number(s.values?.[i]) || 0;
+      return t;
+    }
+    return Number(rawData.values?.[i]) || 0;
+  });
+  const indices = rawData.labels.map((_, i) => i);
+  indices.sort((a, b) => totals[b] - totals[a]);
+  const topIdx = indices.slice(0, limit);
+  const restIdx = indices.slice(limit);
+  if (restIdx.length === 0) return rawData;
+
+  // Keep top labels in their original order — the existing sortOrder logic
+  // downstream is allowed to reorder them as the user requested.
+  const topIdxOrdered = topIdx.slice().sort((a, b) => a - b);
+
+  const newLabels = [...topIdxOrdered.map((i) => rawData.labels[i]), label];
+  const othersIdx = newLabels.length - 1;
+
+  let newValues = rawData.values;
+  let newSeries = rawData.series;
+  if (hasSeriesIn) {
+    newSeries = rawData.series.map((s) => {
+      const kept = topIdxOrdered.map((i) => Number(s.values?.[i]) || 0);
+      const othersSum = restIdx.reduce((sum, i) => sum + (Number(s.values?.[i]) || 0), 0);
+      return { ...s, values: [...kept, othersSum] };
+    });
+  } else if (Array.isArray(rawData.values)) {
+    const kept = topIdxOrdered.map((i) => Number(rawData.values[i]) || 0);
+    const othersSum = restIdx.reduce((sum, i) => sum + (Number(rawData.values[i]) || 0), 0);
+    newValues = [...kept, othersSum];
+  }
+
+  return {
+    ...rawData,
+    labels: newLabels,
+    values: newValues,
+    series: newSeries,
+    _othersIdx: othersIdx,
+  };
+}
+
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
   '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#5ab1ef',
@@ -66,6 +126,9 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
   const showLegend = config?.showLegend ?? false;
   const legendPosition = config?.legendPosition || 'top';
   const sortOrder = config?.sortOrder || (subType === 'stacked' || subType === 'stacked100' ? 'desc' : 'none');
+  const topNEnabled = config?.topNEnabled === true;
+  const topN = config?.topN ?? 20;
+  const othersLabel = config?.othersLabel || 'Others';
   const w = chartWidth || 400;
   const h = chartHeight || 300;
 
@@ -80,6 +143,30 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
   // Memoize the ECharts option to avoid recalculating on every render
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
+
+    // Top-N pre-pass. Two paths:
+    //   1. Server-side — `data._othersTotal` is set: data.labels/values are
+    //      already the actual top N (sorted DESC by the SQL query). Append a
+    //      single Others bar for (total − Σ(top N)). Single-series only;
+    //      multi-series bars don't get this path because the total query
+    //      doesn't carry the series breakdown.
+    //   2. Legacy client-side — applyBarTopN folds the visible long tail,
+    //      operating on whatever the server happened to return (capped 1000).
+    let othersLabelIdx = -1;
+    const hasSeriesData = Array.isArray(data?.series) && data.series.length > 0;
+    if (topNEnabled && typeof data._othersTotal === 'number' && !hasSeriesData && Array.isArray(data.values)) {
+      const sumKept = data.values.reduce((s, v) => s + (Number(v) || 0), 0);
+      const othersValue = Math.max(0, data._othersTotal - sumKept);
+      if (othersValue > 0) {
+        const newLabels = [...data.labels, othersLabel];
+        const newValues = [...data.values, othersValue];
+        othersLabelIdx = data.labels.length; // index of the appended Others bar
+        data = { ...data, labels: newLabels, values: newValues, _othersIdx: othersLabelIdx };
+      }
+    } else {
+      data = applyBarTopN(data, { enabled: topNEnabled, n: topN, label: othersLabel });
+      othersLabelIdx = data._othersIdx ?? -1;
+    }
 
     const customColors = config?.legendColors || {};
     const getColor = (name) => customColors[name] || COLORS[getStableIdx(name) % COLORS.length];
@@ -156,6 +243,14 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
           const totalA = a.values.reduce((sum, v) => sum + (v || 0), 0);
           const totalB = b.values.reduce((sum, v) => sum + (v || 0), 0);
           return totalB - totalA;
+        });
+      } else if (sortOrder !== 'none') {
+        // Mirror the cluster-level sort inside each cluster: order the bars
+        // (series) by total in the same direction the user picked.
+        seriesData.sort((a, b) => {
+          const totalA = a.values.reduce((sum, v) => sum + (v || 0), 0);
+          const totalB = b.values.reduce((sum, v) => sum + (v || 0), 0);
+          return sortOrder === 'desc' ? totalB - totalA : totalA - totalB;
         });
       }
 
@@ -468,12 +563,13 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
     // Legend items for HTML legend
     const legendItems = (allSeriesForLegend || []).map((s, i) => ({ name: s.name, color: getColor(s.name, i) }));
 
-    return { option: opt, legendItems, rawLabels };
+    return { option: opt, legendItems, rawLabels, othersLabelIdx };
   }, [data, subType, showLabels, hideZeros, showLegend, legendPosition, sortOrder, hasData, config?.color,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors, config?.barDirection,
       config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
       config?.xAxisTitle, config?.yAxisTitle, config?.showXAxisTitle, config?.showYAxisTitle,
+      topNEnabled, topN, othersLabel,
       config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 
   const option = memoResult?.option;
@@ -492,6 +588,8 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
   dimNameRef.current = data?._dimName;
   const rawLabelsRef = useRef(memoResult?.rawLabels);
   rawLabelsRef.current = memoResult?.rawLabels;
+  const othersIdxRef = useRef(memoResult?.othersLabelIdx ?? -1);
+  othersIdxRef.current = memoResult?.othersLabelIdx ?? -1;
 
   useEffect(() => {
     const el = chartRef.current;
@@ -514,6 +612,11 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
         instanceRef.current.on('click', (params) => {
           // Resolve to raw (unformatted) label value for cross-filtering
           const rawLabels = rawLabelsRef.current;
+          // Skip the synthetic Others bar — it has no real dimension value.
+          const idx = params.dataIndex != null
+            ? params.dataIndex
+            : (Array.isArray(params.data) ? params.data[0] : -1);
+          if (idx === othersIdxRef.current && othersIdxRef.current >= 0) return;
           let rawValue;
           if (params.dataIndex != null && rawLabels) {
             rawValue = rawLabels[params.dataIndex];

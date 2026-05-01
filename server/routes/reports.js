@@ -209,6 +209,26 @@ router.post('/', requireAuth, (req, res) => {
   });
 });
 
+// Snapshot the current state of a report into report_versions, then prune to
+// the most recent 20. Called before a content-changing update so an admin can
+// roll back. Metadata-only saves (workspace_id, is_public) skip this.
+function snapshotReportVersion(reportId, savedBy) {
+  const r = db.prepare(
+    'SELECT title, layout, widgets, settings, model_id FROM reports WHERE id = ?'
+  ).get(reportId);
+  if (!r) return;
+  db.prepare(`
+    INSERT INTO report_versions (id, report_id, saved_by, title, layout, widgets, settings, model_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(uuidv4(), reportId, savedBy || null, r.title, r.layout, r.widgets, r.settings, r.model_id);
+  db.prepare(`
+    DELETE FROM report_versions
+    WHERE report_id = ? AND id NOT IN (
+      SELECT id FROM report_versions WHERE report_id = ? ORDER BY saved_at DESC LIMIT 20
+    )
+  `).run(reportId, reportId);
+}
+
 // Update report
 router.put('/:id', requireAuth, (req, res) => {
   const report = db.prepare('SELECT * FROM reports WHERE id = ? AND user_id = ?').get(
@@ -223,6 +243,14 @@ router.put('/:id', requireAuth, (req, res) => {
 
   // Merge pages into settings for storage
   const mergedSettings = { ...(settings || {}), ...(pages ? { pages } : {}) };
+
+  // Snapshot the BEFORE state for content changes only — skip metadata-only saves.
+  const isContentChange = title !== undefined
+    || layout !== undefined
+    || widgets !== undefined
+    || settings !== undefined
+    || pages !== undefined;
+  if (isContentChange) snapshotReportVersion(req.params.id, req.user.id);
 
   db.prepare(`
     UPDATE reports SET
@@ -244,6 +272,81 @@ router.put('/:id', requireAuth, (req, res) => {
     workspace_id !== undefined ? workspace_id : null,
     req.params.id
   );
+
+  const updated = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  const parsedSettings = JSON.parse(updated.settings);
+  res.json({
+    report: {
+      ...updated,
+      layout: JSON.parse(updated.layout),
+      widgets: JSON.parse(updated.widgets),
+      settings: parsedSettings,
+      pages: parsedSettings.pages || null,
+    },
+  });
+});
+
+// Duplicate report — creates a copy in the same workspace, owned by the caller.
+router.post('/:id/duplicate', requireAuth, (req, res) => {
+  const src = db.prepare('SELECT * FROM reports WHERE id = ? AND user_id = ?').get(
+    req.params.id, req.user.id
+  );
+  if (!src) return res.status(404).json({ error: 'Report not found' });
+
+  const newId = uuidv4();
+  const newTitle = `${src.title} (copy)`.slice(0, 200);
+  db.prepare(`
+    INSERT INTO reports (id, user_id, model_id, title, workspace_id, layout, widgets, settings)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(newId, req.user.id, src.model_id, newTitle, src.workspace_id, src.layout, src.widgets, src.settings);
+
+  const created = db.prepare('SELECT * FROM reports WHERE id = ?').get(newId);
+  res.status(201).json({
+    report: {
+      ...created,
+      layout: JSON.parse(created.layout),
+      widgets: JSON.parse(created.widgets),
+      settings: JSON.parse(created.settings),
+    },
+  });
+});
+
+// History (admin only) — list saved versions, newest first. Bodies excluded
+// from the list payload to keep it small; use /restore to materialize one.
+router.get('/:id/history', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+  const exists = db.prepare('SELECT 1 FROM reports WHERE id = ?').get(req.params.id);
+  if (!exists) return res.status(404).json({ error: 'Report not found' });
+  const rows = db.prepare(`
+    SELECT v.id, v.title, v.saved_at, v.saved_by, u.email AS saved_by_email, u.display_name AS saved_by_name
+    FROM report_versions v
+    LEFT JOIN users u ON u.id = v.saved_by
+    WHERE v.report_id = ?
+    ORDER BY v.saved_at DESC
+  `).all(req.params.id);
+  res.json({ versions: rows });
+});
+
+// Restore a version (admin only). Snapshots the current state first so the
+// rollback itself is recoverable, then overwrites the report with the version.
+router.post('/:id/history/:versionId/restore', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+  const report = db.prepare('SELECT id FROM reports WHERE id = ?').get(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Report not found' });
+  const version = db.prepare(
+    'SELECT * FROM report_versions WHERE id = ? AND report_id = ?'
+  ).get(req.params.versionId, req.params.id);
+  if (!version) return res.status(404).json({ error: 'Version not found' });
+
+  // Snapshot current state before overwriting so the restore is itself reversible.
+  snapshotReportVersion(req.params.id, req.user.id);
+
+  db.prepare(`
+    UPDATE reports SET
+      title = ?, layout = ?, widgets = ?, settings = ?,
+      updated_at = datetime('now')
+    WHERE id = ?
+  `).run(version.title, version.layout, version.widgets, version.settings, req.params.id);
 
   const updated = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
   const parsedSettings = JSON.parse(updated.settings);

@@ -4,6 +4,9 @@ import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import ChartLegend from './ChartLegend';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
+import { applyTopN } from '../../utils/topNGroup';
+
+const OTHERS_COLOR = '#94a3b8'; // slate-400 — neutral fill for the Others slice
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -41,6 +44,9 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
   const dataLabelBgColor = config?.dataLabelBgColor || '#ffffff';
   const dataLabelBgOpacity = config?.dataLabelBgOpacity ?? 0;
   const sortOrder = config?.sortOrder || 'none';
+  const topNEnabled = config?.topNEnabled === true;
+  const topN = config?.topN ?? 20;
+  const othersLabel = config?.othersLabel || 'Others';
   const w = chartWidth || 400;
   const h = chartHeight || 300;
 
@@ -86,6 +92,21 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
       visibleItems = [...visibleItems].sort((a, b) => a.value - b.value);
     }
 
+    // Top N + Others. Two paths:
+    //   1. Server-side Top N — `data._othersTotal` is set: items already are
+    //      the actual top N (sorted by value DESC by the SQL query); Others
+    //      is total − Σ(top N), computed by a parallel total query.
+    //   2. Legacy client-side fallback — applyTopN folds the visible long tail.
+    if (topNEnabled && typeof data._othersTotal === 'number') {
+      const sumKept = visibleItems.reduce((s, it) => s + (Number(it.value) || 0), 0);
+      const othersValue = Math.max(0, data._othersTotal - sumKept);
+      if (othersValue > 0) {
+        visibleItems = [...visibleItems, { name: othersLabel, value: othersValue, _isOthers: true }];
+      }
+    } else {
+      visibleItems = applyTopN(visibleItems, { enabled: topNEnabled, n: topN, label: othersLabel });
+    }
+
     const opt = {
       tooltip: {
         trigger: 'item',
@@ -99,11 +120,14 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
         center: ['50%', '50%'],
         data: visibleItems.map((it) => {
           const colorIdx = data.items.findIndex((orig) => orig.name === it.name);
+          const color = it._isOthers
+            ? OTHERS_COLOR
+            : (useGradient ? getValueColor(it.value) : getColor(it.name, colorIdx >= 0 ? colorIdx : 0));
           return {
             ...it,
             itemStyle: {
               ...it.itemStyle,
-              color: useGradient ? getValueColor(it.value) : getColor(it.name, colorIdx >= 0 ? colorIdx : 0),
+              color,
               opacity: highlightValue ? (it.name === highlightValue ? 1 : 0.3) : 1,
             },
           };
@@ -129,10 +153,16 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
       }],
     };
 
-    const legendItems = data.items.map((item, i) => ({ name: item.name, color: getColor(item.name, i) }));
+    // Mirror the slice list for the legend: same Top-N folding so the legend
+    // doesn't list categories that were rolled into Others.
+    const legendItems = visibleItems.map((it, i) => ({
+      name: it.name,
+      color: it._isOthers ? OTHERS_COLOR : getColor(it.name, i),
+    }));
     return { option: opt, legendItems };
   }, [data, hasData, showLegend, legendPosition, config?.donut, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, sortOrder, highlightValue, config?.legendColors, config?.dataLabelPosition,
+      topNEnabled, topN, othersLabel,
       config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 
   const option = memoResult?.option;
@@ -167,6 +197,9 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
       if (!instanceRef.current) {
         instanceRef.current = echarts.init(el, null, { width: cw, height: ch });
         instanceRef.current.on('click', (params) => {
+          // Skip the synthetic "Others" slice — it has no real dimension value
+          // so a drill or cross-filter on it would just produce an empty result.
+          if (params.data?._isOthers) return;
           if (params.name && onDataClickRef.current) {
             onDataClickRef.current(dimNameRef.current || 'dimension', params.name);
           }

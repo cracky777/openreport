@@ -5,7 +5,7 @@ import DropZone from '../DropZone/DropZone';
 import TablePropertySections from './TablePropertySections';
 import DimensionMultiSelect from './DimensionMultiSelect';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
-import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase } from 'react-icons/tb';
+import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase, TbArrowsSort, TbSortAscending, TbSortDescending } from 'react-icons/tb';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
 
 function getWidgetDisplayInfo(widget) {
@@ -564,22 +564,49 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       )}
 
       {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'combo' || widget.type === 'treemap') && (
-        <Section title="Sort">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <Field label="Sort">
+          <div style={{ display: 'flex', gap: 3, justifyContent: 'flex-end' }}>
             {[
-              { value: 'none', label: 'No sort' },
-              { value: 'desc', label: 'Descending' },
-              { value: 'asc', label: 'Ascending' },
-            ].map((opt) => (
-              <label key={opt.value} style={radioRow}>
-                <input type="radio" name="sortOrder"
-                  checked={(widget.config?.sortOrder || (widget.type === 'treemap' ? 'desc' : 'none')) === opt.value}
-                  onChange={() => updateConfig('sortOrder', opt.value)} />
-                {opt.label}
-              </label>
-            ))}
+              { value: 'none', icon: TbArrowsSort, title: 'No sort' },
+              { value: 'desc', icon: TbSortDescending, title: 'Descending' },
+              { value: 'asc',  icon: TbSortAscending,  title: 'Ascending'  },
+            ].map((opt) => {
+              const Icon = opt.icon;
+              const current = widget.config?.sortOrder || (widget.type === 'treemap' ? 'desc' : 'none');
+              const active = current === opt.value;
+              return (
+                <button key={opt.value} type="button" title={opt.title}
+                  onClick={() => updateConfig('sortOrder', opt.value)}
+                  style={sortBtn(active)}>
+                  <Icon size={14} />
+                </button>
+              );
+            })}
           </div>
-        </Section>
+        </Field>
+      )}
+
+      {/* Top N + Others — folds the long tail into a single "Others" bucket so
+          high-cardinality charts (e.g. drill-down to communes) stay readable. */}
+      {(widget.type === 'bar' || widget.type === 'pie' || widget.type === 'treemap') && (
+        <Field label="Top N + Others">
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end' }}>
+            <input type="checkbox"
+              checked={widget.config?.topNEnabled === true}
+              onChange={(e) => updateConfig('topNEnabled', e.target.checked)}
+              title="Group items beyond Top N into a single Others bucket" />
+            <input type="number" min={1} max={1000}
+              value={widget.config?.topN ?? 20}
+              disabled={widget.config?.topNEnabled !== true}
+              onChange={(e) => updateConfig('topN', Math.max(1, parseInt(e.target.value, 10) || 1))}
+              style={{
+                width: 60, padding: '4px 6px', fontSize: 12,
+                border: '1px solid var(--border-default)', borderRadius: 4,
+                background: 'var(--bg-panel)', color: 'var(--text-primary)',
+                opacity: widget.config?.topNEnabled === true ? 1 : 0.5,
+              }} />
+          </div>
+        </Field>
       )}
 
       {widget.type === 'filter' && (() => {
@@ -2076,6 +2103,18 @@ const headerStyle = {
 };
 
 const radioRow = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' };
+
+// Mirrors layerBtn (the layer-positioning row) so the sort group blends in:
+// individual bordered buttons, no wrapping pill. Active state swaps to the
+// accent color + soft tint to mark the current direction.
+const sortBtn = (active) => ({
+  background: active ? 'var(--accent-primary-soft)' : 'var(--bg-panel)',
+  border: `1px solid ${active ? 'var(--accent-primary-border)' : 'var(--border-default)'}`,
+  borderRadius: 6, padding: '5px 7px', cursor: 'pointer',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
+  transition: 'background 0.12s, border-color 0.12s, color 0.12s',
+});
 
 const layerBtn = {
   color: 'var(--text-secondary)', background: 'var(--bg-panel)', border: '1px solid var(--border-default)',

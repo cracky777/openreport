@@ -3,6 +3,9 @@ import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
+import { applyTopN } from '../../utils/topNGroup';
+
+const OTHERS_COLOR = '#94a3b8';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -24,6 +27,9 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
   const showBorder = config?.showItemBorder ?? true;
   const borderColor = config?.itemBorderColor || '#ffffff';
   const borderWidth = config?.itemBorderWidth ?? 1;
+  const topNEnabled = config?.topNEnabled === true;
+  const topN = config?.topN ?? 20;
+  const othersLabel = config?.othersLabel || 'Others';
 
   const allItemNames = useMemo(() => (data?.items || []).map((it) => it?.name).filter((n) => n != null), [data?.items]);
   const { getStableIdx } = useStableColorOrder(allItemNames.join('|'), allItemNames);
@@ -53,6 +59,19 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
     if (sortOrder === 'desc') items.sort((a, b) => b.value - a.value);
     else if (sortOrder === 'asc') items.sort((a, b) => a.value - b.value);
 
+    // Top N + Others — server-side path uses data._othersTotal (top N already
+    // sorted by value DESC server-side); legacy client-side path folds the
+    // visible long tail.
+    if (topNEnabled && typeof data._othersTotal === 'number') {
+      const sumKept = items.reduce((s, it) => s + (Number(it.value) || 0), 0);
+      const othersValue = Math.max(0, data._othersTotal - sumKept);
+      if (othersValue > 0) {
+        items = [...items, { name: othersLabel, value: othersValue, _isOthers: true }];
+      }
+    } else {
+      items = applyTopN(items, { enabled: topNEnabled, n: topN, label: othersLabel });
+    }
+
     const buildLabel = (params) => {
       const val = abbreviateNumber(params.value, dataLabelAbbr) ?? formatNumber(params.value, fmt);
       if (dataLabelContent === 'name') return params.name;
@@ -69,8 +88,11 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
     const treeData = items.map((it, i) => ({
       name: it.name,
       value: it.value,
+      _isOthers: it._isOthers,
       itemStyle: {
-        color: useGradient ? getValueColor(it.value) : getColor(it.name, i),
+        color: it._isOthers
+          ? OTHERS_COLOR
+          : (useGradient ? getValueColor(it.value) : getColor(it.name, i)),
         borderColor: showBorder ? borderColor : 'transparent',
         borderWidth: showBorder ? borderWidth : 0,
         opacity: highlightValue && it.name !== highlightValue ? 0.3 : 1,
@@ -116,6 +138,7 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
 
     return { option: opt };
   }, [data, hasData, sortOrder, showDataLabels, dataLabelContent, dataLabelAbbr, dataLabelColor, dataLabelSize, showBorder, borderColor, borderWidth, highlightValue, config?.legendColors,
+      topNEnabled, topN, othersLabel,
       config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 
   const option = memoResult?.option;
@@ -143,6 +166,8 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
       if (!instanceRef.current) {
         instanceRef.current = echarts.init(el, null, { width: cw, height: ch });
         instanceRef.current.on('click', (params) => {
+          // Skip the synthetic Others leaf — it has no real dimension value.
+          if (params.data?._isOthers) return;
           if (params.data?.name && onDataClickRef.current) {
             onDataClickRef.current(dimNameRef.current || 'dimension', String(params.data.name));
           }

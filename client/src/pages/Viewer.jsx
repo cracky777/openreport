@@ -134,6 +134,10 @@ export default function Viewer() {
     const path = Array.isArray(w?.drillPath) ? w.drillPath : [];
     return path.length >= Math.max(0, dims.length - 1);
   }, []);
+  // Drill-scoped refetch (mirrors Editor): only the drilling widget refires
+  // on intermediate drill steps. Cross-filter at leaf level still updates
+  // reportFilters and propagates to other visuals as before.
+  const drillingWidgetIdRef = useRef(null);
   const applyDrillMutation = useCallback((widgetId, mutate) => {
     setWidgets((prev) => {
       const w = prev?.[widgetId];
@@ -151,6 +155,7 @@ export default function Viewer() {
         return n;
       });
     }
+    drillingWidgetIdRef.current = widgetId;
     setRefreshCounter((n) => n + 1);
   }, [slicerSelections]);
   const handleDrillDown = useCallback((widgetId, dim, value) => {
@@ -247,6 +252,11 @@ export default function Viewer() {
     if (!model) { setRefreshing(false); return; }
 
     crossFilterSourceRef.current = null;
+    // Drill scope: an intermediate drill click only refetches its widget;
+    // siblings stay on their previous data. (Cross-filter at leaf is handled
+    // separately via reportFilters.)
+    const drillingId = drillingWidgetIdRef.current;
+    drillingWidgetIdRef.current = null;
 
     // Use current page widgets — prefer the live `widgets` state (contains fresh drill mutations)
     const currentWidgets = widgets && Object.keys(widgets).length > 0 ? widgets : (pages[currentPageIdx]?.widgets || {});
@@ -256,6 +266,7 @@ export default function Viewer() {
     // (previously they reused the owner's saved values, which leaked unauthorized rows).
     const toFetch = Object.entries(currentWidgets).filter(([wId, w]) => {
       if (!w) return false;
+      if (drillingId && wId !== drillingId) return false;
       if (!refreshRequested && wId === sourceId) return false;
       const b = w.dataBinding || {};
       const hasMeas = w.type === 'scatter' ? !!(b.scatterMeasures?.x && b.scatterMeasures?.y)
@@ -331,11 +342,26 @@ export default function Viewer() {
       const widgetFilters = [...reportLevelFilters, ...widgetOwnFilters];
       const colorMeasure = (w.config?.colorCondition?.enabled === true) ? w.dataBinding?.colorMeasure : undefined;
       const hasMainBinding = (allDims.length > 0 || meass.length > 0);
+
+      // Server-side Top N (mirrors Editor.jsx). Single-dim bar/pie/treemap
+      // with measures only — multi-dim queries are out of scope.
+      const TOP_N_TYPES_V = ['bar', 'pie', 'treemap'];
+      const topNApplies = TOP_N_TYPES_V.includes(w.type)
+        && w.config?.topNEnabled === true
+        && meass.length > 0
+        && allDims.length === 1
+        && !isFilterWidget;
+      const topNValue = topNApplies ? Math.max(1, Math.floor(w.config?.topN ?? 20)) : 0;
+      const topNMeasure = topNApplies ? meass[0] : null;
+      const widgetFiltersWithTopN = topNApplies
+        ? [...widgetFilters, { field: topNMeasure, op: 'top_n', value: topNValue, isMeasure: true }]
+        : widgetFilters;
+
       const mainPromise = hasMainBinding
         ? api.post(`/models/${model.id}/query`, {
             dimensionNames: allDims, measureNames: meass,
             limit: queryLimit, filters: queryFilters,
-            widgetFilters: sanitizeWidgetFilters(widgetFilters),
+            widgetFilters: sanitizeWidgetFilters(widgetFiltersWithTopN),
             distinct: isFilterWidget || undefined,
           })
         : Promise.resolve({ data: { rows: [] } });
@@ -346,7 +372,14 @@ export default function Viewer() {
             widgetFilters: sanitizeWidgetFilters(widgetFilters),
           }).catch(() => null)
         : Promise.resolve(null);
-      Promise.all([mainPromise, colorPromise]).then(([res, colorRes]) => {
+      const totalPromise = topNApplies
+        ? api.post(`/models/${model.id}/query`, {
+            dimensionNames: [], measureNames: [topNMeasure], limit: 1,
+            filters: queryFilters,
+            widgetFilters: sanitizeWidgetFilters(widgetFilters),
+          }).catch(() => null)
+        : Promise.resolve(null);
+      Promise.all([mainPromise, colorPromise, totalPromise]).then(([res, colorRes, totalRes]) => {
         let _colorValue;
         if (colorRes) {
           const cRow = colorRes.data?.rows?.[0];
@@ -362,6 +395,17 @@ export default function Viewer() {
           const emptyData = isFilterWidget
             ? { values: [], label: dims[0] || '', _rowCount: 0, _colorValue }
             : { _rowCount: 0, _colorValue };
+          // Preserve drill metadata so the up/reset arrows still appear when
+          // a drill happens to land on an empty result.
+          if (isDrillable) {
+            emptyData._hierarchy = fullHierarchy.map((dn) => {
+              const def = (model.dimensions || []).find((x) => x.name === dn);
+              return { name: dn, label: def?.label || def?.name || dn };
+            });
+            emptyData._drillPath = drillPath;
+            emptyData._drillDepth = drillPath.length;
+            emptyData._isDrillLeaf = drillPath.length >= fullHierarchy.length - 1;
+          }
           setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data: emptyData } }));
           return;
         }
@@ -495,6 +539,16 @@ export default function Viewer() {
           newData._isDrillLeaf = drillPath.length >= fullHierarchy.length - 1;
         }
         newData._colorValue = _colorValue;
+        // Server-side Top N — extract grand total so the widget can derive
+        // Others = total − Σ(top N).
+        if (topNApplies && totalRes) {
+          const tRow = totalRes.data?.rows?.[0];
+          if (tRow) {
+            const v = Object.values(tRow)[0];
+            const num = typeof v === 'number' ? v : parseFloat(v);
+            if (!isNaN(num)) newData._othersTotal = num;
+          }
+        }
         setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data: newData } }));
       }).catch((err) => {
         const msg = err?.response?.data?.error || err?.message || 'Query failed';

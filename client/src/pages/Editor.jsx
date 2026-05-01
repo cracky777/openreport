@@ -13,6 +13,7 @@ import { useTheme } from '../hooks/useTheme';
 import api from '../utils/api';
 import { sanitizeWidgetFilters } from '../utils/widgetFilters';
 import { parseFiltersFromUrl, syncFiltersToUrl } from '../utils/urlFilters';
+import { computeBindingKey } from '../utils/bindingKey';
 import { filterForTarget } from '../utils/crossFilter';
 
 // Convert data between widget formats
@@ -249,6 +250,10 @@ export default function Editor() {
     const path = Array.isArray(w?.drillPath) ? w.drillPath : [];
     return path.length >= Math.max(0, dims.length - 1);
   }, []);
+  // Marks a refetch as drill-scoped: the next fetch effect run reads this and
+  // narrows toFetch to the drilling widget only, so other visuals stay put.
+  // (Cross-filter at leaf level still propagates via reportFilters as before.)
+  const drillingWidgetIdRef = useRef(null);
   const applyDrillMutation = useCallback((widgetId, mutate) => {
     history.setSilent((prev) => {
       const w = prev.widgets?.[widgetId];
@@ -270,6 +275,7 @@ export default function Editor() {
         return n;
       });
     }
+    drillingWidgetIdRef.current = widgetId;
     setRefreshCounter((n) => n + 1);
   }, [history, slicerSelections]);
   const handleDrillDown = useCallback((widgetId, dim, value) => {
@@ -384,9 +390,17 @@ export default function Editor() {
 
     crossFilterSourceRef.current = null;
     const currentWidgets = history.state.widgets;
+    // Drill-scoped refetch: when a refresh was triggered by a drill click on
+    // a non-leaf level, only the drilling widget needs to refire — other
+    // visuals shouldn't react to an intermediate drill step. Consume the ref
+    // here so it doesn't leak into subsequent unrelated refreshes.
+    const drillingId = drillingWidgetIdRef.current;
+    drillingWidgetIdRef.current = null;
 
     const toFetch = Object.entries(currentWidgets).filter(([wId, w]) => {
       if (!w) return false;
+      // Drill scope wins over everything: only the drilling widget refetches.
+      if (drillingId && wId !== drillingId) return false;
       // On explicit refresh, refetch ALL (including cross-filter source)
       if (!refreshRequested && wId === sourceId) return false;
       const b = w.dataBinding || {};
@@ -467,8 +481,32 @@ export default function Editor() {
         // Combine report-level filters (from Settings) with the widget's own filters.
         const reportLevelFilters = Array.isArray(settings?.reportFilters) ? settings.reportFilters : [];
         const widgetOwnFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
-        const widgetFilters = [...reportLevelFilters, ...widgetOwnFilters];
+        let widgetFilters = [...reportLevelFilters, ...widgetOwnFilters];
         const hasMainBinding = (allDims.length > 0 || meass.length > 0);
+
+        // Server-side Top N — push the limit into the SQL via a synthetic
+        // top_n widget filter when enabled on bar/pie/treemap with measures.
+        // Without this, the legacy 1000-row + alphabetical default ORDER BY
+        // means a high-cardinality drill-down (commune-level) returns the
+        // first 1000 names alphabetically rather than the actual top values.
+        const TOP_N_TYPES = ['bar', 'pie', 'treemap'];
+        // Restricted to a single displayed dimension. Multi-dim queries
+        // (groupBy / columnDimensions) include extra GROUP BY columns, so a
+        // top_n on a measure would pick the top (axis × group) pairs, not the
+        // top axis values — meaningless for a bar/pie cluster.
+        const topNApplies = TOP_N_TYPES.includes(w.type)
+          && w.config?.topNEnabled === true
+          && meass.length > 0
+          && allDims.length === 1;
+        const topNValue = topNApplies ? Math.max(1, Math.floor(w.config?.topN ?? 20)) : 0;
+        const topNMeasure = topNApplies ? meass[0] : null;
+        if (topNApplies) {
+          widgetFilters = [
+            ...widgetFilters,
+            { field: topNMeasure, op: 'top_n', value: topNValue, isMeasure: true },
+          ];
+        }
+
         const mainQueryBody = {
           dimensionNames: allDims, measureNames: [...new Set(meass)],
           limit: w.config?.dataLimit || 1000, filters: mergedFilters,
@@ -477,6 +515,21 @@ export default function Editor() {
         const mainPromise = hasMainBinding
           ? api.post(`/models/${model.id}/query`, mainQueryBody, { signal: controller.signal })
           : Promise.resolve({ data: { rows: [] } });
+
+        // Total query for the Others bucket — runs only when Top N is active.
+        // Sums the same measure WITHOUT the dimension grouping so we can
+        // compute Others = total - Σ(top N) accurately.
+        const totalPromise = topNApplies
+          ? api.post(`/models/${model.id}/query`, {
+              dimensionNames: [],
+              measureNames: [topNMeasure],
+              limit: 1,
+              filters: mergedFilters,
+              // The top_n synthetic filter is dropped here — we want the
+              // grand total, not the truncated one.
+              widgetFilters: sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]),
+            }, { signal: controller.signal }).catch(() => null)
+          : Promise.resolve(null);
         // Fire a sqlOnly request in parallel — the server returns the assembled
         // SQL without executing it, so the SQL viewer modal can show the
         // query even while a slow main query is still running. Best-effort.
@@ -499,11 +552,13 @@ export default function Editor() {
         const colorPromise = colorMeasure
           ? api.post(`/models/${model.id}/query`, {
               dimensionNames: [], measureNames: [colorMeasure], limit: 1, filters: mergedFilters,
-              widgetFilters: sanitizeWidgetFilters(widgetFilters),
+              // Drop the synthetic top_n filter for the color aggregate — it
+              // doesn't apply when there's no GROUP BY.
+              widgetFilters: sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]),
             }, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
 
-        return Promise.all([mainPromise, colorPromise]).then(([res, colorRes]) => {
+        return Promise.all([mainPromise, colorPromise, totalPromise]).then(([res, colorRes, totalRes]) => {
           // Conditional formatting — extract a single aggregated value from the color query
           let _colorValue;
           if (colorRes) {
@@ -517,7 +572,23 @@ export default function Editor() {
 
           const rows = res.data?.rows;
           const sql = res.data?.sql || null;
-          if (!rows || rows.length === 0) return { wId, data: { _rowCount: 0, _colorValue, _sql: sql } };
+          if (!rows || rows.length === 0) {
+            // Even on empty results, we keep the drill metadata around so the
+            // canvas still shows the up/reset arrows — otherwise the user gets
+            // stranded at a drilled level they can't navigate back from.
+            const emptyData = { _rowCount: 0, _colorValue, _sql: sql };
+            if (isDrillable) {
+              emptyData._hierarchy = fullHierarchy.map((dn) => {
+                const def = (model.dimensions || []).find((x) => x.name === dn);
+                return { name: dn, label: def?.label || def?.name || dn };
+              });
+              emptyData._drillPath = drillPath;
+              emptyData._drillDepth = drillPath.length;
+              emptyData._isDrillLeaf = drillPath.length >= fullHierarchy.length - 1;
+            }
+            emptyData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters });
+            return { wId, data: emptyData };
+          }
           let newData = {};
           const keys = Object.keys(rows[0]);
           if (w.type === 'pivotTable') {
@@ -662,6 +733,19 @@ export default function Editor() {
           }
           newData._colorValue = _colorValue;
           newData._sql = sql;
+          // Server-side Top N: extract the grand total so the widget can
+          // derive Others = total − Σ(top N) without further client work.
+          if (topNApplies && totalRes) {
+            const tRow = totalRes.data?.rows?.[0];
+            if (tRow) {
+              const v = Object.values(tRow)[0];
+              const num = typeof v === 'number' ? v : parseFloat(v);
+              if (!isNaN(num)) newData._othersTotal = num;
+            }
+          }
+          // Stamp the binding cache key so DataPanel doesn't refetch on the
+          // next widget selection — the data is already fresh for this binding.
+          newData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters });
           return { wId, data: newData };
         }).catch((err) => {
           if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return { wId, data: null };

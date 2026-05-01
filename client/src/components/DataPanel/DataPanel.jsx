@@ -3,6 +3,7 @@ import { TbPencil } from 'react-icons/tb';
 import api from '../../utils/api';
 import SqlExpressionInput from '../SqlExpressionInput/SqlExpressionInput';
 import { sanitizeWidgetFilters } from '../../utils/widgetFilters';
+import { computeBindingKey } from '../../utils/bindingKey';
 
 export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, model, onModelUpdate, reportFilters }) {
   const [status, setStatus] = useState(null);
@@ -56,28 +57,18 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         ? [...new Set([...(binding.selectedMeasures || []), gaugeThresholdMeasure, gaugeMaxMeasure].filter(Boolean))]
         : (binding.selectedMeasures || []);
 
-  // Key based on binding + model version + filters (slicers don't include filters)
-  const modelVersion = (model?.measures?.length || 0) + ':' + (model?.dimensions?.length || 0);
+  // Variables still needed downstream by the fetcher / status / etc.
   const isFilterWidget = widget?.type === 'filter';
-  const filtersKey = !isFilterWidget && reportFilters ? JSON.stringify(reportFilters) : '';
-  const scatterKey = isScatter ? `${scatterMeas.x || ''}:${scatterMeas.y || ''}:${scatterMeas.size || ''}` : '';
-  const comboKey = isCombo ? `bar:${comboBarMeas.join(',')}|line:${comboLineMeas.join(',')}` : '';
-  const gaugeKey = widget?.type === 'gauge' ? `threshold:${gaugeThresholdMeasure || ''}|max:${gaugeMaxMeasure || ''}` : '';
-  const aggOverrides = binding.measureAggOverrides || {};
-  const aggKey = Object.keys(aggOverrides).length > 0 ? JSON.stringify(aggOverrides) : '';
-  // Include widget.type in the key so converting between widget types (e.g. pivot
-  // → table) triggers a re-fetch with the new shape.
-  const typeKey = widget?.type || '';
-  // Conditional formatting — colour-by-measure binding contributes to the key so the
-  // fetcher re-runs when the measure or the enabled flag changes.
   const colorEnabled = widget?.config?.colorCondition?.enabled === true;
   const colorMeasure = colorEnabled ? (binding.colorMeasure || '') : '';
-  const colorKey = `cm:${colorMeasure}`;
-  // Per-widget filters — refetch when any filter rule changes
   const widgetFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
-  const widgetFiltersKey = widgetFilters.length > 0 ? `wf:${JSON.stringify(widgetFilters)}` : '';
-  const bindingKey = hasWidget ? `${selectedDims.join(',')}:${selectedMeass.join(',')}:${groupBy.join(',')}:${columnDims.join(',')}:${scatterKey}:${comboKey}:${gaugeKey}:${aggKey}:${colorKey}:${widgetFiltersKey}:${modelVersion}:${filtersKey}:${typeKey}` : '';
-  // Full key including widgetId to detect widget switch
+  const aggOverrides = binding.measureAggOverrides || {};
+
+  // Cache key — shared with Editor.jsx via computeBindingKey so both fetchers
+  // agree on what counts as the "same" binding. After Editor's refetch (drill,
+  // filter change, refresh), it stamps `data._fetchedBinding` with this same
+  // value so re-selecting the widget doesn't trigger an unnecessary refetch.
+  const bindingKey = hasWidget ? computeBindingKey({ widget, model, reportFilters }) : '';
   const selectionKey = hasWidget ? `${widgetId}:${bindingKey}` : '';
 
   // Drag start handler
@@ -163,6 +154,19 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
 
         const mergedFiltersLocal = isFilterWidget ? {} : { ...(reportFilters || {}), ...drillFiltersLocal };
 
+        // Server-side Top N (mirrors Editor.jsx). Restricted to a single
+        // displayed dimension on bar/pie/treemap with at least one measure.
+        const TOP_N_TYPES_LOCAL = ['bar', 'pie', 'treemap'];
+        const topNApplies = TOP_N_TYPES_LOCAL.includes(capturedWidget.type)
+          && capturedWidget.config?.topNEnabled === true
+          && uniqueMeass.length > 0
+          && allDims.length === 1;
+        const topNValue = topNApplies ? Math.max(1, Math.floor(capturedWidget.config?.topN ?? 20)) : 0;
+        const topNMeasure = topNApplies ? uniqueMeass[0] : null;
+        const widgetFiltersWithTopN = topNApplies
+          ? [...widgetFilters, { field: topNMeasure, op: 'top_n', value: topNValue, isMeasure: true }]
+          : widgetFilters;
+
         // Main query (skipped when only colour-by-measure is bound, e.g. for shape/text widgets)
         const mainPromise = hasMainBinding
           ? api.post(`/models/${model.id}/query`, {
@@ -171,7 +175,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               measureAggOverrides: Object.keys(aggOverrides).length > 0 ? aggOverrides : undefined,
               limit: isFilterWidget ? 1000000 : (capturedWidget.config?.dataLimit || 1000),
               filters: mergedFiltersLocal,
-              widgetFilters: sanitizeWidgetFilters(widgetFilters),
+              widgetFilters: sanitizeWidgetFilters(widgetFiltersWithTopN),
               distinct: isFilterWidget || undefined,
             }, { signal: abortController.signal })
           : Promise.resolve({ data: { rows: [] } });
@@ -187,7 +191,18 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
             }, { signal: abortController.signal }).catch(() => null)
           : Promise.resolve(null);
 
-        const [res, colorRes] = await Promise.all([mainPromise, colorPromise]);
+        // Total query for the Others bucket — runs only when Top N is active.
+        const totalPromise = topNApplies
+          ? api.post(`/models/${model.id}/query`, {
+              dimensionNames: [],
+              measureNames: [topNMeasure],
+              limit: 1,
+              filters: mergedFiltersLocal,
+              widgetFilters: sanitizeWidgetFilters(widgetFilters),
+            }, { signal: abortController.signal }).catch(() => null)
+          : Promise.resolve(null);
+
+        const [res, colorRes, totalRes] = await Promise.all([mainPromise, colorPromise, totalPromise]);
         let _colorValue;
         if (colorRes) {
           const cRow = colorRes.data?.rows?.[0];
@@ -476,6 +491,16 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         newData._rowCount = rows.length;
         newData._colorValue = _colorValue;
         newData._sql = res.data?.sql || null;
+        // Server-side Top N — extract grand total so the widget can derive
+        // Others = total − Σ(top N).
+        if (topNApplies && totalRes) {
+          const tRow = totalRes.data?.rows?.[0];
+          if (tRow) {
+            const v = Object.values(tRow)[0];
+            const num = typeof v === 'number' ? v : parseFloat(v);
+            if (!isNaN(num)) newData._othersTotal = num;
+          }
+        }
         // Expose drill metadata so canvas can render the up/reset buttons
         if (isDrillableLocal) {
           newData._hierarchy = fullHierarchyLocal.map((dn) => {

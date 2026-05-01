@@ -29,6 +29,23 @@ try { db.exec("ALTER TABLE models ADD COLUMN rls TEXT NOT NULL DEFAULT '{}'"); }
 try { db.exec("ALTER TABLE workspaces ADD COLUMN is_personal INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_workspaces_personal_owner ON workspaces (owner_id) WHERE is_personal = 1"); } catch { /* ignore */ }
 
+// Report version history — snapshots taken on every meaningful save so an
+// admin can roll back. Capped at 20 versions per report (FIFO pruning in
+// the route handler that takes the snapshot).
+db.exec(`CREATE TABLE IF NOT EXISTS report_versions (
+  id TEXT PRIMARY KEY,
+  report_id TEXT NOT NULL,
+  saved_by TEXT,
+  title TEXT NOT NULL,
+  layout TEXT NOT NULL,
+  widgets TEXT NOT NULL,
+  settings TEXT NOT NULL,
+  model_id TEXT,
+  saved_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_report_versions_report ON report_versions (report_id, saved_at DESC)");
+
 // Custom visuals — workspace-scoped plugin registry. Uploaded as .zip by ws_admin,
 // rendered in a sandboxed iframe at runtime.
 db.exec(`CREATE TABLE IF NOT EXISTS custom_visuals (
