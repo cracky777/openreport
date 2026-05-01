@@ -86,7 +86,12 @@ if (process.env.OPENREPORT_CLOUD === '1') {
 // every newly-registered user get a Personal workspace via the post-register
 // hook. Without this, custom visuals — which require a workspace_id — would
 // not be available outside of shared workspaces.
-{
+//
+// Skipped in cloud mode: the cloud edition runs its own per-(user, org)
+// backfill in cloud.register() and its own post-register hook. Running the
+// OSS variant on top would create orphan workspaces with organization_id=NULL
+// for every user (invisible to cloud routes, but noisy in the DB).
+if (process.env.OPENREPORT_CLOUD !== '1') {
   const authHooks = require('./hooks/auth');
   const { ensurePersonalWorkspace, backfillPersonalWorkspaces } = require('./utils/personalWorkspace');
   backfillPersonalWorkspaces();
