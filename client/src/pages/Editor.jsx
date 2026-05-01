@@ -1238,8 +1238,6 @@ export default function Editor() {
         canEditInteractions={!!selectedWidget}
         onSave={handleSave}
         saving={saving}
-        modelName={model?.name}
-        modelId={model?.id}
         onUndo={history.undo}
         onRedo={history.redo}
         canUndo={history.canUndo}

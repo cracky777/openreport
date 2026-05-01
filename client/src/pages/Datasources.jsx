@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
-import { TbUpload } from 'react-icons/tb';
+import { TbUpload, TbStack3, TbDatabase } from 'react-icons/tb';
 import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
 import { DatasourcesHeader } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
@@ -120,8 +120,14 @@ export default function Datasources() {
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-app)' }}>
       <header style={headerShellStyle}>
         <BackButton to="/" />
-        <h1 style={headerTitleStyle}>Data Sources</h1>
+        <h1 style={{ ...headerTitleStyle, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <TbDatabase size={20} color="var(--accent-primary)" />
+          Data Sources
+        </h1>
         <div style={{ flex: 1 }} />
+        <SecondaryButton onClick={() => navigate('/models')} title="Go to Data Models">
+          <TbStack3 size={16} />Data Models
+        </SecondaryButton>
         <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv"
           style={{ display: 'none' }} onChange={handleFileUpload} />
         <SecondaryButton onClick={() => fileInputRef.current?.click()} disabled={uploading}

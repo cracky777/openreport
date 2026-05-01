@@ -82,6 +82,19 @@ if (process.env.OPENREPORT_CLOUD === '1') {
   }
 }
 
+// Personal-workspace bootstrap. Backfill once at boot (idempotent), and have
+// every newly-registered user get a Personal workspace via the post-register
+// hook. Without this, custom visuals — which require a workspace_id — would
+// not be available outside of shared workspaces.
+{
+  const authHooks = require('./hooks/auth');
+  const { ensurePersonalWorkspace, backfillPersonalWorkspaces } = require('./utils/personalWorkspace');
+  backfillPersonalWorkspaces();
+  authHooks.registerPostRegister(({ user }) => {
+    ensurePersonalWorkspace(user.id);
+  });
+}
+
 // Routes — only reached for paths the cloud module didn't shadow
 app.use('/api/auth', authRoutes);
 app.use('/api/reports', reportRoutes);

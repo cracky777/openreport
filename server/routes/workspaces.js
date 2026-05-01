@@ -15,7 +15,9 @@ function getWorkspaceAccess(workspaceId, userId) {
   return { workspace: ws, role: member.role };
 }
 
-// List workspaces the user has access to
+// List workspaces the user has access to. Personal workspaces are returned
+// separately so the client can hide them from the regular switcher and use the
+// id internally for the "My Reports" view.
 router.get('/', requireAuth, (req, res) => {
   const owned = db.prepare(`
     SELECT w.*, 'admin' as member_role,
@@ -33,10 +35,16 @@ router.get('/', requireAuth, (req, res) => {
     WHERE wm.user_id = ?
   `).all(req.user.id);
 
-  // Also get reports without workspace ("My Reports")
-  const unassignedCount = db.prepare('SELECT COUNT(*) as c FROM reports WHERE user_id = ? AND workspace_id IS NULL').get(req.user.id);
+  const all = [...owned, ...shared];
+  const personal = all.find((w) => w.is_personal === 1) || null;
+  const visible = all.filter((w) => w.is_personal !== 1);
+  const personalReportCount = personal ? personal.report_count : 0;
 
-  res.json({ workspaces: [...owned, ...shared], unassignedReportCount: unassignedCount.c });
+  res.json({
+    workspaces: visible,
+    personalWorkspace: personal,
+    unassignedReportCount: personalReportCount,
+  });
 });
 
 // Create workspace
@@ -105,12 +113,23 @@ router.put('/:id', requireAuth, (req, res) => {
   res.json({ message: 'Updated' });
 });
 
-// Delete workspace
+// Delete workspace. Personal workspaces are not deletable — they're the
+// implicit home for reports without an explicit workspace and removing one
+// would orphan the user's reports + custom visuals.
 router.delete('/:id', requireAuth, (req, res) => {
   const access = getWorkspaceAccess(req.params.id, req.user.id);
   if (!access || access.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
-  // Unassign reports (don't delete them)
-  db.prepare('UPDATE reports SET workspace_id = NULL WHERE workspace_id = ?').run(req.params.id);
+  if (access.workspace.is_personal) {
+    return res.status(400).json({ error: 'The personal workspace cannot be deleted' });
+  }
+  // Unassign reports (don't delete them) — rehome them into the owner's personal workspace
+  // so they keep a workspace_id (custom visuals etc. require one).
+  const { ensurePersonalWorkspace } = require('../utils/personalWorkspace');
+  const reports = db.prepare('SELECT id, user_id FROM reports WHERE workspace_id = ?').all(req.params.id);
+  for (const r of reports) {
+    const personalWs = ensurePersonalWorkspace(r.user_id);
+    db.prepare('UPDATE reports SET workspace_id = ? WHERE id = ?').run(personalWs, r.id);
+  }
   db.prepare('DELETE FROM workspaces WHERE id = ?').run(req.params.id);
   res.json({ message: 'Deleted' });
 });

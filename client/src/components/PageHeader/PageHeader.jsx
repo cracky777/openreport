@@ -13,34 +13,43 @@ export const headerTitleStyle = {
   fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0,
 };
 
+const backGroupStyle = {
+  display: 'inline-flex', alignItems: 'center', gap: 2,
+  padding: '3px 6px', background: 'var(--bg-subtle)',
+  border: '1px solid var(--border-default)', borderRadius: 10,
+};
+
 const backBtnBase = {
-  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-  background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8,
-  color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13, fontWeight: 500,
-  transition: 'background 0.12s, border-color 0.12s, color 0.12s',
+  padding: '6px 8px', border: 'none', borderRadius: 6, background: 'transparent',
+  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  transition: 'background 0.15s, box-shadow 0.15s, transform 0.15s',
+  lineHeight: 1,
 };
 
 export function BackButton({ to = '/', onClick, label = 'Back' }) {
   const navigate = useNavigate();
   const handle = onClick || (() => navigate(to));
   return (
-    <button
-      onClick={handle}
-      style={backBtnBase}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = 'var(--bg-hover)';
-        e.currentTarget.style.borderColor = 'var(--border-strong)';
-        e.currentTarget.style.color = 'var(--text-primary)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = 'var(--bg-subtle)';
-        e.currentTarget.style.borderColor = 'var(--border-default)';
-        e.currentTarget.style.color = 'var(--text-secondary)';
-      }}
-    >
-      <TbArrowLeft size={16} />
-      <span>{label}</span>
-    </button>
+    <div style={backGroupStyle}>
+      <button
+        onClick={handle}
+        title={label}
+        aria-label={label}
+        style={backBtnBase}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = 'var(--bg-panel)';
+          e.currentTarget.style.boxShadow = 'var(--shadow-md)';
+          e.currentTarget.style.transform = 'translateY(-1px)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'transparent';
+          e.currentTarget.style.boxShadow = 'none';
+          e.currentTarget.style.transform = 'translateY(0)';
+        }}
+      >
+        <TbArrowLeft size={18} color="var(--text-secondary)" />
+      </button>
+    </div>
   );
 }
 

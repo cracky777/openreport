@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { TbDatabase, TbStack3 } from 'react-icons/tb';
 import api from '../utils/api';
-import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton } from '../components/PageHeader/PageHeader';
+import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
 
 export default function Models() {
   const navigate = useNavigate();
@@ -41,8 +42,14 @@ export default function Models() {
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-app)' }}>
       <header style={headerShellStyle}>
         <BackButton to="/" />
-        <h1 style={headerTitleStyle}>Data Models</h1>
+        <h1 style={{ ...headerTitleStyle, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <TbStack3 size={20} color="var(--accent-primary)" />
+          Data Models
+        </h1>
         <div style={{ flex: 1 }} />
+        <SecondaryButton onClick={() => navigate('/datasources')} title="Go to Data Sources">
+          <TbDatabase size={16} />Data Sources
+        </SecondaryButton>
         <PrimaryButton onClick={() => setShowForm(true)}>+ New Model</PrimaryButton>
       </header>
 

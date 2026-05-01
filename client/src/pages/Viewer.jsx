@@ -550,7 +550,7 @@ export default function Viewer() {
         padding: '4px 10px', backgroundColor: 'var(--bg-panel)', borderBottom: '1px solid var(--border-default)',
         flexShrink: 0,
       }}>
-        <img src="/favicon.svg" alt="Open Report" style={{ height: 22 }} />
+        <img src="/favicon.png" alt="Open Report" style={{ height: 22 }} />
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>{report.title}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <button onClick={handleRefresh} disabled={refreshing} style={{ ...toolBtnSmall, opacity: refreshing ? 0.5 : 1, cursor: refreshing ? 'not-allowed' : 'pointer' }} title="Refresh all widgets">

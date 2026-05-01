@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB_TYPES, GAUGE_SUB_TYPES, OBJECT_SUB_TYPES } from '../Widgets';
-import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbDatabase, TbPencil, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbTrash, TbDownload, TbHandClick } from 'react-icons/tb';
+import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbTrash, TbDownload, TbHandClick } from 'react-icons/tb';
 import { useCustomVisuals } from '../../hooks/useCustomVisuals';
 
 // Ordered groups for the widget toolbar
@@ -11,7 +11,7 @@ const WIDGET_GROUPS = [
   { name: 'interactive', types: ['filter'] },
 ];
 
-// Custom tooltip: shows 400ms after hover, below the anchor
+// Custom tooltip: shows 400ms after hover, below the anchor.
 function WidgetTooltip({ text, show }) {
   if (!show) return null;
   return (
@@ -27,7 +27,7 @@ function WidgetTooltip({ text, show }) {
   );
 }
 
-export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, modelName, modelId, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions }) {
+export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions }) {
   const navigate = useNavigate();
   const [openMenu, setOpenMenu] = useState(null); // 'bar' | 'line' | null
   const [hoverKey, setHoverKey] = useState(null);
@@ -130,23 +130,30 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         flexShrink: 0,
       }}
     >
-      <button
-        onClick={() => navigate('/')}
-        style={backBtnStyle}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'var(--bg-hover)';
-          e.currentTarget.style.borderColor = 'var(--border-strong)';
-          e.currentTarget.style.color = 'var(--text-primary)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'var(--bg-subtle)';
-          e.currentTarget.style.borderColor = 'var(--border-default)';
-          e.currentTarget.style.color = 'var(--text-secondary)';
-        }}
-      >
-        <TbArrowLeft size={16} />
-        <span>Back</span>
-      </button>
+      <div style={utilityGroupStyle}>
+        <div style={{ position: 'relative' }}
+          onMouseEnter={() => scheduleHover('back')}
+          onMouseLeave={clearHover}>
+          <button
+            onClick={() => navigate('/')}
+            aria-label="Back"
+            style={utilityIconBtn}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-panel)';
+              e.currentTarget.style.boxShadow = 'var(--shadow-md)';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.boxShadow = 'none';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <TbArrowLeft size={18} color="var(--text-secondary)" />
+          </button>
+          <WidgetTooltip text="Back" show={hoverKey === 'back'} />
+        </div>
+      </div>
 
       {/* Undo / Redo pill group */}
       <div style={utilityGroupStyle}>
@@ -176,41 +183,6 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           <WidgetTooltip text="Redo (Ctrl+Y)" show={hoverKey === 'redo'} />
         </div>
       </div>
-
-      {modelName && (
-        <a
-          href={modelId ? `/models/${modelId}` : undefined}
-          target="_blank"
-          rel="noopener noreferrer"
-          title={modelId ? `${modelName} — open data model (new tab)` : modelName}
-          style={modelPillStyle(!!modelId)}
-          onMouseEnter={(e) => {
-            if (!modelId) return;
-            e.currentTarget.style.background = 'var(--bg-active)';
-            e.currentTarget.style.borderColor = 'var(--accent-primary)';
-            const pencil = e.currentTarget.querySelector('[data-pencil]');
-            if (pencil) pencil.style.opacity = '1';
-          }}
-          onMouseLeave={(e) => {
-            if (!modelId) return;
-            e.currentTarget.style.background = 'var(--accent-primary-soft)';
-            e.currentTarget.style.borderColor = 'var(--accent-primary-border)';
-            const pencil = e.currentTarget.querySelector('[data-pencil]');
-            if (pencil) pencil.style.opacity = '0.5';
-          }}
-        >
-          <TbDatabase size={14} color="var(--accent-primary)" style={{ flexShrink: 0 }} />
-          <span style={{
-            fontWeight: 500, color: 'var(--accent-primary-text)',
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            minWidth: 0, flex: '0 1 auto',
-          }}>{modelName}</span>
-          {modelId && (
-            <TbPencil data-pencil size={12} color="var(--accent-primary)" style={{ opacity: 0.5, transition: 'opacity 0.12s', flexShrink: 0 }} />
-          )}
-        </a>
-      )}
-
 
       <div style={{ flex: 1 }} />
 
@@ -243,13 +215,14 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
               const iconColor = type === 'filter' ? 'var(--accent-cyan)' : 'var(--accent-primary)';
               return (
                 <div key={type} style={{ position: 'relative' }}
-                  onMouseEnter={() => { hasSubTypes && setOpenMenu(type); scheduleHover(type); }}
-                  onMouseLeave={() => { hasSubTypes && setOpenMenu(null); clearHover(); }}
+                  onMouseEnter={() => { if (hasSubTypes) setOpenMenu(type); }}
+                  onMouseLeave={() => { if (hasSubTypes) setOpenMenu(null); }}
                 >
                   <button
                     onClick={() => { if (!hasSubTypes) onAddWidget(type); }}
                     style={widgetBtnStyle(openMenu === type, iconColor)}
                     onMouseEnter={(e) => {
+                      scheduleHover(type);
                       if (openMenu !== type) {
                         e.currentTarget.style.background = 'var(--bg-panel)';
                         e.currentTarget.style.boxShadow = 'var(--shadow-md)';
@@ -257,6 +230,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                       }
                     }}
                     onMouseLeave={(e) => {
+                      clearHover();
                       if (openMenu !== type) {
                         e.currentTarget.style.background = 'transparent';
                         e.currentTarget.style.boxShadow = 'none';
@@ -267,7 +241,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                     <Icon size={18} color={iconColor} />
                     {hasSubTypes && <span style={{ fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 }}>▼</span>}
                   </button>
-                  <WidgetTooltip text={`Add ${label}`} show={hoverKey === type && openMenu !== type} />
+                  <WidgetTooltip text={`Add ${label}`} show={hoverKey === type} />
 
                   {/* Sub-type dropdowns */}
                   {openMenu === type && type === 'bar' && (
@@ -349,12 +323,13 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         {/* Objects group */}
         <div style={{ width: 1, height: 22, background: 'var(--border-default)', margin: '0 4px' }} />
         <div style={{ position: 'relative' }}
-          onMouseEnter={() => { setOpenMenu('objects'); scheduleHover('objects'); }}
-          onMouseLeave={() => { setOpenMenu(null); clearHover(); }}
+          onMouseEnter={() => setOpenMenu('objects')}
+          onMouseLeave={() => setOpenMenu(null)}
         >
           <button
             style={widgetBtnStyle(openMenu === 'objects', 'var(--text-muted)')}
             onMouseEnter={(e) => {
+              scheduleHover('objects');
               if (openMenu !== 'objects') {
                 e.currentTarget.style.background = 'var(--bg-panel)';
                 e.currentTarget.style.boxShadow = 'var(--shadow-md)';
@@ -362,6 +337,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
               }
             }}
             onMouseLeave={(e) => {
+              clearHover();
               if (openMenu !== 'objects') {
                 e.currentTarget.style.background = 'transparent';
                 e.currentTarget.style.boxShadow = 'none';
@@ -372,7 +348,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             <TbShape size={18} color="var(--text-muted)" />
             <span style={{ fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 }}>▼</span>
           </button>
-          <WidgetTooltip text="Add object" show={hoverKey === 'objects' && openMenu !== 'objects'} />
+          <WidgetTooltip text="Add object" show={hoverKey === 'objects'} />
           {openMenu === 'objects' && (
             <div style={dropdownStyle}><div style={dropdownInner}>
               {OBJECT_SUB_TYPES.map((st) => {
@@ -394,12 +370,13 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           <>
             <div style={{ width: 1, height: 22, background: 'var(--border-default)', margin: '0 4px' }} />
             <div style={{ position: 'relative' }}
-              onMouseEnter={() => { setOpenMenu('customVisuals'); scheduleHover('customVisuals'); }}
-              onMouseLeave={() => { setOpenMenu(null); clearHover(); }}
+              onMouseEnter={() => setOpenMenu('customVisuals')}
+              onMouseLeave={() => setOpenMenu(null)}
             >
               <button
                 style={widgetBtnStyle(openMenu === 'customVisuals', 'var(--accent-primary)')}
                 onMouseEnter={(e) => {
+                  scheduleHover('customVisuals');
                   if (openMenu !== 'customVisuals') {
                     e.currentTarget.style.background = 'var(--bg-panel)';
                     e.currentTarget.style.boxShadow = 'var(--shadow-md)';
@@ -407,6 +384,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                   }
                 }}
                 onMouseLeave={(e) => {
+                  clearHover();
                   if (openMenu !== 'customVisuals') {
                     e.currentTarget.style.background = 'transparent';
                     e.currentTarget.style.boxShadow = 'none';
@@ -417,7 +395,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                 <TbPuzzle size={18} color="var(--accent-primary)" />
                 <span style={{ fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 }}>▼</span>
               </button>
-              <WidgetTooltip text="Custom visuals" show={hoverKey === 'customVisuals' && openMenu !== 'customVisuals'} />
+              <WidgetTooltip text="Custom visuals" show={hoverKey === 'customVisuals'} />
               {openMenu === 'customVisuals' && (
                 <div style={{ ...dropdownStyle, minWidth: 240 }}>
                   <div style={dropdownInner}>
@@ -676,13 +654,6 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
   );
 }
 
-const backBtnStyle = {
-  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-  background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8,
-  color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13, fontWeight: 500,
-  transition: 'background 0.12s, border-color 0.12s, color 0.12s',
-};
-
 const utilityGroupStyle = {
   display: 'flex', alignItems: 'center', gap: 2,
   padding: '3px 6px', background: 'var(--bg-subtle)',
@@ -741,14 +712,3 @@ const previewBtnStyle = {
   transition: 'background 0.15s, border-color 0.15s, transform 0.15s, box-shadow 0.15s',
 };
 
-function modelPillStyle(clickable) {
-  return {
-    display: 'inline-flex', alignItems: 'center', gap: 6,
-    padding: '5px 10px', borderRadius: 8,
-    background: 'var(--accent-primary-soft)', border: '1px solid var(--accent-primary-border)',
-    fontSize: 12, color: 'var(--accent-primary-text)',
-    textDecoration: 'none', cursor: clickable ? 'pointer' : 'default',
-    transition: 'background 0.12s, border-color 0.12s',
-    maxWidth: 160, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-  };
-}

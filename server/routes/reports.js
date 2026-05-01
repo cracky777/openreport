@@ -2,6 +2,7 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const db = require('../db');
+const { ensurePersonalWorkspace } = require('../utils/personalWorkspace');
 
 const router = express.Router();
 
@@ -157,11 +158,14 @@ router.post('/import', requireAuth, (req, res) => {
     }));
   }
 
+  // Reports always live in a workspace — fall back to the user's personal
+  // workspace when the caller didn't pick one, so custom visuals etc. remain available.
+  const targetWs = workspaceId || ensurePersonalWorkspace(req.user.id);
   db.prepare(`
     INSERT INTO reports (id, user_id, model_id, title, workspace_id, layout, widgets, settings)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    id, req.user.id, modelId, title, workspaceId || null,
+    id, req.user.id, modelId, title, targetWs,
     JSON.stringify(layout), JSON.stringify(widgets), JSON.stringify(settings),
   );
 
@@ -189,8 +193,9 @@ router.post('/', requireAuth, (req, res) => {
   // Bake in initial settings (e.g. createdTheme) at creation time
   const initialSettings = settings && typeof settings === 'object' ? JSON.stringify(settings) : '{}';
 
+  const targetWs = workspaceId || ensurePersonalWorkspace(req.user.id);
   db.prepare('INSERT INTO reports (id, user_id, model_id, title, workspace_id, settings) VALUES (?, ?, ?, ?, ?, ?)').run(
-    id, req.user.id, modelId, title || 'Untitled Report', workspaceId || null, initialSettings
+    id, req.user.id, modelId, title || 'Untitled Report', targetWs, initialSettings
   );
 
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(id);

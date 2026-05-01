@@ -26,6 +26,8 @@ try { db.exec("ALTER TABLE reports ADD COLUMN workspace_id TEXT"); } catch { /* 
 try { db.exec("ALTER TABLE datasources ADD COLUMN extra_config TEXT DEFAULT '{}'"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE models ADD COLUMN date_column TEXT DEFAULT ''"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE models ADD COLUMN rls TEXT NOT NULL DEFAULT '{}'"); } catch { /* already exists */ }
+try { db.exec("ALTER TABLE workspaces ADD COLUMN is_personal INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_workspaces_personal_owner ON workspaces (owner_id) WHERE is_personal = 1"); } catch { /* ignore */ }
 
 // Custom visuals — workspace-scoped plugin registry. Uploaded as .zip by ws_admin,
 // rendered in a sandboxed iframe at runtime.

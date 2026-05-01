@@ -49,10 +49,13 @@ CREATE TABLE IF NOT EXISTS workspaces (
   name TEXT NOT NULL,
   description TEXT DEFAULT '',
   owner_id TEXT NOT NULL,
+  is_personal INTEGER NOT NULL DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
 );
+-- The is_personal index is created in db/index.js AFTER the ALTER TABLE
+-- migration, so it can run safely on databases that pre-date the column.
 
 CREATE TABLE IF NOT EXISTS workspace_members (
   workspace_id TEXT NOT NULL,

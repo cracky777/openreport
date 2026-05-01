@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { TbPencil } from 'react-icons/tb';
 import api from '../../utils/api';
 import SqlExpressionInput from '../SqlExpressionInput/SqlExpressionInput';
 import { sanitizeWidgetFilters } from '../../utils/widgetFilters';
@@ -516,7 +517,33 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexShrink: 0 }}>
-        <div style={sectionTitle}>Data — {model.name}</div>
+        <div style={{ ...sectionTitle, display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+          <span>Data —&nbsp;</span>
+          {model.id ? (
+            <a
+              href={`/models/${model.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`${model.name} — open data model`}
+              style={modelLinkStyle}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = 'var(--accent-primary)';
+                const pencil = e.currentTarget.querySelector('[data-pencil]');
+                if (pencil) pencil.style.opacity = '1';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--text-disabled)';
+                const pencil = e.currentTarget.querySelector('[data-pencil]');
+                if (pencil) pencil.style.opacity = '0.5';
+              }}
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{model.name}</span>
+              <TbPencil data-pencil size={11} style={{ opacity: 0.5, transition: 'opacity 0.12s', flexShrink: 0 }} />
+            </a>
+          ) : (
+            <span>{model.name}</span>
+          )}
+        </div>
         {loading && <div style={loadingDot} />}
       </div>
 
@@ -918,6 +945,11 @@ function FieldSection({ label, children, style }) {
 
 const sectionTitle = {
   fontSize: 11, fontWeight: 600, color: 'var(--text-disabled)', textTransform: 'uppercase', marginBottom: 0,
+};
+const modelLinkStyle = {
+  display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0,
+  color: 'var(--text-disabled)', textDecoration: 'none',
+  cursor: 'pointer', transition: 'color 0.12s',
 };
 const loadingDot = {
   width: 8, height: 8, borderRadius: '50%', background: 'var(--accent-primary)',

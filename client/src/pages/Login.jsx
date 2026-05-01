@@ -5,7 +5,7 @@ import { useTheme } from '../hooks/useTheme';
 export default function Login() {
   const { login, register } = useAuth();
   const { resolved: themeResolved } = useTheme();
-  const logoSrc = themeResolved === 'dark' ? '/logo-dark.svg' : '/logo.svg';
+  const logoSrc = themeResolved === 'dark' ? '/logo-dark.png' : '/logo.png';
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

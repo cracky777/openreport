@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbTableOptions, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown } from 'react-icons/tb';
+import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown } from 'react-icons/tb';
 import { useTheme } from '../hooks/useTheme';
 import { TopbarSwitcher, UserMenuExtras } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
@@ -10,13 +10,17 @@ import DatasourceForm, { createModelAndNavigate } from '../components/Datasource
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const { mode: themeMode, resolved: themeResolved, setMode: setThemeMode, themes: availableThemes } = useTheme();
-  const logoSrc = themeResolved === 'dark' ? '/logo-dark.svg' : '/logo.svg';
+  const logoSrc = themeResolved === 'dark' ? '/logo-dark.png' : '/logo.png';
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef(null);
   const navigate = useNavigate();
   const [reports, setReports] = useState([]);
   const [models, setModels] = useState([]);
   const [workspaces, setWorkspaces] = useState([]);
+  // The user's personal workspace (auto-created at signup). Stays out of the
+  // workspaces list — it backs the "My Reports" view so reports always have
+  // a workspace_id set (required for custom visuals etc.).
+  const [personalWorkspace, setPersonalWorkspace] = useState(null);
   // Remember the last-visited workspace per user across reloads / page navigation
   const lastWsKey = user?.id ? `openreport.lastWorkspace.${user.id}` : null;
   const [selectedWs, setSelectedWs] = useState(() => {
@@ -121,6 +125,7 @@ export default function Dashboard() {
         setModels(modelsRes.data.models || []);
         const loadedWs = wsRes.data.workspaces || [];
         setWorkspaces(loadedWs);
+        setPersonalWorkspace(wsRes.data.personalWorkspace || null);
         // If the persisted workspace no longer exists (deleted, access removed), reset selection.
         if (selectedWs && !loadedWs.some((w) => w.id === selectedWs)) {
           setSelectedWs(null);
@@ -194,13 +199,19 @@ export default function Dashboard() {
   // overwrite the local optimistic update with stale data.
   useEffect(() => {
     if (selectedWs) return; // workspace view → handled by the next effect
-    setWsReports(reports.filter((r) => !r.workspace_id));
+    // "My Reports" view = reports living in the user's personal workspace.
+    // Until that workspace id is loaded we fall back to the legacy NULL filter
+    // so the UI stays usable on first paint and on older deployments.
+    const personalId = personalWorkspace?.id;
+    setWsReports(reports.filter((r) => personalId
+      ? r.workspace_id === personalId
+      : !r.workspace_id));
     setWsMembers([]);
     setWsOwner(null);
     setWsUserRole(null);
     setWsIsPersonalOrg(false);
     setWsCanSeeMembers(false);
-  }, [selectedWs, reports]);
+  }, [selectedWs, reports, personalWorkspace]);
 
   useEffect(() => {
     if (!selectedWs) return;
@@ -457,7 +468,7 @@ export default function Dashboard() {
                     onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
                   >
-                    <TbTableOptions size={15} /> <span>Models</span>
+                    <TbStack3 size={15} /> <span>Data Models</span>
                   </button>
                 </>
               )}
@@ -919,6 +930,23 @@ export default function Dashboard() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
               {wsReports.map((report) => (
                 <div key={report.id} style={cardStyle}>
+                  {canEdit && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); deleteReport(report.id); }}
+                      title="Delete"
+                      style={cardCloseBtn}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'var(--state-danger-soft)';
+                        e.currentTarget.style.color = 'var(--state-danger)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.color = 'var(--text-disabled)';
+                      }}
+                    >
+                      <TbX size={14} />
+                    </button>
+                  )}
                   <div onClick={() => window.open(`/view/${report.id}`, '_blank')}
                     style={{ cursor: 'pointer', padding: 20, flex: 1, minWidth: 0 }}>
                     <h3
@@ -958,7 +986,6 @@ export default function Dashboard() {
                         {workspaces.map((ws) => <option key={ws.id} value={ws.id}>{ws.name}</option>)}
                       </select>
                     )}
-                    {canEdit && <button onClick={() => deleteReport(report.id)} title="Delete" {...cardActionBtn('danger')}><TbTrash size={16} /></button>}
                   </div>
                 </div>
               ))}
@@ -1012,7 +1039,15 @@ function themeRowBtn(active) {
 const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer' };
 const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: 'var(--bg-panel)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer' };
 const iconBtn = { background: 'transparent', border: '1px solid', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
-const cardStyle = { backgroundColor: 'var(--bg-panel)', borderRadius: 8, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.15s', overflow: 'hidden' };
+const cardStyle = { position: 'relative', backgroundColor: 'var(--bg-panel)', borderRadius: 8, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.15s', overflow: 'hidden' };
+const cardCloseBtn = {
+  position: 'absolute', top: 6, right: 6, zIndex: 2,
+  width: 22, height: 22, padding: 0,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  border: 'none', background: 'transparent', borderRadius: 4,
+  color: 'var(--text-disabled)', cursor: 'pointer',
+  transition: 'background 0.12s, color 0.12s',
+};
 
 // Workspace card buttons share the visual language of the editor toolbar / page header.
 const CARD_BTN_VARIANTS = {
