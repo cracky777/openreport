@@ -67,6 +67,9 @@ router.post('/login', (req, res, next) => {
 
     req.login(user, (err) => {
       if (err) return next(err);
+      // Stamp the last-seen timestamp so the platform supervisor can spot
+      // inactive accounts. Cheap UPDATE, no impact on the response.
+      try { db.prepare("UPDATE users SET last_seen_at = datetime('now') WHERE id = ?").run(user.id); } catch { /* ignore */ }
       res.json({ user });
     });
   })(req, res, next);

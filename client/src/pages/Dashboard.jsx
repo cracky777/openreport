@@ -96,6 +96,18 @@ export default function Dashboard() {
       .catch(() => setActiveOrgRole(null));
   }, [selectedWs]); // refetch when org context might have shifted
 
+  // Cloud-only — am I a platform admin? Used to surface the Platform link
+  // in the top nav. The endpoint 404s in OSS so isPlatformAdmin stays false
+  // and the button doesn't render.
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/cloud/platform/me')
+      .then((res) => { if (!cancelled) setIsPlatformAdmin(!!res.data.isPlatformAdmin); })
+      .catch(() => { /* not cloud or not platform admin — silently no-op */ });
+    return () => { cancelled = true; };
+  }, []);
+
   // Org-level write capability: needed to create workspaces, manage datasources/models.
   // In OSS (no cloud) we fall back to the legacy user.role check.
   const canEditOrg = activeOrgRole
@@ -631,6 +643,14 @@ export default function Dashboard() {
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
                 >
                   <TbShield size={15} /> <span>Admin</span>
+                </button>
+              )}
+              {isPlatformAdmin && (
+                <button onClick={() => navigate('/platform')} style={navBtnStyled}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                >
+                  <TbShield size={15} color="var(--accent-primary)" /> <span>Platform</span>
                 </button>
               )}
             </div>

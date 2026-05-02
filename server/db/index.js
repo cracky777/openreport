@@ -35,6 +35,9 @@ try { db.exec("CREATE INDEX IF NOT EXISTS idx_workspaces_personal_owner ON works
 // shipped — gating them retroactively would lock them out).
 try { db.exec("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE users ADD COLUMN last_verification_sent_at TEXT"); } catch { /* already exists */ }
+// Last login / activity timestamp — updated by the login route. Used by the
+// platform supervisor dashboard to surface stale / inactive accounts.
+try { db.exec("ALTER TABLE users ADD COLUMN last_seen_at TEXT"); } catch { /* already exists */ }
 
 // Report version history — snapshots taken on every meaningful save so an
 // admin can roll back. Capped at 20 versions per report (FIFO pruning in
