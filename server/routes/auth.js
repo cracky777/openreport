@@ -32,9 +32,20 @@ router.post('/register', async (req, res) => {
   const user = { id, email, display_name: displayName || email.split('@')[0], role };
 
   // Post-register hooks (cloud edition uses these to provision a personal
-  // organization, send a welcome email, and consume pending invitations).
+  // organization, send a verification email, and consume pending invitations).
   // Errors are caught inside the registry — never break the signup response.
   await authHooks.runPostRegister({ user, req });
+
+  // In cloud mode email verification is required before login. We DON'T
+  // auto-log-in here — the frontend shows a "Check your email" screen and
+  // the user comes back through /login once they've clicked the link.
+  if (process.env.OPENREPORT_CLOUD === '1') {
+    return res.status(201).json({
+      user,
+      verificationRequired: true,
+      message: 'Account created. Check your email to verify your address before signing in.',
+    });
+  }
 
   req.login(user, (err) => {
     if (err) return res.status(500).json({ error: 'Login failed after registration' });
@@ -45,7 +56,14 @@ router.post('/register', async (req, res) => {
 router.post('/login', (req, res, next) => {
   passport.authenticate('local', (err, user, info) => {
     if (err) return next(err);
-    if (!user) return res.status(401).json({ error: info.message });
+    if (!user) {
+      // Surface the structured info from the strategy when present so the
+      // frontend can branch on `code` (e.g. EMAIL_UNVERIFIED → resend button).
+      const body = { error: info?.message || 'Invalid email or password' };
+      if (info?.code) body.code = info.code;
+      if (info?.email) body.email = info.email;
+      return res.status(401).json(body);
+    }
 
     req.login(user, (err) => {
       if (err) return next(err);

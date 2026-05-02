@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   display_name TEXT,
   role TEXT NOT NULL DEFAULT 'viewer',
+  email_verified INTEGER NOT NULL DEFAULT 0,
+  last_verification_sent_at TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 -- role: 'admin' | 'editor' | 'viewer'

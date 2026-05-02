@@ -9,6 +9,7 @@ import Datasources from './pages/Datasources';
 import Models from './pages/Models';
 import ModelEditor from './pages/ModelEditor';
 import Admin from './pages/Admin';
+import Verify from './pages/Verify';
 // Cloud-edition routes — empty in the OSS build, populated in the cloud build.
 // The same import path resolves to either the stub or the real implementation.
 import cloudRoutes from './cloud';
@@ -39,6 +40,7 @@ function App() {
           <Route path="/models/:id" element={<PrivateRoute><ModelEditor /></PrivateRoute>} />
           <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
           <Route path="/view/:id" element={<Viewer />} />
+          <Route path="/verify" element={<Verify />} />
           {/* Cloud-edition routes — empty array in the OSS build. */}
           {(cloudRoutes || []).map((r) => (
             <Route

@@ -22,6 +22,10 @@ export function AuthProvider({ children }) {
 
   const register = async (email, password, displayName) => {
     const res = await api.post('/auth/register', { email, password, displayName });
+    // In cloud mode the server returns verificationRequired:true and does
+    // NOT auto-log-in. Return the full response so the Login page can
+    // branch on it instead of jumping into the app.
+    if (res.data?.verificationRequired) return { verificationRequired: true, user: res.data.user };
     setUser(res.data.user);
     return res.data.user;
   };

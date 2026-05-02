@@ -13,6 +13,12 @@ passport.use(new LocalStrategy(
     if (!bcrypt.compareSync(password, user.password_hash)) {
       return done(null, false, { message: 'Invalid email or password' });
     }
+    // Cloud-only email-verification gate. OSS keeps logging users in
+    // regardless of email_verified — the column exists on the users table
+    // but no enforcement happens without a transactional mailer in front.
+    if (process.env.OPENREPORT_CLOUD === '1' && (user.email_verified || 0) !== 1) {
+      return done(null, false, { message: 'Email not verified', code: 'EMAIL_UNVERIFIED', email: user.email });
+    }
     return done(null, { id: user.id, email: user.email, display_name: user.display_name, role: user.role || 'viewer' });
   }
 ));

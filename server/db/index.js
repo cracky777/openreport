@@ -28,6 +28,13 @@ try { db.exec("ALTER TABLE models ADD COLUMN date_column TEXT DEFAULT ''"); } ca
 try { db.exec("ALTER TABLE models ADD COLUMN rls TEXT NOT NULL DEFAULT '{}'"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE workspaces ADD COLUMN is_personal INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_workspaces_personal_owner ON workspaces (owner_id) WHERE is_personal = 1"); } catch { /* ignore */ }
+// Email verification (cloud-only enforcement; OSS keeps logging in regardless).
+// Existing OSS users default to 0 — but OSS doesn't gate on this, so they're
+// unaffected. The cloud edition runs a backfill at boot to mark all
+// pre-existing users as verified (they were created before the feature
+// shipped — gating them retroactively would lock them out).
+try { db.exec("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
+try { db.exec("ALTER TABLE users ADD COLUMN last_verification_sent_at TEXT"); } catch { /* already exists */ }
 
 // Report version history — snapshots taken on every meaningful save so an
 // admin can roll back. Capped at 20 versions per report (FIFO pruning in
