@@ -301,6 +301,11 @@ export default function ReportCanvas({
   editInteractions,
   onToggleCrossFilter,
   onCancelFetch,
+  // Print mode strips the surrounding chrome (outer padding + bg-app
+  // background + auto-margin centering + fit-to-width scale) so a server
+  // -side Puppeteer renderer can capture just the report canvas at its
+  // native dimensions.
+  printMode,
 }) {
   const [resizing, setResizing] = useState(null);
   const containerRef = useRef(null);
@@ -324,11 +329,12 @@ export default function ReportCanvas({
   const canvasHeight = pageHeight;
 
   const scale = useMemo(() => {
+    if (printMode) return 1;
     if (viewMode === 'actual' || containerSize.w <= 0) return 1;
     if (viewMode === 'fitToWidth') return Math.min(1, containerSize.w / pageWidth);
     if (viewMode === 'fitToPage') return Math.min(1, containerSize.w / pageWidth, containerSize.h / canvasHeight);
     return 1;
-  }, [viewMode, containerSize, pageWidth, canvasHeight]);
+  }, [viewMode, containerSize, pageWidth, canvasHeight, printMode]);
 
   const gridSize = (settings.snapToGrid ?? true) ? (settings.gridSize || 20) : 1;
   const snap = useCallback((v) => Math.round(v / gridSize) * gridSize, [gridSize]);
@@ -400,10 +406,10 @@ export default function ReportCanvas({
       onClick={() => onSelectWidget?.(null)}
       style={{
         flex: 1,
-        backgroundColor: 'var(--bg-app)',
+        backgroundColor: printMode ? 'transparent' : 'var(--bg-app)',
         overflowX: 'hidden',
-        overflowY: viewMode === 'fitToPage' ? 'hidden' : 'auto',
-        padding: 20,
+        overflowY: viewMode === 'fitToPage' || printMode ? 'hidden' : 'auto',
+        padding: printMode ? 0 : 20,
         minWidth: 0, minHeight: 0,
       }}
     >
@@ -411,7 +417,7 @@ export default function ReportCanvas({
       <div style={{
         width: scale < 1 ? pageWidth * scale : pageWidth,
         minHeight: scale < 1 ? canvasHeight * scale : canvasHeight,
-        margin: '0 auto',
+        margin: printMode ? 0 : '0 auto',
         overflow: 'visible',
       }}>
         <div

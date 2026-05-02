@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import ReportCanvas from '../components/Canvas/ReportCanvas';
 import api from '../utils/api';
@@ -46,6 +46,20 @@ export default function Viewer() {
   const [currentPageIdx, setCurrentPageIdx] = useState(0);
   const pageStateRef = useRef({}); // { [pageIdx]: { widgets, reportFilters, crossHighlight } }
 
+  // Print mode — used by the server-side scheduler renderer. The URL is
+  // /view/:id?print=1&page=<idx>. In this mode we strip the toolbar, the
+  // pages column and the canvas padding so Puppeteer produces a 1:1 PDF
+  // of the report canvas only. `page` selects which page to land on so
+  // the renderer can iterate and produce one PDF per report page.
+  const [printMode, printPageIdx] = useMemo(() => {
+    if (typeof window === 'undefined') return [false, null];
+    const params = new URLSearchParams(window.location.search);
+    const isPrint = params.get('print') === '1';
+    const pageStr = params.get('page');
+    const pageIdx = pageStr != null ? parseInt(pageStr, 10) : null;
+    return [isPrint, Number.isFinite(pageIdx) ? pageIdx : null];
+  }, []);
+
   // Load report + model
   useEffect(() => {
     const load = async () => {
@@ -57,10 +71,14 @@ export default function Viewer() {
         // Load pages
         const reportPages = r.pages || r.settings?.pages;
         let firstPageWidgets = {};
+        const startIdx = (printPageIdx != null && reportPages && printPageIdx >= 0 && printPageIdx < reportPages.length)
+          ? printPageIdx
+          : 0;
         if (reportPages && reportPages.length > 0) {
           setPages(reportPages);
-          firstPageWidgets = reportPages[0].widgets || {};
+          firstPageWidgets = reportPages[startIdx].widgets || {};
           setWidgets(firstPageWidgets);
+          setCurrentPageIdx(startIdx);
         } else {
           setPages([{ id: 'page-1', name: 'Page 1', layout: r.layout, widgets: r.widgets }]);
           firstPageWidgets = r.widgets || {};
@@ -597,7 +615,14 @@ export default function Viewer() {
   }
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' }}>
+    <div style={{
+      // Print mode strips the surrounding viewport so Puppeteer's
+      // page.pdf captures the canvas only. Otherwise: standard fullscreen.
+      height: printMode ? 'auto' : '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      backgroundColor: printMode ? 'transparent' : 'var(--bg-app)',
+    }}>
       {/* Viewer toolbar — compact */}
       <header className="no-print" style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -665,14 +690,16 @@ export default function Viewer() {
           onDrillReset={handleDrillReset}
           crossHighlight={crossHighlight}
           reportRef={canvasRef}
+          printMode={printMode}
         />
       </div>
 
-      {/* Print styles */}
+      {/* Print styles — also kicks in for the server-side renderer because
+          Puppeteer's page.pdf() simulates print media by default. */}
       <style>{`
         @media print {
           .no-print { display: none !important; }
-          body { margin: 0; padding: 0; }
+          html, body, #root { margin: 0 !important; padding: 0 !important; background: transparent !important; }
         }
       `}</style>
     </div>

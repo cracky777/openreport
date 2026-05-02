@@ -451,7 +451,15 @@ export default function Dashboard() {
   const [moveModal, setMoveModal] = useState(null);        // { report, targetWs }
   const [historyModal, setHistoryModal] = useState(null);  // { report, versions, loading }
   const [scheduleModal, setScheduleModal] = useState(null); // { report, schedules, loading, editing }
+  const [scheduleToast, setScheduleToast] = useState(null); // { type: 'ok' | 'error', message }
   const cardMenuRef = useRef(null);
+
+  // Auto-dismiss the schedule toast after a few seconds.
+  useEffect(() => {
+    if (!scheduleToast) return undefined;
+    const t = setTimeout(() => setScheduleToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [scheduleToast]);
 
   // Close the card menu on outside click / Escape
   useEffect(() => {
@@ -569,7 +577,21 @@ export default function Dashboard() {
     await refreshSchedules(s.report_id);
   };
   const runScheduleNow = async (s) => {
-    await api.post(`/cloud/schedules/${s.id}/run`);
+    try {
+      const res = await api.post(`/cloud/schedules/${s.id}/run`);
+      const result = res.data?.result;
+      if (result?.skipped) {
+        setScheduleToast({ type: 'error', message: `Skipped: ${result.reason || 'unknown'}` });
+      } else if (result?.error) {
+        setScheduleToast({ type: 'error', message: result.error });
+      } else {
+        const count = result?.recipientCount ?? '?';
+        const withPdf = result?.hasPdf ? ' with PDF attachment' : '';
+        setScheduleToast({ type: 'ok', message: `Email sent to ${count} recipient${count === 1 ? '' : 's'}${withPdf}.` });
+      }
+    } catch (err) {
+      setScheduleToast({ type: 'error', message: err.response?.data?.error || err.message });
+    }
     await refreshSchedules(s.report_id);
   };
 
@@ -1284,6 +1306,22 @@ export default function Dashboard() {
           onRunNow={runScheduleNow}
         />
       )}
+
+      {/* Bottom-right transient toast for schedule "Send now" feedback. */}
+      {scheduleToast && (
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 1100,
+          padding: '12px 18px', borderRadius: 8,
+          background: scheduleToast.type === 'error' ? 'var(--state-danger-soft)' : 'var(--accent-primary-soft)',
+          border: `1px solid ${scheduleToast.type === 'error' ? 'var(--state-danger)' : 'var(--accent-primary)'}`,
+          color: scheduleToast.type === 'error' ? 'var(--state-danger)' : 'var(--accent-primary)',
+          fontSize: 13, fontWeight: 500,
+          boxShadow: '0 4px 16px rgba(15,23,42,0.2)',
+          maxWidth: 380,
+        }}>
+          {scheduleToast.message}
+        </div>
+      )}
     </div>
   );
 }
@@ -1348,16 +1386,16 @@ function ScheduleModal({ modal, onClose, onStartCreate, onStartEdit, onCancelEdi
                         </div>
                       )}
                     </div>
-                    <button title="Send now" style={scheduleIconBtn} onClick={() => onRunNow(s)}>
+                    <button title="Send now" onClick={() => onRunNow(s)} {...cardActionBtn('accent')}>
                       <TbPlayerPlay size={14} />
                     </button>
-                    <button title={s.enabled ? 'Pause' : 'Resume'} style={scheduleIconBtn} onClick={() => onToggle(s)}>
-                      {s.enabled ? <TbToggleRight size={16} color="var(--accent-primary)" /> : <TbToggleLeft size={16} />}
+                    <button title={s.enabled ? 'Pause' : 'Resume'} onClick={() => onToggle(s)} {...cardActionBtn(s.enabled ? 'accent' : 'muted')}>
+                      {s.enabled ? <TbToggleRight size={16} /> : <TbToggleLeft size={16} />}
                     </button>
-                    <button title="Edit" style={scheduleIconBtn} onClick={() => onStartEdit(s)}>
+                    <button title="Edit" onClick={() => onStartEdit(s)} {...cardActionBtn()}>
                       <TbPencil size={14} />
                     </button>
-                    <button title="Delete" style={{ ...scheduleIconBtn, color: 'var(--state-danger)' }} onClick={() => onDelete(s)}>
+                    <button title="Delete" onClick={() => onDelete(s)} {...cardActionBtn('danger')}>
                       <TbTrash size={14} />
                     </button>
                   </div>
@@ -1485,13 +1523,6 @@ function ScheduleEditor({ initial, onCancel, onSubmit }) {
   );
 }
 
-const scheduleIconBtn = {
-  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-  width: 28, height: 28, padding: 0,
-  background: 'transparent', border: '1px solid var(--border-default)',
-  borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer',
-  flexShrink: 0,
-};
 const scheduleFieldLabel = {
   display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)',
   marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em',
