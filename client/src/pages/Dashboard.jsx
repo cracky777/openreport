@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbPencil, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink } from 'react-icons/tb';
+import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbPencil, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeft, TbToggleRight } from 'react-icons/tb';
 import { useTheme } from '../hooks/useTheme';
 import { TopbarSwitcher, UserMenuExtras } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
@@ -450,6 +450,7 @@ export default function Dashboard() {
   const [renameModal, setRenameModal] = useState(null);    // { report, value }
   const [moveModal, setMoveModal] = useState(null);        // { report, targetWs }
   const [historyModal, setHistoryModal] = useState(null);  // { report, versions, loading }
+  const [scheduleModal, setScheduleModal] = useState(null); // { report, schedules, loading, editing }
   const cardMenuRef = useRef(null);
 
   // Close the card menu on outside click / Escape
@@ -515,6 +516,61 @@ export default function Dashboard() {
     // Refresh the report list so the title in the card reflects the restored state
     const reportsRes = await api.get('/reports');
     setReports(reportsRes.data.reports);
+  };
+
+  // Email schedules — cloud-only feature. Endpoints live under
+  // /api/cloud/schedules and 404 in OSS, so we surface the menu entry only
+  // when the active context is a cloud org. Phase 1 sends a deep link only;
+  // PDF attachment + per-recipient personalisation come later.
+  const openSchedules = async (report) => {
+    setCardMenu(null);
+    setScheduleModal({ report, schedules: [], loading: true });
+    try {
+      const res = await api.get(`/cloud/schedules/by-report/${report.id}`);
+      setScheduleModal({ report, schedules: res.data.schedules || [], loading: false });
+    } catch (err) {
+      setScheduleModal({ report, schedules: [], loading: false, error: err.response?.data?.error || err.message });
+    }
+  };
+  const refreshSchedules = async (reportId) => {
+    const res = await api.get(`/cloud/schedules/by-report/${reportId}`);
+    setScheduleModal((m) => m ? { ...m, schedules: res.data.schedules || [], editing: null } : m);
+  };
+  const submitSchedule = async (form) => {
+    if (!scheduleModal) return;
+    const reportId = scheduleModal.report.id;
+    const payload = {
+      name: form.name.trim(),
+      cronExpression: form.cronExpression.trim(),
+      timezone: form.timezone || 'UTC',
+      subject: form.subject.trim(),
+      body: form.body || '',
+      recipients: form.recipientsRaw
+        .split(/[,;\n]/)
+        .map((s) => s.trim())
+        .filter((s) => s.includes('@'))
+        .map((email) => ({ email })),
+      enabled: form.enabled !== false,
+    };
+    if (form.id) {
+      await api.put(`/cloud/schedules/${form.id}`, payload);
+    } else {
+      await api.post(`/cloud/schedules/by-report/${reportId}`, payload);
+    }
+    await refreshSchedules(reportId);
+  };
+  const toggleSchedule = async (s) => {
+    await api.put(`/cloud/schedules/${s.id}`, { enabled: !s.enabled });
+    await refreshSchedules(s.report_id);
+  };
+  const deleteSchedule = async (s) => {
+    if (!confirm(`Delete schedule "${s.name}"?`)) return;
+    await api.delete(`/cloud/schedules/${s.id}`);
+    await refreshSchedules(s.report_id);
+  };
+  const runScheduleNow = async (s) => {
+    await api.post(`/cloud/schedules/${s.id}/run`);
+    await refreshSchedules(s.report_id);
   };
 
   const wsName = selectedWs ? workspaces.find((w) => w.id === selectedWs)?.name || 'Workspace' : 'My Reports';
@@ -1103,6 +1159,17 @@ export default function Dashboard() {
                                 <TbHistory size={14} /> History
                               </button>
                             )}
+                            {/* Schedule — cloud-only. The endpoint 404s in OSS,
+                                so we only show the entry when an active org is set
+                                (proxy: activeOrgRole !== null means we're in cloud). */}
+                            {activeOrgRole && (
+                              <button style={cardMenuItem}
+                                onClick={() => openSchedules(report)}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                                <TbCalendarTime size={14} /> Schedule email
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1200,9 +1267,235 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Schedule emails — cloud-only. Lists the report's existing schedules
+          and a small inline form to create / edit one. Phase 1: deep link in
+          the email; PDF attachment + per-recipient personalisation later. */}
+      {scheduleModal && (
+        <ScheduleModal
+          modal={scheduleModal}
+          onClose={() => setScheduleModal(null)}
+          onStartCreate={() => setScheduleModal({ ...scheduleModal, editing: 'new' })}
+          onStartEdit={(s) => setScheduleModal({ ...scheduleModal, editing: s })}
+          onCancelEdit={() => setScheduleModal({ ...scheduleModal, editing: null })}
+          onSubmit={submitSchedule}
+          onToggle={toggleSchedule}
+          onDelete={deleteSchedule}
+          onRunNow={runScheduleNow}
+        />
+      )}
     </div>
   );
 }
+
+// ----------------------------------------------------------------------------
+// Schedule modal — kept inline because it's specific to the Dashboard page
+// and won't be reused elsewhere.
+// ----------------------------------------------------------------------------
+
+const CRON_PRESETS = [
+  { label: 'Every day at 9:00', expr: '0 9 * * *' },
+  { label: 'Every Monday at 9:00', expr: '0 9 * * 1' },
+  { label: 'First of the month at 9:00', expr: '0 9 1 * *' },
+  { label: 'Custom…', expr: '' },
+];
+
+function ScheduleModal({ modal, onClose, onStartCreate, onStartEdit, onCancelEdit, onSubmit, onToggle, onDelete, onRunNow }) {
+  const { report, schedules, loading, error, editing } = modal;
+  const isEditing = editing === 'new' || (editing && typeof editing === 'object');
+  return (
+    <div style={actionModalBackdrop} onClick={onClose}>
+      <div style={{ ...actionModalCard, minWidth: 520, maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
+        <div style={actionModalTitle}>Email schedule — {report.title}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
+          Send a link to this report by email on a recurring schedule. Recipients without a login can only open public reports.
+        </div>
+
+        {!isEditing && (
+          <>
+            {loading ? (
+              <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-disabled)' }}>Loading...</div>
+            ) : error ? (
+              <div style={{ padding: 12, color: 'var(--state-danger)', fontSize: 13 }}>{error}</div>
+            ) : schedules.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-disabled)', fontSize: 13, border: '1px dashed var(--border-default)', borderRadius: 6 }}>
+                No schedules yet for this report.
+              </div>
+            ) : (
+              <div style={{ maxHeight: 320, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 6 }}>
+                {schedules.map((s) => (
+                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--border-default)' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {s.name}
+                        {!s.enabled && (
+                          <span style={{ fontSize: 10, color: 'var(--text-disabled)', textTransform: 'uppercase', fontWeight: 700, background: 'var(--bg-subtle)', padding: '1px 6px', borderRadius: 3 }}>paused</span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                        <code style={{ background: 'var(--bg-subtle)', padding: '1px 5px', borderRadius: 3 }}>{s.cron_expression}</code>
+                        {' · '}
+                        {s.recipients.length} recipient{s.recipients.length === 1 ? '' : 's'}
+                        {s.last_run_at && (
+                          <span style={{ color: s.last_run_status === 'error' ? 'var(--state-danger)' : 'var(--text-muted)' }}>
+                            {' · last run '}{new Date(s.last_run_at).toLocaleString()}{s.last_run_status === 'error' ? ' (error)' : ''}
+                          </span>
+                        )}
+                      </div>
+                      {s.last_run_status === 'error' && s.last_error && (
+                        <div style={{ fontSize: 11, color: 'var(--state-danger)', marginTop: 3 }}>
+                          {s.last_error}
+                        </div>
+                      )}
+                    </div>
+                    <button title="Send now" style={scheduleIconBtn} onClick={() => onRunNow(s)}>
+                      <TbPlayerPlay size={14} />
+                    </button>
+                    <button title={s.enabled ? 'Pause' : 'Resume'} style={scheduleIconBtn} onClick={() => onToggle(s)}>
+                      {s.enabled ? <TbToggleRight size={16} color="var(--accent-primary)" /> : <TbToggleLeft size={16} />}
+                    </button>
+                    <button title="Edit" style={scheduleIconBtn} onClick={() => onStartEdit(s)}>
+                      <TbPencil size={14} />
+                    </button>
+                    <button title="Delete" style={{ ...scheduleIconBtn, color: 'var(--state-danger)' }} onClick={() => onDelete(s)}>
+                      <TbTrash size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ ...actionModalActions, justifyContent: 'space-between' }}>
+              <button style={actionModalBtnPrimary} onClick={onStartCreate}>+ New schedule</button>
+              <button style={actionModalBtnSecondary} onClick={onClose}>Close</button>
+            </div>
+          </>
+        )}
+
+        {isEditing && (
+          <ScheduleEditor
+            initial={editing === 'new' ? null : editing}
+            onCancel={onCancelEdit}
+            onSubmit={onSubmit}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ScheduleEditor({ initial, onCancel, onSubmit }) {
+  const isEdit = !!initial;
+  const [form, setForm] = useState(() => ({
+    id: initial?.id || null,
+    name: initial?.name || '',
+    cronExpression: initial?.cron_expression || '0 9 * * 1',
+    timezone: initial?.timezone || (Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'),
+    subject: initial?.subject || '',
+    body: initial?.body || '',
+    recipientsRaw: (initial?.recipients || []).map((r) => r.email).join(', '),
+    enabled: initial?.enabled !== false,
+  }));
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState(null);
+  const [presetIdx, setPresetIdx] = useState(() => {
+    const idx = CRON_PRESETS.findIndex((p) => p.expr === (initial?.cron_expression || '0 9 * * 1'));
+    return idx >= 0 ? idx : CRON_PRESETS.length - 1; // default to "Custom"
+  });
+
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const handleSubmit = async () => {
+    if (!form.name.trim() || !form.cronExpression.trim() || !form.subject.trim()) {
+      setErr('Name, cron expression and subject are required');
+      return;
+    }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await onSubmit(form);
+    } catch (e) {
+      setErr(e.response?.data?.error || e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>
+        {isEdit ? 'Edit schedule' : 'New schedule'}
+      </div>
+
+      <label style={scheduleFieldLabel}>Name</label>
+      <input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Weekly sales digest" style={actionModalInput} />
+
+      <label style={scheduleFieldLabel}>When</label>
+      <select value={presetIdx} onChange={(e) => {
+        const idx = parseInt(e.target.value, 10);
+        setPresetIdx(idx);
+        const preset = CRON_PRESETS[idx];
+        if (preset.expr) set('cronExpression', preset.expr);
+      }} style={{ ...actionModalInput, marginBottom: 6 }}>
+        {CRON_PRESETS.map((p, i) => <option key={i} value={i}>{p.label}</option>)}
+      </select>
+      <input
+        value={form.cronExpression}
+        onChange={(e) => { set('cronExpression', e.target.value); setPresetIdx(CRON_PRESETS.length - 1); }}
+        placeholder="0 9 * * 1"
+        style={{ ...actionModalInput, fontFamily: 'monospace', fontSize: 12 }}
+      />
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 12 }}>
+        Cron expression — minute hour day-of-month month day-of-week. Timezone: <code>{form.timezone}</code>
+      </div>
+
+      <label style={scheduleFieldLabel}>Recipients (comma- or newline-separated)</label>
+      <textarea
+        value={form.recipientsRaw}
+        onChange={(e) => set('recipientsRaw', e.target.value)}
+        placeholder="alice@example.com, bob@example.com"
+        rows={3}
+        style={{ ...actionModalInput, resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
+      />
+
+      <label style={scheduleFieldLabel}>Subject</label>
+      <input value={form.subject} onChange={(e) => set('subject', e.target.value)} placeholder="Weekly sales report" style={actionModalInput} />
+
+      <label style={scheduleFieldLabel}>Message (optional)</label>
+      <textarea
+        value={form.body}
+        onChange={(e) => set('body', e.target.value)}
+        placeholder="Here's the sales report for the week."
+        rows={3}
+        style={{ ...actionModalInput, resize: 'vertical' }}
+      />
+
+      <label style={{ ...scheduleFieldLabel, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <input type="checkbox" checked={form.enabled} onChange={(e) => set('enabled', e.target.checked)} />
+        <span>Enabled</span>
+      </label>
+
+      {err && <div style={{ color: 'var(--state-danger)', fontSize: 12, marginBottom: 10 }}>{err}</div>}
+
+      <div style={actionModalActions}>
+        <button style={actionModalBtnSecondary} onClick={onCancel} disabled={submitting}>Cancel</button>
+        <button style={actionModalBtnPrimary} onClick={handleSubmit} disabled={submitting}>
+          {submitting ? 'Saving…' : (isEdit ? 'Save' : 'Create')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const scheduleIconBtn = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  width: 28, height: 28, padding: 0,
+  background: 'transparent', border: '1px solid var(--border-default)',
+  borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer',
+  flexShrink: 0,
+};
+const scheduleFieldLabel = {
+  display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)',
+  marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em',
+};
 
 const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px', backgroundColor: 'var(--bg-panel)', borderBottom: '1px solid var(--border-default)', flexShrink: 0 };
 const navPillGroup = {
