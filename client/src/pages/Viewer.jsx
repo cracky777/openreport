@@ -575,6 +575,17 @@ export default function Viewer() {
     });
   }, [reportFilters, refreshCounter]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Print mode — fire one explicit refresh ~1s after the report loads, on top
+  // of the initial automatic fetch. The server-side renderer's networkidle0
+  // covers both rounds, so the captured PDF reflects truly fresh data even
+  // when there's a cache layer (Cube.js, model-level pre-aggregations) that
+  // could have served stale results to the initial mount.
+  useEffect(() => {
+    if (!printMode || !report) return;
+    const t = setTimeout(() => setRefreshCounter((n) => n + 1), 1000);
+    return () => clearTimeout(t);
+  }, [printMode, report?.id]);
+
   // Reset refreshing after re-render (simple approach — fetch is async, but UI feedback is fine)
   useEffect(() => {
     if (refreshing) {

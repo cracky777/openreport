@@ -571,6 +571,7 @@ export default function Dashboard() {
         .filter((s) => s.includes('@'))
         .map((email) => ({ email })),
       enabled: form.enabled !== false,
+      refreshTimeoutSeconds: Math.max(30, Math.min(600, parseInt(form.refreshTimeoutSeconds, 10) || 60)),
     };
     if (form.id) {
       await api.put(`/cloud/schedules/${form.id}`, payload);
@@ -1452,6 +1453,7 @@ function ScheduleEditor({ initial, onCancel, onSubmit }) {
     body: initial?.body || '',
     recipientsRaw: (initial?.recipients || []).map((r) => r.email).join(', '),
     enabled: initial?.enabled !== false,
+    refreshTimeoutSeconds: initial?.refresh_timeout_seconds ?? 60,
   }));
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState(null);
@@ -1525,6 +1527,19 @@ function ScheduleEditor({ initial, onCancel, onSubmit }) {
         rows={3}
         style={{ ...actionModalInput, resize: 'vertical' }}
       />
+
+      <label style={scheduleFieldLabel}>Refresh timeout (seconds)</label>
+      <input
+        type="number"
+        min={30}
+        max={600}
+        value={form.refreshTimeoutSeconds}
+        onChange={(e) => set('refreshTimeoutSeconds', e.target.value)}
+        style={actionModalInput}
+      />
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 12 }}>
+        Maximum time the renderer waits for the report to refresh before generating the PDF. Bump this if you have slow queries (default 60s, range 30–600s). The renderer also forces an explicit refresh on top of the initial load.
+      </div>
 
       <label style={{ ...scheduleFieldLabel, display: 'flex', alignItems: 'center', gap: 6 }}>
         <input type="checkbox" checked={form.enabled} onChange={(e) => set('enabled', e.target.checked)} />
