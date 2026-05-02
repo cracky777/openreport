@@ -1642,6 +1642,10 @@ const actionModalBackdrop = {
 const actionModalCard = {
   background: 'var(--bg-panel)', borderRadius: 10, padding: 20,
   minWidth: 360, maxWidth: 480,
+  // Cap the height so tall forms (schedule editor with all its fields) don't
+  // run past the viewport. The inner content scrolls when it overflows.
+  maxHeight: '85vh',
+  overflowY: 'auto',
   boxShadow: '0 10px 30px rgba(15,23,42,0.25)',
 };
 const actionModalTitle = {
