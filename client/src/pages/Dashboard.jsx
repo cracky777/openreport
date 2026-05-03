@@ -546,20 +546,37 @@ export default function Dashboard() {
     setCardMenu(null);
     setScheduleModal({ report, schedules: [], loading: true });
     try {
-      // Fetch list + plan limits in parallel — the editor needs both.
-      const [listRes, limitsRes] = await Promise.all([
+      // Fetch list + plan limits + the report's model in parallel. The
+      // model gives us the dimension list which the rule editor uses for
+      // filter-column autocomplete; failure here is non-fatal (the input
+      // still accepts free typing).
+      const [listRes, limitsRes, dimsRes] = await Promise.all([
         api.get(`/cloud/schedules/by-report/${report.id}`),
         api.get('/cloud/schedules/limits').catch(() => ({ data: null })),
+        loadReportDimensions(report.id).catch(() => []),
       ]);
       setScheduleModal({
         report,
         schedules: listRes.data.schedules || [],
         limits: limitsRes.data || null,
+        dimensions: dimsRes,
         loading: false,
       });
     } catch (err) {
-      setScheduleModal({ report, schedules: [], limits: null, loading: false, error: err.response?.data?.error || err.message });
+      setScheduleModal({ report, schedules: [], limits: null, dimensions: [], loading: false, error: err.response?.data?.error || err.message });
     }
+  };
+  // Resolve a report's dimension names so the rule editor can offer
+  // autocomplete. The dashboard cards don't carry model_id so we round-trip
+  // via /reports/:id then /models/:id. Returns an array of full dimension
+  // names (e.g. "orders.country") or [] on failure.
+  const loadReportDimensions = async (reportId) => {
+    const r = await api.get(`/reports/${reportId}`);
+    const modelId = r.data?.report?.model_id;
+    if (!modelId) return [];
+    const m = await api.get(`/models/${modelId}`);
+    const dims = m.data?.model?.dimensions;
+    return Array.isArray(dims) ? dims.map((d) => d.name).filter(Boolean) : [];
   };
   const refreshSchedules = async (reportId) => {
     const [listRes, limitsRes] = await Promise.all([
@@ -570,6 +587,7 @@ export default function Dashboard() {
       ...m,
       schedules: listRes.data.schedules || [],
       limits: limitsRes.data || m.limits || null,
+      // dimensions are stable across saves — preserve from previous state
       editing: null,
     } : m);
   };
@@ -1380,6 +1398,27 @@ export default function Dashboard() {
 // and won't be reused elsewhere.
 // ----------------------------------------------------------------------------
 
+// Populated lazily once and reused across editor mounts. Modern browsers
+// expose the full IANA list via Intl.supportedValuesOf — for older runtimes
+// we ship a small curated fallback covering the common cases.
+const TIMEZONE_OPTIONS = (() => {
+  try {
+    if (typeof Intl !== 'undefined' && typeof Intl.supportedValuesOf === 'function') {
+      const all = Intl.supportedValuesOf('timeZone');
+      if (Array.isArray(all) && all.length > 0) return all;
+    }
+  } catch { /* fall through */ }
+  return [
+    'UTC',
+    'Europe/Paris', 'Europe/London', 'Europe/Berlin', 'Europe/Madrid', 'Europe/Rome',
+    'Europe/Amsterdam', 'Europe/Brussels', 'Europe/Zurich', 'Europe/Lisbon',
+    'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+    'America/Toronto', 'America/Sao_Paulo',
+    'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Singapore', 'Asia/Dubai', 'Asia/Kolkata',
+    'Australia/Sydney', 'Pacific/Auckland',
+  ];
+})();
+
 const CRON_PRESETS = [
   { label: 'Every day at 9:00', expr: '0 9 * * *' },
   { label: 'Every Monday at 9:00', expr: '0 9 * * 1' },
@@ -1388,7 +1427,7 @@ const CRON_PRESETS = [
 ];
 
 function ScheduleModal({ modal, onClose, onStartCreate, onStartEdit, onCancelEdit, onSubmit, onToggle, onDelete, onRunNow }) {
-  const { report, schedules, loading, error, editing, limits } = modal;
+  const { report, schedules, loading, error, editing, limits, dimensions } = modal;
   const isEditing = editing === 'new' || (editing && typeof editing === 'object');
   const atQuota = !!(limits && limits.maxSchedules != null && (limits.currentSchedules ?? schedules.length) >= limits.maxSchedules);
   return (
@@ -1491,6 +1530,7 @@ function ScheduleModal({ modal, onClose, onStartCreate, onStartEdit, onCancelEdi
           <ScheduleEditor
             initial={editing === 'new' ? null : editing}
             limits={limits}
+            dimensions={dimensions || []}
             onCancel={onCancelEdit}
             onSubmit={onSubmit}
           />
@@ -1500,7 +1540,7 @@ function ScheduleModal({ modal, onClose, onStartCreate, onStartEdit, onCancelEdi
   );
 }
 
-function ScheduleEditor({ initial, limits, onCancel, onSubmit }) {
+function ScheduleEditor({ initial, limits, dimensions, onCancel, onSubmit }) {
   const isEdit = !!initial;
   const [form, setForm] = useState(() => ({
     id: initial?.id || null,
@@ -1563,13 +1603,35 @@ function ScheduleEditor({ initial, limits, onCancel, onSubmit }) {
         placeholder="0 9 * * 1"
         style={{ ...actionModalInput, fontFamily: 'monospace', fontSize: 12 }}
       />
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 12 }}>
-        Cron expression — minute hour day-of-month month day-of-week. Timezone: <code>{form.timezone}</code>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 8 }}>
+        Cron expression — minute hour day-of-month month day-of-week.
         {limits && limits.maxFiresPerDay != null && (
           <span style={{ display: 'block', marginTop: 4, color: 'var(--state-warning)' }}>
             Your {limits.planName || limits.plan} plan allows at most {limits.maxFiresPerDay} send{limits.maxFiresPerDay === 1 ? '' : 's'} per day per schedule.
           </span>
         )}
+      </div>
+
+      <label style={scheduleFieldLabel}>Timezone</label>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <input
+          list="schedule-timezones"
+          value={form.timezone}
+          onChange={(e) => set('timezone', e.target.value)}
+          placeholder="Europe/Paris"
+          style={{ ...actionModalInput, marginBottom: 0, fontFamily: 'monospace', fontSize: 12, flex: 1 }}
+        />
+        <button
+          type="button"
+          onClick={() => set('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}
+          style={{ background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '6px 10px', fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+          title="Use my browser's timezone"
+        >
+          Use browser TZ
+        </button>
+        <datalist id="schedule-timezones">
+          {TIMEZONE_OPTIONS.map((tz) => <option key={tz} value={tz} />)}
+        </datalist>
       </div>
 
       <label style={scheduleFieldLabel}>Recipients (comma- or newline-separated)</label>
@@ -1609,6 +1671,7 @@ function ScheduleEditor({ initial, limits, onCancel, onSubmit }) {
       <label style={scheduleFieldLabel}>Per-recipient filter rules</label>
       <RecipientRulesEditor
         rules={form.recipientRules || []}
+        dimensions={dimensions || []}
         onChange={(next) => set('recipientRules', next)}
       />
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -2, marginBottom: 12 }}>
@@ -1647,7 +1710,10 @@ function ScheduleEditor({ initial, limits, onCancel, onSubmit }) {
 // Inline editor for recipient_rules: each rule is { pattern, filters }
 // where filters is { column: ['v1','v2'] }. Values are typed as a comma-
 // separated string for ergonomics — split server-side too for safety.
-function RecipientRulesEditor({ rules, onChange }) {
+function RecipientRulesEditor({ rules, dimensions, onChange }) {
+  // One shared datalist for all column inputs across all rules — no need
+  // to namespace per row since they all draw from the same dimension list.
+  const datalistId = 'recipient-rule-dimensions';
   const updateRule = (idx, patch) => {
     const next = rules.slice();
     next[idx] = { ...next[idx], ...patch };
@@ -1691,6 +1757,11 @@ function RecipientRulesEditor({ rules, onChange }) {
 
   return (
     <div style={{ marginBottom: 6 }}>
+      {Array.isArray(dimensions) && dimensions.length > 0 && (
+        <datalist id={datalistId}>
+          {dimensions.map((d) => <option key={d} value={d} />)}
+        </datalist>
+      )}
       {rules.length === 0 && (
         <div style={{
           fontSize: 12, color: 'var(--text-muted)', padding: '10px 12px',
@@ -1725,8 +1796,9 @@ function RecipientRulesEditor({ rules, onChange }) {
               <input
                 value={col}
                 onChange={(e) => setFilterColAt(ri, col, e.target.value)}
-                placeholder="column"
-                style={{ ...actionModalInput, marginBottom: 0, flex: '0 0 35%', fontFamily: 'monospace', fontSize: 12 }}
+                placeholder={dimensions && dimensions.length > 0 ? 'pick a dimension' : 'column'}
+                list={dimensions && dimensions.length > 0 ? datalistId : undefined}
+                style={{ ...actionModalInput, marginBottom: 0, flex: '0 0 40%', fontFamily: 'monospace', fontSize: 12 }}
               />
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>=</span>
               <input
