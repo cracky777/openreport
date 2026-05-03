@@ -1461,10 +1461,7 @@ function ScheduleModal({ modal, runningIds, onClose, onStartCreate, onStartEdit,
   return (
     <div style={actionModalBackdrop} onClick={onClose}>
       <div style={{ ...actionModalCard, minWidth: 520, maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
-        <div style={actionModalTitle}>Email schedule — {report.title}</div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
-          Send a link to this report by email on a recurring schedule. Recipients without a login can only open public reports.
-        </div>
+        <div style={{ ...actionModalTitle, marginBottom: 14 }}>Email schedule — {report.title}</div>
         {limits && (
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
