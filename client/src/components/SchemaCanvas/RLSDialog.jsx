@@ -129,7 +129,7 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
             <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Row-level security</div>
             <div style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 600, marginTop: 2 }}>{tableName}</div>
           </div>
-          <button onClick={onClose} style={closeBtn}><TbX size={16} /></button>
+          <button className="btn-hover" onClick={onClose} style={closeBtn}><TbX size={16} /></button>
         </div>
 
         {/* Current state + enable toggle */}
@@ -232,6 +232,7 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
                                 {p}
                                 <button
                                   type="button"
+                                  className="btn-hover btn-hover-danger"
                                   onClick={(e) => { e.stopPropagation(); removePattern(key, i); }}
                                   style={chipRemoveStyle}
                                   title="Remove pattern"
@@ -256,6 +257,7 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
                             {draft.trim() && (
                               <button
                                 type="button"
+                                className="btn-hover btn-hover-accent"
                                 onMouseDown={(e) => e.preventDefault()} /* keep input focused so onBlur doesn't race */
                                 onClick={(e) => { e.stopPropagation(); addPattern(key); }}
                                 style={addBtnStyle}

@@ -73,7 +73,7 @@ export default function Login() {
             We sent a verification link to <strong style={{ color: 'var(--text-primary)' }}>{pendingEmail}</strong>.
             Click the link to confirm your address, then sign in.
           </p>
-          <button onClick={handleResend} disabled={resendStatus === 'sending' || resendStatus === 'sent'} style={{ ...buttonStyle, opacity: resendStatus === 'sent' ? 0.6 : 1 }}>
+          <button className="btn-hover btn-hover-primary" onClick={handleResend} disabled={resendStatus === 'sending' || resendStatus === 'sent'} style={{ ...buttonStyle, opacity: resendStatus === 'sent' ? 0.6 : 1 }}>
             {resendStatus === 'sending' ? 'Sending…' :
               resendStatus === 'sent' ? 'Email sent — check your inbox' :
               resendStatus === 'error' ? 'Retry — something went wrong' :
@@ -83,7 +83,7 @@ export default function Login() {
             Didn't receive anything? Check your spam folder. The resend button is rate-limited to once per minute.
           </p>
           <div style={{ textAlign: 'center', marginTop: 16, fontSize: 13 }}>
-            <button onClick={resetFlow} style={{ color: 'var(--accent-primary)', border: 'none', background: 'transparent', cursor: 'pointer', fontWeight: 500 }}>
+            <button className="btn-hover btn-hover-accent" onClick={resetFlow} style={{ color: 'var(--accent-primary)', border: '1px solid transparent', background: 'transparent', cursor: 'pointer', fontWeight: 500, padding: '4px 8px', borderRadius: 4 }}>
               ← Back to sign in
             </button>
           </div>
@@ -134,7 +134,7 @@ export default function Login() {
             required
             style={inputStyle}
           />
-          <button type="submit" style={buttonStyle}>
+          <button type="submit" className="btn-hover btn-hover-primary" style={buttonStyle}>
             {isRegister ? 'Register' : 'Sign in'}
           </button>
         </form>
@@ -142,8 +142,9 @@ export default function Login() {
         <div style={{ textAlign: 'center', marginTop: 16, fontSize: 13, color: 'var(--text-muted)' }}>
           {isRegister ? 'Already have an account?' : "Don't have an account?"}{' '}
           <button
+            className="btn-hover btn-hover-accent"
             onClick={() => { setIsRegister(!isRegister); setError(''); }}
-            style={{ color: 'var(--accent-primary)', border: 'none', background: 'transparent', cursor: 'pointer', fontWeight: 500 }}
+            style={{ color: 'var(--accent-primary)', border: '1px solid transparent', background: 'transparent', cursor: 'pointer', fontWeight: 500, padding: '4px 8px', borderRadius: 4 }}
           >
             {isRegister ? 'Sign in' : 'Register'}
           </button>

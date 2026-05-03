@@ -166,7 +166,7 @@ export default function Datasources() {
         ) : datasources.length === 0 && !showForm ? (
           <div style={{ textAlign: 'center', marginTop: 80 }}>
             <p style={{ fontSize: 16, color: 'var(--text-muted)', marginBottom: 12 }}>No data sources configured</p>
-            <button onClick={() => setShowForm(true)} style={primaryBtn}>Add your first data source</button>
+            <button className="btn-hover btn-hover-primary" onClick={() => setShowForm(true)} style={primaryBtn}>Add your first data source</button>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -189,11 +189,11 @@ export default function Datasources() {
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     {!isUploadedFile && (
-                      <button onClick={() => handleEdit(ds)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px' }}>
+                      <button className="btn-hover" onClick={() => handleEdit(ds)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px' }}>
                         Edit
                       </button>
                     )}
-                    <button onClick={() => handleDelete(ds.id)} style={{ ...secondaryBtn, color: 'var(--state-danger)', borderColor: 'var(--state-danger)', fontSize: 12, padding: '4px 10px' }}>
+                    <button className="btn-hover btn-hover-danger" onClick={() => handleDelete(ds.id)} style={{ ...secondaryBtn, color: 'var(--state-danger)', borderColor: 'var(--state-danger)', fontSize: 12, padding: '4px 10px' }}>
                       Delete
                     </button>
                   </div>

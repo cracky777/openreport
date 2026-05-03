@@ -364,6 +364,7 @@ export default function ModelEditor() {
             return (
               <button
                 key={i}
+                className="btn-hover"
                 onClick={() => {
                   if (i === 1 && step === 0) enterStep1();
                   else setStep(i);
@@ -432,7 +433,7 @@ export default function ModelEditor() {
               )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
-              <button onClick={() => setShowDsChange(false)}
+              <button className="btn-hover" onClick={() => setShowDsChange(false)}
                 style={{ padding: '6px 14px', fontSize: 13, background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}>
                 Cancel
               </button>
@@ -484,6 +485,7 @@ export default function ModelEditor() {
               <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{selectedTables.length} table(s) selected</span>
                 <button
+                  className="btn-hover btn-hover-primary"
                   onClick={enterStep1}
                   disabled={selectedTables.length === 0}
                   style={{ ...primaryBtn, opacity: selectedTables.length === 0 ? 0.5 : 1 }}
@@ -525,7 +527,7 @@ export default function ModelEditor() {
               {brokenRefs.length > 6 && <li>…and {brokenRefs.length - 6} more</li>}
             </ul>
           </div>
-          <button onClick={runValidation} disabled={validating}
+          <button className="btn-hover" onClick={runValidation} disabled={validating}
             style={{
               padding: '4px 10px', fontSize: 12, fontWeight: 500,
               background: 'var(--bg-panel)', color: 'var(--state-warning)', border: '1px solid #fcd34d',
@@ -655,7 +657,7 @@ export default function ModelEditor() {
                           />
                         </td>
                         <td style={tdStyle}>
-                          <button onClick={() => removeDimension(d.name)} style={removeBtn}>Remove</button>
+                          <button className="btn-hover btn-hover-danger" onClick={() => removeDimension(d.name)} style={removeBtn}>Remove</button>
                         </td>
                       </tr>
                       );
@@ -669,7 +671,7 @@ export default function ModelEditor() {
             <div style={cardStyle}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                 <h3 style={{ ...cardTitle, marginBottom: 0 }}>Measures ({measures.length})</h3>
-                <button onClick={() => setShowCalcMeasure(true)} style={addCalcBtn}>+ Measure</button>
+                <button className="btn-hover btn-hover-accent" onClick={() => setShowCalcMeasure(true)} style={addCalcBtn}>+ Measure</button>
               </div>
 
               {showCalcMeasure && (
@@ -686,8 +688,8 @@ export default function ModelEditor() {
                     model={{ dimensions, measures }}
                   />
                   <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                    <button onClick={() => { setShowCalcMeasure(false); setCalcMeasure({ label: '', expression: '' }); }} style={calcCancelBtn}>Cancel</button>
-                    <button onClick={addCalculatedMeasure} disabled={!calcMeasure.label || !calcMeasure.expression} style={calcSaveBtn}>Add</button>
+                    <button className="btn-hover" onClick={() => { setShowCalcMeasure(false); setCalcMeasure({ label: '', expression: '' }); }} style={calcCancelBtn}>Cancel</button>
+                    <button className="btn-hover btn-hover-primary" onClick={addCalculatedMeasure} disabled={!calcMeasure.label || !calcMeasure.expression} style={calcSaveBtn}>Add</button>
                   </div>
                 </div>
               )}
@@ -745,7 +747,7 @@ export default function ModelEditor() {
                           />
                         </td>
                         <td style={tdStyle}>
-                          <button onClick={() => removeMeasure(m.name)} style={removeBtn}>Remove</button>
+                          <button className="btn-hover btn-hover-danger" onClick={() => removeMeasure(m.name)} style={removeBtn}>Remove</button>
                         </td>
                       </tr>
                       );
@@ -769,7 +771,7 @@ export default function ModelEditor() {
                       <span style={{ ...badge, background: 'var(--bg-active)', color: 'var(--accent-primary)' }}>{j.type}</span>
                       <span style={{ fontWeight: 600 }}>{j.to_table}</span>
                       <span style={{ color: 'var(--text-muted)' }}>.{j.to_column}</span>
-                      <button onClick={() => setJoins((prev) => prev.filter((_, idx) => idx !== i))} style={{ ...removeBtn, marginLeft: 'auto' }}>x</button>
+                      <button className="btn-hover btn-hover-danger" onClick={() => setJoins((prev) => prev.filter((_, idx) => idx !== i))} style={{ ...removeBtn, marginLeft: 'auto' }}>x</button>
                     </div>
                   ))}
                 </div>

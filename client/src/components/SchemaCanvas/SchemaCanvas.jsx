@@ -322,19 +322,20 @@ export default function SchemaCanvas({
             flexShrink: 0,
           }}>!</span>
           <span style={{ fontSize: 12, color: '#991b1b', fontWeight: 500 }}>{cycleWarning}</span>
-          <button onClick={() => setCycleWarning(null)} style={{
-            background: 'transparent', border: 'none', cursor: 'pointer',
-            color: 'var(--state-danger)', fontSize: 16, padding: 0, lineHeight: 1, flexShrink: 0,
+          <button className="btn-hover btn-hover-danger" onClick={() => setCycleWarning(null)} style={{
+            background: 'transparent', border: '1px solid transparent', cursor: 'pointer',
+            color: 'var(--state-danger)', fontSize: 16, padding: '2px 6px', lineHeight: 1, flexShrink: 0,
+            borderRadius: 4,
           }}>x</button>
         </div>
       )}
 
       {/* Zoom controls */}
       <div style={{ position: 'absolute', bottom: 12, right: 12, zIndex: 10, display: 'flex', gap: 4, background: 'var(--bg-panel)', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.12)', padding: 4 }}>
-        <button onClick={() => setZoom((z) => Math.min(2, z + 0.15))} style={zoomBtn}>+</button>
+        <button className="btn-hover" onClick={() => setZoom((z) => Math.min(2, z + 0.15))} style={zoomBtn}>+</button>
         <span style={{ fontSize: 11, padding: '4px 6px', color: 'var(--text-muted)', minWidth: 36, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
-        <button onClick={() => setZoom((z) => Math.max(0.3, z - 0.15))} style={zoomBtn}>-</button>
-        <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} style={{ ...zoomBtn, fontSize: 10, width: 'auto', padding: '4px 8px' }}>Reset</button>
+        <button className="btn-hover" onClick={() => setZoom((z) => Math.max(0.3, z - 0.15))} style={zoomBtn}>-</button>
+        <button className="btn-hover" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} style={{ ...zoomBtn, fontSize: 10, width: 'auto', padding: '4px 8px' }}>Reset</button>
       </div>
 
       <svg

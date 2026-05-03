@@ -81,7 +81,7 @@ export default function Models() {
               {datasources.length === 0 && (
                 <p style={{ fontSize: 12, color: 'var(--state-danger)', marginTop: 4 }}>
                   No data sources configured.{' '}
-                  <button onClick={() => navigate('/datasources')} style={{ color: 'var(--accent-primary)', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 12 }}>
+                  <button className="btn-hover btn-hover-accent" onClick={() => navigate('/datasources')} style={{ color: 'var(--accent-primary)', background: 'transparent', border: '1px solid transparent', cursor: 'pointer', fontSize: 12, padding: '2px 6px', borderRadius: 4 }}>
                     Add one first
                   </button>
                 </p>
@@ -97,8 +97,8 @@ export default function Models() {
               />
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowForm(false)} style={secondaryBtn}>Cancel</button>
-              <button onClick={handleCreate} style={primaryBtn}>Create & Configure</button>
+              <button className="btn-hover" onClick={() => setShowForm(false)} style={secondaryBtn}>Cancel</button>
+              <button className="btn-hover btn-hover-primary" onClick={handleCreate} style={primaryBtn}>Create & Configure</button>
             </div>
           </div>
         )}
@@ -111,7 +111,7 @@ export default function Models() {
             <p style={{ fontSize: 13, color: 'var(--text-disabled)', marginBottom: 16 }}>
               Models define which tables, dimensions, and measures are available in your reports.
             </p>
-            <button onClick={() => setShowForm(true)} style={primaryBtn}>Create your first model</button>
+            <button className="btn-hover btn-hover-primary" onClick={() => setShowForm(true)} style={primaryBtn}>Create your first model</button>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -125,8 +125,8 @@ export default function Models() {
                   {m.description && <div style={{ fontSize: 12, color: 'var(--text-disabled)', marginTop: 2 }}>{m.description}</div>}
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => navigate(`/models/${m.id}`)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px' }}>Edit</button>
-                  <button onClick={() => handleDelete(m.id)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px', color: 'var(--state-danger)', borderColor: 'var(--state-danger)' }}>Delete</button>
+                  <button className="btn-hover" onClick={() => navigate(`/models/${m.id}`)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px' }}>Edit</button>
+                  <button className="btn-hover btn-hover-danger" onClick={() => handleDelete(m.id)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px', color: 'var(--state-danger)', borderColor: 'var(--state-danger)' }}>Delete</button>
                 </div>
               </div>
             ))}

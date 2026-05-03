@@ -159,11 +159,11 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
       )}
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        <button onClick={onCancel} style={secondaryBtn}>Cancel</button>
-        <button onClick={handleTest} disabled={testing} style={{ ...secondaryBtn, color: 'var(--accent-primary)', borderColor: 'var(--accent-primary)' }}>
+        <button className="btn-hover" onClick={onCancel} style={secondaryBtn}>Cancel</button>
+        <button className="btn-hover btn-hover-accent" onClick={handleTest} disabled={testing} style={{ ...secondaryBtn, color: 'var(--accent-primary)', borderColor: 'var(--accent-primary)' }}>
           {testing ? 'Testing...' : 'Test Connection'}
         </button>
-        <button onClick={handleSave} disabled={saving} style={primaryBtn}>
+        <button className="btn-hover btn-hover-primary" onClick={handleSave} disabled={saving} style={primaryBtn}>
           {saving ? 'Saving...' : (editingId ? 'Update' : 'Save')}
         </button>
       </div>

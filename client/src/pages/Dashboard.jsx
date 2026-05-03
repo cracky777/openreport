@@ -718,7 +718,7 @@ export default function Dashboard() {
                 <div style={userMenuSectionLabel}>Theme</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 8px 8px' }}>
                   {/* "System" follows the OS preference */}
-                  <button onClick={() => setThemeMode('system')} style={themeRowBtn(themeMode === 'system')}>
+                  <button className="btn-hover" onClick={() => setThemeMode('system')} style={themeRowBtn(themeMode === 'system')}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                       <TbDeviceLaptop size={14} />
                       <span>System</span>
@@ -730,7 +730,7 @@ export default function Dashboard() {
                     const active = themeMode === key;
                     const Icon = theme.kind === 'dark' ? TbMoon : TbSun;
                     return (
-                      <button key={key} onClick={() => setThemeMode(key)} style={themeRowBtn(active)}>
+                      <button key={key} className="btn-hover" onClick={() => setThemeMode(key)} style={themeRowBtn(active)}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                           <span style={{
                             width: 14, height: 14, borderRadius: 3,
@@ -876,20 +876,21 @@ export default function Dashboard() {
                 <>
                   {wsUserRole === 'admin' && !editingWsName && (
                     <button
+                      className="btn-hover"
                       onClick={() => { setEditedWsName(wsName); setEditingWsName(true); }}
                       style={{ ...iconBtn, color: 'var(--text-muted)' }}
                       title="Rename workspace"
                     >
-                      <TbEdit size={14} />
+                      <TbEdit size={16} />
                     </button>
                   )}
                   {!wsIsPersonalOrg && wsCanSeeMembers && (
-                    <button onClick={() => setShowMembers(!showMembers)} style={{ ...iconBtn, color: 'var(--text-muted)' }} title="Members">
+                    <button className="btn-hover" onClick={() => setShowMembers(!showMembers)} style={{ ...iconBtn, color: 'var(--text-muted)' }} title="Members">
                       <TbUsers size={16} />
                     </button>
                   )}
                   {wsUserRole === 'admin' && (
-                    <button onClick={() => deleteWorkspace(selectedWs)} style={{ ...iconBtn, color: 'var(--state-danger)' }} title="Delete workspace">
+                    <button className="btn-hover btn-hover-danger" onClick={() => deleteWorkspace(selectedWs)} style={{ ...iconBtn, color: 'var(--state-danger)' }} title="Delete workspace">
                       <TbTrash size={14} />
                     </button>
                   )}
@@ -906,13 +907,14 @@ export default function Dashboard() {
                   onChange={handleImportFile}
                 />
                 <button
+                  className="btn-hover btn-hover-accent"
                   onClick={() => { setImportError(''); importFileRef.current?.click(); }}
                   style={{ ...primaryBtn, background: 'var(--bg-panel)', color: 'var(--accent-primary)', border: '1px solid var(--accent-primary-border)' }}
                   title="Import a report from a .openreport.json file"
                 >
                   Import
                 </button>
-                <button onClick={() => { setNewTitle(''); setNewModelId(''); setCreateMode(null); setUploadError(''); setShowCreate(true); }} style={primaryBtn}>+ New Report</button>
+                <button className="btn-hover btn-hover-primary" onClick={() => { setNewTitle(''); setNewModelId(''); setCreateMode(null); setUploadError(''); setShowCreate(true); }} style={primaryBtn}>+ New Report</button>
               </div>
             )}
           </div>
@@ -939,7 +941,7 @@ export default function Dashboard() {
                           <option value="editor">Editor</option>
                           <option value="viewer">Viewer</option>
                         </select>
-                        <button onClick={() => removeMember(m.id)} style={{ ...iconBtn, padding: '2px 4px' }}><TbX size={12} /></button>
+                        <button className="btn-hover btn-hover-danger" onClick={() => removeMember(m.id)} style={{ ...iconBtn, padding: '2px 4px' }}><TbX size={12} /></button>
                       </>
                     ) : (
                       <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{m.role}</span>
@@ -975,7 +977,7 @@ export default function Dashboard() {
                     <option value="editor">Editor</option>
                     <option value="admin">Admin</option>
                   </select>
-                  <button onClick={addMember} style={{ padding: '4px 8px', border: 'none', borderRadius: 4, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center' }}>
+                  <button className="btn-hover btn-hover-primary" onClick={addMember} style={{ padding: '4px 8px', border: 'none', borderRadius: 4, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center' }}>
                     <TbUserPlus size={14} />
                   </button>
                 </div>
@@ -1014,8 +1016,8 @@ export default function Dashboard() {
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                  <button onClick={cancelImport} style={{ ...primaryBtn, background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border-default)' }}>Cancel</button>
-                  <button onClick={submitImport} disabled={!importModelId || importing} style={primaryBtn}>
+                  <button className="btn-hover" onClick={cancelImport} style={{ ...primaryBtn, background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border-default)' }}>Cancel</button>
+                  <button className="btn-hover btn-hover-primary" onClick={submitImport} disabled={!importModelId || importing} style={primaryBtn}>
                     {importing ? 'Importing…' : 'Import'}
                   </button>
                 </div>
@@ -1050,25 +1052,25 @@ export default function Dashboard() {
                     <label style={{ ...labelStyle, marginBottom: 10 }}>Data source</label>
                     <div style={{ display: 'flex', gap: 10 }}>
                       {models.length > 0 && (
-                        <button onClick={() => setCreateMode('model')} style={sourceCard}>
+                        <button className="btn-hover" onClick={() => setCreateMode('model')} style={sourceCard}>
                           <TbLayoutDashboard size={28} color="var(--accent-primary)" />
                           <span style={{ fontWeight: 600, fontSize: 13 }}>Existing Model</span>
                           <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>Use a data model already configured</span>
                         </button>
                       )}
-                      <button onClick={() => setCreateMode('file')} style={sourceCard}>
+                      <button className="btn-hover" onClick={() => setCreateMode('file')} style={sourceCard}>
                         <TbUpload size={28} color="#16a34a" />
                         <span style={{ fontWeight: 600, fontSize: 13 }}>Import File</span>
                         <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>CSV, Excel, Parquet, JSON</span>
                       </button>
-                      <button onClick={() => setCreateMode('connection')} style={sourceCard}>
+                      <button className="btn-hover" onClick={() => setCreateMode('connection')} style={sourceCard}>
                         <TbDatabase size={28} color="#f59e0b" />
                         <span style={{ fontWeight: 600, fontSize: 13 }}>Database</span>
                         <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>Connect to a database</span>
                       </button>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                      <button onClick={() => { setShowCreate(false); setCreateMode(null); }} style={secondaryBtn}>Cancel</button>
+                      <button className="btn-hover" onClick={() => { setShowCreate(false); setCreateMode(null); }} style={secondaryBtn}>Cancel</button>
                     </div>
                   </div>
                 )}
@@ -1084,8 +1086,8 @@ export default function Dashboard() {
                       </select>
                     </div>
                     <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
-                      <button onClick={() => setCreateMode(null)} style={secondaryBtn}>← Back</button>
-                      <button onClick={handleCreate} disabled={!newModelId} style={{ ...primaryBtn, opacity: newModelId ? 1 : 0.5 }}>Create Report</button>
+                      <button className="btn-hover" onClick={() => setCreateMode(null)} style={secondaryBtn}>← Back</button>
+                      <button className="btn-hover btn-hover-primary" onClick={handleCreate} disabled={!newModelId} style={{ ...primaryBtn, opacity: newModelId ? 1 : 0.5 }}>Create Report</button>
                     </div>
                   </div>
                 )}
@@ -1117,7 +1119,7 @@ export default function Dashboard() {
                     </div>
                     {uploadError && <div style={{ color: 'var(--state-danger)', fontSize: 12, marginBottom: 8 }}>{uploadError}</div>}
                     <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-                      <button onClick={() => { setCreateMode(null); setUploadError(''); }} style={secondaryBtn}>← Back</button>
+                      <button className="btn-hover" onClick={() => { setCreateMode(null); setUploadError(''); }} style={secondaryBtn}>← Back</button>
                     </div>
                   </div>
                 )}
@@ -1222,7 +1224,18 @@ export default function Dashboard() {
                               <TbCopy size={14} /> Duplicate
                             </button>
                             <button style={cardMenuItem}
-                              onClick={() => { setCardMenu(null); setMoveModal({ report, targetWs: report.workspace_id || '' }); }}
+                              onClick={() => {
+                                setCardMenu(null);
+                                // Pre-select the first workspace that ISN'T the report's current one,
+                                // otherwise the Move button opens disabled and visually differs from
+                                // its enabled twin in the Rename modal.
+                                const candidates = [
+                                  ...(personalWorkspace ? [personalWorkspace] : []),
+                                  ...workspaces,
+                                ];
+                                const firstOther = candidates.find((w) => w.id !== report.workspace_id);
+                                setMoveModal({ report, targetWs: firstOther ? firstOther.id : '' });
+                              }}
                               onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                               onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                               <TbArrowsRightLeft size={14} /> Move to workspace
@@ -1281,8 +1294,8 @@ export default function Dashboard() {
               onKeyDown={(e) => { if (e.key === 'Enter') submitRename(); }}
               style={actionModalInput} placeholder="Report title" />
             <div style={actionModalActions}>
-              <button style={actionModalBtnSecondary} onClick={() => setRenameModal(null)}>Cancel</button>
-              <button style={actionModalBtnPrimary} onClick={submitRename} disabled={!renameModal.value.trim()}>Save</button>
+              <button className="btn-hover" style={actionModalBtnSecondary} onClick={() => setRenameModal(null)}>Cancel</button>
+              <button className="btn-hover btn-hover-primary" style={actionModalBtnPrimary} onClick={submitRename} disabled={!renameModal.value.trim()}>Save</button>
             </div>
           </div>
         </div>
@@ -1304,11 +1317,8 @@ export default function Dashboard() {
               ))}
             </select>
             <div style={actionModalActions}>
-              <button style={actionModalBtnSecondary} onClick={() => setMoveModal(null)}>Cancel</button>
-              <button style={actionModalBtnPrimary} onClick={submitMove}
-                disabled={!moveModal.targetWs || moveModal.targetWs === moveModal.report.workspace_id}>
-                Move
-              </button>
+              <button className="btn-hover" style={actionModalBtnSecondary} onClick={() => setMoveModal(null)}>Cancel</button>
+              <button className="btn-hover btn-hover-primary" style={actionModalBtnPrimary} onClick={submitMove} disabled={!moveModal.targetWs || moveModal.targetWs === moveModal.report.workspace_id}>Move</button>
             </div>
           </div>
         </div>
@@ -1343,7 +1353,7 @@ export default function Dashboard() {
                         {new Date(v.saved_at).toLocaleString()} · {v.saved_by_name || v.saved_by_email || 'unknown'}
                       </div>
                     </div>
-                    <button style={historyRestoreBtn} onClick={() => restoreVersion(v.id)} title="Restore this version">
+                    <button className="btn-hover btn-hover-accent" style={historyRestoreBtn} onClick={() => restoreVersion(v.id)} title="Restore this version">
                       <TbArrowBackUp size={14} /> Restore
                     </button>
                   </div>
@@ -1351,7 +1361,7 @@ export default function Dashboard() {
               </div>
             )}
             <div style={actionModalActions}>
-              <button style={actionModalBtnSecondary} onClick={() => setHistoryModal(null)}>Close</button>
+              <button className="btn-hover" style={actionModalBtnSecondary} onClick={() => setHistoryModal(null)}>Close</button>
             </div>
           </div>
         </div>
@@ -1514,6 +1524,7 @@ function ScheduleModal({ modal, onClose, onStartCreate, onStartEdit, onCancelEdi
             )}
             <div style={{ ...actionModalActions, justifyContent: 'space-between' }}>
               <button
+                className="btn-hover btn-hover-primary"
                 style={atQuota ? { ...actionModalBtnPrimary, opacity: 0.5, cursor: 'not-allowed' } : actionModalBtnPrimary}
                 onClick={onStartCreate}
                 disabled={atQuota}
@@ -1521,7 +1532,7 @@ function ScheduleModal({ modal, onClose, onStartCreate, onStartEdit, onCancelEdi
               >
                 + New schedule
               </button>
-              <button style={actionModalBtnSecondary} onClick={onClose}>Close</button>
+              <button className="btn-hover" style={actionModalBtnSecondary} onClick={onClose}>Close</button>
             </div>
           </>
         )}
@@ -1623,6 +1634,7 @@ function ScheduleEditor({ initial, limits, dimensions, onCancel, onSubmit }) {
         />
         <button
           type="button"
+          className="btn-hover"
           onClick={() => set('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}
           style={{ background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '6px 10px', fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer', whiteSpace: 'nowrap' }}
           title="Use my browser's timezone"
@@ -1698,8 +1710,8 @@ function ScheduleEditor({ initial, limits, dimensions, onCancel, onSubmit }) {
       {err && <div style={{ color: 'var(--state-danger)', fontSize: 12, marginBottom: 10 }}>{err}</div>}
 
       <div style={actionModalActions}>
-        <button style={actionModalBtnSecondary} onClick={onCancel} disabled={submitting}>Cancel</button>
-        <button style={actionModalBtnPrimary} onClick={handleSubmit} disabled={submitting}>
+        <button className="btn-hover" style={actionModalBtnSecondary} onClick={onCancel} disabled={submitting}>Cancel</button>
+        <button className="btn-hover btn-hover-primary" style={actionModalBtnPrimary} onClick={handleSubmit} disabled={submitting}>
           {submitting ? 'Saving…' : (isEdit ? 'Save' : 'Create')}
         </button>
       </div>
@@ -1784,6 +1796,7 @@ function RecipientRulesEditor({ rules, dimensions, onChange }) {
             />
             <button
               type="button"
+              className="btn-hover btn-hover-danger"
               onClick={() => removeRule(ri)}
               style={{ background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '4px 8px', fontSize: 11, color: 'var(--state-danger)', cursor: 'pointer' }}
               title="Remove rule"
@@ -1809,8 +1822,9 @@ function RecipientRulesEditor({ rules, dimensions, onChange }) {
               />
               <button
                 type="button"
+                className="btn-hover btn-hover-danger"
                 onClick={() => removeFilterAt(ri, col)}
-                style={{ background: 'transparent', border: 'none', color: 'var(--text-disabled)', fontSize: 16, cursor: 'pointer', padding: '0 6px' }}
+                style={{ background: 'transparent', border: '1px solid transparent', color: 'var(--text-disabled)', fontSize: 16, cursor: 'pointer', padding: '0 6px', borderRadius: 4 }}
                 title="Remove filter"
               >
                 ×
@@ -1819,6 +1833,7 @@ function RecipientRulesEditor({ rules, dimensions, onChange }) {
           ))}
           <button
             type="button"
+            className="btn-hover btn-hover-accent"
             onClick={() => addFilterTo(ri)}
             style={{ background: 'transparent', border: '1px dashed var(--border-default)', borderRadius: 4, padding: '4px 10px', fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer', marginTop: 4 }}
           >
@@ -1828,6 +1843,7 @@ function RecipientRulesEditor({ rules, dimensions, onChange }) {
       ))}
       <button
         type="button"
+        className="btn-hover btn-hover-accent"
         onClick={addRule}
         style={{ ...actionModalBtnSecondary, padding: '6px 12px', fontSize: 12 }}
       >

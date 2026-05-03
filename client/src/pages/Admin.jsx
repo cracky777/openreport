@@ -123,8 +123,8 @@ export default function Admin() {
               </select>
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowCreate(false)} style={secondaryBtn}>Cancel</button>
-              <button onClick={createUser} style={primaryBtn}>Create</button>
+              <button className="btn-hover" onClick={() => setShowCreate(false)} style={secondaryBtn}>Cancel</button>
+              <button className="btn-hover btn-hover-primary" onClick={createUser} style={primaryBtn}>Create</button>
             </div>
           </div>
         )}
@@ -159,11 +159,11 @@ export default function Admin() {
                     <td style={tdStyle}>{new Date(u.created_at).toLocaleDateString()}</td>
                     <td style={tdStyle}>
                       <div style={{ display: 'flex', gap: 4 }}>
-                        <button onClick={() => { setResetPw(u.id); setNewPw(''); }} title="Reset password" style={iconBtn}>
+                        <button className="btn-hover btn-hover-accent" onClick={() => { setResetPw(u.id); setNewPw(''); }} title="Reset password" style={iconBtn}>
                           <TbKey size={14} />
                         </button>
                         {u.id !== user.id && (
-                          <button onClick={() => deleteUser(u.id)} title="Delete" style={{ ...iconBtn, color: 'var(--state-danger)' }}>
+                          <button className="btn-hover btn-hover-danger" onClick={() => deleteUser(u.id)} title="Delete" style={{ ...iconBtn, color: 'var(--state-danger)' }}>
                             <TbTrash size={14} />
                           </button>
                         )}
@@ -172,7 +172,7 @@ export default function Admin() {
                         <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                           <input type="password" placeholder="New password" value={newPw}
                             onChange={(e) => setNewPw(e.target.value)} style={{ ...inputStyle, padding: '4px 6px', fontSize: 12, width: 120 }} />
-                          <button onClick={() => resetPassword(u.id)} style={{ ...primaryBtn, padding: '4px 8px', fontSize: 11 }}>Set</button>
+                          <button className="btn-hover btn-hover-primary" onClick={() => resetPassword(u.id)} style={{ ...primaryBtn, padding: '4px 8px', fontSize: 11 }}>Set</button>
                         </div>
                       )}
                     </td>

@@ -163,3 +163,50 @@ body {
   from { opacity: 0; transform: translate(-50%, -2px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
+
+/* ─── Button hover utilities ──────────────────────────────────────────
+ * Consistent hover feedback that matches the workspace report-card
+ * action buttons. Apply `.btn-hover` to any button (or button-like
+ * element) and optionally one of the variant classes:
+ *   - default (no variant): bg-hover + border-strong
+ *   - .btn-hover-accent : accent-primary-soft + accent-primary
+ *   - .btn-hover-success: state-success-soft + state-success
+ *   - .btn-hover-danger : state-danger-soft + state-danger
+ *   - .btn-hover-muted  : same as default
+ *   - .btn-hover-primary: darken purple (for filled accent buttons)
+ *
+ * The hover rules use `!important` so they win against the per-button
+ * inline `style` attribute that most pages still rely on. They are
+ * scoped to `:hover:not(:disabled)` so disabled buttons stay flat.
+ */
+.btn-hover {
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s,
+              opacity 0.12s, filter 0.12s, box-shadow 0.12s, transform 0.12s !important;
+}
+.btn-hover:hover:not(:disabled) {
+  background-color: var(--bg-hover) !important;
+  border-color: var(--border-strong) !important;
+}
+.btn-hover.btn-hover-accent:hover:not(:disabled) {
+  background-color: var(--accent-primary-soft) !important;
+  border-color: var(--accent-primary) !important;
+  color: var(--accent-primary) !important;
+}
+.btn-hover.btn-hover-success:hover:not(:disabled) {
+  background-color: var(--state-success-soft) !important;
+  border-color: var(--state-success) !important;
+  color: var(--state-success) !important;
+}
+.btn-hover.btn-hover-danger:hover:not(:disabled) {
+  background-color: var(--state-danger-soft) !important;
+  border-color: var(--state-danger) !important;
+  color: var(--state-danger) !important;
+}
+.btn-hover.btn-hover-muted:hover:not(:disabled) {
+  background-color: var(--bg-hover) !important;
+  border-color: var(--border-strong) !important;
+}
+.btn-hover.btn-hover-primary:hover:not(:disabled) {
+  background-color: var(--accent-primary-hover) !important;
+  border-color: var(--accent-primary-hover) !important;
+}
