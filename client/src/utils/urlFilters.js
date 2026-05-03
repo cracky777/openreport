@@ -78,3 +78,42 @@ export function syncFiltersToUrl(filters, model) {
     window.history.replaceState({}, '', newUrl);
   }
 }
+
+/**
+ * Decode the `pf=` param ("print filters") used by the cloud scheduler's
+ * server-side renderer to inject per-recipient filter overrides. Format:
+ * base64url-encoded JSON object whose keys match dimension names (full or
+ * short, same resolution as `?f_…`).
+ *
+ * Returns null if the param is absent or unreadable. The caller is expected
+ * to merge the result into `reportFilters` BEFORE the first data fetch so
+ * the personalised query goes out on the initial round.
+ */
+export function parsePrintFiltersFromUrl(search, model) {
+  if (!model || !Array.isArray(model.dimensions)) return null;
+  const params = new URLSearchParams(search || '');
+  const raw = params.get('pf');
+  if (!raw) return null;
+  let decoded;
+  try {
+    // base64url → base64 (Node's base64url is browser-safe; we rebuild for
+    // Safari which lacks atob('-_') support).
+    const b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    const json = atob(padded);
+    decoded = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (!decoded || typeof decoded !== 'object') return null;
+  const out = {};
+  for (const [key, vals] of Object.entries(decoded)) {
+    const dim = model.dimensions.find((d) => d.name === key)
+      || model.dimensions.find((d) => shortName(d.name) === key);
+    if (!dim) continue;
+    const arr = Array.isArray(vals) ? vals : [vals];
+    const cleaned = arr.map((v) => (v == null ? '' : String(v))).filter((v) => v !== '');
+    if (cleaned.length > 0) out[dim.name] = cleaned;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}

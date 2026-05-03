@@ -546,15 +546,32 @@ export default function Dashboard() {
     setCardMenu(null);
     setScheduleModal({ report, schedules: [], loading: true });
     try {
-      const res = await api.get(`/cloud/schedules/by-report/${report.id}`);
-      setScheduleModal({ report, schedules: res.data.schedules || [], loading: false });
+      // Fetch list + plan limits in parallel — the editor needs both.
+      const [listRes, limitsRes] = await Promise.all([
+        api.get(`/cloud/schedules/by-report/${report.id}`),
+        api.get('/cloud/schedules/limits').catch(() => ({ data: null })),
+      ]);
+      setScheduleModal({
+        report,
+        schedules: listRes.data.schedules || [],
+        limits: limitsRes.data || null,
+        loading: false,
+      });
     } catch (err) {
-      setScheduleModal({ report, schedules: [], loading: false, error: err.response?.data?.error || err.message });
+      setScheduleModal({ report, schedules: [], limits: null, loading: false, error: err.response?.data?.error || err.message });
     }
   };
   const refreshSchedules = async (reportId) => {
-    const res = await api.get(`/cloud/schedules/by-report/${reportId}`);
-    setScheduleModal((m) => m ? { ...m, schedules: res.data.schedules || [], editing: null } : m);
+    const [listRes, limitsRes] = await Promise.all([
+      api.get(`/cloud/schedules/by-report/${reportId}`),
+      api.get('/cloud/schedules/limits').catch(() => ({ data: null })),
+    ]);
+    setScheduleModal((m) => m ? {
+      ...m,
+      schedules: listRes.data.schedules || [],
+      limits: limitsRes.data || m.limits || null,
+      editing: null,
+    } : m);
   };
   const submitSchedule = async (form) => {
     if (!scheduleModal) return;
@@ -572,6 +589,17 @@ export default function Dashboard() {
         .map((email) => ({ email })),
       enabled: form.enabled !== false,
       refreshTimeoutSeconds: Math.max(30, Math.min(600, parseInt(form.refreshTimeoutSeconds, 10) || 60)),
+      perRecipientRender: !!form.perRecipientRender,
+      recipientRules: (form.recipientRules || [])
+        .map((r) => ({
+          pattern: (r.pattern || '').trim(),
+          filters: Object.fromEntries(
+            Object.entries(r.filters || {})
+              .map(([k, v]) => [k.trim(), Array.isArray(v) ? v : String(v || '').split(',').map((s) => s.trim()).filter((s) => s)])
+              .filter(([k, v]) => k && v.length > 0),
+          ),
+        }))
+        .filter((r) => r.pattern),
     };
     if (form.id) {
       await api.put(`/cloud/schedules/${form.id}`, payload);
@@ -1360,8 +1388,9 @@ const CRON_PRESETS = [
 ];
 
 function ScheduleModal({ modal, onClose, onStartCreate, onStartEdit, onCancelEdit, onSubmit, onToggle, onDelete, onRunNow }) {
-  const { report, schedules, loading, error, editing } = modal;
+  const { report, schedules, loading, error, editing, limits } = modal;
   const isEditing = editing === 'new' || (editing && typeof editing === 'object');
+  const atQuota = !!(limits && limits.maxSchedules != null && (limits.currentSchedules ?? schedules.length) >= limits.maxSchedules);
   return (
     <div style={actionModalBackdrop} onClick={onClose}>
       <div style={{ ...actionModalCard, minWidth: 520, maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
@@ -1369,6 +1398,27 @@ function ScheduleModal({ modal, onClose, onStartCreate, onStartEdit, onCancelEdi
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
           Send a link to this report by email on a recurring schedule. Recipients without a login can only open public reports.
         </div>
+        {limits && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+            padding: '8px 12px', marginBottom: 12, fontSize: 12,
+            background: atQuota ? 'var(--state-warning-soft)' : 'var(--bg-subtle)',
+            border: `1px solid ${atQuota ? 'var(--state-warning)' : 'var(--border-default)'}`,
+            borderRadius: 6,
+            color: atQuota ? 'var(--state-warning)' : 'var(--text-secondary)',
+          }}>
+            <span>
+              <strong>{limits.planName || limits.plan} plan</strong>
+              {limits.maxSchedules != null
+                ? ` — ${limits.currentSchedules ?? schedules.length}/${limits.maxSchedules} schedule${limits.maxSchedules === 1 ? '' : 's'} used`
+                : ' — unlimited schedules'}
+              {limits.maxFiresPerDay != null && (
+                <span style={{ color: 'var(--text-muted)' }}>{` · max ${limits.maxFiresPerDay} send${limits.maxFiresPerDay === 1 ? '' : 's'}/day per schedule`}</span>
+              )}
+            </span>
+            {atQuota && <span style={{ fontWeight: 600 }}>Quota reached</span>}
+          </div>
+        )}
 
         {!isEditing && (
           <>
@@ -1424,7 +1474,14 @@ function ScheduleModal({ modal, onClose, onStartCreate, onStartEdit, onCancelEdi
               </div>
             )}
             <div style={{ ...actionModalActions, justifyContent: 'space-between' }}>
-              <button style={actionModalBtnPrimary} onClick={onStartCreate}>+ New schedule</button>
+              <button
+                style={atQuota ? { ...actionModalBtnPrimary, opacity: 0.5, cursor: 'not-allowed' } : actionModalBtnPrimary}
+                onClick={onStartCreate}
+                disabled={atQuota}
+                title={atQuota ? 'Schedule quota reached for your plan' : ''}
+              >
+                + New schedule
+              </button>
               <button style={actionModalBtnSecondary} onClick={onClose}>Close</button>
             </div>
           </>
@@ -1433,6 +1490,7 @@ function ScheduleModal({ modal, onClose, onStartCreate, onStartEdit, onCancelEdi
         {isEditing && (
           <ScheduleEditor
             initial={editing === 'new' ? null : editing}
+            limits={limits}
             onCancel={onCancelEdit}
             onSubmit={onSubmit}
           />
@@ -1442,7 +1500,7 @@ function ScheduleModal({ modal, onClose, onStartCreate, onStartEdit, onCancelEdi
   );
 }
 
-function ScheduleEditor({ initial, onCancel, onSubmit }) {
+function ScheduleEditor({ initial, limits, onCancel, onSubmit }) {
   const isEdit = !!initial;
   const [form, setForm] = useState(() => ({
     id: initial?.id || null,
@@ -1454,6 +1512,8 @@ function ScheduleEditor({ initial, onCancel, onSubmit }) {
     recipientsRaw: (initial?.recipients || []).map((r) => r.email).join(', '),
     enabled: initial?.enabled !== false,
     refreshTimeoutSeconds: initial?.refresh_timeout_seconds ?? 60,
+    perRecipientRender: !!initial?.per_recipient_render,
+    recipientRules: Array.isArray(initial?.recipient_rules) ? initial.recipient_rules : [],
   }));
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState(null);
@@ -1505,6 +1565,11 @@ function ScheduleEditor({ initial, onCancel, onSubmit }) {
       />
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 12 }}>
         Cron expression — minute hour day-of-month month day-of-week. Timezone: <code>{form.timezone}</code>
+        {limits && limits.maxFiresPerDay != null && (
+          <span style={{ display: 'block', marginTop: 4, color: 'var(--state-warning)' }}>
+            Your {limits.planName || limits.plan} plan allows at most {limits.maxFiresPerDay} send{limits.maxFiresPerDay === 1 ? '' : 's'} per day per schedule.
+          </span>
+        )}
       </div>
 
       <label style={scheduleFieldLabel}>Recipients (comma- or newline-separated)</label>
@@ -1541,6 +1606,27 @@ function ScheduleEditor({ initial, onCancel, onSubmit }) {
         Maximum time the renderer waits for the report to refresh before generating the PDF. Bump this if you have slow queries (default 60s, range 30–600s). The renderer also forces an explicit refresh on top of the initial load.
       </div>
 
+      <label style={scheduleFieldLabel}>Per-recipient filter rules</label>
+      <RecipientRulesEditor
+        rules={form.recipientRules || []}
+        onChange={(next) => set('recipientRules', next)}
+      />
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -2, marginBottom: 12 }}>
+        Optional. Each rule maps an email pattern (e.g. <code>*@paris.fr</code>) to filter overrides applied to the rendered PDF. Rules are evaluated in order; the first match wins. Recipients matching no rule receive the unfiltered report.
+      </div>
+
+      <label style={{ ...scheduleFieldLabel, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+        <input
+          type="checkbox"
+          checked={form.perRecipientRender}
+          onChange={(e) => set('perRecipientRender', e.target.checked)}
+        />
+        <span>Apply per-user data permissions (RLS)</span>
+      </label>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
+        When enabled, each recipient who is a member of this organization receives a PDF rendered under their own permissions. Recipients without an account fall back to the schedule creator's view.
+      </div>
+
       <label style={{ ...scheduleFieldLabel, display: 'flex', alignItems: 'center', gap: 6 }}>
         <input type="checkbox" checked={form.enabled} onChange={(e) => set('enabled', e.target.checked)} />
         <span>Enabled</span>
@@ -1554,6 +1640,127 @@ function ScheduleEditor({ initial, onCancel, onSubmit }) {
           {submitting ? 'Saving…' : (isEdit ? 'Save' : 'Create')}
         </button>
       </div>
+    </div>
+  );
+}
+
+// Inline editor for recipient_rules: each rule is { pattern, filters }
+// where filters is { column: ['v1','v2'] }. Values are typed as a comma-
+// separated string for ergonomics — split server-side too for safety.
+function RecipientRulesEditor({ rules, onChange }) {
+  const updateRule = (idx, patch) => {
+    const next = rules.slice();
+    next[idx] = { ...next[idx], ...patch };
+    onChange(next);
+  };
+  const removeRule = (idx) => onChange(rules.filter((_, i) => i !== idx));
+  const addRule = () => onChange([...rules, { pattern: '', filters: {} }]);
+
+  const setFilterColAt = (ruleIdx, oldCol, newCol) => {
+    const next = rules.slice();
+    const cur = { ...(next[ruleIdx].filters || {}) };
+    const vals = cur[oldCol];
+    delete cur[oldCol];
+    if (newCol) cur[newCol] = vals || '';
+    next[ruleIdx] = { ...next[ruleIdx], filters: cur };
+    onChange(next);
+  };
+  const setFilterValAt = (ruleIdx, col, val) => {
+    const next = rules.slice();
+    const cur = { ...(next[ruleIdx].filters || {}) };
+    cur[col] = val;
+    next[ruleIdx] = { ...next[ruleIdx], filters: cur };
+    onChange(next);
+  };
+  const removeFilterAt = (ruleIdx, col) => {
+    const next = rules.slice();
+    const cur = { ...(next[ruleIdx].filters || {}) };
+    delete cur[col];
+    next[ruleIdx] = { ...next[ruleIdx], filters: cur };
+    onChange(next);
+  };
+  const addFilterTo = (ruleIdx) => {
+    const next = rules.slice();
+    const cur = { ...(next[ruleIdx].filters || {}) };
+    let i = 1;
+    while (cur[`column${i}`] !== undefined) i += 1;
+    cur[`column${i}`] = '';
+    next[ruleIdx] = { ...next[ruleIdx], filters: cur };
+    onChange(next);
+  };
+
+  return (
+    <div style={{ marginBottom: 6 }}>
+      {rules.length === 0 && (
+        <div style={{
+          fontSize: 12, color: 'var(--text-muted)', padding: '10px 12px',
+          border: '1px dashed var(--border-default)', borderRadius: 6, marginBottom: 6,
+        }}>
+          No rules. All recipients receive the unfiltered report.
+        </div>
+      )}
+      {rules.map((rule, ri) => (
+        <div key={ri} style={{
+          border: '1px solid var(--border-default)', borderRadius: 6,
+          padding: 10, marginBottom: 6, background: 'var(--bg-subtle)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <input
+              value={rule.pattern || ''}
+              onChange={(e) => updateRule(ri, { pattern: e.target.value })}
+              placeholder="*@paris.fr  or  alice@example.com"
+              style={{ ...actionModalInput, marginBottom: 0, flex: 1, fontFamily: 'monospace', fontSize: 12 }}
+            />
+            <button
+              type="button"
+              onClick={() => removeRule(ri)}
+              style={{ background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '4px 8px', fontSize: 11, color: 'var(--state-danger)', cursor: 'pointer' }}
+              title="Remove rule"
+            >
+              Remove
+            </button>
+          </div>
+          {Object.entries(rule.filters || {}).map(([col, vals], fi) => (
+            <div key={fi} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <input
+                value={col}
+                onChange={(e) => setFilterColAt(ri, col, e.target.value)}
+                placeholder="column"
+                style={{ ...actionModalInput, marginBottom: 0, flex: '0 0 35%', fontFamily: 'monospace', fontSize: 12 }}
+              />
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>=</span>
+              <input
+                value={Array.isArray(vals) ? vals.join(', ') : vals || ''}
+                onChange={(e) => setFilterValAt(ri, col, e.target.value)}
+                placeholder="value1, value2"
+                style={{ ...actionModalInput, marginBottom: 0, flex: 1, fontFamily: 'monospace', fontSize: 12 }}
+              />
+              <button
+                type="button"
+                onClick={() => removeFilterAt(ri, col)}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-disabled)', fontSize: 16, cursor: 'pointer', padding: '0 6px' }}
+                title="Remove filter"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => addFilterTo(ri)}
+            style={{ background: 'transparent', border: '1px dashed var(--border-default)', borderRadius: 4, padding: '4px 10px', fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer', marginTop: 4 }}
+          >
+            + Add filter
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={addRule}
+        style={{ ...actionModalBtnSecondary, padding: '6px 12px', fontSize: 12 }}
+      >
+        + Add rule
+      </button>
     </div>
   );
 }

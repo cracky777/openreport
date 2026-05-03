@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import ReportCanvas from '../components/Canvas/ReportCanvas';
 import api from '../utils/api';
 import { sanitizeWidgetFilters } from '../utils/widgetFilters';
-import { parseFiltersFromUrl, syncFiltersToUrl } from '../utils/urlFilters';
+import { parseFiltersFromUrl, syncFiltersToUrl, parsePrintFiltersFromUrl } from '../utils/urlFilters';
 import { filterForTarget } from '../utils/crossFilter';
 import { TbMaximize, TbMinimize, TbRefresh } from 'react-icons/tb';
 import { useTheme } from '../hooks/useTheme';
@@ -23,12 +23,16 @@ export default function Viewer() {
   const urlFiltersAppliedRef = useRef(false);
   // Once the model is loaded, seed reportFilters from the URL `?f_<col>=…` params.
   // URL filters win over saved slicer defaults so a shared link is reproducible.
+  // The cloud scheduler's `pf=` param (print filters) wins over both — it's
+  // a server-side override for per-recipient PDF rendering.
   useEffect(() => {
     if (!model || urlFiltersAppliedRef.current) return;
     urlFiltersAppliedRef.current = true;
     const fromUrl = parseFiltersFromUrl(window.location.search, model);
-    if (fromUrl && Object.keys(fromUrl).length > 0) {
-      setReportFilters((prev) => ({ ...prev, ...fromUrl }));
+    const fromPrint = parsePrintFiltersFromUrl(window.location.search, model);
+    const merged = { ...(fromUrl || {}), ...(fromPrint || {}) };
+    if (Object.keys(merged).length > 0) {
+      setReportFilters((prev) => ({ ...prev, ...merged }));
     }
   }, [model]);
   useEffect(() => { syncFiltersToUrl(reportFilters, model); }, [reportFilters, model]);
