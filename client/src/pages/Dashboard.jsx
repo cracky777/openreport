@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbPencil, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeft, TbToggleRight } from 'react-icons/tb';
+import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbPencil, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbLoader2 } from 'react-icons/tb';
 import { useTheme } from '../hooks/useTheme';
 import { TopbarSwitcher, UserMenuExtras } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
@@ -464,6 +464,10 @@ export default function Dashboard() {
   const [historyModal, setHistoryModal] = useState(null);  // { report, versions, loading }
   const [scheduleModal, setScheduleModal] = useState(null); // { report, schedules, loading, editing }
   const [scheduleToast, setScheduleToast] = useState(null); // { type: 'ok' | 'error', message }
+  // Set of schedule IDs currently being run via the manual "Send now" button.
+  // Drives the inline spinner + disables the trigger so a user can't kick off
+  // duplicate sends while a render/email is still in flight.
+  const [runningScheduleIds, setRunningScheduleIds] = useState(() => new Set());
   const cardMenuRef = useRef(null);
 
   // Auto-dismiss the schedule toast after a few seconds.
@@ -636,6 +640,13 @@ export default function Dashboard() {
     await refreshSchedules(s.report_id);
   };
   const runScheduleNow = async (s) => {
+    // Guard: if this schedule is already mid-send we ignore the click.
+    if (runningScheduleIds.has(s.id)) return;
+    setRunningScheduleIds((prev) => {
+      const next = new Set(prev);
+      next.add(s.id);
+      return next;
+    });
     try {
       const res = await api.post(`/cloud/schedules/${s.id}/run`);
       const result = res.data?.result;
@@ -650,8 +661,14 @@ export default function Dashboard() {
       }
     } catch (err) {
       setScheduleToast({ type: 'error', message: err.response?.data?.error || err.message });
+    } finally {
+      setRunningScheduleIds((prev) => {
+        const next = new Set(prev);
+        next.delete(s.id);
+        return next;
+      });
+      await refreshSchedules(s.report_id);
     }
-    await refreshSchedules(s.report_id);
   };
 
   const wsName = selectedWs ? workspaces.find((w) => w.id === selectedWs)?.name || 'Workspace' : 'My Reports';
@@ -1373,6 +1390,7 @@ export default function Dashboard() {
       {scheduleModal && (
         <ScheduleModal
           modal={scheduleModal}
+          runningIds={runningScheduleIds}
           onClose={() => setScheduleModal(null)}
           onStartCreate={() => setScheduleModal({ ...scheduleModal, editing: 'new' })}
           onStartEdit={(s) => setScheduleModal({ ...scheduleModal, editing: s })}
@@ -1436,7 +1454,7 @@ const CRON_PRESETS = [
   { label: 'Custom…', expr: '' },
 ];
 
-function ScheduleModal({ modal, onClose, onStartCreate, onStartEdit, onCancelEdit, onSubmit, onToggle, onDelete, onRunNow }) {
+function ScheduleModal({ modal, runningIds, onClose, onStartCreate, onStartEdit, onCancelEdit, onSubmit, onToggle, onDelete, onRunNow }) {
   const { report, schedules, loading, error, editing, limits, dimensions } = modal;
   const isEditing = editing === 'new' || (editing && typeof editing === 'object');
   const atQuota = !!(limits && limits.maxSchedules != null && (limits.currentSchedules ?? schedules.length) >= limits.maxSchedules);
@@ -1506,9 +1524,23 @@ function ScheduleModal({ modal, onClose, onStartCreate, onStartEdit, onCancelEdi
                         </div>
                       )}
                     </div>
-                    <button title="Send now" onClick={() => onRunNow(s)} {...cardActionBtn('accent')}>
-                      <TbPlayerPlay size={14} />
-                    </button>
+                    {(() => {
+                      const isRunning = !!(runningIds && runningIds.has(s.id));
+                      const sendBtn = cardActionBtn('accent');
+                      return (
+                        <button
+                          title={isRunning ? 'Sending…' : 'Send now'}
+                          onClick={() => onRunNow(s)}
+                          disabled={isRunning}
+                          {...sendBtn}
+                          style={{ ...sendBtn.style, cursor: isRunning ? 'wait' : 'pointer', opacity: isRunning ? 0.7 : 1 }}
+                        >
+                          {isRunning
+                            ? <TbLoader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} />
+                            : <TbPlayerPlay size={14} />}
+                        </button>
+                      );
+                    })()}
                     <button title={s.enabled ? 'Pause' : 'Resume'} onClick={() => onToggle(s)} {...cardActionBtn(s.enabled ? 'accent' : 'muted')}>
                       {s.enabled ? <TbToggleRight size={16} /> : <TbToggleLeft size={16} />}
                     </button>
