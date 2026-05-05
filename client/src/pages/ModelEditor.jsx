@@ -4,7 +4,8 @@ import SchemaCanvas from '../components/SchemaCanvas/SchemaCanvas';
 import RLSDialog from '../components/SchemaCanvas/RLSDialog';
 import SqlExpressionInput from '../components/SqlExpressionInput/SqlExpressionInput';
 import api from '../utils/api';
-import { headerShellStyle, BackButton, PrimaryButton, headerBadgeStyle } from '../components/PageHeader/PageHeader';
+import { headerShellStyle, BackButton, PrimaryButton, SecondaryButton, headerBadgeStyle } from '../components/PageHeader/PageHeader';
+import { useTheme } from '../hooks/useTheme';
 
 const AGG_OPTIONS = [
   { value: 'sum', label: 'Sum' },
@@ -19,6 +20,7 @@ const STEPS = ['Tables', 'Schema & Joins', 'Dimensions & Measures'];
 export default function ModelEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { resolved: themeResolved, themes: availableThemes } = useTheme();
 
   const [step, setStep] = useState(0);
   const [allTables, setAllTables] = useState([]);
@@ -29,6 +31,16 @@ export default function ModelEditor() {
   const [measures, setMeasures] = useState([]);
   const [joins, setJoins] = useState([]);
   const [rls, setRls] = useState({}); // { enabled, table, primaryKey, rules: { rowKey: [patterns] } }
+  // Per-column type override map: { "table.column": "date" | "string" | "number" | "boolean" }.
+  // Reinterpret a varchar that holds dates as a real date dimension, etc. Empty
+  // entries fall back to the column's native db type returned by getColumns().
+  const [columnTypes, setColumnTypes] = useState({});
+  // Per-column validation state used by the "test format" button next to the
+  // type dropdown. `validatingColumn` holds the currently-running key (or null);
+  // `validationResults` caches the most recent result per `table.column`
+  // so the badge persists between renders.
+  const [validatingColumn, setValidatingColumn] = useState(null);
+  const [validationResults, setValidationResults] = useState({});
   const [rlsDialogTable, setRlsDialogTable] = useState(null); // tableName when dialog is open
   const [saving, setSaving] = useState(false);
   const [showCalcMeasure, setShowCalcMeasure] = useState(false);
@@ -43,6 +55,7 @@ export default function ModelEditor() {
   const [tablesLoading, setTablesLoading] = useState(false);
   const [brokenRefs, setBrokenRefs] = useState([]);
   const [validating, setValidating] = useState(false);
+  const [creatingReport, setCreatingReport] = useState(false);
   const [showDsChange, setShowDsChange] = useState(false);
   const [allDatasources, setAllDatasources] = useState([]);
   const [switchingDs, setSwitchingDs] = useState(false);
@@ -89,6 +102,7 @@ export default function ModelEditor() {
       setMeasures(m.measures || []);
       setJoins(m.joins || []);
       setRls(m.rls || {});
+      setColumnTypes(m.column_types || {});
       // Reload datasource meta
       const dsRes = await api.get(`/datasources/${m.datasource_id}`);
       setDatasource(dsRes.data.datasource);
@@ -135,6 +149,7 @@ export default function ModelEditor() {
         setMeasures(m.measures || []);
         setJoins(m.joins || []);
         setRls(m.rls || {});
+        setColumnTypes(m.column_types || {});
 
         const dsRes = await api.get(`/datasources/${m.datasource_id}`);
         setDatasource(dsRes.data.datasource);
@@ -205,26 +220,114 @@ export default function ModelEditor() {
     );
   };
 
-  const isNumeric = (dataType) => {
-    const t = dataType.toLowerCase();
-    return ['integer', 'bigint', 'numeric', 'decimal', 'real', 'double precision',
-      'float', 'int', 'smallint', 'tinyint', 'mediumint', 'double', 'serial', 'bigserial',
+  // Whole-number db types (no fractional part). Used to pre-select 'integer'
+  // when the user creates a Dimension from such a column.
+  const isIntegerType = (dataType) => {
+    const t = String(dataType || '').toLowerCase();
+    return ['integer', 'int', 'int2', 'int4', 'int8', 'bigint', 'smallint',
+      'tinyint', 'mediumint', 'serial', 'bigserial', 'smallserial'].includes(t);
+  };
+
+  // Floating / fixed-precision numeric types.
+  const isDecimalType = (dataType) => {
+    const t = String(dataType || '').toLowerCase();
+    return ['numeric', 'decimal', 'real', 'double precision', 'float', 'double',
+      'money', 'smallmoney',
       // Postgres interval — durations are aggregable in SQL (SUM/AVG return interval).
       'interval'].includes(t);
   };
 
+  // Combined check used by the schema canvas to decide whether to expose the
+  // "M" (Measure) flag on a column.
+  const isNumeric = (dataType) => isIntegerType(dataType) || isDecimalType(dataType);
+
   const isDateType = (dataType) => {
-    const t = dataType.toLowerCase();
+    const t = String(dataType || '').toLowerCase();
     return ['date', 'timestamp', 'timestamptz', 'timestamp with time zone',
       'timestamp without time zone', 'datetime', 'time',
       'smalldatetime', 'datetime2', 'datetimeoffset'].includes(t);
   };
 
   const getColumnType = (dataType) => {
-    if (isNumeric(dataType)) return 'number';
+    if (isIntegerType(dataType)) return 'integer';
+    if (isDecimalType(dataType)) return 'decimal';
     if (isDateType(dataType)) return 'date';
     return 'string';
   };
+
+  // Older models stored 'number' as the catch-all numeric type. Normalise it
+  // to 'decimal' on read so the new dropdown widgets and validators don't
+  // need to special-case the legacy value. Saving emits the new vocabulary.
+  const normalizeStoredType = (t) => (t === 'number' ? 'decimal' : t);
+
+  // columnTypes entries can be either a plain string ('date', 'integer', ...)
+  // or an object { type, format } once the user picks an explicit format
+  // (relevant for dates: 'dd/mm/yyyy', 'iso', etc.). These two helpers
+  // normalise reads/writes so the rest of the code can stay simple.
+  const readOverride = (entry) => {
+    if (!entry) return null;
+    if (typeof entry === 'string') return { type: entry, format: 'auto' };
+    return { type: entry.type, format: entry.format || 'auto' };
+  };
+  // Build the value to store back. Returns null when the override is auto
+  // (= no override, drop the entry entirely).
+  const writeOverride = (type, format) => {
+    if (!type || type === 'auto') return null;
+    if (!format || format === 'auto') return type;       // simple form
+    return { type, format };                              // object form
+  };
+
+  // Effective type + optional format for a column. Reads the override map
+  // (which can be either a plain type string or an object { type, format })
+  // and falls back to the inferred native type. Returns { type, format }.
+  const effectiveColumnType = useCallback((table, column, dataType) => {
+    const key = `${table}.${column}`;
+    const override = readOverride(columnTypes && columnTypes[key]);
+    if (override) return override;
+    return { type: getColumnType(dataType), format: 'auto' };
+  }, [columnTypes]);
+
+  // Set or clear an override for one column. Optional `format` is used when
+  // the type is 'date' (and ignored otherwise). After updating the map, we
+  // retrofit any existing dimension referencing this column so reports pick
+  // up the new type without a manual rebind.
+  const setColumnType = useCallback((table, column, nextType, nextFormat) => {
+    const key = `${table}.${column}`;
+    setColumnTypes((prev) => {
+      const copy = { ...(prev || {}) };
+      const stored = writeOverride(nextType, nextFormat);
+      if (stored == null) delete copy[key];
+      else copy[key] = stored;
+      return copy;
+    });
+    // Resolve effective type for the dimension propagation. Format isn't
+    // stored on the dimension itself — only `type` is, which is what the
+    // SQL builder consults for CAST AS DATE etc.
+    const cols = tableColumns[table] || [];
+    const dataType = cols.find((c) => c.column_name === column)?.data_type;
+    const effective = (!nextType || nextType === 'auto') ? getColumnType(dataType) : nextType;
+    setDimensions((prev) => prev.map((d) =>
+      d.table === table && d.column === column ? { ...d, type: effective } : d
+    ));
+  }, [tableColumns]);
+
+  // Run a backend sample query (up to 100k non-null rows) to check how many
+  // values can be coerced into the target type. Result is cached per column
+  // so the badge stays visible until the user re-tests.
+  const validateColumnType = useCallback(async (table, column, type, dateFormat) => {
+    const key = `${table}.${column}`;
+    setValidatingColumn(key);
+    try {
+      const res = await api.post(`/models/${id}/validate-column-type`, {
+        table, column, type, dateFormat: dateFormat || 'auto',
+      });
+      setValidationResults((prev) => ({ ...prev, [key]: { ...res.data, type, dateFormat } }));
+    } catch (err) {
+      setValidationResults((prev) => ({ ...prev, [key]: { error: err?.response?.data?.error || err.message, type, dateFormat } }));
+    } finally {
+      setValidatingColumn(null);
+    }
+  }, [id]);
 
   const addDimension = (table, column) => {
     const col = typeof column === 'string' ? { column_name: column, data_type: 'string' } : column;
@@ -233,9 +336,13 @@ export default function ModelEditor() {
       setDimensions((prev) => prev.filter((d) => d.name !== dimName));
       return;
     }
+    // dimension.type is a flat string ('date', 'integer', 'decimal', ...) —
+    // pull only the type from the {type, format} object effectiveColumnType
+    // returns. The format (when present) lives on columnTypes alone.
+    const eff = effectiveColumnType(table, col.column_name, col.data_type);
     setDimensions((prev) => [...prev, {
       name: dimName, table, column: col.column_name,
-      type: getColumnType(col.data_type),
+      type: eff.type,
       label: col.column_name,
     }]);
   };
@@ -286,6 +393,7 @@ export default function ModelEditor() {
       await api.put(`/models/${id}`, {
         name, description, selected_tables: selectedTables,
         table_positions: tablePositions, dimensions, measures, joins, rls,
+        column_types: columnTypes,
       });
       setSaveMsg('Saved');
       setTimeout(() => setSaveMsg(null), 2000);
@@ -309,6 +417,42 @@ export default function ModelEditor() {
       setTimeout(() => setSaveMsg(null), 3000);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Create a new report bound to this model and jump straight into its
+  // editor. Notes:
+  //   - The report references the LAST SAVED state of the model (the API
+  //     reads from the DB), so unsaved local edits won't be reflected.
+  //     We auto-save first to keep the flow seamless.
+  //   - Default title is "{model name} — Report" so it's recognisable on the
+  //     dashboard without a forced prompt; the user can rename in the editor.
+  const handleCreateReport = async () => {
+    if (!model || creatingReport) return;
+    setCreatingReport(true);
+    try {
+      // Persist whatever the user has on screen first (so the new report
+      // sees the freshly-flagged dimensions / measures, not stale data).
+      await api.put(`/models/${id}`, {
+        name, description, selected_tables: selectedTables,
+        table_positions: tablePositions, dimensions, measures, joins, rls,
+        column_types: columnTypes,
+      });
+      const res = await api.post('/reports', {
+        title: `${name || 'New'} — Report`,
+        modelId: id,
+        // Inherit the user's current theme so the new report doesn't open
+        // in the default light scheme when they're working in dark mode.
+        settings: {
+          theme: availableThemes && availableThemes[themeResolved]
+            ? { key: themeResolved, ...availableThemes[themeResolved] }
+            : null,
+        },
+      });
+      navigate(`/edit/${res.data.report.id}`);
+    } catch (err) {
+      alert(err?.response?.data?.error || 'Failed to create report');
+      setCreatingReport(false);
     }
   };
 
@@ -383,6 +527,16 @@ export default function ModelEditor() {
             );
           })}
         </div>
+        <SecondaryButton
+          onClick={handleCreateReport}
+          disabled={creatingReport || saving || selectedTables.length === 0}
+          title={selectedTables.length === 0
+            ? 'Pick at least one table before creating a report'
+            : 'Save the model and open a new report bound to it'}
+          style={{ marginRight: 8 }}
+        >
+          {creatingReport ? 'Creating…' : '+ New Report'}
+        </SecondaryButton>
         <PrimaryButton onClick={handleSave} disabled={saving}>
           {saving ? 'Saving...' : 'Save'}
         </PrimaryButton>
@@ -580,6 +734,11 @@ export default function ModelEditor() {
             datasourceId={model?.datasource_id}
             isNumeric={isNumeric}
             isDateType={isDateType}
+            columnTypes={columnTypes}
+            onColumnTypeChange={setColumnType}
+            onValidateColumnType={validateColumnType}
+            validatingColumn={validatingColumn}
+            validationResults={validationResults}
             rlsTable={rls?.enabled ? rls?.table : null}
             onOpenRLS={(tableName) => setRlsDialogTable(tableName)}
             onRemoveTable={(tableName) => {
@@ -647,7 +806,66 @@ export default function ModelEditor() {
                         <td style={tdStyle}>{broken && <span style={{ marginRight: 4 }}>⚠️</span>}{d.table}</td>
                         <td style={tdStyle}>{d.column}</td>
                         <td style={tdStyle}>
-                          <span style={{ ...badge, background: 'var(--bg-active)', color: 'var(--accent-primary)' }}>{d.type}</span>
+                          {(() => {
+                            const key = `${d.table}.${d.column}`;
+                            const isOverridden = !!columnTypes[key];
+                            const isValidating = validatingColumn === key;
+                            const result = validationResults[key];
+                            const override = readOverride(columnTypes[key]);
+                            const currentFormat = override?.format || 'auto';
+                            const isDateType_ = normalizeStoredType(d.type) === 'date';
+                            return (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <select
+                                  value={normalizeStoredType(d.type)}
+                                  onChange={(e) => setColumnType(d.table, d.column, e.target.value, currentFormat)}
+                                  style={{
+                                    ...inlineInput,
+                                    padding: '2px 6px',
+                                    background: isOverridden ? 'var(--accent-primary-soft)' : undefined,
+                                    color: isOverridden ? 'var(--accent-primary-text)' : undefined,
+                                    fontWeight: isOverridden ? 600 : 500,
+                                  }}
+                                  title={isOverridden ? 'User-overridden type' : 'Inferred from column native type'}
+                                >
+                                  <option value="string">string</option>
+                                  <option value="integer">integer</option>
+                                  <option value="decimal">decimal</option>
+                                  <option value="date">date</option>
+                                  <option value="boolean">boolean</option>
+                                </select>
+                                {isDateType_ && (
+                                  <select
+                                    value={currentFormat}
+                                    onChange={(e) => setColumnType(d.table, d.column, 'date', e.target.value)}
+                                    style={{ ...inlineInput, padding: '2px 6px', fontSize: 11 }}
+                                    title="Expected date format in this column"
+                                  >
+                                    <option value="auto">auto</option>
+                                    <option value="iso">ISO (YYYY-MM-DD)</option>
+                                    <option value="dd/mm/yyyy">DD/MM/YYYY</option>
+                                    <option value="mm/dd/yyyy">MM/DD/YYYY</option>
+                                    <option value="dd-mm-yyyy">DD-MM-YYYY</option>
+                                    <option value="dd.mm.yyyy">DD.MM.YYYY</option>
+                                    <option value="yyyymmdd">YYYYMMDD</option>
+                                  </select>
+                                )}
+                                <button
+                                  className="btn-hover btn-hover-accent"
+                                  type="button"
+                                  title="Test the format against up to 100k rows"
+                                  disabled={isValidating}
+                                  onClick={() => validateColumnType(d.table, d.column, d.type, currentFormat)}
+                                  style={{ padding: '2px 8px', fontSize: 11, background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, cursor: isValidating ? 'wait' : 'pointer' }}
+                                >
+                                  {isValidating ? '…' : 'Test'}
+                                </button>
+                                {result && (
+                                  <ValidationBadge result={result} />
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td style={tdStyle}>
                           <input
@@ -789,6 +1007,42 @@ export default function ModelEditor() {
         }}>{saveMsg === 'Saved' ? '✓ Model saved' : '✗ Save failed'}</div>
       )}
     </div>
+  );
+}
+
+// Compact green/red pill that summarises the result of a column-type
+// validation run. Tooltip shows sample size + a few invalid examples so
+// the user knows where the type mismatches are.
+function ValidationBadge({ result }) {
+  if (result.error) {
+    return (
+      <span title={result.error} style={{ ...badge, background: 'var(--state-danger-soft)', color: 'var(--state-danger)' }}>
+        error
+      </span>
+    );
+  }
+  const ratio = result.validRatio ?? 0;
+  const pct = Math.round(ratio * 100);
+  const ok = ratio >= 0.95;
+  const tooltip = [
+    `${result.validCount}/${result.sampleSize} rows match "${result.type}"`,
+    result.invalidExamples?.length
+      ? `Invalid examples: ${result.invalidExamples.map((v) => v == null ? 'NULL' : `"${v}"`).join(', ')}`
+      : null,
+    result.note || null,
+  ].filter(Boolean).join('\n');
+  return (
+    <span
+      title={tooltip}
+      style={{
+        ...badge,
+        background: ok ? 'var(--state-success-soft, #dcfce7)' : 'var(--state-warning-soft, #fef3c7)',
+        color: ok ? 'var(--state-success, #16a34a)' : 'var(--state-warning, #92400e)',
+        cursor: 'help',
+      }}
+    >
+      {ok ? '✓' : '!'} {pct}%
+    </span>
   );
 }
 

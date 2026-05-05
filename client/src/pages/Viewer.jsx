@@ -545,6 +545,9 @@ export default function Viewer() {
           newData._dimName = dims[0];
           const axisDim = (model.dimensions || []).find((x) => x.name === dims[0]);
           newData._dimLabel = axisDim?.label || axisDim?.name || dims[0];
+          if (axisDim?.datePart) newData._datePart = axisDim.datePart;
+          else if (axisDim?.type === 'date') newData._datePart = 'full_date';
+          if (axisDim) newData._axisDimDef = { type: axisDim.type, datePart: axisDim.datePart };
         }
         if (meass.length > 0) {
           const m0 = (model.measures || []).find((x) => x.name === meass[0]);

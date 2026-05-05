@@ -3,6 +3,7 @@ import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, sortDateSeries, formatDateLabel } from '../../utils/dateHelpers';
+import { compareAxisValues } from '../../utils/axisSort';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
@@ -125,7 +126,15 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
   const hideZeros = config?.hideZeros ?? false;
   const showLegend = config?.showLegend ?? false;
   const legendPosition = config?.legendPosition || 'top';
-  const sortOrder = config?.sortOrder || (subType === 'stacked' || subType === 'stacked100' ? 'desc' : 'none');
+  // Per-zone sort. zoneSorts is the new home; fall back to the legacy global
+  // sortOrder. Stacked subtypes default to descending values when nothing is
+  // set so the largest segment ends up on top.
+  const zoneSorts = config?.zoneSorts;
+  const isStackedSubType = subType === 'stacked' || subType === 'stacked100';
+  const sortOrder = zoneSorts
+    ? (zoneSorts.values || 'none')
+    : (config?.sortOrder || (isStackedSubType ? 'desc' : 'none'));
+  const axisSort = zoneSorts?.axis || 'none';
   const topNEnabled = config?.topNEnabled === true;
   const topN = config?.topN ?? 20;
   const othersLabel = config?.othersLabel || 'Others';
@@ -207,7 +216,11 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
     let labels = [...data.labels];
     let sortedIndices = labels.map((_, i) => i);
     const datePart = data._datePart;
+    const axisDimDef = data._axisDimDef;
 
+    // Sort priority: values sort wins (current behavior), then axis sort
+    // (chrono-aware for date-part dims), then auto-chrono fallback for any
+    // date dimension when nothing is set.
     if (sortOrder !== 'none') {
       const totals = labels.map((_, i) => {
         if (hasSeries) {
@@ -219,10 +232,11 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
       });
       sortedIndices.sort((a, b) => sortOrder === 'desc' ? totals[b] - totals[a] : totals[a] - totals[b]);
       labels = sortedIndices.map((i) => labels[i]);
+    } else if (axisSort !== 'none') {
+      sortedIndices.sort((a, b) => compareAxisValues(labels[a], labels[b], axisDimDef, axisSort));
+      labels = sortedIndices.map((i) => labels[i]);
     } else if (datePart) {
-      // Auto-sort chronologically for date dimensions
       const { labels: sorted, indices } = sortDateLabels(labels, null, datePart);
-      // Remap sortedIndices through the date sort
       sortedIndices = indices.map((i) => sortedIndices[i]);
       labels = sorted;
     }
@@ -564,7 +578,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
     const legendItems = (allSeriesForLegend || []).map((s, i) => ({ name: s.name, color: getColor(s.name, i) }));
 
     return { option: opt, legendItems, rawLabels, othersLabelIdx };
-  }, [data, subType, showLabels, hideZeros, showLegend, legendPosition, sortOrder, hasData, config?.color,
+  }, [data, subType, showLabels, hideZeros, showLegend, legendPosition, sortOrder, axisSort, hasData, config?.color,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors, config?.barDirection,
       config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,

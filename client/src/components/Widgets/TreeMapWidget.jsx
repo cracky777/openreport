@@ -4,6 +4,7 @@ import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
 import { applyTopN } from '../../utils/topNGroup';
+import { compareAxisValues } from '../../utils/axisSort';
 
 const OTHERS_COLOR = '#94a3b8';
 
@@ -23,7 +24,11 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
   const dataLabelAbbr = config?.dataLabelAbbr || 'none';
   const dataLabelColor = config?.dataLabelColor || '#ffffff';
   const dataLabelSize = config?.dataLabelFontSize || 12;
-  const sortOrder = config?.sortOrder || 'desc';
+  // Treemap defaults to descending values when nothing else is configured —
+  // a tile sorted by area is the genre's whole point.
+  const zoneSorts = config?.zoneSorts;
+  const sortOrder = zoneSorts ? (zoneSorts.values || 'none') : (config?.sortOrder || 'desc');
+  const axisSort = zoneSorts?.axis || 'none';
   const showBorder = config?.showItemBorder ?? true;
   const borderColor = config?.itemBorderColor || '#ffffff';
   const borderWidth = config?.itemBorderWidth ?? 1;
@@ -58,6 +63,10 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
     let items = [...data.items];
     if (sortOrder === 'desc') items.sort((a, b) => b.value - a.value);
     else if (sortOrder === 'asc') items.sort((a, b) => a.value - b.value);
+    else if (axisSort !== 'none') {
+      const axisDimDef = data._axisDimDef;
+      items.sort((a, b) => compareAxisValues(a.name, b.name, axisDimDef, axisSort));
+    }
 
     // Top N + Others — server-side path uses data._othersTotal (top N already
     // sorted by value DESC server-side); legacy client-side path folds the
@@ -137,7 +146,7 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
     };
 
     return { option: opt };
-  }, [data, hasData, sortOrder, showDataLabels, dataLabelContent, dataLabelAbbr, dataLabelColor, dataLabelSize, showBorder, borderColor, borderWidth, highlightValue, config?.legendColors,
+  }, [data, hasData, sortOrder, axisSort, showDataLabels, dataLabelContent, dataLabelAbbr, dataLabelColor, dataLabelSize, showBorder, borderColor, borderWidth, highlightValue, config?.legendColors,
       topNEnabled, topN, othersLabel,
       config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 

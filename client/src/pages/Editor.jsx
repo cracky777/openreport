@@ -129,6 +129,38 @@ export default function Editor() {
     () => JSON.stringify(Array.isArray(settings?.reportFilters) ? settings.reportFilters : []),
     [settings?.reportFilters]
   );
+
+  // Effective model = model + report-scoped extras/overrides applied. The
+  // model itself stays untouched; this is what every UI that reads dims /
+  // measures (DataPanel, dimension pickers, drill helpers) consults so
+  // changes made in the report editor stay scoped to this report. Each
+  // entry carries `_source: 'model' | 'report'` so the DataPanel knows
+  // whether an action targets settings overrides or settings extras.
+  const effectiveModel = useMemo(() => {
+    // Always return an object so render code can call `effectiveModel.dimensions`
+    // safely during the brief window where the model hasn't loaded yet.
+    if (!model) return { dimensions: [], measures: [], dateColumn: null };
+    const overD = settings?.dimensionOverrides || {};
+    const overM = settings?.measureOverrides || {};
+    const baseDims = (model.dimensions || []).map((d) => {
+      const ov = overD[d.name];
+      return ov ? { ...d, ...ov, _source: 'model' } : { ...d, _source: 'model' };
+    });
+    const extraDims = (settings?.extraDimensions || []).map((d) => ({ ...d, _source: 'report' }));
+    const baseMeas = (model.measures || []).map((m) => {
+      const ov = overM[m.name];
+      return ov ? { ...m, ...ov, _source: 'model' } : { ...m, _source: 'model' };
+    });
+    const extraMeas = (settings?.extraMeasures || []).map((m) => ({ ...m, _source: 'report' }));
+    return {
+      ...model,
+      dimensions: [...baseDims, ...extraDims],
+      measures: [...baseMeas, ...extraMeas],
+      // Report-level dateColumn wins over the model's (the report editor's
+      // Date Table toggle now writes to settings, not the model).
+      dateColumn: settings?.dateColumn != null ? settings.dateColumn : model.dateColumn,
+    };
+  }, [model, settings]);
   const [selectedWidget, setSelectedWidget] = useState(null);
   // Edit Interactions mode — Power BI–style toggle for configuring per-pair
   // cross-filter behaviour. While active, each non-source widget shows a
@@ -507,10 +539,21 @@ export default function Editor() {
           ];
         }
 
+        // Report-scoped definitions live on report.settings — the backend
+        // merges them with effectiveModel.dimensions/measures so this report can
+        // reference dims/measures that don't exist (or have a different
+        // label/type) on the underlying model.
+        const reportExtras = {
+          extraDimensions: settings?.extraDimensions || [],
+          extraMeasures: settings?.extraMeasures || [],
+          dimensionOverrides: settings?.dimensionOverrides || {},
+          measureOverrides: settings?.measureOverrides || {},
+        };
         const mainQueryBody = {
           dimensionNames: allDims, measureNames: [...new Set(meass)],
           limit: w.config?.dataLimit || 1000, filters: mergedFilters,
           widgetFilters: sanitizeWidgetFilters(widgetFilters),
+          ...reportExtras,
         };
         const mainPromise = hasMainBinding
           ? api.post(`/models/${model.id}/query`, mainQueryBody, { signal: controller.signal })
@@ -528,6 +571,7 @@ export default function Editor() {
               // The top_n synthetic filter is dropped here — we want the
               // grand total, not the truncated one.
               widgetFilters: sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]),
+              ...reportExtras,
             }, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
         // Fire a sqlOnly request in parallel — the server returns the assembled
@@ -555,6 +599,7 @@ export default function Editor() {
               // Drop the synthetic top_n filter for the color aggregate — it
               // doesn't apply when there's no GROUP BY.
               widgetFilters: sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]),
+              ...reportExtras,
             }, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
 
@@ -579,7 +624,7 @@ export default function Editor() {
             const emptyData = { _rowCount: 0, _colorValue, _sql: sql };
             if (isDrillable) {
               emptyData._hierarchy = fullHierarchy.map((dn) => {
-                const def = (model.dimensions || []).find((x) => x.name === dn);
+                const def = (effectiveModel.dimensions || []).find((x) => x.name === dn);
                 return { name: dn, label: def?.label || def?.name || dn };
               });
               emptyData._drillPath = drillPath;
@@ -594,18 +639,18 @@ export default function Editor() {
           if (w.type === 'pivotTable') {
             const rowDimNames = dims.filter((d) => !colDimsB.includes(d));
             newData = { rawRows: rows,
-              _rowDims: rowDimNames.map((d) => { const def = (model.dimensions || []).find((x) => x.name === d); return def?.label || def?.name || d; }),
-              _colDims: colDimsB.map((d) => { const def = (model.dimensions || []).find((x) => x.name === d); return def?.label || def?.name || d; }),
-              _measures: meass.map((m) => { const def = (model.measures || []).find((x) => x.name === m); return def?.label || def?.name || m; }),
+              _rowDims: rowDimNames.map((d) => { const def = (effectiveModel.dimensions || []).find((x) => x.name === d); return def?.label || def?.name || d; }),
+              _colDims: colDimsB.map((d) => { const def = (effectiveModel.dimensions || []).find((x) => x.name === d); return def?.label || def?.name || d; }),
+              _measures: meass.map((m) => { const def = (effectiveModel.measures || []).find((x) => x.name === m); return def?.label || def?.name || m; }),
             };
           } else if (w.type === 'scatter') {
             if (sm.x && sm.y) {
               const gl = (name, list) => { const d = list.find((x) => x.name === name); return d?.label || d?.name || name; };
-              const dimLbl = dims.length > 0 ? gl(dims[0], model.dimensions || []) : null;
-              const grpLbl = grpBy.length > 0 ? gl(grpBy[0], model.dimensions || []) : null;
-              const xLbl = gl(sm.x, model.measures || []);
-              const yLbl = gl(sm.y, model.measures || []);
-              const sizeLbl = sm.size ? gl(sm.size, model.measures || []) : null;
+              const dimLbl = dims.length > 0 ? gl(dims[0], effectiveModel.dimensions || []) : null;
+              const grpLbl = grpBy.length > 0 ? gl(grpBy[0], effectiveModel.dimensions || []) : null;
+              const xLbl = gl(sm.x, effectiveModel.measures || []);
+              const yLbl = gl(sm.y, effectiveModel.measures || []);
+              const sizeLbl = sm.size ? gl(sm.size, effectiveModel.measures || []) : null;
               const fk = (l) => keys.find((k) => k === l) || null;
               const dk = dimLbl ? fk(dimLbl) : null;
               const gk = grpLbl ? fk(grpLbl) : null;
@@ -630,27 +675,27 @@ export default function Editor() {
             if (rows.length > 0) {
               const gl = (name, list) => { const d = list.find((x) => x.name === name); return d?.label || d?.name || name; };
               const fk = (label) => keys.find((k) => k === label) || null;
-              const axisKey = dims.length > 0 ? fk(gl(dims[0], model.dimensions || [])) || keys[0] : keys[0];
-              const grpLabel = grpBy.length > 0 ? gl(grpBy[0], model.dimensions || []) : null;
+              const axisKey = dims.length > 0 ? fk(gl(dims[0], effectiveModel.dimensions || [])) || keys[0] : keys[0];
+              const grpLabel = grpBy.length > 0 ? gl(grpBy[0], effectiveModel.dimensions || []) : null;
               const grpKey = grpLabel ? fk(grpLabel) : null;
               const labels = [...new Set(rows.map((r) => String(r[axisKey] ?? '')))];
               // Bar series: split by legend
               let barSeries = [];
               if (grpKey) {
                 const ug = [...new Set(rows.map((r) => String(r[grpKey] ?? '')))].sort();
-                cbm.forEach((mn) => { const ml = gl(mn, model.measures || []); const mk = fk(ml); if (!mk) return;
+                cbm.forEach((mn) => { const ml = gl(mn, effectiveModel.measures || []); const mk = fk(ml); if (!mk) return;
                   ug.forEach((gv) => { barSeries.push({ name: cbm.length === 1 ? gv : `${gv} - ${ml}`, values: labels.map((l) => { const row = rows.find((r) => String(r[axisKey] ?? '') === l && String(r[grpKey] ?? '') === gv); return row ? Number(row[mk]) || 0 : 0; }) }); });
                 });
               } else {
-                cbm.forEach((mn) => { const ml = gl(mn, model.measures || []); const mk = fk(ml); if (!mk) return; barSeries.push({ name: ml, values: labels.map((l) => { const row = rows.find((r) => String(r[axisKey] ?? '') === l); return row ? Number(row[mk]) || 0 : 0; }) }); });
+                cbm.forEach((mn) => { const ml = gl(mn, effectiveModel.measures || []); const mk = fk(ml); if (!mk) return; barSeries.push({ name: ml, values: labels.map((l) => { const row = rows.find((r) => String(r[axisKey] ?? '') === l); return row ? Number(row[mk]) || 0 : 0; }) }); });
               }
               // Line series: aggregate across legend
-              const lineSeries = clm.map((mn) => { const ml = gl(mn, model.measures || []); const mk = fk(ml); if (!mk) return null;
+              const lineSeries = clm.map((mn) => { const ml = gl(mn, effectiveModel.measures || []); const mk = fk(ml); if (!mk) return null;
                 return { name: ml, values: labels.map((l) => rows.filter((r) => String(r[axisKey] ?? '') === l).reduce((s, r) => s + (Number(r[mk]) || 0), 0)) };
               }).filter(Boolean);
               newData = { labels, barSeries, lineSeries };
-              newData._barMeasureLabel = cbm.map((mn) => gl(mn, model.measures || [])).join(', ');
-              newData._lineMeasureLabel = clm.map((mn) => gl(mn, model.measures || [])).join(', ');
+              newData._barMeasureLabel = cbm.map((mn) => gl(mn, effectiveModel.measures || [])).join(', ');
+              newData._lineMeasureLabel = clm.map((mn) => gl(mn, effectiveModel.measures || [])).join(', ');
             }
           } else if (w.type === 'table') {
             newData = { columns: keys, rows: rows.map((r) => Object.values(r).map((v) => v != null ? String(v) : '')) };
@@ -659,11 +704,11 @@ export default function Editor() {
             // (server-side already keys them by display label) and `fields` describes
             // the role of each column so the iframe-rendered visual can interpret them.
             const dimsMeta = dims.map((name) => {
-              const d = (model.dimensions || []).find((x) => x.name === name);
+              const d = (effectiveModel.dimensions || []).find((x) => x.name === name);
               return { name: d?.label || d?.name || name, role: 'category', sourceName: name };
             });
             const measMeta = meass.map((name) => {
-              const m = (model.measures || []).find((x) => x.name === name);
+              const m = (effectiveModel.measures || []).find((x) => x.name === name);
               return { name: m?.label || m?.name || name, role: 'value', format: m?.format, sourceName: name };
             });
             newData = { rows, fields: { dimensions: dimsMeta, measures: measMeta } };
@@ -673,7 +718,7 @@ export default function Editor() {
             const firstRow = rows[0];
             if (firstRow) {
               const valueMeasName = w.dataBinding?.selectedMeasures?.[0];
-              const valueMeasDef = (model.measures || []).find((m) => m.name === valueMeasName);
+              const valueMeasDef = (effectiveModel.measures || []).find((m) => m.name === valueMeasName);
               const valueKey = valueMeasDef?.label || valueMeasDef?.name || valueMeasName;
               const measureVal = valueKey && firstRow[valueKey] !== undefined ? firstRow[valueKey] : Object.values(firstRow)[0];
               newData = {
@@ -683,7 +728,7 @@ export default function Editor() {
               if (w.type === 'gauge') {
                 const extractMeas = (measName) => {
                   if (!measName) return undefined;
-                  const def = (model.measures || []).find((m) => m.name === measName);
+                  const def = (effectiveModel.measures || []).find((m) => m.name === measName);
                   const key = def?.label || def?.name || measName;
                   const raw = firstRow[key];
                   if (typeof raw === 'number') return raw;
@@ -708,23 +753,24 @@ export default function Editor() {
             newData = { labels: rows.map((r) => String(r[keys[0]])), values: rows.map((r) => Number(r[keys[keys.length - 1]]) || 0) };
           }
           const mf = {};
-          meass.forEach((mn) => { const md = (model.measures || []).find((x) => x.name === mn); if (md?.format) mf[md.label || md.name] = md.format; });
+          meass.forEach((mn) => { const md = (effectiveModel.measures || []).find((x) => x.name === mn); if (md?.format) mf[md.label || md.name] = md.format; });
           newData._measureFormats = mf;
           if (dims.length > 0) {
             newData._dimName = dims[0];
-            const axisDim = (model.dimensions || []).find((x) => x.name === dims[0]);
+            const axisDim = (effectiveModel.dimensions || []).find((x) => x.name === dims[0]);
             newData._dimLabel = axisDim?.label || axisDim?.name || dims[0];
             if (axisDim?.datePart) newData._datePart = axisDim.datePart;
             else if (axisDim?.type === 'date') newData._datePart = 'full_date';
+            if (axisDim) newData._axisDimDef = { type: axisDim.type, datePart: axisDim.datePart };
           }
           if (meass.length > 0) {
-            const m0 = (model.measures || []).find((x) => x.name === meass[0]);
+            const m0 = (effectiveModel.measures || []).find((x) => x.name === meass[0]);
             newData._measureLabel = m0?.label || m0?.name || meass[0];
           }
           newData._rowCount = rows.length;
           if (isDrillable) {
             newData._hierarchy = fullHierarchy.map((dn) => {
-              const def = (model.dimensions || []).find((x) => x.name === dn);
+              const def = (effectiveModel.dimensions || []).find((x) => x.name === dn);
               return { name: dn, label: def?.label || def?.name || dn };
             });
             newData._drillPath = drillPath;
@@ -1211,6 +1257,12 @@ export default function Editor() {
         offset: currentRows.length,
         filters: targetFilters,
         widgetFilters: sanitizeWidgetFilters(combinedWidgetFilters),
+        // Pass the report's extras so the load-more SQL matches the initial
+        // query exactly (extras affect dim resolution + SELECT shape).
+        extraDimensions: settings?.extraDimensions || [],
+        extraMeasures: settings?.extraMeasures || [],
+        dimensionOverrides: settings?.dimensionOverrides || {},
+        measureOverrides: settings?.measureOverrides || {},
       });
 
       const newRows = res.data.rows;
@@ -1445,7 +1497,7 @@ export default function Editor() {
           onSendToBack={handleSendToBack}
           onBringForward={handleBringForward}
           onSendBackward={handleSendBackward}
-          model={model}
+          model={effectiveModel}
           onResizeStart={pinCanvas}
           onResizeEnd={unpinCanvas}
         />
@@ -1454,8 +1506,10 @@ export default function Editor() {
           widget={selectedWidget ? widgets[selectedWidget] : null}
           onUpdate={handleUpdateWidget}
           onUpdateSilent={handleUpdateWidgetSilent}
-          model={model}
+          model={effectiveModel}
           onModelUpdate={reloadModel}
+          settings={settings}
+          onSettingsChange={setSettings}
           reportFilters={crossHighlight?.widgetId === selectedWidget ? slicerSelections : reportFilters}
           onResizeStart={pinCanvas}
           onResizeEnd={unpinCanvas}

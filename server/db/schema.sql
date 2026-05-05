@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS models (
   measures TEXT NOT NULL DEFAULT '[]',
   joins TEXT NOT NULL DEFAULT '[]',
   rls TEXT NOT NULL DEFAULT '{}',
+  column_types TEXT NOT NULL DEFAULT '{}',
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,

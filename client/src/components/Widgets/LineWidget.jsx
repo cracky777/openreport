@@ -3,6 +3,7 @@ import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
+import { compareAxisValues } from '../../utils/axisSort';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 
@@ -61,7 +62,9 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
   const dataLabelBgColor = config?.dataLabelBgColor || '#ffffff';
   const dataLabelBgOpacity = config?.dataLabelBgOpacity ?? 0;
   const hideZeros = config?.hideZeros ?? false;
-  const sortOrder = config?.sortOrder || 'none';
+  const zoneSorts = config?.zoneSorts;
+  const sortOrder = zoneSorts ? (zoneSorts.values || 'none') : (config?.sortOrder || 'none');
+  const axisSort = zoneSorts?.axis || 'none';
   const w = chartWidth || 400;
   const h = chartHeight || 300;
 
@@ -82,8 +85,8 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
     let labels = [...data.labels];
     let sortedIndices = labels.map((_, i) => i);
     const datePart = data._datePart;
+    const axisDimDef = data._axisDimDef;
 
-    // Sort labels by total values
     if (sortOrder !== 'none') {
       const rawS = data.series && data.series.length > 0 ? data.series : null;
       const totals = labels.map((_, i) => {
@@ -96,8 +99,10 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
       });
       sortedIndices.sort((a, b) => sortOrder === 'desc' ? totals[b] - totals[a] : totals[a] - totals[b]);
       labels = sortedIndices.map((i) => labels[i]);
+    } else if (axisSort !== 'none') {
+      sortedIndices.sort((a, b) => compareAxisValues(labels[a], labels[b], axisDimDef, axisSort));
+      labels = sortedIndices.map((i) => labels[i]);
     } else if (datePart) {
-      // Auto-sort chronologically for date dimensions
       const { labels: sorted, indices } = sortDateLabels(labels, null, datePart);
       sortedIndices = indices.map((i) => sortedIndices[i]);
       labels = sorted;
@@ -244,7 +249,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
 
     const legendItems = (allSeriesForLegend || []).map((s, i) => ({ name: s.name, color: getColor(s.name, i) }));
     return { option: opt, legendItems, rawLabels };
-  }, [data, subType, showLabels, showLegend, legendPosition, hasData, config?.smooth, config?.color, isArea, isStacked, hideZeros, sortOrder,
+  }, [data, subType, showLabels, showLegend, legendPosition, hasData, config?.smooth, config?.color, isArea, isStacked, hideZeros, sortOrder, axisSort,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors,
       config?.lineSymbol, config?.lineSymbolSize,

@@ -5,7 +5,7 @@ import DropZone from '../DropZone/DropZone';
 import TablePropertySections from './TablePropertySections';
 import DimensionMultiSelect from './DimensionMultiSelect';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
-import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase, TbArrowsSort, TbSortAscending, TbSortDescending } from 'react-icons/tb';
+import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase } from 'react-icons/tb';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
 
 function getWidgetDisplayInfo(widget) {
@@ -113,9 +113,9 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
   const dimensionNames = new Set();
   const measureInfos = {};
   if (model) {
-    for (const d of (model.dimensions || [])) { fieldInfos[d.name] = { table: d.table, column: d.column }; dimensionNames.add(d.name); }
+    for (const d of (model.dimensions || [])) { fieldInfos[d.name] = { table: d.table, column: d.column, label: d.label }; dimensionNames.add(d.name); }
     for (const m of (model.measures || [])) {
-      fieldInfos[m.name] = { table: m.table, column: m.column };
+      fieldInfos[m.name] = { table: m.table, column: m.column, label: m.label };
       // Get aggregation (from widget override or model default)
       const aggOverrides = binding.measureAggOverrides || {};
       measureInfos[m.name] = { aggregation: aggOverrides[m.name] || m.aggregation || 'sum' };
@@ -128,6 +128,24 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
   };
   const selectedDims = binding.selectedDimensions || [];
   const selectedMeass = binding.selectedMeasures || [];
+
+  // Per-zone sort. Stored as widget.config.zoneSorts = { axis, values, ... }.
+  // Backwards compat: the old global widget.config.sortOrder used to apply
+  // to the values aggregate, so seed the values zone from it when zoneSorts
+  // hasn't been written yet.
+  const zoneSorts = (() => {
+    const z = widget.config?.zoneSorts;
+    if (z && typeof z === 'object') return z;
+    if (widget.config?.sortOrder) return { values: widget.config.sortOrder };
+    return {};
+  })();
+  const getZoneSort = (zone) => zoneSorts[zone] || 'none';
+  const setZoneSort = (zone) => (next) => {
+    const cur = (widget.config?.zoneSorts && typeof widget.config.zoneSorts === 'object') ? widget.config.zoneSorts : {};
+    const merged = { ...cur, [zone]: next };
+    if (next === 'none') delete merged[zone];
+    updateConfig('zoneSorts', merged);
+  };
 
   const updateBinding = (newBinding) => {
     const next = { ...widget, dataBinding: { ...binding, ...newBinding } };
@@ -274,11 +292,13 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       return (
         <Section title="" bare>
           <DropZone label="Axis" accepts={['dimension']} fields={selectedDims} zoneName="axis"
-            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos} />
+            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos}
+            sort={getZoneSort('axis')} onSortChange={setZoneSort('axis')} />
           <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
             onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
           <DropZone label="Values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="values"
-            onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos} />
+            onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos}
+            sort={getZoneSort('values')} onSortChange={setZoneSort('values')} />
         </Section>
       );
     }
@@ -287,11 +307,13 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       return (
         <Section title="" bare>
           <DropZone label="Axis" accepts={['dimension']} fields={selectedDims} zoneName="axis"
-            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos} />
+            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos}
+            sort={getZoneSort('axis')} onSortChange={setZoneSort('axis')} />
           <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
             onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
           <DropZone label="Values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="values"
-            onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos} />
+            onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos}
+            sort={getZoneSort('values')} onSortChange={setZoneSort('values')} />
         </Section>
       );
     }
@@ -332,11 +354,13 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       return (
         <Section title="" bare>
           <DropZone label="Axis" accepts={['dimension']} fields={selectedDims} zoneName="axis"
-            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos} />
+            onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos}
+            sort={getZoneSort('axis')} onSortChange={setZoneSort('axis')} />
           <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
             onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
           <DropZone label="Bar values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={comboBarMeas} zoneName="comboBar"
-            onDrop={(fn) => addComboBar(fn)} onRemove={removeComboBar} onReorder={(arr) => updateBinding({ comboBarMeasures: arr })} multiple fieldInfos={fieldInfos} />
+            onDrop={(fn) => addComboBar(fn)} onRemove={removeComboBar} onReorder={(arr) => updateBinding({ comboBarMeasures: arr })} multiple fieldInfos={fieldInfos}
+            sort={getZoneSort('values')} onSortChange={setZoneSort('values')} />
           <DropZone label="Line values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={comboLineMeas} zoneName="comboLine"
             onDrop={(fn) => addComboLine(fn)} onRemove={removeComboLine} onReorder={(arr) => updateBinding({ comboLineMeasures: arr })} multiple fieldInfos={fieldInfos} />
         </Section>
@@ -347,9 +371,11 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       return (
         <Section title="" bare>
           <DropZone label="Category" accepts={['dimension']} fields={selectedDims} zoneName="category"
-            onDrop={handleDrop('category')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos} />
+            onDrop={handleDrop('category')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos}
+            sort={getZoneSort('axis')} onSortChange={setZoneSort('axis')} />
           <DropZone label="Value" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="value"
-            onDrop={handleDrop('value')} onRemove={handleRemove} onReorder={handleReorder('measures')} fieldInfos={fieldInfos} />
+            onDrop={handleDrop('value')} onRemove={handleRemove} onReorder={handleReorder('measures')} fieldInfos={fieldInfos}
+            sort={getZoneSort('values')} onSortChange={setZoneSort('values')} />
         </Section>
       );
     }
@@ -563,52 +589,6 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
         </Field>
       )}
 
-      {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'pie' || widget.type === 'combo' || widget.type === 'treemap') && (
-        <Field label="Sort">
-          <div style={{ display: 'flex', gap: 3, justifyContent: 'flex-end' }}>
-            {[
-              { value: 'none', icon: TbArrowsSort, title: 'No sort' },
-              { value: 'desc', icon: TbSortDescending, title: 'Descending' },
-              { value: 'asc',  icon: TbSortAscending,  title: 'Ascending'  },
-            ].map((opt) => {
-              const Icon = opt.icon;
-              const current = widget.config?.sortOrder || (widget.type === 'treemap' ? 'desc' : 'none');
-              const active = current === opt.value;
-              return (
-                <button key={opt.value} type="button" title={opt.title}
-                  onClick={() => updateConfig('sortOrder', opt.value)}
-                  style={sortBtn(active)}>
-                  <Icon size={14} />
-                </button>
-              );
-            })}
-          </div>
-        </Field>
-      )}
-
-      {/* Top N + Others — folds the long tail into a single "Others" bucket so
-          high-cardinality charts (e.g. drill-down to communes) stay readable. */}
-      {(widget.type === 'bar' || widget.type === 'pie' || widget.type === 'treemap') && (
-        <Field label="Top N + Others">
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end' }}>
-            <input type="checkbox"
-              checked={widget.config?.topNEnabled === true}
-              onChange={(e) => updateConfig('topNEnabled', e.target.checked)}
-              title="Group items beyond Top N into a single Others bucket" />
-            <input type="number" min={1} max={1000}
-              value={widget.config?.topN ?? 20}
-              disabled={widget.config?.topNEnabled !== true}
-              onChange={(e) => updateConfig('topN', Math.max(1, parseInt(e.target.value, 10) || 1))}
-              style={{
-                width: 60, padding: '4px 6px', fontSize: 12,
-                border: '1px solid var(--border-default)', borderRadius: 4,
-                background: 'var(--bg-panel)', color: 'var(--text-primary)',
-                opacity: widget.config?.topNEnabled === true ? 1 : 0.5,
-              }} />
-          </div>
-        </Field>
-      )}
-
       {widget.type === 'filter' && (() => {
         const effStyle = widget.config?.slicerStyle || (widget.data?._isDate ? 'dateRange' : 'list');
         const isDateRange = effStyle === 'dateRange' || effStyle === 'dateBetween';
@@ -758,6 +738,27 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 onChange={(e) => updateConfig('dataLimit', parseInt(e.target.value) || 1000)}
                 style={{ ...inputStyle, marginBottom: 0 }} />
             </Field>
+          )}
+          {/* Show Top N + Others — folds the long tail into a single "Others"
+              bucket so high-cardinality charts stay readable. The numeric
+              input is revealed only when the flag is on. */}
+          {(widget.type === 'bar' || widget.type === 'pie' || widget.type === 'treemap') && (
+            <>
+              <Field label="Show Top N + Others">
+                <input type="checkbox"
+                  checked={widget.config?.topNEnabled === true}
+                  onChange={(e) => updateConfig('topNEnabled', e.target.checked)}
+                  title="Group items beyond Top N into a single Others bucket" />
+              </Field>
+              {widget.config?.topNEnabled === true && (
+                <Field label="N">
+                  <input type="number" min={1} max={1000}
+                    value={widget.config?.topN ?? 20}
+                    onChange={(e) => updateConfig('topN', Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    style={{ ...inputStyle, width: 70, marginBottom: 0 }} />
+                </Field>
+              )}
+            </>
           )}
           {widget.type !== 'filter' && (
             <>
@@ -1738,7 +1739,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
 }
 
 // Right column: model dimensions & measures (always visible, collapsible)
-export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, model, onModelUpdate, reportFilters, onResizeStart, onResizeEnd }) {
+export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, model, onModelUpdate, settings, onSettingsChange, reportFilters, onResizeStart, onResizeEnd }) {
   const [collapsed, setCollapsed] = useState(false);
   const { width, handleProps } = useResizableWidth({ storageKey: 'openreport.dataPanelWidth', defaultWidth: 220, min: 200, max: 480, onDragStart: onResizeStart, onDragEnd: onResizeEnd });
   const dynamicDataStyle = { ...dataPanelStyle, width, maxWidth: width, position: 'relative' };
@@ -1773,7 +1774,7 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, mod
           onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
         ><TbChevronsRight size={14} /></button>
       </div>
-      <DataPanel widgetId={widgetId} widget={widget} onUpdate={onUpdate} onUpdateSilent={onUpdateSilent} model={model} onModelUpdate={onModelUpdate} reportFilters={reportFilters} />
+      <DataPanel widgetId={widgetId} widget={widget} onUpdate={onUpdate} onUpdateSilent={onUpdateSilent} model={model} onModelUpdate={onModelUpdate} settings={settings} onSettingsChange={onSettingsChange} reportFilters={reportFilters} />
     </div>
   );
 }
@@ -2103,18 +2104,6 @@ const headerStyle = {
 };
 
 const radioRow = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' };
-
-// Mirrors layerBtn (the layer-positioning row) so the sort group blends in:
-// individual bordered buttons, no wrapping pill. Active state swaps to the
-// accent color + soft tint to mark the current direction.
-const sortBtn = (active) => ({
-  background: active ? 'var(--accent-primary-soft)' : 'var(--bg-panel)',
-  border: `1px solid ${active ? 'var(--accent-primary-border)' : 'var(--border-default)'}`,
-  borderRadius: 6, padding: '5px 7px', cursor: 'pointer',
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
-  transition: 'background 0.12s, border-color 0.12s, color 0.12s',
-});
 
 const layerBtn = {
   color: 'var(--text-secondary)', background: 'var(--bg-panel)', border: '1px solid var(--border-default)',

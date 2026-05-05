@@ -41,10 +41,18 @@ export default function SchemaCanvas({
   rlsTable, // the table currently flagged as the RLS table (if any)
   onOpenRLS, // (tableName) => void — opens the RLS dialog for that table
   onRemoveTable, // (tableName) => void — remove the table from the model schema
+  columnTypes, // { "table.column": "date" | "string" | "number" | "boolean" }
+  onColumnTypeChange, // (table, column, newType | 'auto') => void
+  onValidateColumnType, // async (table, column, type) => void — runs the backend sample
+  validatingColumn, // "table.column" while a validation request is in flight (or null)
+  validationResults, // { "table.column": { validRatio, sampleSize, ... } }
 }) {
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const [draggingTable, setDraggingTable] = useState(null);
+  // Inline popover anchor: { table, column, dataType, screenX, screenY } when
+  // the user clicks a column's type badge to override its inferred type.
+  const [typePopover, setTypePopover] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [linkDrag, setLinkDrag] = useState(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -167,18 +175,37 @@ export default function SchemaCanvas({
     setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
   };
 
-  // Zoom with mouse wheel
+  // Zoom with mouse wheel — anchors the scale change on the cursor so the
+  // logical point under the cursor stays put. Closes over the latest
+  // zoom + pan via the dependency list (re-registering on every change is
+  // cheap and avoids the stale-closure bug of the previous version).
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const handleWheel = (e) => {
       e.preventDefault();
       const delta = e.deltaY > 0 ? -0.08 : 0.08;
-      setZoom((prev) => Math.min(2, Math.max(0.3, prev + delta)));
+      const nextZoom = Math.min(2, Math.max(0.3, zoom + delta));
+      if (nextZoom === zoom) return;
+      const rect = container.getBoundingClientRect();
+      // Cursor position relative to the container (== relative to the SVG
+      // since they share the same box).
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      // The inner <g> uses transform="translate(pan) scale(zoom)", so a
+      // screen point P maps to logical (P - pan) / zoom. We pick the new
+      // pan so the same logical point lands at the same screen point
+      // after the scale change.
+      const ratio = nextZoom / zoom;
+      setZoom(nextZoom);
+      setPan({
+        x: cx - (cx - pan.x) * ratio,
+        y: cy - (cy - pan.y) * ratio,
+      });
     };
     container.addEventListener('wheel', handleWheel, { passive: false });
     return () => container.removeEventListener('wheel', handleWheel);
-  }, []);
+  }, [zoom, pan]);
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -567,8 +594,22 @@ export default function SchemaCanvas({
                   const cy = HEADER_HEIGHT + TYPE_BAR_HEIGHT + ci * ROW_HEIGHT + ROW_HEIGHT / 2;
                   const isDim = isDimension(tableName, col.column_name);
                   const isMeas = isMeasure(tableName, col.column_name);
-                  const numeric = isNumeric(col.data_type);
-                  const isDate = isDateType?.(col.data_type);
+                  // Effective type respects per-column overrides (columnTypes prop).
+                  // Override → 'date' / 'number' / 'string' / 'boolean'. Without
+                  // override we infer from the native data_type.
+                  const overrideKey = `${tableName}.${col.column_name}`;
+                  const overrideRaw = columnTypes && columnTypes[overrideKey];
+                  // Normalise: entries can be either a plain type string or
+                  // an object { type, format } once a date format is set.
+                  const overrideType = !overrideRaw
+                    ? null
+                    : (typeof overrideRaw === 'string' ? overrideRaw : overrideRaw.type);
+                  const isOverridden = !!overrideType;
+                  const numeric = overrideType
+                    ? ['number', 'integer', 'decimal'].includes(overrideType)
+                    : isNumeric(col.data_type);
+                  const isDate = overrideType ? overrideType === 'date' : isDateType?.(col.data_type);
+                  const displayType = overrideType || col.data_type;
                   const isId = col.column_name.toLowerCase().startsWith('id');
 
                   return (
@@ -586,16 +627,39 @@ export default function SchemaCanvas({
                         const TYPE_MAX = 10;
                         const truncate = (s, n) => (s && s.length > n ? s.slice(0, n - 1) + '…' : s);
                         const nameTruncated = (col.column_name || '').length > NAME_MAX;
-                        const typeTruncated = (col.data_type || '').length > TYPE_MAX;
+                        const typeTruncated = (displayType || '').length > TYPE_MAX;
+                        // Click on the type label opens the override popover at
+                        // the click coordinates. The popover lives outside the
+                        // SVG (HTML overlay) so it can host a normal <select>.
+                        const onTypeClick = (e) => {
+                          if (!onColumnTypeChange) return;
+                          e.stopPropagation();
+                          setTypePopover({
+                            table: tableName,
+                            column: col.column_name,
+                            dataType: col.data_type,
+                            screenX: e.clientX,
+                            screenY: e.clientY,
+                          });
+                        };
                         return (
                           <>
                             <text x={isId ? 18 : 8} y={cy + 4} fontSize={11} fill="#334155" style={{ fontWeight: isId ? 600 : 400 }}>
                               {truncate(col.column_name, NAME_MAX)}
                               {nameTruncated && <title>{col.column_name}</title>}
                             </text>
-                            <text x={TABLE_WIDTH - (isDate ? 56 : 48)} y={cy + 4} fontSize={9} fill={isDate ? '#d97706' : '#94a3b8'} textAnchor="end">
-                              {isDate ? '📅 ' : ''}{truncate(col.data_type, TYPE_MAX)}
-                              {typeTruncated && <title>{col.data_type}</title>}
+                            <text
+                              x={TABLE_WIDTH - (isDate ? 56 : 48)}
+                              y={cy + 4}
+                              fontSize={9}
+                              fill={isOverridden ? '#7c3aed' : isDate ? '#d97706' : '#94a3b8'}
+                              fontWeight={isOverridden ? 700 : 400}
+                              textAnchor="end"
+                              style={{ cursor: onColumnTypeChange ? 'pointer' : 'default' }}
+                              onClick={onTypeClick}
+                            >
+                              {isOverridden ? '✎ ' : isDate ? '📅 ' : ''}{truncate(displayType, TYPE_MAX)}
+                              {(typeTruncated || isOverridden) && <title>{isOverridden ? `Override: ${displayType}\nNative: ${col.data_type}\nClick to change` : `${col.data_type}\nClick to override`}</title>}
                             </text>
                           </>
                         );
@@ -660,6 +724,139 @@ export default function SchemaCanvas({
           })}
         </g>
       </svg>
+
+      {/* Column-type override popover. Floats above the SVG at the click
+          coordinates, contains a normal <select> + Test/Reset buttons.
+          Closing handled by clicking outside (an invisible overlay). */}
+      {typePopover && (
+        <>
+          <div
+            onClick={() => setTypePopover(null)}
+            style={{ position: 'fixed', inset: 0, zIndex: 50 }}
+          />
+          {(() => {
+            const key = `${typePopover.table}.${typePopover.column}`;
+            const rawEntry = columnTypes && columnTypes[key];
+            // Normalise the entry to {type, format} no matter how it was stored.
+            const entry = !rawEntry
+              ? { type: 'auto', format: 'auto' }
+              : (typeof rawEntry === 'string'
+                ? { type: rawEntry, format: 'auto' }
+                : { type: rawEntry.type || 'auto', format: rawEntry.format || 'auto' });
+            const current = entry.type === 'number' ? 'decimal' : entry.type;
+            const currentFormat = entry.format || 'auto';
+            const isValidating = validatingColumn === key;
+            const result = validationResults?.[key];
+            const VW = 240;
+            // Position the popover near the click point, but keep it on-screen.
+            const left = Math.min(typePopover.screenX, window.innerWidth - VW - 16);
+            const top = Math.min(typePopover.screenY + 8, window.innerHeight - 280);
+            return (
+              <div
+                style={{
+                  position: 'fixed', left, top, zIndex: 51,
+                  width: VW,
+                  background: 'var(--bg-panel)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 8,
+                  boxShadow: '0 8px 24px rgba(15,23,42,0.18)',
+                  padding: 12, fontSize: 12,
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 4, color: 'var(--text-primary)' }}>
+                  Override column type
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+                  <code>{typePopover.column}</code> · native <code>{typePopover.dataType}</code>
+                </div>
+                <select
+                  value={current}
+                  onChange={(e) => {
+                    onColumnTypeChange?.(typePopover.table, typePopover.column, e.target.value, currentFormat);
+                  }}
+                  style={{
+                    width: '100%', padding: '4px 6px',
+                    border: '1px solid var(--border-default)', borderRadius: 4,
+                    fontSize: 12, marginBottom: 8,
+                  }}
+                >
+                  <option value="auto">auto (use native)</option>
+                  <option value="string">string</option>
+                  <option value="integer">integer (no decimals)</option>
+                  <option value="decimal">decimal (. or , as separator)</option>
+                  <option value="date">date</option>
+                  <option value="boolean">boolean</option>
+                </select>
+                {current === 'date' && (
+                  <select
+                    value={currentFormat}
+                    onChange={(e) => onColumnTypeChange?.(typePopover.table, typePopover.column, 'date', e.target.value)}
+                    style={{
+                      width: '100%', padding: '4px 6px',
+                      border: '1px solid var(--border-default)', borderRadius: 4,
+                      fontSize: 11, marginBottom: 8,
+                    }}
+                    title="Expected date format in this column"
+                  >
+                    <option value="auto">auto (try ISO / EU / US)</option>
+                    <option value="iso">ISO (YYYY-MM-DD)</option>
+                    <option value="dd/mm/yyyy">DD/MM/YYYY (FR)</option>
+                    <option value="mm/dd/yyyy">MM/DD/YYYY (US)</option>
+                    <option value="dd-mm-yyyy">DD-MM-YYYY</option>
+                    <option value="dd.mm.yyyy">DD.MM.YYYY</option>
+                    <option value="yyyymmdd">YYYYMMDD</option>
+                  </select>
+                )}
+                {current !== 'auto' && (
+                  <button
+                    type="button"
+                    className="btn-hover"
+                    disabled={isValidating || !onValidateColumnType}
+                    onClick={() => onValidateColumnType?.(typePopover.table, typePopover.column, current, currentFormat)}
+                    style={{
+                      width: '100%', padding: '5px 8px', fontSize: 12,
+                      background: 'transparent', border: '1px solid var(--border-default)',
+                      borderRadius: 4, cursor: isValidating ? 'wait' : 'pointer',
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    {isValidating ? 'Testing…' : 'Test format on 100k rows'}
+                  </button>
+                )}
+                {result && (
+                  <div style={{ marginTop: 8, fontSize: 11 }}>
+                    {result.error ? (
+                      <span style={{ color: 'var(--state-danger)' }}>Error: {result.error}</span>
+                    ) : (
+                      <>
+                        <div style={{ color: result.validRatio >= 0.95 ? 'var(--state-success, #16a34a)' : 'var(--state-warning, #92400e)' }}>
+                          {result.validRatio >= 0.95 ? '✓' : '!'} {Math.round((result.validRatio || 0) * 100)}% valid ({result.validCount}/{result.sampleSize} rows)
+                        </div>
+                        {result.invalidExamples?.length > 0 && (
+                          <div style={{ color: 'var(--text-muted)', marginTop: 4, wordBreak: 'break-all' }}>
+                            Invalid examples: {result.invalidExamples.slice(0, 3).map((v) => v == null ? 'NULL' : `"${v}"`).join(', ')}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+                <div style={{ marginTop: 10, textAlign: 'right' }}>
+                  <button
+                    type="button"
+                    className="btn-hover"
+                    onClick={() => setTypePopover(null)}
+                    style={{ padding: '4px 12px', fontSize: 11, border: '1px solid var(--border-default)', borderRadius: 4, background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+        </>
+      )}
     </div>
   );
 }

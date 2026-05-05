@@ -5,7 +5,21 @@ import SqlExpressionInput from '../SqlExpressionInput/SqlExpressionInput';
 import { sanitizeWidgetFilters } from '../../utils/widgetFilters';
 import { computeBindingKey } from '../../utils/bindingKey';
 
-export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, model, onModelUpdate, reportFilters }) {
+export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, model, onModelUpdate, settings, onSettingsChange, reportFilters }) {
+  // Helper used by every action that previously mutated the model. Updates
+  // the report's `settings` JSON in-memory; the user's next Save persists it
+  // to /api/reports/:id. Returns false when the host didn't provide
+  // `onSettingsChange` — callers MUST treat that as a hard failure and
+  // refuse to fall back to model mutation. Touching the underlying model
+  // from the report editor is never the right behaviour.
+  const updateSettings = (patch) => {
+    if (typeof onSettingsChange !== 'function') {
+      console.error('[DataPanel] onSettingsChange prop is missing — refusing to mutate the model. Action ignored.');
+      return false;
+    }
+    onSettingsChange({ ...(settings || {}), ...patch });
+    return true;
+  };
   const [status, setStatus] = useState(null);
   const [showCalcForm, setShowCalcForm] = useState(false);
   const [calcLabel, setCalcLabel] = useState('');
@@ -154,6 +168,16 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
 
         const mergedFiltersLocal = isFilterWidget ? {} : { ...(reportFilters || {}), ...drillFiltersLocal };
 
+        // Report-scoped extras/overrides — must be sent on every /query so the
+        // server can resolve report-only dims/measures (e.g. _date.year from
+        // a Date Table created in this report).
+        const reportExtras = {
+          extraDimensions: settings?.extraDimensions || [],
+          extraMeasures: settings?.extraMeasures || [],
+          dimensionOverrides: settings?.dimensionOverrides || {},
+          measureOverrides: settings?.measureOverrides || {},
+        };
+
         // Server-side Top N (mirrors Editor.jsx). Restricted to a single
         // displayed dimension on bar/pie/treemap with at least one measure.
         const TOP_N_TYPES_LOCAL = ['bar', 'pie', 'treemap'];
@@ -177,6 +201,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               filters: mergedFiltersLocal,
               widgetFilters: sanitizeWidgetFilters(widgetFiltersWithTopN),
               distinct: isFilterWidget || undefined,
+              ...reportExtras,
             }, { signal: abortController.signal })
           : Promise.resolve({ data: { rows: [] } });
 
@@ -188,6 +213,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               limit: 1,
               filters: mergedFiltersLocal,
               widgetFilters: sanitizeWidgetFilters(widgetFilters),
+              ...reportExtras,
             }, { signal: abortController.signal }).catch(() => null)
           : Promise.resolve(null);
 
@@ -199,6 +225,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               limit: 1,
               filters: mergedFiltersLocal,
               widgetFilters: sanitizeWidgetFilters(widgetFilters),
+              ...reportExtras,
             }, { signal: abortController.signal }).catch(() => null)
           : Promise.resolve(null);
 
@@ -487,6 +514,9 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           const axisDim = (model.dimensions || []).find((x) => x.name === primaryDim);
           if (axisDim?.datePart) newData._datePart = axisDim.datePart;
           else if (axisDim?.type === 'date') newData._datePart = 'full_date';
+          // Per-zone axis sort needs the dim's type + datePart to pick the
+          // right comparator (chrono for month names, numeric for date parts).
+          if (axisDim) newData._axisDimDef = { type: axisDim.type, datePart: axisDim.datePart };
         }
         newData._rowCount = rows.length;
         newData._colorValue = _colorValue;
@@ -592,12 +622,17 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 setCalcSaving(true);
                 try {
                   const measName = `_calc.${calcLabel.replace(/\s+/g, '_').toLowerCase()}`;
-                  const newMeasures = [...(model.measures || []), {
+                  const newMeasure = {
                     name: measName, table: '', column: '', aggregation: 'custom',
                     expression: calcExpr, label: calcLabel,
-                  }];
-                  await api.put(`/models/${model.id}`, { measures: newMeasures });
-                  if (onModelUpdate) onModelUpdate();
+                  };
+                  // Report-scoped: append to settings.extraMeasures so this
+                  // calc lives only inside the current report. If
+                  // updateSettings refuses, abort — never mutate the model.
+                  const wrote = updateSettings({
+                    extraMeasures: [...((settings && settings.extraMeasures) || []), newMeasure],
+                  });
+                  if (!wrote) return;
                   setCalcLabel(''); setCalcExpr(''); setShowCalcForm(false);
                 } catch (err) { console.error(err); }
                 finally { setCalcSaving(false); }
@@ -703,24 +738,58 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
             </div>
 
             <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 }}>
+              {m._source === 'report' && (
+                <button
+                  onClick={async () => {
+                    // Move this measure from settings.extraMeasures into
+                    // model.measures so every report on this model can use it.
+                    try {
+                      const promoted = { ...m };
+                      delete promoted._source;
+                      const newModelMeasures = [...(model.measures || []).filter((x) => x._source !== 'report'), promoted];
+                      await api.put(`/models/${model.id}`, { measures: newModelMeasures });
+                      const remaining = ((settings && settings.extraMeasures) || []).filter((x) => x.name !== m.name);
+                      if (typeof onSettingsChange === 'function') onSettingsChange({ ...(settings || {}), extraMeasures: remaining });
+                      if (onModelUpdate) onModelUpdate();
+                      setEditingField(null);
+                    } catch (err) { console.error(err); }
+                  }}
+                  title="Make this measure available to all reports using this model"
+                  style={{ ...editCancelBtn, color: 'var(--accent-primary)', borderColor: 'var(--accent-primary)' }}
+                >
+                  ↑ Promote to model
+                </button>
+              )}
               <button onClick={() => setEditingField(null)} style={editCancelBtn}>Close</button>
               <button onClick={async () => {
                 try {
-                  const newMeasures = (model.measures || []).map((x) => x.name === m.name
-                    ? {
-                        ...x,
-                        label: editForm.label,
-                        ...(x.aggregation === 'custom' ? { expression: editForm.expression } : {}),
-                        format: {
-                          decimals: editForm.decimals,
-                          thousandSep: editForm.thousandSep,
-                          prefix: editForm.prefix,
-                          suffix: editForm.suffix,
-                        },
-                      }
-                    : x);
-                  await api.put(`/models/${model.id}`, { measures: newMeasures });
-                  if (onModelUpdate) onModelUpdate();
+                  const patch = {
+                    label: editForm.label,
+                    ...(m.aggregation === 'custom' ? { expression: editForm.expression } : {}),
+                    format: {
+                      decimals: editForm.decimals,
+                      thousandSep: editForm.thousandSep,
+                      prefix: editForm.prefix,
+                      suffix: editForm.suffix,
+                    },
+                  };
+                  let wrote = false;
+                  if (m._source === 'report') {
+                    // Edit a report-scoped measure: mutate the entry inside
+                    // settings.extraMeasures.
+                    const currentExtras = (settings && settings.extraMeasures) || [];
+                    wrote = updateSettings({
+                      extraMeasures: currentExtras.map((x) => x.name === m.name ? { ...x, ...patch } : x),
+                    });
+                  } else {
+                    // Edit a model-scoped measure: write to settings.measureOverrides
+                    // so the underlying model isn't touched.
+                    const currentOv = (settings && settings.measureOverrides) || {};
+                    wrote = updateSettings({
+                      measureOverrides: { ...currentOv, [m.name]: { ...(currentOv[m.name] || {}), ...patch } },
+                    });
+                  }
+                  if (!wrote) return;
                   setEditingField(null);
                 } catch (err) { console.error(err); }
               }} style={editSaveBtn}>Save</button>
@@ -740,10 +809,16 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               <span>📅 Date Table</span>
               <button onClick={async (e) => {
                 e.stopPropagation();
-                // Remove date column and all its parts
-                const newDims = (model.dimensions || []).filter((x) => x.datePartOf !== model.dateColumn);
-                await api.put(`/models/${model.id}`, { dateColumn: '', dimensions: newDims });
-                if (onModelUpdate) onModelUpdate();
+                // Clear the report-scoped date column and any date-part dims
+                // that belonged to it. The underlying model is never mutated
+                // — we only touch settings.
+                const currentDateCol = model.dateColumn;
+                const currentExtras = (settings && settings.extraDimensions) || [];
+                const wrote = updateSettings({
+                  dateColumn: null,
+                  extraDimensions: currentExtras.filter((x) => x.datePartOf !== currentDateCol),
+                });
+                if (!wrote) return;
               }} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--state-warning-soft)', color: 'var(--state-warning)', fontWeight: 600, border: 'none', cursor: 'pointer' }}>✕ remove</button>
             </span>
           } style={{ flex: '0 0 auto', maxHeight: '30%' }}>
@@ -831,10 +906,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                         <button
                           onClick={async (e) => {
                             e.stopPropagation();
-                            await api.put(`/models/${model.id}`, { dateColumn: d.name });
-                            if (onModelUpdate) onModelUpdate();
+                            // Date Table is now report-scoped: only touch settings.
+                            updateSettings({ dateColumn: d.name });
                           }}
-                          title="Set as date table"
+                          title="Set as date table for this report"
                           style={{ ...dateTag, cursor: 'pointer', border: 'none', padding: '1px 4px', fontSize: 8 }}
                         >📅</button>
                       )}
@@ -864,12 +939,14 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
             </div>
             <div style={editRow}>
               <span style={editLabel}>Type</span>
-              <select value={dimEditForm.type || 'string'}
+              <select value={(dimEditForm.type === 'number' ? 'decimal' : dimEditForm.type) || 'string'}
                 onChange={(e) => setDimEditForm({ ...dimEditForm, type: e.target.value })}
-                style={{ ...editInput, width: 90 }}>
+                style={{ ...editInput, width: 110 }}>
                 <option value="string">Text</option>
-                <option value="number">Number</option>
+                <option value="integer">Integer</option>
+                <option value="decimal">Decimal</option>
                 <option value="date">Date</option>
+                <option value="boolean">Boolean</option>
               </select>
             </div>
             {dimEditForm.type === 'date' && !model.dateColumn && (
@@ -896,17 +973,66 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               </div>
             )}
             <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 }}>
+              {d._source === 'report' && (
+                <button
+                  onClick={async () => {
+                    // Promote a report-scoped dimension to the model so every
+                    // report on this model can use it. Only the dim itself is
+                    // moved — never its sibling date-parts. Promoting a parent
+                    // date column should NOT silently drag along all of its
+                    // generated date parts (year, month, ...). The user who
+                    // wants those in the model can promote each individually.
+                    try {
+                      const promoted = { ...d };
+                      delete promoted._source;
+                      // Strip any leaked _source markers from the model dims
+                      // we keep — they're an internal-only annotation.
+                      const cleanedModelDims = (model.dimensions || [])
+                        .filter((x) => x._source !== 'report')
+                        .map((x) => { const c = { ...x }; delete c._source; return c; });
+                      const newModelDims = [...cleanedModelDims, promoted];
+                      await api.put(`/models/${model.id}`, { dimensions: newModelDims });
+                      const extras = (settings && settings.extraDimensions) || [];
+                      const remaining = extras.filter((x) => x.name !== d.name);
+                      if (typeof onSettingsChange === 'function') onSettingsChange({ ...(settings || {}), extraDimensions: remaining });
+                      if (onModelUpdate) onModelUpdate();
+                      setEditingDim(null);
+                    } catch (err) { console.error(err); }
+                  }}
+                  title="Make this dimension available to all reports using this model"
+                  style={{ ...editCancelBtn, color: 'var(--accent-primary)', borderColor: 'var(--accent-primary)' }}
+                >
+                  ↑ Promote to model
+                </button>
+              )}
               <button onClick={() => setEditingDim(null)} style={editCancelBtn}>Close</button>
               <button onClick={async () => {
                 try {
-                  let newDimensions = (model.dimensions || []).map((x) => x.name === d.name
-                    ? { ...x, label: dimEditForm.label, type: dimEditForm.type }
-                    : x);
+                  // All edits stay scoped to the report — never mutate the
+                  // underlying model. Label/type changes on a model dim
+                  // become a `dimensionOverrides[d.name]` entry; on a report
+                  // dim they mutate the matching `extraDimensions` entry.
+                  // Date-table flag and generated date parts go to settings.
+                  const labelTypePatch = { label: dimEditForm.label, type: dimEditForm.type };
+                  let nextSettings = { ...(settings || {}) };
 
-                  // Generate date part dimensions
+                  // Apply the label/type change at the right scope
+                  if (d._source === 'report') {
+                    nextSettings.extraDimensions = (nextSettings.extraDimensions || []).map((x) =>
+                      x.name === d.name ? { ...x, ...labelTypePatch } : x);
+                  } else {
+                    const ov = nextSettings.dimensionOverrides || {};
+                    nextSettings.dimensionOverrides = {
+                      ...ov,
+                      [d.name]: { ...(ov[d.name] || {}), ...labelTypePatch },
+                    };
+                  }
+
+                  // Generate date parts → push them as report-scoped
+                  // extras (filtered to drop any previous parts of any
+                  // date column to keep the section clean).
                   if (dimEditForm.generateParts) {
-                    // Remove existing date parts first
-                    newDimensions = newDimensions.filter((x) => !x.name.startsWith('_date.'));
+                    const filteredExtras = (nextSettings.extraDimensions || []).filter((x) => !String(x.name || '').startsWith('_date.'));
                     const dateParts = [
                       { suffix: 'year', label: 'Year', expr: 'num_year' },
                       { suffix: 'month_num', label: 'Month Number', expr: 'num_month' },
@@ -915,23 +1041,27 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                       { suffix: 'day_of_week', label: 'Day of Week', expr: 'num_day_of_week' },
                       { suffix: 'day_name', label: 'Day Name', expr: 'name_day' },
                     ];
-                    dateParts.forEach((p) => {
-                      newDimensions.push({
-                        name: `_date.${p.suffix}`,
-                        table: d.table,
-                        column: d.column,
-                        type: p.expr.startsWith('name') ? 'string' : 'number',
-                        label: p.label,
-                        datePartOf: d.name,
-                        datePart: p.expr,
-                      });
-                    });
+                    const generated = dateParts.map((p) => ({
+                      name: `_date.${p.suffix}`,
+                      table: d.table,
+                      column: d.column,
+                      type: p.expr.startsWith('name') ? 'string' : 'integer',
+                      label: p.label,
+                      datePartOf: d.name,
+                      datePart: p.expr,
+                    }));
+                    nextSettings.extraDimensions = [...filteredExtras, ...generated];
                   }
 
-                  const updates = { dimensions: newDimensions };
-                  if (dimEditForm.setAsDateTable) updates.dateColumn = d.name;
-                  await api.put(`/models/${model.id}`, updates);
-                  if (onModelUpdate) onModelUpdate();
+                  if (dimEditForm.setAsDateTable) {
+                    nextSettings.dateColumn = d.name;
+                  }
+
+                  if (typeof onSettingsChange !== 'function') {
+                    console.error('[DataPanel] onSettingsChange prop is missing — refusing to mutate the model. Action ignored.');
+                    return;
+                  }
+                  onSettingsChange(nextSettings);
                   setEditingDim(null);
                 } catch (err) { console.error(err); }
               }} style={{ ...editSaveBtn, background: 'var(--accent-primary)' }}>Save</button>

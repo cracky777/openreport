@@ -5,6 +5,7 @@ import ChartLegend from './ChartLegend';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
 import { applyTopN } from '../../utils/topNGroup';
+import { compareAxisValues } from '../../utils/axisSort';
 
 const OTHERS_COLOR = '#94a3b8'; // slate-400 — neutral fill for the Others slice
 
@@ -43,7 +44,9 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
   const dataLabelColor = config?.dataLabelColor || '#475569';
   const dataLabelBgColor = config?.dataLabelBgColor || '#ffffff';
   const dataLabelBgOpacity = config?.dataLabelBgOpacity ?? 0;
-  const sortOrder = config?.sortOrder || 'none';
+  const zoneSorts = config?.zoneSorts;
+  const sortOrder = zoneSorts ? (zoneSorts.values || 'none') : (config?.sortOrder || 'none');
+  const axisSort = zoneSorts?.axis || 'none';
   const topNEnabled = config?.topNEnabled === true;
   const topN = config?.topN ?? 20;
   const othersLabel = config?.othersLabel || 'Others';
@@ -90,6 +93,9 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
       visibleItems = [...visibleItems].sort((a, b) => b.value - a.value);
     } else if (sortOrder === 'asc') {
       visibleItems = [...visibleItems].sort((a, b) => a.value - b.value);
+    } else if (axisSort !== 'none') {
+      const axisDimDef = data._axisDimDef;
+      visibleItems = [...visibleItems].sort((a, b) => compareAxisValues(a.name, b.name, axisDimDef, axisSort));
     }
 
     // Top N + Others. Two paths:
@@ -161,7 +167,7 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
     }));
     return { option: opt, legendItems };
   }, [data, hasData, showLegend, legendPosition, config?.donut, showDataLabels, dataLabelContent,
-      dataLabelAbbr, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, sortOrder, highlightValue, config?.legendColors, config?.dataLabelPosition,
+      dataLabelAbbr, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, sortOrder, axisSort, highlightValue, config?.legendColors, config?.dataLabelPosition,
       topNEnabled, topN, othersLabel,
       config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 

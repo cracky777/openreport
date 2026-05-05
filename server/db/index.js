@@ -26,6 +26,11 @@ try { db.exec("ALTER TABLE reports ADD COLUMN workspace_id TEXT"); } catch { /* 
 try { db.exec("ALTER TABLE datasources ADD COLUMN extra_config TEXT DEFAULT '{}'"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE models ADD COLUMN date_column TEXT DEFAULT ''"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE models ADD COLUMN rls TEXT NOT NULL DEFAULT '{}'"); } catch { /* already exists */ }
+// Per-column type overrides — JSON map { "table.column": "date" | "string" | "number" | "boolean" }.
+// Lets the user reinterpret a varchar that holds dates as a real date dimension,
+// or a numeric ID as a categorical string. Empty / missing keys fall back to the
+// native db type returned by information_schema.
+try { db.exec("ALTER TABLE models ADD COLUMN column_types TEXT NOT NULL DEFAULT '{}'"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE workspaces ADD COLUMN is_personal INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_workspaces_personal_owner ON workspaces (owner_id) WHERE is_personal = 1"); } catch { /* ignore */ }
 // Email verification (cloud-only enforcement; OSS keeps logging in regardless).

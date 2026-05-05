@@ -3,6 +3,7 @@ import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
+import { compareAxisValues } from '../../utils/axisSort';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
@@ -50,7 +51,9 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
   const gridLineWidth = config?.gridLineWidth ?? 1;
   const showSecondaryAxis = config?.showSecondaryAxis ?? true;
   const smoothLine = config?.smooth ?? true;
-  const sortOrder = config?.sortOrder || 'none';
+  const zoneSorts = config?.zoneSorts;
+  const sortOrder = zoneSorts ? (zoneSorts.values || 'none') : (config?.sortOrder || 'none');
+  const axisSort = zoneSorts?.axis || 'none';
 
   // Stable color ordering across filters: combine bar + line series into one seen-order list
   const allComboNames = useMemo(() => {
@@ -93,8 +96,10 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     let labels = [...data.labels];
     let sortedIndices = labels.map((_, i) => i);
     const datePart = data._datePart;
+    const axisDimDef = data._axisDimDef;
 
-    // Sort by total bar value per category (lines are excluded from the sort ordering)
+    // Values sort: rank by total bar value per category. Axis sort: chrono /
+    // alpha by dim value. Auto chrono fallback for date dims.
     if (sortOrder === 'desc' || sortOrder === 'asc') {
       const totals = labels.map((_, i) => {
         let total = 0;
@@ -103,6 +108,13 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
       });
       sortedIndices.sort((a, b) => sortOrder === 'desc' ? totals[b] - totals[a] : totals[a] - totals[b]);
       labels = sortedIndices.map((i) => labels[i]);
+    } else if (axisSort !== 'none') {
+      sortedIndices.sort((a, b) => compareAxisValues(labels[a], labels[b], axisDimDef, axisSort));
+      labels = sortedIndices.map((i) => labels[i]);
+    } else if (datePart) {
+      const { labels: sorted, indices } = sortDateLabels(labels, null, datePart);
+      sortedIndices = indices.map((i) => sortedIndices[i]);
+      labels = sorted;
     }
 
     const rawLabels = [...labels];
@@ -396,7 +408,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     return { option: opt, legendItems, rawLabels };
   }, [data, hasData, isStacked, showXAxis, showYAxis, showDataLabels, dataLabelFontSize, dataLabelColor,
       valueAbbr, hideZeros, showLegend, legendPosition, gridLineStyle, gridLineWidth,
-      showSecondaryAxis, smoothLine, sortOrder, hiddenSeries, highlightValue,
+      showSecondaryAxis, smoothLine, sortOrder, axisSort, hiddenSeries, highlightValue,
       config?.legendColors, config?.barDirection, config?.yAxisInterval, config?.secondaryYAxisInterval,
       config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
       config?.secondaryYAxisLabelFontSize, config?.secondaryYAxisLabelColor,

@@ -38,6 +38,255 @@ function castToString(expr, dbType) {
   return `CAST(${expr} AS VARCHAR)`;
 }
 
+// Generate the SQL expression that converts a (possibly text) column into
+// a real DATE for the current dialect, honouring the user-chosen date
+// format if any. `fmt` mirrors the values stored in columnTypes:
+//   'auto' / 'iso' / 'dd/mm/yyyy' / 'mm/dd/yyyy' / 'dd-mm-yyyy' / 'dd.mm.yyyy' / 'yyyymmdd'
+// When the format is 'auto' (or unknown), each dialect falls back to its
+// permissive default — usually CAST(... AS DATE) — which works for ISO
+// strings and native date columns.
+function castToDate(expr, dbType, fmt) {
+  const f = fmt || 'auto';
+
+  if (dbType === 'azure_sql' || dbType === 'mssql') {
+    // SQL Server style codes consumed by CONVERT/TRY_CONVERT.
+    const code = ({
+      iso: 23,
+      'dd/mm/yyyy': 103,
+      'mm/dd/yyyy': 101,
+      'dd-mm-yyyy': 105, // Italian style — DD-MM-YYYY
+      'dd.mm.yyyy': 104, // German style — DD.MM.YYYY
+      yyyymmdd: 112,
+    })[f];
+    if (code) return `TRY_CONVERT(date, ${expr}, ${code})`;
+    return `TRY_CONVERT(date, ${expr})`;
+  }
+
+  if (dbType === 'mysql') {
+    const m = ({
+      iso: '%Y-%m-%d',
+      'dd/mm/yyyy': '%d/%m/%Y',
+      'mm/dd/yyyy': '%m/%d/%Y',
+      'dd-mm-yyyy': '%d-%m-%Y',
+      'dd.mm.yyyy': '%d.%m.%Y',
+      yyyymmdd: '%Y%m%d',
+    })[f];
+    if (m) return `STR_TO_DATE(${expr}, '${m}')`;
+    return `CAST(${expr} AS DATE)`;
+  }
+
+  if (dbType === 'bigquery') {
+    const m = ({
+      iso: '%Y-%m-%d',
+      'dd/mm/yyyy': '%d/%m/%Y',
+      'mm/dd/yyyy': '%m/%d/%Y',
+      'dd-mm-yyyy': '%d-%m-%Y',
+      'dd.mm.yyyy': '%d.%m.%Y',
+      yyyymmdd: '%Y%m%d',
+    })[f];
+    if (m) return `PARSE_DATE('${m}', ${expr})`;
+    return `CAST(${expr} AS DATE)`;
+  }
+
+  if (dbType === 'duckdb') {
+    const m = ({
+      iso: '%Y-%m-%d',
+      'dd/mm/yyyy': '%d/%m/%Y',
+      'mm/dd/yyyy': '%m/%d/%Y',
+      'dd-mm-yyyy': '%d-%m-%Y',
+      'dd.mm.yyyy': '%d.%m.%Y',
+      yyyymmdd: '%Y%m%d',
+    })[f];
+    if (m) return `CAST(STRPTIME(${expr}, '${m}') AS DATE)`;
+    return `CAST(${expr} AS DATE)`;
+  }
+
+  // PostgreSQL / Azure PostgreSQL — TO_DATE for explicit formats.
+  const m = ({
+    iso: 'YYYY-MM-DD',
+    'dd/mm/yyyy': 'DD/MM/YYYY',
+    'mm/dd/yyyy': 'MM/DD/YYYY',
+    'dd-mm-yyyy': 'DD-MM-YYYY',
+    'dd.mm.yyyy': 'DD.MM.YYYY',
+    yyyymmdd: 'YYYYMMDD',
+  })[f];
+  if (m) return `TO_DATE(${expr}, '${m}')`;
+  return `CAST(${expr} AS DATE)`;
+}
+
+// Read the date format hint stored on a (table, column) override entry.
+// `columnTypes` may carry plain strings ('date') or objects ({type, format})
+// and missing entries default to 'auto'.
+function getDateFormat(table, column, columnTypes) {
+  if (!columnTypes) return 'auto';
+  const entry = columnTypes[`${table}.${column}`];
+  if (!entry || typeof entry === 'string') return 'auto';
+  return entry.format || 'auto';
+}
+
+// Read just the type override (e.g. 'integer', 'decimal', 'date') for a
+// (table, column). Handles both the simple string form and the object
+// form. Returns null when no override is set.
+function getOverrideType(table, column, columnTypes) {
+  if (!columnTypes) return null;
+  const entry = columnTypes[`${table}.${column}`];
+  if (!entry) return null;
+  if (typeof entry === 'string') return entry;
+  return entry.type || null;
+}
+
+// Build the SQL expression for a date-part dimension (year, month, week,
+// day-of-week, month/day name) honouring the per-dialect EXTRACT/YEAR/etc.
+// syntax AND the column's date-format override (so a text column with
+// 'DD/MM/YYYY' values is parsed before the part is extracted).
+//
+// Returns null when the dim has no datePart. Used by both the SELECT
+// projection and the WHERE / HAVING filter generation, so drill-down on
+// a year column actually filters by the YEAR(...) expression rather than
+// the raw timestamp string.
+function buildDatePartExpr(dim, dbType, columnTypes) {
+  if (!dim || !dim.datePart) return null;
+  const col = `${quoteTable(dim.table)}."${dim.column}"`;
+  // Re-use castToDate for the inner parsing so non-ISO text dates are
+  // normalised before EXTRACT/strftime sees them.
+  const dateExpr = castToDate(col, dbType, getDateFormat(dim.table, dim.column, columnTypes));
+  if (dbType === 'duckdb') {
+    switch (dim.datePart) {
+      case 'num_year': return `EXTRACT(YEAR FROM ${dateExpr})`;
+      case 'num_month': return `EXTRACT(MONTH FROM ${dateExpr})`;
+      case 'name_month': return `STRFTIME(${dateExpr}, '%B')`;
+      case 'num_week': return `EXTRACT(WEEK FROM ${dateExpr})`;
+      case 'num_day_of_week': return `EXTRACT(DOW FROM ${dateExpr})`;
+      case 'name_day': return `STRFTIME(${dateExpr}, '%A')`;
+      default: return col;
+    }
+  }
+  if (dbType === 'mysql') {
+    switch (dim.datePart) {
+      case 'num_year': return `YEAR(${dateExpr})`;
+      case 'num_month': return `MONTH(${dateExpr})`;
+      case 'name_month': return `MONTHNAME(${dateExpr})`;
+      case 'num_week': return `WEEK(${dateExpr})`;
+      case 'num_day_of_week': return `DAYOFWEEK(${dateExpr})`;
+      case 'name_day': return `DAYNAME(${dateExpr})`;
+      default: return col;
+    }
+  }
+  if (dbType === 'azure_sql' || dbType === 'mssql') {
+    switch (dim.datePart) {
+      case 'num_year': return `YEAR(${dateExpr})`;
+      case 'num_month': return `MONTH(${dateExpr})`;
+      case 'name_month': return `DATENAME(MONTH, ${dateExpr})`;
+      case 'num_week': return `DATEPART(WEEK, ${dateExpr})`;
+      case 'num_day_of_week': return `DATEPART(WEEKDAY, ${dateExpr})`;
+      case 'name_day': return `DATENAME(WEEKDAY, ${dateExpr})`;
+      default: return col;
+    }
+  }
+  // PostgreSQL / Azure PostgreSQL / BigQuery
+  switch (dim.datePart) {
+    case 'num_year': return `EXTRACT(YEAR FROM ${dateExpr})`;
+    case 'num_month': return `EXTRACT(MONTH FROM ${dateExpr})`;
+    case 'name_month': return `TO_CHAR(${dateExpr}, 'Month')`;
+    case 'num_week': return `EXTRACT(WEEK FROM ${dateExpr})`;
+    case 'num_day_of_week': return `EXTRACT(DOW FROM ${dateExpr})`;
+    case 'name_day': return `TO_CHAR(${dateExpr}, 'Day')`;
+    default: return col;
+  }
+}
+
+// Convert a (possibly text) column expression into a numeric SQL value
+// using the dialect's CAST keyword. `type` is 'integer' / 'decimal' /
+// 'number' (the legacy alias, treated as decimal). For decimals we wrap
+// REPLACE(expr, ',', '.') first so French comma decimals like "12,34"
+// parse cleanly — REPLACE on a native numeric column implicitly stringifies,
+// works on every supported dialect.
+function castToNumber(expr, dbType, type) {
+  const wantsInt = type === 'integer';
+  // For decimals, tolerate comma decimals; for integers, trust clean digits
+  // (REPLACE on an int that happens to contain "12,000" thousands would lose
+  // the decimal, which is the safer outcome).
+  const cleaned = wantsInt ? expr : `REPLACE(${expr}, ',', '.')`;
+  if (dbType === 'mysql') {
+    return wantsInt ? `CAST(${cleaned} AS SIGNED)` : `CAST(${cleaned} AS DECIMAL(38,10))`;
+  }
+  if (dbType === 'azure_sql' || dbType === 'mssql') {
+    return wantsInt ? `CAST(${cleaned} AS INT)` : `CAST(${cleaned} AS DECIMAL(38,10))`;
+  }
+  if (dbType === 'bigquery') {
+    return wantsInt ? `CAST(${cleaned} AS INT64)` : `CAST(${cleaned} AS NUMERIC)`;
+  }
+  // PostgreSQL / Azure PostgreSQL / DuckDB
+  return wantsInt ? `CAST(${cleaned} AS INTEGER)` : `CAST(${cleaned} AS NUMERIC)`;
+}
+
+// Validate a single value as a date using the requested format hint. The
+// format codes mirror the dropdown options offered to the user when
+// overriding a column to type='date':
+//   - 'auto'         tries ISO, then EU (DD/MM/YYYY), then US (MM/DD/YYYY)
+//   - 'iso'          strict YYYY-MM-DD (or longer ISO 8601)
+//   - 'dd/mm/yyyy'   day first, slash separator (also accepts 2-digit year)
+//   - 'mm/dd/yyyy'   month first, slash separator
+//   - 'dd-mm-yyyy'   dash separator
+//   - 'dd.mm.yyyy'   dot separator
+//   - 'yyyymmdd'     compact ISO (no separators)
+// All checks reject pure-numeric values up-front to avoid scoring random
+// IDs or counts as "valid dates".
+function isValidDate(v, fmt) {
+  if (v == null) return false;
+  if (v instanceof Date) return !isNaN(v.getTime());
+  const s = String(v).trim();
+  if (!s) return false;
+  // yyyymmdd is the only format that legitimately consists of pure digits;
+  // every other path rejects them up-front.
+  const purelyNumeric = /^-?\d+(\.\d+)?$/.test(s);
+  if (purelyNumeric && fmt !== 'yyyymmdd') return false;
+
+  const tryEu = (sep) => {
+    const m = s.match(new RegExp(`^(\\d{1,2})${sep}(\\d{1,2})${sep}(\\d{2,4})$`));
+    if (!m) return false;
+    const dd = +m[1], mm = +m[2];
+    const yyyy = m[3].length === 2 ? 2000 + +m[3] : +m[3];
+    if (dd < 1 || dd > 31 || mm < 1 || mm > 12) return false;
+    const iso = `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+    return !isNaN(Date.parse(iso));
+  };
+  const tryUs = (sep) => {
+    const m = s.match(new RegExp(`^(\\d{1,2})${sep}(\\d{1,2})${sep}(\\d{2,4})$`));
+    if (!m) return false;
+    const mm = +m[1], dd = +m[2];
+    const yyyy = m[3].length === 2 ? 2000 + +m[3] : +m[3];
+    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return false;
+    const iso = `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+    return !isNaN(Date.parse(iso));
+  };
+  const tryIso = () => /^\d{4}-\d{2}-\d{2}/.test(s) && !isNaN(Date.parse(s));
+  const tryYyyymmdd = () => {
+    const m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (!m) return false;
+    const yyyy = +m[1], mm = +m[2], dd = +m[3];
+    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return false;
+    return !isNaN(Date.parse(`${m[1]}-${m[2]}-${m[3]}`));
+  };
+
+  switch (fmt) {
+    case 'iso':         return tryIso();
+    case 'dd/mm/yyyy':  return tryEu('\\/');
+    case 'mm/dd/yyyy':  return tryUs('\\/');
+    case 'dd-mm-yyyy':  return tryEu('-');
+    case 'dd.mm.yyyy':  return tryEu('\\.');
+    case 'yyyymmdd':    return tryYyyymmdd();
+    case 'auto':
+    default: {
+      if (tryIso()) return true;
+      if (tryEu('[\\/.\\-]')) return true;
+      if (tryUs('[\\/.\\-]')) return true;
+      if (/[A-Za-z]/.test(s)) return !isNaN(Date.parse(s));
+      return false;
+    }
+  }
+}
+
 // Compute the set of tables reachable from a starting table via the join graph.
 // Used to verify the RLS table can constrain every queried table — otherwise an
 // unconnected table would slip through via cross join.
@@ -119,6 +368,7 @@ router.get('/:id', requireAuth, (req, res) => {
       measures: JSON.parse(model.measures),
       joins: JSON.parse(model.joins),
       rls: safeRls,
+      column_types: JSON.parse(model.column_types || '{}'),
       dateColumn: model.date_column || null,
     },
   });
@@ -145,7 +395,7 @@ router.put('/:id', requireAuth, (req, res) => {
   const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!model) return res.status(404).json({ error: 'Model not found' });
 
-  const { name, description, selected_tables, table_positions, dimensions, measures, joins, rls, dateColumn, datasourceId } = req.body;
+  const { name, description, selected_tables, table_positions, dimensions, measures, joins, rls, column_types, dateColumn, datasourceId } = req.body;
 
   // If caller is moving the model to a different datasource, verify ownership
   if (datasourceId && datasourceId !== model.datasource_id) {
@@ -164,6 +414,7 @@ router.put('/:id', requireAuth, (req, res) => {
       measures = COALESCE(?, measures),
       joins = COALESCE(?, joins),
       rls = COALESCE(?, rls),
+      column_types = COALESCE(?, column_types),
       date_column = CASE WHEN ? = 1 THEN ? ELSE date_column END,
       updated_at = datetime('now')
     WHERE id = ?
@@ -177,6 +428,7 @@ router.put('/:id', requireAuth, (req, res) => {
     measures ? JSON.stringify(measures) : null,
     joins ? JSON.stringify(joins) : null,
     rls !== undefined ? JSON.stringify(rls || {}) : null,
+    column_types !== undefined ? JSON.stringify(column_types || {}) : null,
     dateColumn !== undefined ? 1 : 0,
     dateColumn !== undefined ? (dateColumn || '') : '',
     req.params.id
@@ -192,6 +444,7 @@ router.put('/:id', requireAuth, (req, res) => {
       measures: JSON.parse(updated.measures),
       joins: JSON.parse(updated.joins),
       rls: JSON.parse(updated.rls || '{}'),
+      column_types: JSON.parse(updated.column_types || '{}'),
       dateColumn: updated.date_column || null,
     },
   });
@@ -387,6 +640,130 @@ router.get('/:id/rls/rows', requireAuth, async (req, res) => {
   }
 });
 
+// Validate that a column can be safely interpreted as a target type.
+// Pulls up to 100k non-null values for the column then runs JS-side coercion
+// checks to compute a hit rate. Used by the schema editor when the user
+// overrides the inferred type for a column (varchar holding dates, integer
+// IDs treated as categorical strings, etc.).
+//
+// Body: { table, column, type } where type ∈ {'date','number','boolean','string'}
+// Returns: { ok, sampleSize, validCount, validRatio, invalidExamples: [...] }
+router.post('/:id/validate-column-type', requireAuth, async (req, res) => {
+  const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!model) return res.status(404).json({ error: 'Model not found' });
+
+  const { table, column, type, dateFormat } = req.body || {};
+  if (!table || !column || !type) return res.status(400).json({ error: 'table, column and type are required' });
+  // 'number' is kept as a legacy alias for 'decimal' so existing models keep
+  // validating; new models should pick integer or decimal explicitly.
+  if (!['date', 'number', 'integer', 'decimal', 'boolean', 'string'].includes(type)) {
+    return res.status(400).json({ error: `Unsupported type "${type}"` });
+  }
+  // Date format codes the client may pass alongside type='date'. 'auto'
+  // (or unspecified) tries ISO, EU and US in turn — the loose default.
+  const ALLOWED_DATE_FORMATS = ['auto', 'iso', 'dd/mm/yyyy', 'mm/dd/yyyy', 'dd-mm-yyyy', 'dd.mm.yyyy', 'yyyymmdd'];
+  const fmt = ALLOWED_DATE_FORMATS.includes(dateFormat) ? dateFormat : 'auto';
+
+  const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
+  if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
+
+  // Validate that the requested column actually exists on the table — also
+  // protects against SQL injection via the column name.
+  let conn;
+  try {
+    conn = createConnection(datasource);
+    const cols = await conn.getColumns(table);
+    const colSet = new Set((cols || []).map((c) => {
+      if (typeof c === 'string') return c;
+      return c?.column_name ?? c?.name ?? c?.Name ?? c?.COLUMN_NAME ?? '';
+    }).filter(Boolean));
+    if (!colSet.has(column)) return res.status(400).json({ error: `Column "${column}" not found in table` });
+
+    const SAMPLE = 100000;
+    const colExpr = `${quoteTable(table)}."${column}"`;
+    const isMssql = datasource.db_type === 'azure_sql' || datasource.db_type === 'mssql';
+    // SQL Server uses TOP <n>; everyone else uses LIMIT <n>. WHERE filters
+    // out NULLs so they don't pollute the validity ratio.
+    const sql = isMssql
+      ? `SELECT TOP ${SAMPLE} ${colExpr} AS v FROM ${quoteTable(table)} WHERE ${colExpr} IS NOT NULL`
+      : `SELECT ${colExpr} AS v FROM ${quoteTable(table)} WHERE ${colExpr} IS NOT NULL LIMIT ${SAMPLE}`;
+
+    const rows = await conn.query(sql);
+    const sampleSize = rows.length;
+    if (sampleSize === 0) {
+      return res.json({ ok: true, sampleSize: 0, validCount: 0, validRatio: 1, invalidExamples: [], note: 'No non-null values to sample' });
+    }
+
+    // Type-specific JS coercion checks. Each returns a boolean.
+    // Coerces any user-supplied numeric (with French/EN decimal separator)
+    // into a JS number. Used by the decimal & legacy 'number' checks.
+    const parseFlexibleNumber = (s) => {
+      if (s == null) return NaN;
+      const str = String(s).trim();
+      if (!str) return NaN;
+      // Try as-is first (handles dot decimals + plain integers)
+      const direct = Number(str);
+      if (Number.isFinite(direct)) return direct;
+      // Fallback: French-style comma decimal — replace ALL commas with dots
+      // (we tolerate a single decimal mark; multi-comma values are unusual
+      // here, e.g. thousands grouping is rare in raw column data).
+      const withDot = Number(str.replace(/,/g, '.'));
+      return withDot;
+    };
+
+    const checks = {
+      string: () => true, // anything that ended up in JS can be a string
+      // Legacy alias kept for backward-compat with models stored before the
+      // integer/decimal split. Equivalent to 'decimal'.
+      number: (v) => Number.isFinite(parseFlexibleNumber(v)) || typeof v === 'bigint',
+      decimal: (v) => Number.isFinite(parseFlexibleNumber(v)) || typeof v === 'bigint',
+      // Strict integer: digits with optional sign, no decimal mark.
+      integer: (v) => {
+        if (typeof v === 'bigint') return true;
+        if (typeof v === 'number') return Number.isInteger(v);
+        const s = String(v ?? '').trim();
+        return /^-?\d+$/.test(s);
+      },
+      boolean: (v) => {
+        if (typeof v === 'boolean') return true;
+        if (typeof v === 'number') return v === 0 || v === 1;
+        const s = String(v).trim().toLowerCase();
+        return ['true', 'false', '0', '1', 'yes', 'no', 't', 'f', 'y', 'n'].includes(s);
+      },
+      date: (v) => isValidDate(v, fmt),
+    };
+    const check = checks[type];
+
+    let validCount = 0;
+    const invalidExamples = [];
+    const seenInvalid = new Set();
+    for (const row of rows) {
+      const v = row.v ?? row.V ?? null;
+      if (check(v)) {
+        validCount += 1;
+      } else if (invalidExamples.length < 5) {
+        const key = String(v).slice(0, 50);
+        if (!seenInvalid.has(key)) {
+          seenInvalid.add(key);
+          invalidExamples.push(v == null ? null : String(v).slice(0, 80));
+        }
+      }
+    }
+
+    res.json({
+      ok: true,
+      sampleSize,
+      validCount,
+      validRatio: validCount / sampleSize,
+      invalidExamples,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn?.close();
+  }
+});
+
 // Query model: build SQL from selected dimensions + measures.
 // Accessible if the user has access to any report linked to this model
 // (owner, global admin, public report, or workspace member).
@@ -398,14 +775,56 @@ router.post('/:id/query', async (req, res) => {
   if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
   const dbType = datasource.db_type;
 
-  const { dimensionNames, measureNames, limit, offset, filters, widgetFilters, distinct, measureAggOverrides, sqlOnly } = req.body;
+  const {
+    dimensionNames, measureNames, limit, offset, filters, widgetFilters,
+    distinct, measureAggOverrides, sqlOnly,
+    // Report-scoped extensions: dims/measures defined ONLY in the calling
+    // report (so other reports on the same model don't see them), plus
+    // label/type overrides for model-level dims/measures. The model itself
+    // stays untouched. The frontend sends these from report.settings.
+    extraDimensions, extraMeasures, dimensionOverrides, measureOverrides,
+  } = req.body;
   // dimensionNames: ["orders.customer_name", "orders.status"]
   // measureNames: ["orders.total_amount_sum", "orders.count"]
 
+  // Merge model-level definitions with the report's extras / overrides.
+  // Extras: appended to the list. Overrides: shallow-merged into the
+  // matching entry (so the user can rename a model dim per-report or
+  // re-type it).
   const allDimensions = JSON.parse(model.dimensions);
   const allMeasures = JSON.parse(model.measures);
+  if (dimensionOverrides && typeof dimensionOverrides === 'object') {
+    for (const [name, ov] of Object.entries(dimensionOverrides)) {
+      const idx = allDimensions.findIndex((d) => d.name === name);
+      if (idx >= 0) allDimensions[idx] = { ...allDimensions[idx], ...ov };
+    }
+  }
+  if (Array.isArray(extraDimensions)) {
+    for (const d of extraDimensions) {
+      if (d && d.name && !allDimensions.find((x) => x.name === d.name)) {
+        allDimensions.push(d);
+      }
+    }
+  }
+  if (measureOverrides && typeof measureOverrides === 'object') {
+    for (const [name, ov] of Object.entries(measureOverrides)) {
+      const idx = allMeasures.findIndex((m) => m.name === name);
+      if (idx >= 0) allMeasures[idx] = { ...allMeasures[idx], ...ov };
+    }
+  }
+  if (Array.isArray(extraMeasures)) {
+    for (const m of extraMeasures) {
+      if (m && m.name && !allMeasures.find((x) => x.name === m.name)) {
+        allMeasures.push(m);
+      }
+    }
+  }
   const allJoins = JSON.parse(model.joins);
   const rls = JSON.parse(model.rls || '{}');
+  // Per-column overrides (type + optional format). Used by castToDate to
+  // pick the right SQL parser when a date column is stored as text in a
+  // non-ISO format.
+  const columnTypes = JSON.parse(model.column_types || '{}');
 
   // RLS: model owner and global admins bypass. Everyone else (including unauthenticated
   // viewers of public reports) is filtered by the rule set against their email.
@@ -463,9 +882,18 @@ router.post('/:id/query', async (req, res) => {
         tablesUsed.add(dimDef.table);
         const col = `${quoteTable(dimDef.table)}."${dimDef.column}"`;
         const escaped = values.map((v) => `'${String(v).replace(/'/g, "''")}'`).join(', ');
-        if (dimDef.type === 'date') {
-          // Date columns: cast to DATE so timestamps like "2024-04-30 10:30:00" match "2024-04-30"
-          whereParts.push(`CAST(${col} AS DATE) IN (${escaped})`);
+        if (dimDef.datePart) {
+          // Drill-down on a date-part dim (year, month, etc.). Filter against
+          // the same EXTRACT/YEAR(...) expression as the SELECT projection,
+          // not the raw timestamp — otherwise YEAR=2024 would compare to
+          // "2024-12-31 10:00:00" and never match.
+          const expr = buildDatePartExpr(dimDef, dbType, columnTypes);
+          whereParts.push(`${castToString(expr, dbType)} IN (${escaped})`);
+        } else if (dimDef.type === 'date') {
+          // Date columns: cast to DATE so timestamps like "2024-04-30 10:30:00" match "2024-04-30".
+          // The format hint (if any) tells castToDate which parser to use for text columns.
+          const fmt = getDateFormat(dimDef.table, dimDef.column, columnTypes);
+          whereParts.push(`${castToDate(col, dbType, fmt)} IN (${escaped})`);
         } else {
           // Non-date columns: cast to VARCHAR for consistent comparison across all DB types
           whereParts.push(`${castToString(col, dbType)} IN (${escaped})`);
@@ -481,8 +909,8 @@ router.post('/:id/query', async (req, res) => {
   const havingParts = [];
   const escVal = (v) => `'${String(v).replace(/'/g, "''")}'`;
   const isEmpty = (v) => v == null || v === '';
-  function buildScalarClause(colExpr, op, value, values, isDateCol) {
-    const cast = isDateCol ? `CAST(${colExpr} AS DATE)` : colExpr;
+  function buildScalarClause(colExpr, op, value, values, isDateCol, dateFmt) {
+    const cast = isDateCol ? castToDate(colExpr, dbType, dateFmt || 'auto') : colExpr;
     const list = Array.isArray(values) ? values : (Array.isArray(value) ? value : null);
     const numericFor = (v) => isDateCol ? escVal(v) : Number(v);
     switch (op) {
@@ -524,59 +952,29 @@ router.post('/:id/query', async (req, res) => {
       const dimDef = allDimensions.find((d) => d.name === f.field);
       if (!dimDef) continue;
       tablesUsed.add(dimDef.table);
-      const col = `${quoteTable(dimDef.table)}."${dimDef.column}"`;
-      const clause = buildScalarClause(col, f.op, f.value, f.values, dimDef.type === 'date');
+      // For date-part dims, the comparison must be against the same
+      // EXTRACT/YEAR(...) expression used in SELECT — otherwise filtering
+      // by year on a "_date.num_year" dim would never match the raw
+      // timestamp column.
+      const col = dimDef.datePart
+        ? buildDatePartExpr(dimDef, dbType, columnTypes)
+        : `${quoteTable(dimDef.table)}."${dimDef.column}"`;
+      const clause = buildScalarClause(
+        col, f.op, f.value, f.values,
+        // datePart dims aren't date-typed — they're year/month numbers etc.
+        !dimDef.datePart && dimDef.type === 'date',
+        getDateFormat(dimDef.table, dimDef.column, columnTypes),
+      );
       if (clause) whereParts.push(clause);
     }
   }
 
   selectedDimensions.forEach((d) => {
     if (d.datePart) {
-      // Date part derived column — generate SQL expression per DB type
-      const col = `${quoteTable(d.table)}."${d.column}"`;
-      let expr;
-      if (dbType === 'duckdb') {
-        switch (d.datePart) {
-          case 'num_year': expr = `EXTRACT(YEAR FROM CAST(${col} AS DATE))`; break;
-          case 'num_month': expr = `EXTRACT(MONTH FROM CAST(${col} AS DATE))`; break;
-          case 'name_month': expr = `STRFTIME(CAST(${col} AS DATE), '%B')`; break;
-          case 'num_week': expr = `EXTRACT(WEEK FROM CAST(${col} AS DATE))`; break;
-          case 'num_day_of_week': expr = `EXTRACT(DOW FROM CAST(${col} AS DATE))`; break;
-          case 'name_day': expr = `STRFTIME(CAST(${col} AS DATE), '%A')`; break;
-          default: expr = col;
-        }
-      } else if (dbType === 'mysql') {
-        switch (d.datePart) {
-          case 'num_year': expr = `YEAR(${col})`; break;
-          case 'num_month': expr = `MONTH(${col})`; break;
-          case 'name_month': expr = `MONTHNAME(${col})`; break;
-          case 'num_week': expr = `WEEK(${col})`; break;
-          case 'num_day_of_week': expr = `DAYOFWEEK(${col})`; break;
-          case 'name_day': expr = `DAYNAME(${col})`; break;
-          default: expr = col;
-        }
-      } else if (dbType === 'azure_sql' || dbType === 'mssql') {
-        switch (d.datePart) {
-          case 'num_year': expr = `YEAR(${col})`; break;
-          case 'num_month': expr = `MONTH(${col})`; break;
-          case 'name_month': expr = `DATENAME(MONTH, ${col})`; break;
-          case 'num_week': expr = `DATEPART(WEEK, ${col})`; break;
-          case 'num_day_of_week': expr = `DATEPART(WEEKDAY, ${col})`; break;
-          case 'name_day': expr = `DATENAME(WEEKDAY, ${col})`; break;
-          default: expr = col;
-        }
-      } else {
-        // PostgreSQL / Azure PostgreSQL / BigQuery
-        switch (d.datePart) {
-          case 'num_year': expr = `EXTRACT(YEAR FROM ${col}::DATE)`; break;
-          case 'num_month': expr = `EXTRACT(MONTH FROM ${col}::DATE)`; break;
-          case 'name_month': expr = `TO_CHAR(${col}::DATE, 'Month')`; break;
-          case 'num_week': expr = `EXTRACT(WEEK FROM ${col}::DATE)`; break;
-          case 'num_day_of_week': expr = `EXTRACT(DOW FROM ${col}::DATE)`; break;
-          case 'name_day': expr = `TO_CHAR(${col}::DATE, 'Day')`; break;
-          default: expr = col;
-        }
-      }
+      // Date part derived column — delegate to the dialect-aware helper so
+      // the SELECT and the WHERE/HAVING paths stay consistent (they all need
+      // the same EXTRACT/YEAR(...) expression for drill-down to work).
+      const expr = buildDatePartExpr(d, dbType, columnTypes);
       selectParts.push(`${expr} AS "${d.label || d.name}"`);
       groupByParts.push(expr);
       tablesUsed.add(d.table);
@@ -608,7 +1006,15 @@ router.post('/:id/query', async (req, res) => {
     } else if (m.aggregation === 'count') {
       selectParts.push(`COUNT(*) AS "${m.label || m.name}"`);
     } else {
-      selectParts.push(`${m.aggregation.toUpperCase()}(${quoteTable(m.table)}."${m.column}") AS "${m.label || m.name}"`);
+      // Wrap the column in CAST when the user has overridden it to a numeric
+      // type — otherwise SUM/AVG on a text column (e.g. nvarchar storing
+      // numbers) blows up with "operand data type ... is invalid for sum".
+      const rawCol = `${quoteTable(m.table)}."${m.column}"`;
+      const ovType = getOverrideType(m.table, m.column, columnTypes);
+      const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
+        ? castToNumber(rawCol, dbType, ovType)
+        : rawCol;
+      selectParts.push(`${m.aggregation.toUpperCase()}(${colExpr}) AS "${m.label || m.name}"`);
     }
   });
 
@@ -619,10 +1025,19 @@ router.post('/:id/query', async (req, res) => {
     const measDef = allMeasures.find((mm) => mm.name === f.field);
     if (!measDef) continue;
     if (measDef.aggregation === 'custom') continue; // unsupported for now
+    // Same numeric-cast logic as the SELECT path so HAVING references the
+    // exact same expression.
+    const rawColH = (measDef.table && measDef.column)
+      ? `${quoteTable(measDef.table)}."${measDef.column}"`
+      : null;
+    const ovTypeH = getOverrideType(measDef.table, measDef.column, columnTypes);
+    const colExprH = rawColH && (ovTypeH === 'integer' || ovTypeH === 'decimal' || ovTypeH === 'number')
+      ? castToNumber(rawColH, dbType, ovTypeH)
+      : rawColH;
     const aggExpr = measDef.aggregation === 'count'
       ? 'COUNT(*)'
-      : (measDef.table && measDef.column
-          ? `${(measDef.aggregation || 'sum').toUpperCase()}(${quoteTable(measDef.table)}."${measDef.column}")`
+      : (colExprH
+          ? `${(measDef.aggregation || 'sum').toUpperCase()}(${colExprH})`
           : null);
     if (!aggExpr) continue;
     if (measDef.table) tablesUsed.add(measDef.table);
@@ -703,16 +1118,17 @@ router.post('/:id/query', async (req, res) => {
   // Top/Bottom N filter (set above) replaces both the default ORDER BY (which
   // is by the first dimension for stability) and the configured LIMIT.
   if (topNOverride) {
-    // NULLs would otherwise dominate (Postgres) or sit at the bottom (MySQL)
-    // of ORDER BY DESC. Force them to the bottom regardless of direction.
-    const nullsClause = (dbType === 'mysql')
-      ? '' // MySQL handled below
-      : ' NULLS LAST';
+    // NULL-handling on ORDER BY is dialect-specific. Postgres / DuckDB /
+    // BigQuery accept "NULLS LAST" inline. MySQL emulates with "<col> IS NULL".
+    // SQL Server / Azure SQL has neither; in practice aggregates over a
+    // non-empty group rarely produce NULL, so we just omit the nulls hint.
+    const supportsNullsLast = dbType === 'postgres' || dbType === 'duckdb' || dbType === 'bigquery';
     if (dbType === 'mysql') {
-      // MySQL doesn't support NULLS LAST — emulate with `<col> IS NULL` first.
       sql += ` ORDER BY ${topNOverride.aggExpr} IS NULL, ${topNOverride.aggExpr} ${topNOverride.direction}`;
+    } else if (supportsNullsLast) {
+      sql += ` ORDER BY ${topNOverride.aggExpr} ${topNOverride.direction} NULLS LAST`;
     } else {
-      sql += ` ORDER BY ${topNOverride.aggExpr} ${topNOverride.direction}${nullsClause}`;
+      sql += ` ORDER BY ${topNOverride.aggExpr} ${topNOverride.direction}`;
     }
     // SQL Server / Azure SQL: OFFSET/FETCH instead of LIMIT.
     if (dbType === 'azure_sql' || dbType === 'mssql') {

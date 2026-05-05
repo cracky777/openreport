@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { TbArrowsSort, TbSortAscending, TbSortDescending } from 'react-icons/tb';
 
 const AGG_OPTIONS = [
   { value: 'sum', label: 'Sum' },
@@ -8,7 +9,13 @@ const AGG_OPTIONS = [
   { value: 'max', label: 'Max' },
 ];
 
-export default function DropZone({ label, accepts, fields, onDrop, onRemove, onReorder, multiple = false, fieldInfos = {}, dimensionNames, zoneName, measureInfos, onAggChange }) {
+const SORT_OPTIONS = [
+  { value: 'none', icon: TbArrowsSort, title: 'No sort' },
+  { value: 'asc', icon: TbSortAscending, title: 'Ascending' },
+  { value: 'desc', icon: TbSortDescending, title: 'Descending' },
+];
+
+export default function DropZone({ label, accepts, fields, onDrop, onRemove, onReorder, multiple = false, fieldInfos = {}, dimensionNames, zoneName, measureInfos, onAggChange, sort, onSortChange }) {
   const [dragIdx, setDragIdx] = useState(null);
   const [dropIdx, setDropIdx] = useState(null);
   const dropIdxRef = useRef(null);
@@ -67,13 +74,23 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
   };
 
   const getDisplayName = (f) => {
+    // Prefer the dim/measure's user-facing label when it's set — date-part
+    // siblings (Month Name vs Month Number, etc.) share the same parent
+    // column so falling back to "table.column" would make them look
+    // identical in the dropped pill. Labels disambiguate them clearly.
+    const info = fieldInfos[f];
+    if (info?.label) return info.label;
     const p = f.split('.');
     return p[p.length - 1].replace(/_sum$|_avg$|_count$|_min$|_max$/, '');
   };
 
   const getTooltip = (f) => {
     const info = fieldInfos[f];
-    return info ? `${info.table}.${info.column}` : f;
+    if (!info) return f;
+    // Show both the human label (when present) and the underlying
+    // qualified column so the user can distinguish siblings even on hover.
+    const qualified = `${info.table}.${info.column}`;
+    return info.label && info.label !== qualified ? `${info.label} — ${qualified}` : qualified;
   };
 
   // Detect if the current drag is from this zone (for visual only)
@@ -186,6 +203,32 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
           <span style={{ fontSize: 11, color: 'var(--text-disabled)', padding: '4px 6px', pointerEvents: 'none' }}>
             Drop {accepts?.includes('dimension') && accepts?.includes('measure') ? 'fields' : accepts?.includes('dimension') ? 'dimension' : 'measure'} here
           </span>
+        )}
+        {/* Per-zone sort controls. Only rendered when the parent provides a
+            handler — this keeps non-sortable zones (filters, etc.) clean. */}
+        {typeof onSortChange === 'function' && fields.length > 0 && (
+          <div style={{
+            display: 'flex', justifyContent: 'flex-end', gap: 2,
+            marginTop: 4, paddingTop: 4, borderTop: '1px dashed var(--border-default)',
+          }}>
+            <span style={{ fontSize: 9, color: 'var(--text-disabled)', alignSelf: 'center', marginRight: 4, textTransform: 'uppercase', fontWeight: 600 }}>Sort</span>
+            {SORT_OPTIONS.map((opt) => {
+              const Icon = opt.icon;
+              const active = (sort || 'none') === opt.value;
+              return (
+                <button key={opt.value} type="button" title={opt.title}
+                  onClick={() => onSortChange(opt.value)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    width: 20, height: 18, padding: 0, border: 'none', borderRadius: 3, cursor: 'pointer',
+                    background: active ? 'var(--accent-primary)' : 'transparent',
+                    color: active ? '#fff' : 'var(--text-muted)',
+                  }}>
+                  <Icon size={12} />
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

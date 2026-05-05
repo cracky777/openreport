@@ -21,8 +21,13 @@ import api from '../../utils/api';
  *   *                     any authenticated user
  */
 export default function RLSDialog({ modelId, tableName, tableColumns, rls, onChange, onClose }) {
+  // "Active" = RLS truly enabled in the model, on this exact table.
   const isThisTableActive = rls?.enabled && rls?.table === tableName;
-  const [primaryKey, setPrimaryKey] = useState(isThisTableActive ? (rls.primaryKey || '') : '');
+  // "Draft for this table" = a config (PK / rules) is being kept against this
+  // table, even if not enabled yet. Lets the user prep the config before
+  // flipping the toggle.
+  const isDraftForThisTable = rls?.table === tableName;
+  const [primaryKey, setPrimaryKey] = useState(isDraftForThisTable ? (rls?.primaryKey || '') : '');
   const [rows, setRows] = useState(null); // null = not loaded yet
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -31,9 +36,29 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
   const [suggestions, setSuggestions] = useState([]);
   const [search, setSearch] = useState('');
   const [truncated, setTruncated] = useState(false);
+  // Latched flag so we can show "you can't enable yet" feedback once the
+  // user actually tried to flip the toggle while the conditions weren't met.
+  const [enableAttempted, setEnableAttempted] = useState(false);
+  // "Explicit disable" latch. Set when the user manually unchecks the
+  // toggle, cleared when they manually re-check it. While the latch is on,
+  // adding more patterns won't auto-re-enable RLS (matches: "if I disabled
+  // it on purpose, leave it disabled even if I keep editing patterns").
+  // At mount we infer the latch: if RLS is disabled BUT patterns exist for
+  // this table, the user almost certainly disabled it explicitly before.
+  const [explicitlyDisabled, setExplicitlyDisabled] = useState(() => {
+    if (!rls || rls.table !== tableName) return false;
+    if (rls.enabled) return false;
+    const r = rls.rules || {};
+    return Object.values(r).some((arr) => Array.isArray(arr) && arr.length > 0);
+  });
 
-  // Build a quick lookup of rules from the config
-  const rules = isThisTableActive && rls?.rules ? rls.rules : {};
+  // Rules are always read from the parent's draft for this table — patterns
+  // entered while disabled persist exactly the same as those entered while
+  // enabled.
+  const rules = isDraftForThisTable && rls?.rules ? rls.rules : {};
+  const hasAnyPattern = Object.values(rules).some((arr) => Array.isArray(arr) && arr.length > 0);
+  // Preconditions for activating RLS on this table.
+  const canEnable = !!primaryKey && hasAnyPattern;
 
   // Fetch user suggestions while typing in any row's input. Debounced.
   useEffect(() => {
@@ -79,17 +104,38 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
     return () => { cancelled = true; clearTimeout(timer); };
   }, [modelId, tableName, primaryKey, search]);
 
+  // Try to flip RLS to enabled. Refuses unless a PK is selected AND at
+  // least one filter pattern exists somewhere — without those, RLS would
+  // either crash or deny every row to viewers, which is almost never the
+  // intent.
   const enableForThisTable = () => {
-    onChange({ ...(rls || {}), enabled: true, table: tableName, primaryKey: primaryKey || rls?.primaryKey || '', rules: isThisTableActive ? (rls?.rules || {}) : {} });
+    if (!canEnable) {
+      setEnableAttempted(true);
+      return;
+    }
+    setEnableAttempted(false);
+    setExplicitlyDisabled(false);
+    onChange({ ...(rls || {}), enabled: true, table: tableName, primaryKey, rules });
   };
 
   const disable = () => {
+    setExplicitlyDisabled(true);
     onChange({ ...(rls || {}), enabled: false });
   };
 
+  // Persist PK + rules edits even while disabled, so the user can prep the
+  // config (and we can then validate it before allowing them to enable).
+  // Switching tables wipes the previous draft because the model only carries
+  // ONE rls object.
   const setPK = (pk) => {
     setPrimaryKey(pk);
-    if (isThisTableActive) onChange({ ...rls, primaryKey: pk });
+    onChange({
+      ...(rls || {}),
+      table: tableName,
+      primaryKey: pk,
+      rules: isDraftForThisTable ? (rls?.rules || {}) : {},
+      enabled: isDraftForThisTable ? !!rls?.enabled : false,
+    });
   };
 
   const addPattern = (rowKey) => {
@@ -100,12 +146,18 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
       setNewPattern((s) => ({ ...s, [rowKey]: '' }));
       return;
     }
+    // Auto-enable when adding a pattern unlocks the prerequisites — unless
+    // the user has explicitly disabled this dialog session (latch). Once
+    // the latch is set, no amount of pattern editing brings RLS back; the
+    // user has to re-tick the box manually.
+    const wasEnabled = isDraftForThisTable && !!rls?.enabled;
+    const shouldAutoEnable = !explicitlyDisabled && !wasEnabled && !!primaryKey;
     onChange({
-      ...rls,
-      enabled: true,
+      ...(rls || {}),
       table: tableName,
       primaryKey,
       rules: { ...rules, [rowKey]: [...list, pattern] },
+      enabled: shouldAutoEnable ? true : wasEnabled,
     });
     setNewPattern((s) => ({ ...s, [rowKey]: '' }));
   };
@@ -115,7 +167,15 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
     const next = { ...rules };
     if (list.length === 0) delete next[rowKey];
     else next[rowKey] = list;
-    onChange({ ...rls, rules: next });
+    // If removing the last pattern emptied everything AND RLS was enabled,
+    // auto-disable — keeping it enabled with zero patterns means viewers
+    // see nothing, which is nearly always a bug.
+    const stillHasAny = Object.values(next).some((arr) => Array.isArray(arr) && arr.length > 0);
+    onChange({
+      ...rls,
+      rules: next,
+      enabled: !!rls?.enabled && stillHasAny,
+    });
   };
 
   // The other table (if any) currently configured for RLS
@@ -140,18 +200,39 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
               <span>RLS is currently enabled on <strong>{otherTable}</strong>. Enabling it here will move it to this table.</span>
             </div>
           )}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+          <label
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
+              color: (!isThisTableActive && !canEnable) ? 'var(--text-disabled)' : 'var(--text-secondary)',
+              cursor: (!isThisTableActive && !canEnable) ? 'not-allowed' : 'pointer',
+            }}
+            title={(!isThisTableActive && !canEnable) ? 'Pick a column and add at least one filter pattern below first' : ''}
+          >
             <input
               type="checkbox"
               checked={isThisTableActive}
+              disabled={!isThisTableActive && !canEnable}
               onChange={(e) => (e.target.checked ? enableForThisTable() : disable())}
             />
             Enable RLS for this table
           </label>
+          {!isThisTableActive && (
+            <div style={{
+              marginTop: 8, fontSize: 11,
+              color: enableAttempted ? 'var(--state-warning)' : 'var(--text-muted)',
+              lineHeight: 1.5,
+            }}>
+              {enableAttempted
+                ? 'Pick a column and add at least one filter pattern below before enabling.'
+                : 'Pick a column below, then add at least one filter pattern. The toggle unlocks once both are set.'}
+            </div>
+          )}
         </div>
 
-        {/* Primary key + rows */}
-        {isThisTableActive && (
+        {/* Primary key + rows — visible whenever the dialog is open so the
+            user can prep the config (PK + patterns) before flipping the
+            enable toggle. Persisting changes while disabled is intentional. */}
+        {(
           <>
             <div style={{ padding: 12, borderBottom: '1px solid var(--border-default)' }}>
               <div style={fieldRow}>
