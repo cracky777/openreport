@@ -184,7 +184,7 @@ export default function SchemaCanvas({
     const handleMouseMove = (e) => {
       if (draggingTable) {
         const svgPt = screenToSvg(e.clientX, e.clientY);
-        onPositionsChange({ ...positions, [draggingTable]: { x: svgPt.x - dragOffset.x, y: svgPt.y - dragOffset.y } });
+        onPositionsChange({ ...positions, [draggingTable]: { ...positions[draggingTable], x: svgPt.x - dragOffset.x, y: svgPt.y - dragOffset.y } });
       }
       if (linkDrag) {
         const svgPt = screenToSvg(e.clientX, e.clientY);
