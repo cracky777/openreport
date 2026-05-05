@@ -28,6 +28,16 @@ function quoteTable(name) {
   return `"${name}"`;
 }
 
+// Cast an expression to a string type using the dialect's expected keyword.
+// PostgreSQL / SQL Server / DuckDB accept VARCHAR; MySQL refuses VARCHAR
+// and wants CHAR; BigQuery wants STRING. Used everywhere we coerce values
+// to text for IN / LIKE / equality comparisons.
+function castToString(expr, dbType) {
+  if (dbType === 'mysql') return `CAST(${expr} AS CHAR)`;
+  if (dbType === 'bigquery') return `CAST(${expr} AS STRING)`;
+  return `CAST(${expr} AS VARCHAR)`;
+}
+
 // Compute the set of tables reachable from a starting table via the join graph.
 // Used to verify the RLS table can constrain every queried table — otherwise an
 // unconnected table would slip through via cross join.
@@ -353,9 +363,12 @@ router.get('/:id/rls/rows', requireAuth, async (req, res) => {
     if (trimmedSearch) {
       const escaped = trimmedSearch.replace(/'/g, "''");
       // CAST to VARCHAR so the LIKE works regardless of the column's native type (number, date, etc.)
-      sql += ` WHERE LOWER(CAST(${quoteTable(table)}."${primaryKey}" AS VARCHAR)) LIKE LOWER('%${escaped}%')`;
+      sql += ` WHERE LOWER(${castToString(`${quoteTable(table)}."${primaryKey}"`, datasource.db_type)}) LIKE LOWER('%${escaped}%')`;
     }
-    sql += ` ORDER BY "${primaryKey}" LIMIT 1000`;
+    // SQL Server / Azure SQL doesn't support LIMIT — use OFFSET/FETCH instead.
+    const isMssql = datasource.db_type === 'azure_sql' || datasource.db_type === 'mssql';
+    sql += ` ORDER BY "${primaryKey}"`;
+    sql += isMssql ? ` OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY` : ` LIMIT 1000`;
 
     const rawRows = await conn.query(sql);
     const rows = rawRows.map((r) => {
@@ -383,6 +396,7 @@ router.post('/:id/query', async (req, res) => {
 
   const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
   if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
+  const dbType = datasource.db_type;
 
   const { dimensionNames, measureNames, limit, offset, filters, widgetFilters, distinct, measureAggOverrides, sqlOnly } = req.body;
   // dimensionNames: ["orders.customer_name", "orders.status"]
@@ -454,7 +468,7 @@ router.post('/:id/query', async (req, res) => {
           whereParts.push(`CAST(${col} AS DATE) IN (${escaped})`);
         } else {
           // Non-date columns: cast to VARCHAR for consistent comparison across all DB types
-          whereParts.push(`CAST(${col} AS VARCHAR) IN (${escaped})`);
+          whereParts.push(`${castToString(col, dbType)} IN (${escaped})`);
         }
       }
     }
@@ -474,10 +488,10 @@ router.post('/:id/query', async (req, res) => {
     switch (op) {
       case 'in':
         if (!list?.length) return null;
-        return `CAST(${colExpr} AS VARCHAR) IN (${list.map(escVal).join(', ')})`;
+        return `${castToString(colExpr, dbType)} IN (${list.map(escVal).join(', ')})`;
       case 'not_in':
         if (!list?.length) return null;
-        return `CAST(${colExpr} AS VARCHAR) NOT IN (${list.map(escVal).join(', ')})`;
+        return `${castToString(colExpr, dbType)} NOT IN (${list.map(escVal).join(', ')})`;
       case 'eq':  return isEmpty(value) ? null : `${cast} = ${escVal(value)}`;
       case 'neq': return isEmpty(value) ? null : `${cast} <> ${escVal(value)}`;
       case 'gt':  return isEmpty(value) ? null : `${cast} > ${numericFor(value)}`;
@@ -491,12 +505,12 @@ router.post('/:id/query', async (req, res) => {
           ? `${cast} BETWEEN ${escVal(a)} AND ${escVal(b)}`
           : `${cast} BETWEEN ${Number(a)} AND ${Number(b)}`;
       }
-      case 'contains':     return isEmpty(value) ? null : `CAST(${colExpr} AS VARCHAR) LIKE ${escVal('%' + value + '%')}`;
-      case 'not_contains': return isEmpty(value) ? null : `CAST(${colExpr} AS VARCHAR) NOT LIKE ${escVal('%' + value + '%')}`;
-      case 'starts_with':  return isEmpty(value) ? null : `CAST(${colExpr} AS VARCHAR) LIKE ${escVal(value + '%')}`;
-      case 'ends_with':    return isEmpty(value) ? null : `CAST(${colExpr} AS VARCHAR) LIKE ${escVal('%' + value)}`;
-      case 'is_empty':     return `(${colExpr} IS NULL OR CAST(${colExpr} AS VARCHAR) = '')`;
-      case 'is_not_empty': return `(${colExpr} IS NOT NULL AND CAST(${colExpr} AS VARCHAR) <> '')`;
+      case 'contains':     return isEmpty(value) ? null : `${castToString(colExpr, dbType)} LIKE ${escVal('%' + value + '%')}`;
+      case 'not_contains': return isEmpty(value) ? null : `${castToString(colExpr, dbType)} NOT LIKE ${escVal('%' + value + '%')}`;
+      case 'starts_with':  return isEmpty(value) ? null : `${castToString(colExpr, dbType)} LIKE ${escVal(value + '%')}`;
+      case 'ends_with':    return isEmpty(value) ? null : `${castToString(colExpr, dbType)} LIKE ${escVal('%' + value)}`;
+      case 'is_empty':     return `(${colExpr} IS NULL OR ${castToString(colExpr, dbType)} = '')`;
+      case 'is_not_empty': return `(${colExpr} IS NOT NULL AND ${castToString(colExpr, dbType)} <> '')`;
       default: return null;
     }
   }
@@ -515,8 +529,6 @@ router.post('/:id/query', async (req, res) => {
       if (clause) whereParts.push(clause);
     }
   }
-
-  const dbType = datasource.db_type;
 
   selectedDimensions.forEach((d) => {
     if (d.datePart) {
@@ -647,7 +659,7 @@ router.post('/:id/query', async (req, res) => {
         whereParts.push('1 = 0');
       } else {
         const escaped = allowedRlsKeys.map((v) => `'${String(v).replace(/'/g, "''")}'`).join(', ');
-        whereParts.push(`CAST(${quoteTable(rls.table)}."${rls.primaryKey}" AS VARCHAR) IN (${escaped})`);
+        whereParts.push(`${castToString(`${quoteTable(rls.table)}."${rls.primaryKey}"`, dbType)} IN (${escaped})`);
       }
     }
   }
@@ -702,7 +714,12 @@ router.post('/:id/query', async (req, res) => {
     } else {
       sql += ` ORDER BY ${topNOverride.aggExpr} ${topNOverride.direction}${nullsClause}`;
     }
-    sql += ` LIMIT ${topNOverride.n}`;
+    // SQL Server / Azure SQL: OFFSET/FETCH instead of LIMIT.
+    if (dbType === 'azure_sql' || dbType === 'mssql') {
+      sql += ` OFFSET 0 ROWS FETCH NEXT ${topNOverride.n} ROWS ONLY`;
+    } else {
+      sql += ` LIMIT ${topNOverride.n}`;
+    }
   } else {
     // Stable ordering: ORDER BY the first dimension to keep consistent colors across refetches
     if (groupByParts.length > 0) {
@@ -711,9 +728,13 @@ router.post('/:id/query', async (req, res) => {
       sql += ` ORDER BY 1`;
     }
     const requestedLimit = Math.min(limit || 1000, MAX_ROWS);
-    sql += ` LIMIT ${requestedLimit}`;
-    if (offset) {
-      sql += ` OFFSET ${offset}`;
+    if (dbType === 'azure_sql' || dbType === 'mssql') {
+      sql += ` OFFSET ${offset || 0} ROWS FETCH NEXT ${requestedLimit} ROWS ONLY`;
+    } else {
+      sql += ` LIMIT ${requestedLimit}`;
+      if (offset) {
+        sql += ` OFFSET ${offset}`;
+      }
     }
   }
 
