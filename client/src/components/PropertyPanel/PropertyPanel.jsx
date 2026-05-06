@@ -1794,7 +1794,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
 }
 
 // Right column: model dimensions & measures (always visible, collapsible)
-export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, onResizeStart, onResizeEnd }) {
+export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, onResizeStart, onResizeEnd, reportId }) {
   const [collapsed, setCollapsed] = useState(false);
   const { width, handleProps } = useResizableWidth({ storageKey: 'openreport.dataPanelWidth', defaultWidth: 220, min: 200, max: 480, onDragStart: onResizeStart, onDragEnd: onResizeEnd });
   const dynamicDataStyle = { ...dataPanelStyle, width, maxWidth: width, position: 'relative' };
@@ -1829,7 +1829,7 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onS
           onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
         ><TbChevronsRight size={14} /></button>
       </div>
-      <DataPanel widgetId={widgetId} widget={widget} onUpdate={onUpdate} onUpdateSilent={onUpdateSilent} onSetWidgetLoading={onSetWidgetLoading} model={model} onModelUpdate={onModelUpdate} settings={settings} onSettingsChange={onSettingsChange} reportFilters={reportFilters} refreshNonce={refreshNonce} />
+      <DataPanel widgetId={widgetId} widget={widget} onUpdate={onUpdate} onUpdateSilent={onUpdateSilent} onSetWidgetLoading={onSetWidgetLoading} model={model} onModelUpdate={onModelUpdate} settings={settings} onSettingsChange={onSettingsChange} reportFilters={reportFilters} refreshNonce={refreshNonce} reportId={reportId} />
     </div>
   );
 }

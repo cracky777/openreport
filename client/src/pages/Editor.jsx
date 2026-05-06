@@ -643,6 +643,9 @@ export default function Editor() {
           limit: w.config?.dataLimit || 1000, filters: mergedFilters,
           widgetFilters: sanitizeWidgetFilters(widgetFilters),
           queryId: mainQueryId,
+          // Report context — cloud uses this to resolve the workspace
+          // override for query timeout. OSS ignores it.
+          reportId: id,
           ...reportExtras,
         };
         const mainPromise = hasMainBinding
@@ -662,6 +665,7 @@ export default function Editor() {
               // The top_n synthetic filter is dropped here — we want the
               // grand total, not the truncated one.
               widgetFilters: sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]),
+              reportId: id,
               ...reportExtras,
             }, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
@@ -690,6 +694,7 @@ export default function Editor() {
               // Drop the synthetic top_n filter for the color aggregate — it
               // doesn't apply when there's no GROUP BY.
               widgetFilters: sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]),
+              reportId: id,
               ...reportExtras,
             }, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
@@ -718,6 +723,7 @@ export default function Editor() {
               limit: 1,
               filters: n1Filters,
               widgetFilters: sanitizeWidgetFilters(n1WidgetFilters),
+              reportId: id,
               ...reportExtras,
             }, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
@@ -936,7 +942,9 @@ export default function Editor() {
         }).catch((err) => {
           if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return { wId, data: null };
           const msg = err?.response?.data?.error || err?.message || 'Query failed';
-          return { wId, data: { _error: msg, _rowCount: 0 } };
+          const code = err?.response?.data?.code || null;
+          const timeoutMs = err?.response?.data?.timeoutMs || null;
+          return { wId, data: { _error: msg, _errorCode: code, _errorTimeoutMs: timeoutMs, _rowCount: 0 } };
         });
       });
 
@@ -1678,6 +1686,7 @@ export default function Editor() {
             return filterForTarget(selectedWidget, baseFilters, widgets, crossHighlight);
           })()}
           refreshNonce={selectedWidget ? (widgetRefreshNonces[selectedWidget] || 0) : 0}
+          reportId={id}
           onResizeStart={pinCanvas}
           onResizeEnd={unpinCanvas}
         />

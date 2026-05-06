@@ -254,25 +254,39 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
         {/* Max rows warning */}
         {widget.data?._maxReached && <MaxRowsWarning />}
 
-        {/* Query error overlay — shown when the widget's last fetch failed (e.g. missing table/column after datasource change) */}
-        {widget.data?._error && !widget._loading && widget.type !== 'text' && widget.type !== 'shape' && (
-          <div style={{
-            position: 'absolute', inset: 0, zIndex: 6,
-            background: 'var(--state-danger-soft)',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            padding: 16, textAlign: 'center', gap: 6,
-            borderRadius: 'inherit', pointerEvents: 'none',
-          }}>
-            <div style={{ fontSize: 22 }}>⚠️</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--state-danger)' }}>Data error</div>
-            <div style={{ fontSize: 11, color: 'var(--state-danger)', maxWidth: 280, lineHeight: 1.4, wordBreak: 'break-word' }}>
-              {widget.data._error}
+        {/* Query error overlay — shown when the widget's last fetch failed.
+            Timeout has its own warning style so the user knows to either
+            simplify the query or ask the admin to raise the limit. */}
+        {widget.data?._error && !widget._loading && widget.type !== 'text' && widget.type !== 'shape' && (() => {
+          const isTimeout = widget.data?._errorCode === 'TIMEOUT';
+          const timeoutS = widget.data?._errorTimeoutMs ? Math.round(widget.data._errorTimeoutMs / 1000) : null;
+          const accent = isTimeout ? 'var(--state-warning)' : 'var(--state-danger)';
+          const bg = isTimeout ? 'var(--state-warning-soft)' : 'var(--state-danger-soft)';
+          return (
+            <div style={{
+              position: 'absolute', inset: 0, zIndex: 6,
+              background: bg,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              padding: 16, textAlign: 'center', gap: 6,
+              borderRadius: 'inherit', pointerEvents: 'none',
+            }}>
+              <div style={{ fontSize: 22 }}>{isTimeout ? '⏱️' : '⚠️'}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: accent }}>
+                {isTimeout ? 'Query timed out' : 'Data error'}
+              </div>
+              <div style={{ fontSize: 11, color: accent, maxWidth: 280, lineHeight: 1.4, wordBreak: 'break-word' }}>
+                {isTimeout
+                  ? `Cancelled after ${timeoutS ?? '?'}s.`
+                  : widget.data._error}
+              </div>
+              <div style={{ fontSize: 10, color: accent, marginTop: 4 }}>
+                {isTimeout
+                  ? 'Simplify the query, add filters, or ask an admin to raise the timeout.'
+                  : 'Check the model — a referenced field may have been removed or renamed.'}
+              </div>
             </div>
-            <div style={{ fontSize: 10, color: 'var(--state-danger)', marginTop: 4 }}>
-              Check the model — a referenced field may have been removed or renamed.
-            </div>
-          </div>
-        )}
+          );
+        })()}
         </div>{/* end rotation wrapper */}
 
         {/* Resize handles — all edges and corners, only when selected */}

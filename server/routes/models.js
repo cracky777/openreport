@@ -4,6 +4,24 @@ const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const { createConnection } = require('../utils/dbConnector');
 const { canAccessReport } = require('./reports');
+const { getQueryTimeoutMs } = require('../utils/settingsHelper');
+
+// Hook for cloud edition to override the global query-timeout with a
+// workspace/org-scoped value. Default in OSS just returns the global
+// admin setting. Cloud installs `cloudHooks.resolveQueryTimeoutMs(req)`
+// to look the value up on the request's active workspace.
+const cloudHooks = {
+  resolveQueryTimeoutMs: null,
+};
+function resolveQueryTimeoutMs(req) {
+  if (typeof cloudHooks.resolveQueryTimeoutMs === 'function') {
+    try {
+      const v = cloudHooks.resolveQueryTimeoutMs(req);
+      if (Number.isFinite(v) && v > 0) return v;
+    } catch { /* fall through to OSS default */ }
+  }
+  return getQueryTimeoutMs();
+}
 
 const router = express.Router();
 
@@ -1372,17 +1390,25 @@ router.post('/:id/query', async (req, res) => {
     // cancellable variant, register the cancel callback so a sibling
     // /cancel-query call can abort the in-flight DB query. Otherwise fall
     // back to the legacy non-cancellable path.
+    const timeoutMs = resolveQueryTimeoutMs(req);
     let rawRows;
-    if (queryId && typeof conn.queryCancellable === 'function') {
-      const { promise, cancel } = conn.queryCancellable(sql);
-      registeredQueryId = String(queryId);
-      const userId = req.isAuthenticated() ? req.user.id : null;
-      inFlightQueries.set(registeredQueryId, { cancel, userId });
+    if (typeof conn.queryCancellable === 'function') {
+      // Always go through queryCancellable now — it's the only path that
+      // enforces the timeout. If the client provided a queryId we also
+      // register the cancel callback so /cancel-query can abort it.
+      const { promise, cancel } = conn.queryCancellable(sql, { timeoutMs });
+      if (queryId) {
+        registeredQueryId = String(queryId);
+        const userId = req.isAuthenticated() ? req.user.id : null;
+        inFlightQueries.set(registeredQueryId, { cancel, userId });
+      }
       try {
         rawRows = await promise;
       } finally {
-        inFlightQueries.delete(registeredQueryId);
-        registeredQueryId = null;
+        if (registeredQueryId) {
+          inFlightQueries.delete(registeredQueryId);
+          registeredQueryId = null;
+        }
       }
     } else {
       rawRows = await conn.query(sql);
@@ -1410,6 +1436,14 @@ router.post('/:id/query', async (req, res) => {
       },
     });
   } catch (err) {
+    if (err && err.code === 'TIMEOUT') {
+      return res.status(504).json({
+        error: err.message,
+        code: 'TIMEOUT',
+        timeoutMs: err.timeoutMs,
+        sql,
+      });
+    }
     res.status(500).json({ error: err.message, sql });
   } finally {
     conn?.close();
@@ -1417,3 +1451,4 @@ router.post('/:id/query', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.cloudHooks = cloudHooks;

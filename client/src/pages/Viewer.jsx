@@ -386,6 +386,7 @@ export default function Viewer() {
             limit: queryLimit, filters: queryFilters,
             widgetFilters: sanitizeWidgetFilters(widgetFiltersWithTopN),
             distinct: isFilterWidget || undefined,
+            reportId: id,
           })
         : Promise.resolve({ data: { rows: [] } });
       const colorPromise = colorMeasure
@@ -393,6 +394,7 @@ export default function Viewer() {
             dimensionNames: [], measureNames: [colorMeasure], limit: 1,
             filters: queryFilters,
             widgetFilters: sanitizeWidgetFilters(widgetFilters),
+            reportId: id,
           }).catch(() => null)
         : Promise.resolve(null);
       const totalPromise = topNApplies
@@ -400,6 +402,7 @@ export default function Viewer() {
             dimensionNames: [], measureNames: [topNMeasure], limit: 1,
             filters: queryFilters,
             widgetFilters: sanitizeWidgetFilters(widgetFilters),
+            reportId: id,
           }).catch(() => null)
         : Promise.resolve(null);
       // N-1 comparison query (scorecards only).
@@ -417,6 +420,7 @@ export default function Viewer() {
             dimensionNames: allDims, measureNames: meass, limit: 1,
             filters: n1Filters,
             widgetFilters: sanitizeWidgetFilters(n1WidgetFilters),
+            reportId: id,
           }).catch(() => null)
         : Promise.resolve(null);
       Promise.all([mainPromise, colorPromise, totalPromise, n1Promise]).then(([res, colorRes, totalRes, n1Res]) => {
@@ -605,7 +609,9 @@ export default function Viewer() {
         setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data: newData } }));
       }).catch((err) => {
         const msg = err?.response?.data?.error || err?.message || 'Query failed';
-        setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data: { _error: msg, _rowCount: 0 } } }));
+        const code = err?.response?.data?.code || null;
+        const timeoutMs = err?.response?.data?.timeoutMs || null;
+        setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data: { _error: msg, _errorCode: code, _errorTimeoutMs: timeoutMs, _rowCount: 0 } } }));
       });
     });
   }, [reportFilters, refreshCounter]); // eslint-disable-line react-hooks/exhaustive-deps

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import { TbShield, TbEdit, TbEye, TbTrash, TbUserPlus, TbKey, TbExternalLink } from 'react-icons/tb';
+import { TbShield, TbEdit, TbEye, TbTrash, TbUserPlus, TbKey, TbExternalLink, TbClock } from 'react-icons/tb';
 import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton } from '../components/PageHeader/PageHeader';
 // Cloud edition contributes extra admin links here (e.g. Billing). Empty in OSS builds.
 import { adminLinks as cloudAdminLinks } from '../cloud';
@@ -22,13 +22,31 @@ export default function Admin() {
   const [createForm, setCreateForm] = useState({ email: '', password: '', displayName: '', role: 'viewer' });
   const [resetPw, setResetPw] = useState(null); // userId
   const [newPw, setNewPw] = useState('');
+  const [settings, setSettings] = useState(null);
+  const [savingTimeout, setSavingTimeout] = useState(false);
 
   useEffect(() => {
     api.get('/admin/users')
       .then((res) => setUsers(res.data.users))
       .catch(() => navigate('/'))
       .finally(() => setLoading(false));
+    api.get('/admin/settings')
+      .then((res) => setSettings(res.data))
+      .catch(() => { /* admin gate handled by users fetch */ });
   }, [navigate]);
+
+  const saveQueryTimeout = async (seconds) => {
+    if (!settings) return;
+    setSavingTimeout(true);
+    try {
+      const res = await api.put('/admin/settings/query-timeout', { queryTimeoutMs: seconds * 1000 });
+      setSettings({ ...settings, queryTimeoutMs: res.data.queryTimeoutMs });
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to save');
+    } finally {
+      setSavingTimeout(false);
+    }
+  };
 
   const updateRole = async (userId, role) => {
     try {
@@ -95,6 +113,24 @@ export default function Admin() {
       </header>
 
       <main style={{ maxWidth: 900, margin: '0 auto', padding: '32px 20px' }}>
+        {/* System settings — currently just the query timeout. Bounds and
+            default come from the server (clamp lives in settingsHelper). */}
+        {settings && (
+          <div style={{ ...formCard, marginBottom: 24 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <TbClock size={16} color="var(--accent-primary)" /> System Settings
+            </h3>
+            <QueryTimeoutControl
+              valueMs={settings.queryTimeoutMs}
+              minMs={settings.queryTimeoutMinMs}
+              maxMs={settings.queryTimeoutMaxMs}
+              defaultMs={settings.queryTimeoutDefaultMs}
+              onSave={saveQueryTimeout}
+              saving={savingTimeout}
+            />
+          </div>
+        )}
+
         {/* Role legend */}
         <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
           {ROLES.map((r) => {
@@ -194,6 +230,59 @@ const formCard = { backgroundColor: 'var(--bg-panel)', padding: 20, borderRadius
 const thStyle = { padding: '10px 14px', textAlign: 'left', fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' };
 const tdStyle = { padding: '10px 14px', fontSize: 13, color: 'var(--text-secondary)' };
 const iconBtn = { background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '4px 6px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' };
+// Query timeout slider — value is held locally so the user can scrub the
+// slider freely; we only POST when they click Save (or when they nudge the
+// number input and blur). Server clamps to [minMs, maxMs] regardless.
+function QueryTimeoutControl({ valueMs, minMs, maxMs, defaultMs, onSave, saving }) {
+  const minS = Math.round(minMs / 1000);
+  const maxS = Math.round(maxMs / 1000);
+  const defaultS = Math.round(defaultMs / 1000);
+  const [seconds, setSeconds] = useState(Math.round(valueMs / 1000));
+  useEffect(() => { setSeconds(Math.round(valueMs / 1000)); }, [valueMs]);
+  const dirty = seconds !== Math.round(valueMs / 1000);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+          Query timeout
+        </label>
+        <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>
+          min {minS}s · default {defaultS}s · max {maxS}s
+        </span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <input
+          type="range" min={minS} max={maxS} step={5}
+          value={seconds}
+          onChange={(e) => setSeconds(parseInt(e.target.value, 10))}
+          style={{ flex: 1 }}
+        />
+        <input
+          type="number" min={minS} max={maxS}
+          value={seconds}
+          onChange={(e) => {
+            const n = parseInt(e.target.value, 10);
+            if (Number.isFinite(n)) setSeconds(Math.max(minS, Math.min(maxS, n)));
+          }}
+          style={{ ...inputStyle, width: 80, padding: '6px 8px', textAlign: 'center' }}
+        />
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>seconds</span>
+        <button
+          className="btn-hover btn-hover-primary"
+          onClick={() => onSave(seconds)}
+          disabled={!dirty || saving}
+          style={{ ...primaryBtn, padding: '6px 14px', fontSize: 12, opacity: (!dirty || saving) ? 0.5 : 1, cursor: (!dirty || saving) ? 'default' : 'pointer' }}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>
+        Visual queries are cancelled when they exceed this limit. Lower values protect the database under load; higher values allow heavier reports to finish.
+      </p>
+    </div>
+  );
+}
+
 const cloudHeaderLink = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
   padding: '8px 14px', fontSize: 13, fontWeight: 600,

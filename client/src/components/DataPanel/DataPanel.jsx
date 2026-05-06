@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { TbPencil } from 'react-icons/tb';
+import { TbPencil, TbChevronDown } from 'react-icons/tb';
 import api from '../../utils/api';
 import SqlExpressionInput from '../SqlExpressionInput/SqlExpressionInput';
 import { sanitizeWidgetFilters } from '../../utils/widgetFilters';
 import { computeBindingKey } from '../../utils/bindingKey';
 import { shiftFiltersForN1, shiftWidgetFiltersForN1, hasShiftableFilterForN1 } from '../../utils/comparePeriod';
 
-export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce }) {
+export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, reportId }) {
   // Helper used by every action that previously mutated the model. Updates
   // the report's `settings` JSON in-memory; the user's next Save persists it
   // to /api/reports/:id. Returns false when the host didn't provide
@@ -31,6 +31,9 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   const [editingDim, setEditingDim] = useState(null); // dimension name being edited
   const [dimEditForm, setDimEditForm] = useState({});
   const [loading, setLoading] = useState(false);
+  // Date Table is collapsed by default — only the main date column is shown,
+  // the per-period extension dims (year, month, weekday, …) appear when opened.
+  const [dateTableOpen, setDateTableOpen] = useState(false);
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
   // Fetch-related updates (loading flag, fetched data) should NOT pollute undo history
@@ -172,6 +175,17 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
     let cancelled = false;
     let stampedLoadingFor = null; // widgetId we set _loading on, so we can revert on abort
     const abortController = new AbortController();
+    // Per-fetch queryIds — registered server-side via inFlightQueries.
+    // On abort/supersede we POST /cancel-query for each so the SQL is
+    // killed at the DB level (HTTP abort alone leaves it running).
+    const activeQueryIds = new Set();
+    const newQueryId = () => {
+      const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `q-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      activeQueryIds.add(id);
+      return id;
+    };
 
     const timer = setTimeout(async () => {
       setLoading(true);
@@ -244,8 +258,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           : widgetFilters;
 
         // Main query (skipped when only colour-by-measure is bound, e.g. for shape/text widgets)
+        const mainQid = hasMainBinding ? newQueryId() : null;
         const mainPromise = hasMainBinding
           ? api.post(`/models/${model.id}/query`, {
+              queryId: mainQid,
               dimensionNames: allDims,
               measureNames: uniqueMeass,
               measureAggOverrides: Object.keys(aggOverrides).length > 0 ? aggOverrides : undefined,
@@ -253,32 +269,44 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               filters: mergedFiltersLocal,
               widgetFilters: sanitizeWidgetFilters(widgetFiltersWithTopN),
               distinct: isFilterWidget || undefined,
+              reportId,
               ...reportExtras,
             }, { signal: abortController.signal })
+              .finally(() => { if (mainQid) activeQueryIds.delete(mainQid); })
           : Promise.resolve({ data: { rows: [] } });
 
         // Conditional formatting — single-row aggregate of the bound colour measure
+        const colorQid = hasColorMeas ? newQueryId() : null;
         const colorPromise = hasColorMeas
           ? api.post(`/models/${model.id}/query`, {
+              queryId: colorQid,
               dimensionNames: [],
               measureNames: [colorMeasure],
               limit: 1,
               filters: mergedFiltersLocal,
               widgetFilters: sanitizeWidgetFilters(widgetFilters),
+              reportId,
               ...reportExtras,
-            }, { signal: abortController.signal }).catch(() => null)
+            }, { signal: abortController.signal })
+              .catch(() => null)
+              .finally(() => { if (colorQid) activeQueryIds.delete(colorQid); })
           : Promise.resolve(null);
 
         // Total query for the Others bucket — runs only when Top N is active.
+        const totalQid = topNApplies ? newQueryId() : null;
         const totalPromise = topNApplies
           ? api.post(`/models/${model.id}/query`, {
+              queryId: totalQid,
               dimensionNames: [],
               measureNames: [topNMeasure],
               limit: 1,
               filters: mergedFiltersLocal,
               widgetFilters: sanitizeWidgetFilters(widgetFilters),
+              reportId,
               ...reportExtras,
-            }, { signal: abortController.signal }).catch(() => null)
+            }, { signal: abortController.signal })
+              .catch(() => null)
+              .finally(() => { if (totalQid) activeQueryIds.delete(totalQid); })
           : Promise.resolve(null);
 
         // N-1 comparison query (scorecards only). Shifts every filter on
@@ -296,15 +324,20 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         const n1WidgetFilters = shouldFetchN1
           ? shiftWidgetFiltersForN1(widgetFilters, model?.dimensions)
           : null;
+        const n1Qid = shouldFetchN1 ? newQueryId() : null;
         const n1Promise = shouldFetchN1
           ? api.post(`/models/${model.id}/query`, {
+              queryId: n1Qid,
               dimensionNames: allDims,
               measureNames: uniqueMeass,
               limit: 1,
               filters: n1Filters,
               widgetFilters: sanitizeWidgetFilters(n1WidgetFilters),
+              reportId,
               ...reportExtras,
-            }, { signal: abortController.signal }).catch(() => null)
+            }, { signal: abortController.signal })
+              .catch(() => null)
+              .finally(() => { if (n1Qid) activeQueryIds.delete(n1Qid); })
           : Promise.resolve(null);
 
         const [res, colorRes, totalRes, n1Res] = await Promise.all([mainPromise, colorPromise, totalPromise, n1Promise]);
@@ -639,10 +672,12 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         if (cancelled) return;
         const ew = widgetRef.current;
         const msg = err?.response?.data?.error || err?.message || 'Query failed';
+        const code = err?.response?.data?.code || null;
+        const timeoutMs = err?.response?.data?.timeoutMs || null;
         if (ew && widgetIdRef.current === capturedWidgetId) {
-          onUpdateSilentRef.current(capturedWidgetId, { ...ew, _loading: false, data: { ...(ew.data || {}), _error: msg, _rowCount: 0 } });
+          onUpdateSilentRef.current(capturedWidgetId, { ...ew, _loading: false, data: { ...(ew.data || {}), _error: msg, _errorCode: code, _errorTimeoutMs: timeoutMs, _rowCount: 0 } });
         }
-        setStatus({ type: 'error', message: msg });
+        setStatus({ type: 'error', message: code === 'TIMEOUT' ? `Timeout after ${Math.round((timeoutMs || 0) / 1000)}s` : msg });
       } finally {
         setLoading(false);
       }
@@ -652,6 +687,17 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
       cancelled = true;
       clearTimeout(timer);
       abortController.abort();
+      // Aborting the AbortController only cuts the HTTP response — the
+      // SQL keeps running on the database. Fire /cancel-query for each
+      // still-registered queryId so the server invokes the dialect's
+      // native cancel (pg_cancel_backend / KILL QUERY / request.cancel
+      // / jobs.cancel / interrupt) and frees the connection.
+      if (activeQueryIds.size > 0) {
+        for (const qid of activeQueryIds) {
+          api.post('/models/cancel-query', { queryId: qid }).catch(() => { /* best effort */ });
+        }
+        activeQueryIds.clear();
+      }
       // If we already stamped `_loading: true` on a widget for this run
       // and the fetch is being aborted (user clicked another widget,
       // edited binding again, etc.), clear the flag so the spinner
@@ -896,48 +942,76 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         );
       })()}
 
-      {/* Date table — only shown when a dateColumn is set */}
+      {/* Date table — collapsible block. We render a plain container
+          rather than `FieldSection` so the chevron sits in a real header
+          (no `<label>` wrapping, no `flex: 1` listBox quirks that made
+          the body collapse to 0 height when toggled). */}
       {model.dateColumn && (() => {
         const dateCol = (model.dimensions || []).find((d) => d.name === model.dateColumn);
         if (!dateCol) return null;
         const dateParts = (model.dimensions || []).filter((d) => d.datePartOf === model.dateColumn);
         return (
-          <FieldSection label={
-            <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-              <span>📅 Date Table</span>
-              <button onClick={async (e) => {
-                e.stopPropagation();
-                // Clear the report-scoped date column and any date-part dims
-                // that belonged to it. The underlying model is never mutated
-                // — we only touch settings.
-                const currentDateCol = model.dateColumn;
-                const currentExtras = (settings && settings.extraDimensions) || [];
-                const wrote = updateSettings({
-                  dateColumn: null,
-                  extraDimensions: currentExtras.filter((x) => x.datePartOf !== currentDateCol),
-                });
-                if (!wrote) return;
-              }} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--state-warning-soft)', color: 'var(--state-warning)', fontWeight: 600, border: 'none', cursor: 'pointer' }}>✕ remove</button>
-            </span>
-          } style={{ flex: '0 0 auto', maxHeight: '30%' }}>
-            <div style={listBox}>
-              {/* Main date column */}
+          <div style={{ marginBottom: 8, flexShrink: 0 }}>
+            <div
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                marginBottom: 3, gap: 6,
+              }}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>
+                📅 Date Table
+              </span>
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  const currentDateCol = model.dateColumn;
+                  const currentExtras = (settings && settings.extraDimensions) || [];
+                  updateSettings({
+                    dateColumn: null,
+                    extraDimensions: currentExtras.filter((x) => x.datePartOf !== currentDateCol),
+                  });
+                }}
+                style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--state-warning-soft)', color: 'var(--state-warning)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
+              >✕ remove</button>
+            </div>
+            <div style={{ border: '1px solid var(--border-default)', borderRadius: 4, maxHeight: 220, overflow: 'auto' }}>
+              {/* Main date column — always visible. The chevron lives here
+                  because id_date is the field that decomposes into year /
+                  month / weekday / … */}
               <div
                 draggable
                 onDragStart={(e) => handleDragStart(e, dateCol.name, 'dimension')}
                 title={`${dateCol.table}.${dateCol.column}`}
                 style={{
-                  ...dragItem, paddingLeft: 8,
+                  ...dragItem, paddingLeft: 4,
                   backgroundColor: (selectedDims.includes(dateCol.name) || columnDims.includes(dateCol.name) || groupBy.includes(dateCol.name)) ? 'var(--state-warning-soft)' : 'transparent',
                   borderLeft: (selectedDims.includes(dateCol.name) || columnDims.includes(dateCol.name) || groupBy.includes(dateCol.name)) ? '3px solid var(--state-warning)' : '3px solid transparent',
                 }}
               >
+                {dateParts.length > 0 ? (
+                  <span
+                    onClick={(e) => { e.stopPropagation(); setDateTableOpen((o) => !o); }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    draggable={false}
+                    title={dateTableOpen ? 'Hide date parts' : 'Show date parts'}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', cursor: 'pointer',
+                      color: 'var(--text-secondary)', flexShrink: 0,
+                      transition: 'transform 0.15s',
+                      transform: dateTableOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
+                    }}
+                  >
+                    <TbChevronDown size={14} />
+                  </span>
+                ) : (
+                  <span style={{ display: 'inline-block', width: 14, flexShrink: 0 }} />
+                )}
                 <span style={dragHandle}>⠿</span>
                 <span style={{ ...truncatedLabel, fontWeight: 600 }} title={dateCol.label || dateCol.column}>{dateCol.label || dateCol.column}</span>
                 <span style={{ ...dateTag, flexShrink: 0 }}>📅</span>
               </div>
-              {/* Date parts */}
-              {dateParts.map((dp) => (
+              {/* Date parts — collapsed by default, expanded via the chevron */}
+              {dateTableOpen && dateParts.map((dp) => (
                 <div
                   key={dp.name}
                   draggable
@@ -955,7 +1029,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 </div>
               ))}
             </div>
-          </FieldSection>
+          </div>
         );
       })()}
 

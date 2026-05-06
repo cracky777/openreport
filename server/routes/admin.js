@@ -4,6 +4,13 @@ const { v4: uuidv4 } = require('uuid');
 const { requireAdmin } = require('../middleware/auth');
 const db = require('../db');
 const authHooks = require('../hooks/auth');
+const {
+  QUERY_TIMEOUT_MIN_MS,
+  QUERY_TIMEOUT_MAX_MS,
+  QUERY_TIMEOUT_DEFAULT_MS,
+  getQueryTimeoutMs,
+  setQueryTimeoutMs,
+} = require('../utils/settingsHelper');
 
 const router = express.Router();
 
@@ -73,6 +80,27 @@ router.put('/users/:id/password', requireAdmin, (req, res) => {
   const hash = bcrypt.hashSync(password, 10);
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.params.id);
   res.json({ message: 'Password reset' });
+});
+
+// ─── Settings ──────────────────────────────────────────────
+// Global app settings, admin-only. Currently exposes the query
+// timeout (clamped to [QUERY_TIMEOUT_MIN_MS, QUERY_TIMEOUT_MAX_MS]
+// at the helper level so misuse can't park a runaway query).
+router.get('/settings', requireAdmin, (req, res) => {
+  res.json({
+    queryTimeoutMs: getQueryTimeoutMs(),
+    queryTimeoutMinMs: QUERY_TIMEOUT_MIN_MS,
+    queryTimeoutMaxMs: QUERY_TIMEOUT_MAX_MS,
+    queryTimeoutDefaultMs: QUERY_TIMEOUT_DEFAULT_MS,
+  });
+});
+
+router.put('/settings/query-timeout', requireAdmin, (req, res) => {
+  const { queryTimeoutMs } = req.body || {};
+  const n = Number(queryTimeoutMs);
+  if (!Number.isFinite(n)) return res.status(400).json({ error: 'queryTimeoutMs must be a number' });
+  const stored = setQueryTimeoutMs(n);
+  res.json({ queryTimeoutMs: stored });
 });
 
 module.exports = router;

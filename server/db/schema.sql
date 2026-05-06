@@ -71,6 +71,15 @@ CREATE TABLE IF NOT EXISTS workspace_members (
 );
 -- workspace member role: 'admin' | 'editor' | 'viewer'
 
+-- Generic key/value store for global app settings (admin-managed in OSS,
+-- e.g. query timeout). Values are JSON-encoded so we can store numbers,
+-- bools, or structured objects without needing per-key columns.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS reports (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,

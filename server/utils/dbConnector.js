@@ -1,22 +1,59 @@
 const { Pool } = require('pg');
 const mysql = require('mysql2/promise');
 
+// Wrap a `{ promise, cancel }` pair with a timeout safety net so we always
+// abort the underlying query when the deadline passes — even if the
+// dialect's native timeout doesn't fire (DuckDB has none, BigQuery's
+// jobTimeoutMs is best-effort, etc.). When the timeout trips we set
+// `timedOut` *before* invoking cancel, so the post-throw branch can
+// distinguish a timeout from a user-initiated cancel and surface a
+// `TIMEOUT` error code that the UI uses for its warning banner.
+function withTimeout({ promise, cancel }, timeoutMs) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return { promise, cancel };
+  let timedOut = false;
+  let timer = null;
+  const wrapped = (async () => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      try { cancel(); } catch { /* best-effort */ }
+    }, timeoutMs);
+    try {
+      return await promise;
+    } catch (err) {
+      if (timedOut) {
+        const e = new Error(`Query timed out after ${Math.round(timeoutMs / 1000)}s`);
+        e.code = 'TIMEOUT';
+        e.timeoutMs = timeoutMs;
+        throw e;
+      }
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  })();
+  return { promise: wrapped, cancel };
+}
+
 function createConnection(datasource) {
   const { db_type, host, port, db_name, db_user, db_password, extra_config } = datasource;
   const extra = extra_config ? (typeof extra_config === 'string' ? JSON.parse(extra_config) : extra_config) : {};
 
   // ─── PostgreSQL / Azure PostgreSQL ───
   if (db_type === 'postgres' || db_type === 'azure_postgres') {
-    const pool = new Pool({
+    const pgConfig = {
       host,
       port: port || 5432,
       database: db_name,
       user: db_user,
       password: db_password,
-      max: 5,
-      connectionTimeoutMillis: 5000,
+      // Bumped from 5 → 20 so a multi-widget refresh doesn't starve the
+      // pool. Each visual takes one slot for the duration of its query;
+      // five was tight as soon as a report had >5 widgets fetching at once.
+      max: 20,
+      connectionTimeoutMillis: 10_000,
       ssl: db_type === 'azure_postgres' ? { rejectUnauthorized: true } : { rejectUnauthorized: false },
-    });
+    };
+    const pool = new Pool(pgConfig);
     // Prevent unhandled errors on idle clients (e.g. ECONNRESET) from crashing the Node process
     pool.on('error', (err) => {
       console.error('[pg pool error]', err.message);
@@ -25,18 +62,27 @@ function createConnection(datasource) {
     // PID and can fire a separate `pg_cancel_backend` against it. Without
     // this the SQL keeps running server-side after a client abort and the
     // DB connection stays busy until the query finishes naturally.
-    const queryCancellable = (sqlText) => {
+    const queryCancellable = (sqlText, opts = {}) => {
+      const timeoutMs = Number(opts.timeoutMs) || 0;
       let client = null;
       let canceled = false;
       const promise = (async () => {
         client = await pool.connect();
         try {
           if (canceled) throw new Error('Query canceled');
+          // Native PG enforcement is best-effort: some hosted/restricted
+          // PG accounts (Azure PG read-only roles, RDS Proxy with
+          // statement-rewrite filtering, etc.) refuse `SET statement_timeout`
+          // and would propagate that error and 500 the visual. We swallow
+          // it — the withTimeout wrapper still enforces the deadline by
+          // firing pg_cancel_backend.
+          if (timeoutMs > 0) {
+            try { await client.query(`SET statement_timeout = ${Math.round(timeoutMs)}`); }
+            catch (e) { console.warn('[pg statement_timeout]', e.message); }
+          }
           const result = await client.query(sqlText);
           return result.rows;
         } finally {
-          // Pass an err arg only when truly aborted so a normal release
-          // returns the connection to the pool instead of destroying it.
           try { client.release(canceled ? new Error('canceled') : undefined); }
           catch { /* already released */ }
         }
@@ -44,24 +90,26 @@ function createConnection(datasource) {
       const cancel = async () => {
         if (canceled) return;
         canceled = true;
-        // Client may not yet be set if cancel raced with pool.connect() —
-        // wait briefly so we have a PID to send pg_cancel_backend against.
-        // 500ms ceiling: long enough to cover a slow connection acquire,
-        // short enough that a runaway pool doesn't stall the cancel.
         for (let i = 0; i < 20 && !client; i++) {
           await new Promise((r) => setTimeout(r, 25));
         }
         const pid = client?.processID;
         if (!pid) return;
+        // Use a one-shot pg.Client (NOT the shared pool) so a refresh
+        // burst that fires N cancels at once doesn't eat N slots out
+        // of the main query pool and starve incoming visual queries.
+        const { Client } = require('pg');
+        const cancelClient = new Client(pgConfig);
         try {
-          const cancelClient = await pool.connect();
-          try { await cancelClient.query('SELECT pg_cancel_backend($1)', [pid]); }
-          finally { cancelClient.release(); }
+          await cancelClient.connect();
+          await cancelClient.query('SELECT pg_cancel_backend($1)', [pid]);
         } catch (e) {
           console.warn('[pg cancel]', e.message);
+        } finally {
+          try { await cancelClient.end(); } catch { /* already closed */ }
         }
       };
-      return { promise, cancel };
+      return withTimeout({ promise, cancel }, timeoutMs);
     };
     return {
       query: async (sql) => { const result = await pool.query(sql); return result.rows; },
@@ -91,25 +139,33 @@ function createConnection(datasource) {
 
   // ─── MySQL ───
   if (db_type === 'mysql') {
+    const mysqlConfig = {
+      host, port: port || 3306, database: db_name, user: db_user, password: db_password,
+      waitForConnections: true, connectionLimit: 20,
+      ssl: { rejectUnauthorized: false }, connectTimeout: 10_000,
+    };
     let pool;
     const getPool = () => {
-      if (!pool) {
-        pool = mysql.createPool({
-          host, port: port || 3306, database: db_name, user: db_user, password: db_password,
-          waitForConnections: true, connectionLimit: 5, ssl: { rejectUnauthorized: false }, connectTimeout: 5000,
-        });
-      }
+      if (!pool) pool = mysql.createPool(mysqlConfig);
       return pool;
     };
     // Cancellable variant — uses KILL QUERY <threadId> on a sibling
     // connection to abort the in-flight query without taking down the pool.
-    const queryCancellable = (sqlText) => {
+    const queryCancellable = (sqlText, opts = {}) => {
+      const timeoutMs = Number(opts.timeoutMs) || 0;
       let conn = null;
       let canceled = false;
       const promise = (async () => {
         conn = await getPool().getConnection();
         try {
           if (canceled) throw new Error('Query canceled');
+          // MySQL 5.7.8+ — kills SELECT statements that exceed the limit.
+          // Older servers ignore the SESSION variable silently, so we
+          // still rely on the withTimeout safety net for portability.
+          if (timeoutMs > 0) {
+            try { await conn.query(`SET SESSION MAX_EXECUTION_TIME = ${Math.round(timeoutMs)}`); }
+            catch { /* unsupported on old MySQL — fall back to withTimeout */ }
+          }
           const [rows] = await conn.query(sqlText);
           return rows;
         } finally {
@@ -121,15 +177,20 @@ function createConnection(datasource) {
         canceled = true;
         const threadId = conn.threadId;
         if (!threadId) return;
+        // Same rationale as the PG branch — use a one-shot connection
+        // (NOT the shared pool) so a burst of cancels doesn't starve
+        // the pool of slots reserved for live visual queries.
+        let killConn;
         try {
-          const killConn = await getPool().getConnection();
-          try { await killConn.query(`KILL QUERY ${threadId}`); }
-          finally { killConn.release(); }
+          killConn = await mysql.createConnection(mysqlConfig);
+          await killConn.query(`KILL QUERY ${threadId}`);
         } catch (e) {
           console.warn('[mysql cancel]', e.message);
+        } finally {
+          try { if (killConn) await killConn.end(); } catch { /* already closed */ }
         }
       };
-      return { promise, cancel };
+      return withTimeout({ promise, cancel }, timeoutMs);
     };
     return {
       query: async (sql) => { const [rows] = await getPool().query(sql); return rows; },
@@ -174,12 +235,17 @@ function createConnection(datasource) {
     // Cancellable variant — mssql Request has a built-in .cancel() that
     // sends an attention token; the in-flight query unwinds with an
     // ECANCEL error which we translate to a clean "Query canceled".
-    const queryCancellable = (sqlText) => {
+    const queryCancellable = (sqlText, opts = {}) => {
+      const timeoutMs = Number(opts.timeoutMs) || 0;
       let request = null;
       let canceled = false;
       const promise = (async () => {
         const pool = await getPool();
         request = pool.request();
+        // Per-request override of the connection-level requestTimeout.
+        // Setting 0 means "no driver-level timeout" — fine because
+        // withTimeout below still cancels on the configured deadline.
+        if (timeoutMs > 0) request.timeout = Math.round(timeoutMs);
         if (canceled) throw new Error('Query canceled');
         const result = await request.query(sqlText);
         return result.recordset;
@@ -191,7 +257,7 @@ function createConnection(datasource) {
           console.warn('[mssql cancel]', e.message);
         }
       };
-      return { promise, cancel };
+      return withTimeout({ promise, cancel }, timeoutMs);
     };
     return {
       query: async (q) => { const pool = await getPool(); const result = await pool.request().query(q); return result.recordset; },
@@ -233,11 +299,14 @@ function createConnection(datasource) {
     // Cancellable variant — uses createQueryJob so we have a Job handle to
     // cancel via the BigQuery jobs.cancel API. Without this an aborted
     // request still bills the user for the full job.
-    const queryCancellable = (q) => {
+    const queryCancellable = (q, opts = {}) => {
+      const timeoutMs = Number(opts.timeoutMs) || 0;
       let job = null;
       let canceled = false;
       const promise = (async () => {
-        const [createdJob] = await bigquery.createQueryJob({ query: q, location: extra.location || 'US' });
+        const jobOpts = { query: q, location: extra.location || 'US' };
+        if (timeoutMs > 0) jobOpts.jobTimeoutMs = String(Math.round(timeoutMs));
+        const [createdJob] = await bigquery.createQueryJob(jobOpts);
         job = createdJob;
         if (canceled) { try { await job.cancel(); } catch {} throw new Error('Query canceled'); }
         const [rows] = await job.getQueryResults();
@@ -250,7 +319,7 @@ function createConnection(datasource) {
         try { await job.cancel(); }
         catch (e) { console.warn('[bigquery cancel]', e.message); }
       };
-      return { promise, cancel };
+      return withTimeout({ promise, cancel }, timeoutMs);
     };
     return {
       query: async (q) => { const [rows] = await bigquery.query({ query: q, location: extra.location || 'US' }); return rows; },
@@ -306,7 +375,8 @@ function createConnection(datasource) {
     // Cancellable variant — duckdb-async exposes interrupt() at the database
     // level which aborts any pending query on shared connections. Best-effort
     // since the interrupt is global (no per-request isolation).
-    const queryCancellable = (q) => {
+    const queryCancellable = (q, opts = {}) => {
+      const timeoutMs = Number(opts.timeoutMs) || 0;
       let canceled = false;
       let db = null;
       const promise = (async () => {
@@ -320,7 +390,9 @@ function createConnection(datasource) {
         try { if (db && typeof db.interrupt === 'function') db.interrupt(); }
         catch (e) { console.warn('[duckdb cancel]', e.message); }
       };
-      return { promise, cancel };
+      // DuckDB has no native statement timeout — the withTimeout wrapper
+      // is what actually enforces the deadline by calling interrupt().
+      return withTimeout({ promise, cancel }, timeoutMs);
     };
     return {
       query: async (q) => { const db = await getDb(); return convertValues(await db.all(q)); },
