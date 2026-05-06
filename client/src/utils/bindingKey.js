@@ -52,6 +52,14 @@ export function computeBindingKey({ widget, model, reportFilters }) {
 
   const topNKey = `tn:${widget?.config?.topNEnabled === true ? (widget.config?.topN ?? 20) : '0'}`;
 
+  // N-1 comparison binding (scorecards). The compareDateDim drives a
+  // parallel fetch path — if it changes, both fetchers must invalidate
+  // their cached results. Without this in the key, dropping a dim into
+  // the "Compare with" zone wouldn't trigger the N-1 query because the
+  // cache check would short-circuit on identical bindingKey.
+  const compareDateDim = binding.compareDateDim || '';
+  const compareKey = compareDateDim ? `cd:${compareDateDim}` : '';
+
   // Drill state — different drill levels are different bindings as far as the
   // cache is concerned (the active dimension and filter set differ).
   const drillPath = Array.isArray(widget.drillPath) ? widget.drillPath : [];
@@ -64,6 +72,6 @@ export function computeBindingKey({ widget, model, reportFilters }) {
     columnDims.join(','),
     scatterKey, comboKey, gaugeKey,
     aggKey, colorKey, widgetFiltersKey,
-    modelVersion, filtersKey, typeKey, topNKey, drillKey,
+    modelVersion, filtersKey, typeKey, topNKey, drillKey, compareKey,
   ].join(':');
 }

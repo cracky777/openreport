@@ -15,6 +15,7 @@ import { sanitizeWidgetFilters } from '../utils/widgetFilters';
 import { parseFiltersFromUrl, syncFiltersToUrl } from '../utils/urlFilters';
 import { computeBindingKey } from '../utils/bindingKey';
 import { filterForTarget } from '../utils/crossFilter';
+import { shiftFiltersForN1, shiftWidgetFiltersForN1, hasShiftableFilterForN1 } from '../utils/comparePeriod';
 
 // Convert data between widget formats
 function convertData(data, fromType, toType) {
@@ -195,6 +196,11 @@ export default function Editor() {
 
   // Edit Interactions handler (defined after history is initialised). Toggles
   // the target's id in the currently-selected source widget's exclusion list.
+  // Scoped-refetch ref consumed by the main fetch loop. When the user
+  // toggles a target's interaction (None ↔ Filter), only that target needs
+  // to refetch — its cross-filter inclusion just flipped, so its current
+  // data could be stale even though no other widget changed.
+  const interactionToggleTargetRef = useRef(null);
   const handleToggleCrossFilter = useCallback((targetId) => {
     const sourceId = selectedWidget;
     if (!sourceId || sourceId === targetId) return;
@@ -213,6 +219,10 @@ export default function Editor() {
         },
       };
     });
+    // Trigger a scoped refetch of just the target. The main fetch loop
+    // reads this ref and filters its widget list down to it.
+    interactionToggleTargetRef.current = targetId;
+    setRefreshCounter((n) => n + 1);
   }, [selectedWidget, history]);
   // Ref mirror so click handlers always read the freshest widget state (closures can be stale)
   const widgetsRef = useRef(widgets);
@@ -223,12 +233,21 @@ export default function Editor() {
   // Sync slicerSelections from widgets' config.selectedValues (e.g. after undo/redo).
   // Compares content to avoid updates when nothing actually changed.
   useEffect(() => {
+    // Track ALL dims bound to a slicer widget — including slicers with no
+    // current selection. These are "slicer-managed" dims; clearing the
+    // slicer must drop the dim from reportFilters. Previously we built the
+    // managed set from `fromWidgets` (only slicers WITH a selection), so
+    // clearing a slicer left its old value preserved as if it were a URL
+    // filter, and visuals stayed stuck on the previous selection.
+    const slicerManagedDims = new Set();
     const fromWidgets = {};
     for (const w of Object.values(widgets || {})) {
       if (w?.type !== 'filter') continue;
       const dim = w.dataBinding?.selectedDimensions?.[0];
+      if (!dim) continue;
+      slicerManagedDims.add(dim);
       const vals = w.config?.selectedValues;
-      if (dim && Array.isArray(vals) && vals.length > 0) fromWidgets[dim] = vals;
+      if (Array.isArray(vals) && vals.length > 0) fromWidgets[dim] = vals;
     }
     const sameContent = (a, b) => {
       const aK = Object.keys(a), bK = Object.keys(b);
@@ -242,13 +261,10 @@ export default function Editor() {
     setSlicerSelections((prev) => sameContent(prev, fromWidgets) ? prev : fromWidgets);
     setReportFilters((prev) => {
       // reportFilters = (URL/external for dims without a slicer) ∪ slicer ∪ crossHighlight
-      // Keep prev entries whose dim isn't backed by a slicer — these come from
-      // the URL `?filters=` param and shouldn't be wiped when the widget set
-      // changes.
-      const slicerDims = new Set(Object.keys(fromWidgets));
+      // Preserve prev entries only when the dim is NOT slicer-managed.
       const preserved = {};
       for (const [k, v] of Object.entries(prev || {})) {
-        if (!slicerDims.has(k)) preserved[k] = v;
+        if (!slicerManagedDims.has(k)) preserved[k] = v;
       }
       const next = { ...preserved, ...fromWidgets };
       const ch = crossHighlightRef.current;
@@ -268,6 +284,14 @@ export default function Editor() {
       else delete cfg.selectedValues;
       return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...w, config: cfg } } };
     });
+    // If a chart cross-highlight was active on the same dim, the slicer
+    // change must take precedence — otherwise the slicer-sync effect
+    // would overwrite the slicer's new value with the lingering
+    // cross-highlight. The user is explicitly asking via the slicer now.
+    if (crossHighlightRef.current?.dim === dimensionName) {
+      crossFilterSourceRef.current = null;
+      setCrossHighlight(null);
+    }
   }, [history]);
 
   // Drill-down handlers — update widget.drillPath silently and trigger refetch
@@ -296,8 +320,15 @@ export default function Editor() {
         widgets: { ...prev.widgets, [widgetId]: { ...w, drillPath: nextPath, _loading: true } },
       };
     });
-    // Clear any cross-filter originated from this widget — drill navigation should reset the leaf-level cross-filter
+    // Clear any cross-filter that originated from this widget — drill
+    // navigation resets the leaf-level cross-filter. When that happens,
+    // OTHER widgets were filtered by reportFilters and now need to
+    // refetch too, so we DON'T scope the refresh in that case (clearing
+    // the cross-highlight changes reportFilters globally). Otherwise the
+    // drill is purely local to this widget and we narrow the refetch to
+    // it — sibling visuals stay put.
     const prevCH = crossHighlightRef.current;
+    let crossHighlightWasCleared = false;
     if (prevCH && prevCH.widgetId === widgetId) {
       setCrossHighlight(null);
       setReportFilters((p) => {
@@ -306,8 +337,11 @@ export default function Editor() {
         else delete n[prevCH.dim];
         return n;
       });
+      crossHighlightWasCleared = true;
     }
-    drillingWidgetIdRef.current = widgetId;
+    if (!crossHighlightWasCleared) {
+      drillingWidgetIdRef.current = widgetId;
+    }
     setRefreshCounter((n) => n + 1);
   }, [history, slicerSelections]);
   const handleDrillDown = useCallback((widgetId, dim, value) => {
@@ -359,6 +393,10 @@ export default function Editor() {
   const prevFiltersJson = useRef('{}');
   const abortControllerRef = useRef(null);
   const debounceTimerRef = useRef(null);
+  // Set of queryIds currently registered server-side. handleCancelFetch
+  // fires a cancel-query call for each so the underlying SQL is aborted
+  // (pg_cancel_backend, KILL QUERY, mssql request.cancel, etc.).
+  const activeQueryIdsRef = useRef(new Set());
   // Tracks widgets marked _loading by the in-progress fetcher run. Cleared
   // when the fetch settles. If the effect's cleanup cancels the debounce
   // before it fires, we revert these flags so the spinner doesn't stick.
@@ -372,21 +410,44 @@ export default function Editor() {
     setRefreshing((r) => r ? r : true);
     setRefreshCounter((n) => n + 1);
   }, []);
+  // Per-widget refresh nonces — bumped by the canvas Refresh button to
+  // request a fresh fetch of one specific widget without triggering the
+  // global refresh loop.
+  const [widgetRefreshNonces, setWidgetRefreshNonces] = useState({});
+  const handleRefreshWidget = useCallback((wId) => {
+    if (!wId) return;
+    setWidgetRefreshNonces((prev) => ({ ...prev, [wId]: (prev[wId] || 0) + 1 }));
+  }, []);
 
   // Cancel an in-flight data fetch and clear the loading flags so the user
   // isn't stuck with a permanent spinner on a slow query.
   const handleCancelFetch = useCallback(() => {
+    // Server-side: tell each registered query to cancel via the dialect's
+    // native mechanism. Snapshot + clear the set first so a slow cancel
+    // round-trip doesn't fire twice if the user double-clicks. Best-effort:
+    // failures here just mean the SQL keeps running, the UI is freed below.
+    const queryIds = Array.from(activeQueryIdsRef.current);
+    activeQueryIdsRef.current.clear();
+    queryIds.forEach((qid) => {
+      api.post('/models/cancel-query', { queryId: qid }).catch(() => {});
+    });
     if (abortControllerRef.current) abortControllerRef.current.abort();
     if (debounceTimerRef.current) { clearTimeout(debounceTimerRef.current); debounceTimerRef.current = null; }
     const pending = pendingLoadingRef.current;
     pendingLoadingRef.current = null;
     history.setSilent((prev) => {
       const next = { ...prev, widgets: { ...prev.widgets } };
-      // Clear _loading on every widget currently marked, plus any explicitly tracked.
+      // Clear _loading on every widget currently marked, plus any explicitly
+      // tracked. A user-initiated cancel isn't a data error — strip any
+      // existing _error too so the widget either reverts to its previous
+      // data or to an empty state (rather than the misleading "Check the
+      // model" overlay).
       for (const wId of Object.keys(next.widgets)) {
         const w = next.widgets[wId];
         if (w?._loading || (pending && pending.includes(wId))) {
-          next.widgets[wId] = { ...w, _loading: false, data: { ...(w.data || {}), _error: 'Query canceled' } };
+          const data = { ...(w.data || {}) };
+          delete data._error;
+          next.widgets[wId] = { ...w, _loading: false, data };
         }
       }
       return next;
@@ -428,11 +489,15 @@ export default function Editor() {
     // here so it doesn't leak into subsequent unrelated refreshes.
     const drillingId = drillingWidgetIdRef.current;
     drillingWidgetIdRef.current = null;
+    // Same idea as drillingId but for the interaction-toggle path: only
+    // the target whose None↔Filter setting just changed should refetch.
+    const interactionId = interactionToggleTargetRef.current;
+    interactionToggleTargetRef.current = null;
+    const scopedToId = drillingId || interactionId;
 
     const toFetch = Object.entries(currentWidgets).filter(([wId, w]) => {
       if (!w) return false;
-      // Drill scope wins over everything: only the drilling widget refetches.
-      if (drillingId && wId !== drillingId) return false;
+      if (scopedToId && wId !== scopedToId) return false;
       // On explicit refresh, refetch ALL (including cross-filter source)
       if (!refreshRequested && wId === sourceId) return false;
       const b = w.dataBinding || {};
@@ -443,7 +508,24 @@ export default function Editor() {
       // Conditional formatting — only counted as a reason to fetch when the toggle is on.
       const hasColorMeas = !!b.colorMeasure && w.config?.colorCondition?.enabled === true;
       if ((w.type === 'filter' || w.type === 'text') && !hasColorMeas) return false;
-      return hasMainBinding || hasColorMeas;
+      if (!(hasMainBinding || hasColorMeas)) return false;
+      // Per-widget cache: if this widget's effective filters (after the
+      // interaction-exclusion stripping in filterForTarget) AND its
+      // binding shape are unchanged from the last successful fetch,
+      // there's nothing new to query — skip the refetch. Without this,
+      // every reportFilters mutation re-fired SQL on every visual even
+      // when the source's "interactions = None" meant nothing actually
+      // changed for them.
+      const baseFiltersForKey = { ...(reportFilters || {}) };
+      const targetFiltersForKey = filterForTarget(wId, baseFiltersForKey, currentWidgets, crossHighlightRef.current);
+      const widgetBindingKey = computeBindingKey({ widget: w, model, reportFilters: targetFiltersForKey });
+      if (!refreshRequested
+          && wId !== scopedToId
+          && w.data?._fetchedBinding === widgetBindingKey
+          && Object.keys(w.data || {}).length > 1) {
+        return false;
+      }
+      return true;
     });
 
     if (toFetch.length === 0) return;
@@ -549,14 +631,23 @@ export default function Editor() {
           dimensionOverrides: settings?.dimensionOverrides || {},
           measureOverrides: settings?.measureOverrides || {},
         };
+        // Generate a queryId so the server can register this fetch in its
+        // in-flight map; handleCancelFetch posts to /models/cancel-query
+        // with this id to abort the SQL via the dialect's native mechanism.
+        const mainQueryId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`;
+        activeQueryIdsRef.current.add(mainQueryId);
         const mainQueryBody = {
           dimensionNames: allDims, measureNames: [...new Set(meass)],
           limit: w.config?.dataLimit || 1000, filters: mergedFilters,
           widgetFilters: sanitizeWidgetFilters(widgetFilters),
+          queryId: mainQueryId,
           ...reportExtras,
         };
         const mainPromise = hasMainBinding
           ? api.post(`/models/${model.id}/query`, mainQueryBody, { signal: controller.signal })
+              .finally(() => { activeQueryIdsRef.current.delete(mainQueryId); })
           : Promise.resolve({ data: { rows: [] } });
 
         // Total query for the Others bucket — runs only when Top N is active.
@@ -603,7 +694,35 @@ export default function Editor() {
             }, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
 
-        return Promise.all([mainPromise, colorPromise, totalPromise]).then(([res, colorRes, totalRes]) => {
+        // N-1 comparison query (scorecards only). Same SQL shape as the
+        // main fetch but every filter on `compareDateDim` is shifted by
+        // -1 year so we can render a "vs last year" comparison.
+        const compareDateDim = w.type === 'scorecard' ? (binding.compareDateDim || null) : null;
+        // The N-1 query is enabled by the user dropping ANY date dim into
+        // "Compare with". The system then walks every active filter
+        // (merged + widget) and shifts the year component on year-like
+        // and full-date dims, leaving month/day filters as-is so the
+        // comparison reads "same period, previous year".
+        const shouldFetchN1 = !!compareDateDim
+          && hasShiftableFilterForN1(mergedFilters, widgetFilters, effectiveModel?.dimensions);
+        const n1Filters = shouldFetchN1
+          ? shiftFiltersForN1(mergedFilters, effectiveModel?.dimensions)
+          : null;
+        const n1WidgetFilters = shouldFetchN1
+          ? shiftWidgetFiltersForN1(widgetFilters, effectiveModel?.dimensions)
+          : null;
+        const n1Promise = shouldFetchN1
+          ? api.post(`/models/${model.id}/query`, {
+              dimensionNames: allDims,
+              measureNames: [...new Set(meass)],
+              limit: 1,
+              filters: n1Filters,
+              widgetFilters: sanitizeWidgetFilters(n1WidgetFilters),
+              ...reportExtras,
+            }, { signal: controller.signal }).catch(() => null)
+          : Promise.resolve(null);
+
+        return Promise.all([mainPromise, colorPromise, totalPromise, n1Promise]).then(([res, colorRes, totalRes, n1Res]) => {
           // Conditional formatting — extract a single aggregated value from the color query
           let _colorValue;
           if (colorRes) {
@@ -631,7 +750,10 @@ export default function Editor() {
               emptyData._drillDepth = drillPath.length;
               emptyData._isDrillLeaf = drillPath.length >= fullHierarchy.length - 1;
             }
-            emptyData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters });
+            // Use the per-widget targetFilters (post interaction-exclusion
+            // stripping) so the cache key matches what `toFetch` checks
+            // when deciding whether to skip subsequent renders.
+            emptyData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters });
             return { wId, data: emptyData };
           }
           let newData = {};
@@ -725,6 +847,15 @@ export default function Editor() {
                 value: measureVal,
                 label: valueMeasDef?.label || valueMeasName || '',
               };
+              // N-1 comparison value (scorecard only). Same column key as
+              // the main value — the parallel query has the same SELECT
+              // shape, only its WHERE shifted.
+              if (w.type === 'scorecard' && n1Res?.data?.rows?.[0]) {
+                const n1Row = n1Res.data.rows[0];
+                const n1Raw = valueKey && n1Row[valueKey] !== undefined ? n1Row[valueKey] : Object.values(n1Row)[0];
+                const n1Num = typeof n1Raw === 'number' ? n1Raw : parseFloat(String(n1Raw));
+                if (!isNaN(n1Num)) newData._n1Value = n1Num;
+              }
               if (w.type === 'gauge') {
                 const extractMeas = (measName) => {
                   if (!measName) return undefined;
@@ -763,6 +894,13 @@ export default function Editor() {
             else if (axisDim?.type === 'date') newData._datePart = 'full_date';
             if (axisDim) newData._axisDimDef = { type: axisDim.type, datePart: axisDim.datePart };
           }
+          if (grpBy.length > 0) {
+            // Per-zone Legend sort needs the type/datePart so the widget
+            // can sort series chronologically when the legend is a
+            // date-part dim (months in calendar order, not alphabetical).
+            const legendDim = (effectiveModel.dimensions || []).find((x) => x.name === grpBy[0]);
+            if (legendDim) newData._legendDimDef = { type: legendDim.type, datePart: legendDim.datePart };
+          }
           if (meass.length > 0) {
             const m0 = (effectiveModel.measures || []).find((x) => x.name === meass[0]);
             newData._measureLabel = m0?.label || m0?.name || meass[0];
@@ -790,8 +928,10 @@ export default function Editor() {
             }
           }
           // Stamp the binding cache key so DataPanel doesn't refetch on the
-          // next widget selection — the data is already fresh for this binding.
-          newData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters });
+          // next widget selection — the data is already fresh for this
+          // binding. Use the per-widget targetFilters so the key matches
+          // the no-op skip check in `toFetch`.
+          newData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters });
           return { wId, data: newData };
         }).catch((err) => {
           if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return { wId, data: null };
@@ -1174,6 +1314,18 @@ export default function Editor() {
       widgets: { ...prev.widgets, [widgetId]: updatedWidget },
     }));
   }, [history]);
+  // Granular loading-flag setter — used by DataPanel to clear `_loading`
+  // on a widget whose fetch got aborted mid-flight (the user clicked
+  // another widget before the fetch returned). Without this the spinner
+  // stays stuck on the original widget.
+  const handleSetWidgetLoading = useCallback((widgetId, isLoading) => {
+    history.setSilent((prev) => {
+      const w = prev.widgets?.[widgetId];
+      if (!w) return prev;
+      if (!!w._loading === !!isLoading) return prev;
+      return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...w, _loading: !!isLoading } } };
+    });
+  }, [history]);
 
   const handleBringToFront = useCallback((widgetId) => {
     setLayout((prev) => {
@@ -1484,6 +1636,7 @@ export default function Editor() {
               editInteractions={editInteractions}
               onToggleCrossFilter={handleToggleCrossFilter}
               onCancelFetch={handleCancelFetch}
+              onRefreshWidget={handleRefreshWidget}
             />
           </div>
         </div>
@@ -1506,11 +1659,25 @@ export default function Editor() {
           widget={selectedWidget ? widgets[selectedWidget] : null}
           onUpdate={handleUpdateWidget}
           onUpdateSilent={handleUpdateWidgetSilent}
+          onSetWidgetLoading={handleSetWidgetLoading}
           model={effectiveModel}
           onModelUpdate={reloadModel}
           settings={settings}
           onSettingsChange={setSettings}
-          reportFilters={crossHighlight?.widgetId === selectedWidget ? slicerSelections : reportFilters}
+          reportFilters={(() => {
+            // Cross-highlight source: skip the highlight for itself (so a
+            // chart filtering on click doesn't filter its own underlying
+            // data). All other widgets honour the per-source exclusions
+            // (`crossFilterExclusions`) — that's how a target with
+            // interaction = None ignores the cross-filter even when the
+            // user manually refreshes it.
+            if (!selectedWidget) return reportFilters;
+            const baseFilters = crossHighlight?.widgetId === selectedWidget
+              ? slicerSelections
+              : reportFilters;
+            return filterForTarget(selectedWidget, baseFilters, widgets, crossHighlight);
+          })()}
+          refreshNonce={selectedWidget ? (widgetRefreshNonces[selectedWidget] || 0) : 0}
           onResizeStart={pinCanvas}
           onResizeEnd={unpinCanvas}
         />

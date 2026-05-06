@@ -65,6 +65,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
   const zoneSorts = config?.zoneSorts;
   const sortOrder = zoneSorts ? (zoneSorts.values || 'none') : (config?.sortOrder || 'none');
   const axisSort = zoneSorts?.axis || 'none';
+  const groupBySort = zoneSorts?.groupBy || 'none';
   const w = chartWidth || 400;
   const h = chartHeight || 300;
 
@@ -117,6 +118,17 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
     let rawSeries = data.series && data.series.length > 0 ? [...data.series] : null;
     if (rawSeries && hideZeros) {
       rawSeries = rawSeries.filter((s) => s.values.some((v) => v !== 0 && v != null));
+    }
+    if (rawSeries) {
+      const legendDimDef = data._legendDimDef;
+      const totalOf = (s) => s.values.reduce((sum, v) => sum + (v || 0), 0);
+      if (groupBySort !== 'none') {
+        // Per-zone Legend sort = order series by total volume.
+        rawSeries = [...rawSeries].sort((a, b) => groupBySort === 'desc' ? totalOf(b) - totalOf(a) : totalOf(a) - totalOf(b));
+      } else if (legendDimDef?.datePart || legendDimDef?.type === 'date') {
+        // Auto-chrono fallback for date / date-table legend dims.
+        rawSeries = [...rawSeries].sort((a, b) => compareAxisValues(a.name, b.name, legendDimDef, 'asc'));
+      }
     }
     const hasSeries = rawSeries && rawSeries.length > 0;
     const allSeriesForLegend = hasSeries ? rawSeries : null;
@@ -249,7 +261,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
 
     const legendItems = (allSeriesForLegend || []).map((s, i) => ({ name: s.name, color: getColor(s.name, i) }));
     return { option: opt, legendItems, rawLabels };
-  }, [data, subType, showLabels, showLegend, legendPosition, hasData, config?.smooth, config?.color, isArea, isStacked, hideZeros, sortOrder, axisSort,
+  }, [data, subType, showLabels, showLegend, legendPosition, hasData, config?.smooth, config?.color, isArea, isStacked, hideZeros, sortOrder, axisSort, groupBySort,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors,
       config?.lineSymbol, config?.lineSymbolSize,

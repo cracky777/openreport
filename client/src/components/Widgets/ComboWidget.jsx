@@ -54,6 +54,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
   const zoneSorts = config?.zoneSorts;
   const sortOrder = zoneSorts ? (zoneSorts.values || 'none') : (config?.sortOrder || 'none');
   const axisSort = zoneSorts?.axis || 'none';
+  const groupBySort = zoneSorts?.groupBy || 'none';
 
   // Stable color ordering across filters: combine bar + line series into one seen-order list
   const allComboNames = useMemo(() => {
@@ -129,8 +130,19 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     const earlyBarDir = config?.barDirection || 'vertical';
     const earlyIsHoriz = earlyBarDir === 'horizontal' || earlyBarDir === 'horizontalInverse';
 
-    // Bar series
-    const barSeries = (data.barSeries || []).filter((s) => !hiddenSeries.has(s.name));
+    // Bar series — Legend sort orders the cluster bars. Explicit sort
+    // ranks by total volume; default falls back to chrono when the
+    // legend is a date / date-table dim.
+    let barSeries = (data.barSeries || []).filter((s) => !hiddenSeries.has(s.name));
+    if (barSeries.length > 1) {
+      const legendDimDef = data._legendDimDef;
+      const totalOf = (s) => s.values.reduce((sum, v) => sum + (v || 0), 0);
+      if (groupBySort !== 'none') {
+        barSeries = [...barSeries].sort((a, b) => groupBySort === 'desc' ? totalOf(b) - totalOf(a) : totalOf(a) - totalOf(b));
+      } else if (legendDimDef?.datePart || legendDimDef?.type === 'date') {
+        barSeries = [...barSeries].sort((a, b) => compareAxisValues(a.name, b.name, legendDimDef, 'asc'));
+      }
+    }
 
     if (!isStacked && barSeries.length > 1) {
       // Clustered combo: use custom renderItem for dynamic bar widths (like BarWidget)
@@ -408,7 +420,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     return { option: opt, legendItems, rawLabels };
   }, [data, hasData, isStacked, showXAxis, showYAxis, showDataLabels, dataLabelFontSize, dataLabelColor,
       valueAbbr, hideZeros, showLegend, legendPosition, gridLineStyle, gridLineWidth,
-      showSecondaryAxis, smoothLine, sortOrder, axisSort, hiddenSeries, highlightValue,
+      showSecondaryAxis, smoothLine, sortOrder, axisSort, groupBySort, hiddenSeries, highlightValue,
       config?.legendColors, config?.barDirection, config?.yAxisInterval, config?.secondaryYAxisInterval,
       config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
       config?.secondaryYAxisLabelFontSize, config?.secondaryYAxisLabelColor,

@@ -7,7 +7,6 @@ const TYPE_BAR_HEIGHT = 20;
 const ROW_HEIGHT = 24;
 const COL_DOT_RADIUS = 6;
 const DEFAULT_MAX_VISIBLE = 8;
-const JOIN_TYPES = ['LEFT', 'INNER', 'RIGHT', 'FULL'];
 const TABLE_TYPES = [null, 'dimension', 'fact']; // null = unset, cycle through
 const TABLE_TYPE_COLORS = {
   dimension: { header: '#6d28d9', border: '#7c3aed', badge: '#7c3aed', label: 'DIM' },
@@ -28,13 +27,14 @@ function sortColumns(columns) {
 export default function SchemaCanvas({
   tables, // { tableName: [columns] }
   positions, // { tableName: { x, y } }
-  joins, // [{ from_table, from_column, to_table, to_column, type }]
+  joins, // [{ from_table, from_column, to_table, to_column, cardinality, type }]
   dimensions,
   measures,
   onPositionsChange,
   onJoinsChange,
   onAddDimension,
   onAddMeasure,
+  modelId, // used by the cardinality auto-detect endpoint
   datasourceId,
   isNumeric,
   isDateType,
@@ -147,6 +147,10 @@ export default function SchemaCanvas({
   const handleTableMouseDown = (e, tableName) => {
     if (e.button !== 0) return;
     e.stopPropagation();
+    // Prevent the browser from starting a text selection when the user
+    // initiates a drag on the canvas. Without this, mousemove past nearby
+    // <text> elements highlights them and the cursor reverts to "I-beam".
+    e.preventDefault();
     const pos = positions[tableName] || { x: 0, y: 0 };
     const svgPt = screenToSvg(e.clientX, e.clientY);
     setDraggingTable(tableName);
@@ -156,6 +160,9 @@ export default function SchemaCanvas({
   // Column link drag
   const handleColumnDotDown = (e, tableName, columnName, side = 'right') => {
     e.stopPropagation();
+    // Same as table drag: stop the browser from selecting <text> labels in
+    // adjacent rows while the user drags a join line.
+    e.preventDefault();
     const pos = getColumnPos(tableName, columnName, side);
     const svgPt = screenToSvg(e.clientX, e.clientY);
     setLinkDrag({
@@ -259,10 +266,34 @@ export default function SchemaCanvas({
               setCycleWarning(`Impossible de relier ${linkDrag.fromTable} → ${bestMatch.table} : cela créerait une boucle de relations.`);
               setTimeout(() => setCycleWarning(null), 4000);
             } else {
+              // Optimistic create with the star-schema default cardinality
+              // (*:1). The auto-detect runs in the background and overrides
+              // each side from the sample.
+              const fromTbl = linkDrag.fromTable, fromCol = linkDrag.fromColumn;
+              const toTbl = bestMatch.table, toCol = bestMatch.column;
               onJoinsChange([...joins, {
-                from_table: linkDrag.fromTable, from_column: linkDrag.fromColumn,
-                to_table: bestMatch.table, to_column: bestMatch.column, type: 'LEFT',
+                from_table: fromTbl, from_column: fromCol,
+                to_table: toTbl, to_column: toCol,
+                cardinality: { from: '*', to: '1' },
               }]);
+              if (modelId) {
+                Promise.all([
+                  detectCardinalitySide(fromTbl, fromCol),
+                  detectCardinalitySide(toTbl, toCol),
+                ]).then(([fromC, toC]) => {
+                  // Re-read joins through the setter so we don't clobber
+                  // edits made between create and detect completion.
+                  onJoinsChange((prev) => {
+                    const next = Array.isArray(prev) ? [...prev] : [];
+                    const idx = next.findIndex((j) =>
+                      j.from_table === fromTbl && j.from_column === fromCol &&
+                      j.to_table === toTbl && j.to_column === toCol);
+                    if (idx === -1) return prev;
+                    next[idx] = { ...next[idx], cardinality: { from: fromC, to: toC } };
+                    return next;
+                  });
+                }).catch(() => {});
+              }
             }
           }
         }
@@ -280,20 +311,46 @@ export default function SchemaCanvas({
     };
   }, [draggingTable, dragOffset, linkDrag, panning, panStart, pan, zoom, positions, joins, tables, getVisibleColumns, getColumnPos, onPositionsChange, onJoinsChange, screenToSvg]);
 
-  const cycleJoinType = (index) => {
-    const current = joins[index].type;
-    const nextIdx = (JOIN_TYPES.indexOf(current) + 1) % JOIN_TYPES.length;
-    onJoinsChange(joins.map((j, i) => i === index ? { ...j, type: JOIN_TYPES[nextIdx] } : j));
+  // Toggle a cardinality marker (1 ↔ *) on one end of a join. The SQL
+  // JOIN keyword (LEFT/INNER) is derived server-side from cardinality, so
+  // the user no longer manipulates it directly.
+  const toggleCardinality = (index, side) => {
+    const j = joins[index];
+    const c = j.cardinality || { from: '*', to: '1' };
+    const next = { ...c, [side]: c[side] === '1' ? '*' : '1' };
+    onJoinsChange(joins.map((join, i) => i === index ? { ...join, cardinality: next } : join));
   };
 
-  // Detect if adding a join between two tables would create a cycle
+  // Sample-based suggestion for a single side. Returns '1' or '*' (best
+  // effort — failures fall back to the * default which matches the
+  // common star-schema fact side). Re-used both at join creation and
+  // when the user explicitly asks to refresh the suggestion.
+  const detectCardinalitySide = async (table, column) => {
+    try {
+      const res = await api.post(`/models/${modelId}/detect-cardinality`, { table, column });
+      return res.data?.cardinality === '1' ? '1' : '*';
+    } catch { return '*'; }
+  };
+
+  // Detect if adding a directed join fromTable → toTable would create a
+  // directed cycle. Edge orientation now follows cardinality: the edge
+  // points from the "*" (many) side to the "1" (one) side — i.e. fact → dim.
+  // For 1:* joins we flip from_table/to_table accordingly. The proposed
+  // new edge is assumed to be *:1 (the post-creation default) which matches
+  // a typical star-schema add.
   const wouldCreateCycle = (fromTable, toTable, currentJoins) => {
+    const orient = (j) => {
+      const c = j.cardinality;
+      if (c?.from === '1' && c?.to === '*') {
+        return [j.to_table, j.from_table]; // flip to keep "*" → "1"
+      }
+      return [j.from_table, j.to_table];
+    };
     const adj = {};
     for (const j of currentJoins) {
-      if (!adj[j.from_table]) adj[j.from_table] = [];
-      if (!adj[j.to_table]) adj[j.to_table] = [];
-      adj[j.from_table].push(j.to_table);
-      adj[j.to_table].push(j.from_table);
+      const [src, dst] = orient(j);
+      if (!adj[src]) adj[src] = [];
+      adj[src].push(dst);
     }
     const visited = new Set();
     const queue = [toTable];
@@ -331,7 +388,7 @@ export default function SchemaCanvas({
   return (
     <div
       ref={containerRef}
-      style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative', cursor: panning ? 'grabbing' : 'grab' }}
+      style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative', cursor: panning ? 'grabbing' : 'grab', userSelect: 'none', WebkitUserSelect: 'none' }}
     >
       {/* Cycle warning */}
       {cycleWarning && (
@@ -387,74 +444,177 @@ export default function SchemaCanvas({
             </marker>
           </defs>
 
-          {/* Join lines */}
-          {joins.map((join, i) => {
-            // Determine which side to connect based on relative table positions
-            const fromPos = positions[join.from_table] || { x: 0, y: 0 };
-            const toPos = positions[join.to_table] || { x: 0, y: 0 };
-            const fromCenter = fromPos.x + TABLE_WIDTH / 2;
-            const toCenter = toPos.x + TABLE_WIDTH / 2;
-
-            // If from table is to the left of to table: connect right → left
-            // If from table is to the right: connect left → right
-            const fromSide = fromCenter <= toCenter ? 'right' : 'left';
-            const toSide = fromCenter <= toCenter ? 'left' : 'right';
-
-            const from = getColumnPos(join.from_table, join.from_column, fromSide);
-            const to = getColumnPos(join.to_table, join.to_column, toSide);
-            const midX = (from.x + to.x) / 2;
-            const midY = (from.y + to.y) / 2;
-
-            // Arrow direction based on join type
-            // LEFT: arrow points to right table (→)
-            // RIGHT: arrow points to left table (←)
-            // INNER: arrows both directions (↔)
-            // FULL: arrows both directions (↔)
-            let markerStart = 'none';
-            let markerEnd = 'none';
-            if (join.type === 'LEFT') {
-              markerEnd = 'url(#arrow-right)';
-            } else if (join.type === 'RIGHT') {
-              markerStart = 'url(#arrow-right)';
-            } else if (join.type === 'INNER' || join.type === 'FULL') {
-              markerStart = 'url(#arrow-both-start)';
-              markerEnd = 'url(#arrow-both-end)';
+          {/* Join lines — routed to bend around any non-endpoint table that
+              the actual Bézier curve would cross. We sample the candidate
+              curve at 20 points and check rect intersection; if it crashes
+              into a table, we lift (or drop) the apex above (or below) all
+              X-overlapping tables until the sampled curve is clear. This
+              avoids the heuristic-Y-band false positives of a previous
+              version which produced weird detours when a straight Bézier
+              would have worked. */}
+          {(() => {
+            const PADDING = 18;
+            const SAMPLES = 20;
+            const tableRects = {};
+            for (const tableName of tableNames) {
+              const pos = positions[tableName] || { x: 0, y: 0 };
+              const visibleCols = getVisibleColumns(tableName);
+              const showToggle = hasMore(tableName);
+              const toggleHeight = showToggle ? 24 : 0;
+              const tableHeight = HEADER_HEIGHT + TYPE_BAR_HEIGHT + visibleCols.length * ROW_HEIGHT + toggleHeight + 4;
+              tableRects[tableName] = { x: pos.x, y: pos.y, width: TABLE_WIDTH, height: tableHeight };
             }
+            // Cubic Bézier sampler (control points c1,c2)
+            const bezierAt = (p0, p1, p2, p3, t) => {
+              const u = 1 - t;
+              return u*u*u*p0 + 3*u*u*t*p1 + 3*u*t*t*p2 + t*t*t*p3;
+            };
+            const curveCrosses = (from, to, c1x, c1y, c2x, c2y, rects) => {
+              for (let s = 1; s < SAMPLES; s++) {
+                const t = s / SAMPLES;
+                const x = bezierAt(from.x, c1x, c2x, to.x, t);
+                const y = bezierAt(from.y, c1y, c2y, to.y, t);
+                for (const r of rects) {
+                  if (x > r.x && x < r.x + r.width && y > r.y && y < r.y + r.height) return true;
+                }
+              }
+              return false;
+            };
+            return joins.map((join, i) => {
+              const fromPos = positions[join.from_table] || { x: 0, y: 0 };
+              const toPos = positions[join.to_table] || { x: 0, y: 0 };
+              const fromCenter = fromPos.x + TABLE_WIDTH / 2;
+              const toCenter = toPos.x + TABLE_WIDTH / 2;
+              const fromSide = fromCenter <= toCenter ? 'right' : 'left';
+              const toSide = fromCenter <= toCenter ? 'left' : 'right';
+              const from = getColumnPos(join.from_table, join.from_column, fromSide);
+              const to = getColumnPos(join.to_table, join.to_column, toSide);
+              const midX = (from.x + to.x) / 2;
 
-            // Join type colors
-            const joinColors = { LEFT: '#7c3aed', INNER: '#8b5cf6', RIGHT: '#f59e0b', FULL: '#10b981' };
-            const color = joinColors[join.type] || '#7c3aed';
+              // Collect non-endpoint tables that overlap the X span of the
+              // curve. These are the only obstacles the curve could possibly
+              // hit, regardless of vertical position.
+              const xMin = Math.min(from.x, to.x);
+              const xMax = Math.max(from.x, to.x);
+              const xObstacles = [];
+              for (const tableName of tableNames) {
+                if (tableName === join.from_table || tableName === join.to_table) continue;
+                const r = tableRects[tableName];
+                if (!r) continue;
+                if (r.x + r.width < xMin || r.x > xMax) continue;
+                xObstacles.push(r);
+              }
 
-            return (
-              <g key={`join-${i}`}>
-                {/* Line */}
-                <path
-                  d={`M ${from.x} ${from.y} C ${midX} ${from.y}, ${midX} ${to.y}, ${to.x} ${to.y}`}
-                  fill="none" stroke={color} strokeWidth={2}
-                  markerEnd={markerEnd} markerStart={markerStart}
-                />
+              // Default: straight S-Bézier with control points at the start/
+              // end Y. This collapses to a horizontal line when from.y==to.y.
+              let c1y = from.y, c2y = to.y;
+              let labelY = (from.y + to.y) / 2;
+              const directHits = xObstacles.length > 0
+                && curveCrosses(from, to, midX, c1y, midX, c2y, xObstacles);
+              if (directHits) {
+                // Detour above or below ALL X-overlapping tables (not just
+                // the ones the straight curve hits — picking a tighter
+                // apex risks the new curve crashing into a different table
+                // we hadn't flagged). Pick the side closer to the direct
+                // midline.
+                const topApex = Math.min(...xObstacles.map((r) => r.y)) - PADDING;
+                const botApex = Math.max(...xObstacles.map((r) => r.y + r.height)) + PADDING;
+                const directMidY = (from.y + to.y) / 2;
+                // Bézier with both control points at apexY puts the curve's
+                // peak at (from.y + to.y)/8 + 0.75*ctrlY. Invert to get
+                // ctrlY so the actual peak lands on apexY.
+                const ctrlForApex = (apex) => (apex - (from.y + to.y) / 8) / 0.75;
+                const tryApex = (apex) => {
+                  const cy = ctrlForApex(apex);
+                  return curveCrosses(from, to, midX, cy, midX, cy, xObstacles) ? null : { cy, apex };
+                };
+                const preferTop = Math.abs(directMidY - topApex) <= Math.abs(directMidY - botApex);
+                const choice = preferTop
+                  ? (tryApex(topApex) || tryApex(botApex))
+                  : (tryApex(botApex) || tryApex(topApex));
+                if (choice) {
+                  c1y = choice.cy;
+                  c2y = choice.cy;
+                  labelY = choice.apex;
+                } else {
+                  // No clean detour found (canvas dense on both sides) —
+                  // fall back to the closer apex anyway. Better a routed
+                  // line that grazes than a tangled one through the middle.
+                  const apex = preferTop ? topApex : botApex;
+                  c1y = ctrlForApex(apex);
+                  c2y = c1y;
+                  labelY = apex;
+                }
+              }
 
-                {/* Join type badge (clickable to cycle) */}
-                <rect
-                  x={midX - 24} y={midY - 12} width={48} height={20} rx={10}
-                  fill={color} style={{ cursor: 'pointer' }}
-                  onClick={(e) => { e.stopPropagation(); cycleJoinType(i); }}
-                />
-                <text x={midX} y={midY + 2} textAnchor="middle" fontSize={10} fill="#fff" fontWeight={700}
-                  style={{ cursor: 'pointer', pointerEvents: 'none' }}>
-                  {join.type}
-                </text>
+              const pathD = `M ${from.x} ${from.y} C ${midX} ${c1y}, ${midX} ${c2y}, ${to.x} ${to.y}`;
+              const labelX = midX;
 
-                {/* Delete button */}
-                <circle cx={midX + 32} cy={midY - 2} r={7} fill="#fff" stroke="#fca5a5" strokeWidth={1}
+              // Cardinality-driven visuals — replaces the legacy LEFT/INNER
+              // pill. Color is derived from the cardinality combo so the
+              // user reads the relation shape at a glance:
+              //   *:1 / 1:* → purple (typical fact↔dim)
+              //   1:1       → cyan-ish (rare but valid)
+              //   *:*       → red, to flag a likely modeling mistake
+              const cardinality = join.cardinality || (() => {
+                // Migrate legacy `type` field into a sensible cardinality
+                // for display only — the underlying join object isn't
+                // mutated until the user actually edits it.
+                if (join.type === 'RIGHT') return { from: '1', to: '*' };
+                return { from: '*', to: '1' };
+              })();
+              const isManyToMany = cardinality.from === '*' && cardinality.to === '*';
+              const isOneToOne = cardinality.from === '1' && cardinality.to === '1';
+              const color = isManyToMany ? '#dc2626' : isOneToOne ? '#0891b2' : '#7c3aed';
+
+              // Anchor the cardinality markers along the curve, just inside
+              // each table edge. Bézier sampling: t=0.08 from start, t=0.92
+              // from end (close enough to the table without overlapping it).
+              const cubicAt = (p0, p1, p2, p3, t) => {
+                const u = 1 - t;
+                return u*u*u*p0 + 3*u*u*t*p1 + 3*u*t*t*p2 + t*t*t*p3;
+              };
+              const tStart = 0.08, tEnd = 0.92;
+              const fromMarkerX = cubicAt(from.x, midX, midX, to.x, tStart);
+              const fromMarkerY = cubicAt(from.y, c1y, c2y, to.y, tStart);
+              const toMarkerX = cubicAt(from.x, midX, midX, to.x, tEnd);
+              const toMarkerY = cubicAt(from.y, c1y, c2y, to.y, tEnd);
+
+              const renderMarker = (cx, cy, value, side) => (
+                <g
+                  onClick={(e) => { e.stopPropagation(); toggleCardinality(i, side); }}
                   style={{ cursor: 'pointer' }}
-                  onClick={(e) => { e.stopPropagation(); onJoinsChange(joins.filter((_, idx) => idx !== i)); }}
-                />
-                <text x={midX + 32} y={midY + 1} textAnchor="middle" fontSize={9} fill="#dc2626"
-                  style={{ pointerEvents: 'none' }}>x</text>
-              </g>
-            );
-          })}
+                >
+                  <title>Cardinality {value} — click to toggle</title>
+                  <circle cx={cx} cy={cy} r={9} fill="#fff" stroke={color} strokeWidth={2} />
+                  <text x={cx} y={cy + 4} textAnchor="middle" fontSize={11} fill={color} fontWeight={700}
+                    style={{ pointerEvents: 'none' }}>
+                    {value}
+                  </text>
+                </g>
+              );
+
+              return (
+                <g key={`join-${i}`}>
+                  <path
+                    d={pathD}
+                    fill="none" stroke={color} strokeWidth={2}
+                  />
+                  {renderMarker(fromMarkerX, fromMarkerY, cardinality.from, 'from')}
+                  {renderMarker(toMarkerX, toMarkerY, cardinality.to, 'to')}
+                  {/* Delete button — kept at the curve apex */}
+                  <circle cx={labelX} cy={labelY} r={9} fill="#fff" stroke="#fca5a5" strokeWidth={1.5}
+                    style={{ cursor: 'pointer' }}
+                    onClick={(e) => { e.stopPropagation(); onJoinsChange(joins.filter((_, idx) => idx !== i)); }}
+                  >
+                    <title>Remove join</title>
+                  </circle>
+                  <text x={labelX} y={labelY + 4} textAnchor="middle" fontSize={11} fill="#dc2626" fontWeight={600}
+                    style={{ pointerEvents: 'none' }}>×</text>
+                </g>
+              );
+            });
+          })()}
 
           {/* Drag line preview */}
           {linkDrag && (
@@ -658,8 +818,10 @@ export default function SchemaCanvas({
                               style={{ cursor: onColumnTypeChange ? 'pointer' : 'default' }}
                               onClick={onTypeClick}
                             >
-                              {isOverridden ? '✎ ' : isDate ? '📅 ' : ''}{truncate(displayType, TYPE_MAX)}
-                              {(typeTruncated || isOverridden) && <title>{isOverridden ? `Override: ${displayType}\nNative: ${col.data_type}\nClick to change` : `${col.data_type}\nClick to override`}</title>}
+                              {isOverridden ? '✎ ' : isDate ? '📅 ' : '✎ '}{truncate(displayType, TYPE_MAX)}
+                              <title>{isOverridden
+                                ? `Override actif : ${displayType}\nNatif : ${col.data_type}\nClique pour changer`
+                                : `Type natif : ${col.data_type}\nClique pour forcer un autre type / format`}</title>
                             </text>
                           </>
                         );
@@ -722,6 +884,7 @@ export default function SchemaCanvas({
               </g>
             );
           })}
+
         </g>
       </svg>
 

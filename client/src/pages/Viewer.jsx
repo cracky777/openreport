@@ -5,6 +5,7 @@ import api from '../utils/api';
 import { sanitizeWidgetFilters } from '../utils/widgetFilters';
 import { parseFiltersFromUrl, syncFiltersToUrl, parsePrintFiltersFromUrl } from '../utils/urlFilters';
 import { filterForTarget } from '../utils/crossFilter';
+import { shiftFiltersForN1, shiftWidgetFiltersForN1, hasShiftableFilterForN1 } from '../utils/comparePeriod';
 import { TbMaximize, TbMinimize, TbRefresh } from 'react-icons/tb';
 import { useTheme } from '../hooks/useTheme';
 import PagesColumn from '../components/PagesColumn/PagesColumn';
@@ -401,7 +402,24 @@ export default function Viewer() {
             widgetFilters: sanitizeWidgetFilters(widgetFilters),
           }).catch(() => null)
         : Promise.resolve(null);
-      Promise.all([mainPromise, colorPromise, totalPromise]).then(([res, colorRes, totalRes]) => {
+      // N-1 comparison query (scorecards only).
+      const compareDateDim = w.type === 'scorecard' ? (binding.compareDateDim || null) : null;
+      const shouldFetchN1 = !!compareDateDim
+        && hasShiftableFilterForN1(queryFilters, widgetFilters, model?.dimensions);
+      const n1Filters = shouldFetchN1
+        ? shiftFiltersForN1(queryFilters, model?.dimensions)
+        : null;
+      const n1WidgetFilters = shouldFetchN1
+        ? shiftWidgetFiltersForN1(widgetFilters, model?.dimensions)
+        : null;
+      const n1Promise = shouldFetchN1
+        ? api.post(`/models/${model.id}/query`, {
+            dimensionNames: allDims, measureNames: meass, limit: 1,
+            filters: n1Filters,
+            widgetFilters: sanitizeWidgetFilters(n1WidgetFilters),
+          }).catch(() => null)
+        : Promise.resolve(null);
+      Promise.all([mainPromise, colorPromise, totalPromise, n1Promise]).then(([res, colorRes, totalRes, n1Res]) => {
         let _colorValue;
         if (colorRes) {
           const cRow = colorRes.data?.rows?.[0];
@@ -511,6 +529,12 @@ export default function Viewer() {
               value: measureVal,
               label: valueMeasDef?.label || valueMeasName || '',
             };
+            if (w.type === 'scorecard' && n1Res?.data?.rows?.[0]) {
+              const n1Row = n1Res.data.rows[0];
+              const n1Raw = valueKey && n1Row[valueKey] !== undefined ? n1Row[valueKey] : Object.values(n1Row)[0];
+              const n1Num = typeof n1Raw === 'number' ? n1Raw : parseFloat(String(n1Raw));
+              if (!isNaN(n1Num)) newData._n1Value = n1Num;
+            }
             if (w.type === 'gauge') {
               const extractMeas = (measName) => {
                 if (!measName) return undefined;
@@ -548,6 +572,10 @@ export default function Viewer() {
           if (axisDim?.datePart) newData._datePart = axisDim.datePart;
           else if (axisDim?.type === 'date') newData._datePart = 'full_date';
           if (axisDim) newData._axisDimDef = { type: axisDim.type, datePart: axisDim.datePart };
+        }
+        if (grpBy.length > 0) {
+          const legendDim = (model.dimensions || []).find((x) => x.name === grpBy[0]);
+          if (legendDim) newData._legendDimDef = { type: legendDim.type, datePart: legendDim.datePart };
         }
         if (meass.length > 0) {
           const m0 = (model.measures || []).find((x) => x.name === meass[0]);

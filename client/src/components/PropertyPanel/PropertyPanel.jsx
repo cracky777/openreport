@@ -295,7 +295,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos}
             sort={getZoneSort('axis')} onSortChange={setZoneSort('axis')} />
           <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
-            onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
+            onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos}
+            sort={getZoneSort('groupBy')} onSortChange={setZoneSort('groupBy')} />
           <DropZone label="Values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="values"
             onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos}
             sort={getZoneSort('values')} onSortChange={setZoneSort('values')} />
@@ -310,7 +311,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos}
             sort={getZoneSort('axis')} onSortChange={setZoneSort('axis')} />
           <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
-            onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
+            onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos}
+            sort={getZoneSort('groupBy')} onSortChange={setZoneSort('groupBy')} />
           <DropZone label="Values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="values"
             onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos}
             sort={getZoneSort('values')} onSortChange={setZoneSort('values')} />
@@ -357,7 +359,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos}
             sort={getZoneSort('axis')} onSortChange={setZoneSort('axis')} />
           <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
-            onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
+            onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos}
+            sort={getZoneSort('groupBy')} onSortChange={setZoneSort('groupBy')} />
           <DropZone label="Bar values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={comboBarMeas} zoneName="comboBar"
             onDrop={(fn) => addComboBar(fn)} onRemove={removeComboBar} onReorder={(arr) => updateBinding({ comboBarMeasures: arr })} multiple fieldInfos={fieldInfos}
             sort={getZoneSort('values')} onSortChange={setZoneSort('values')} />
@@ -398,10 +401,62 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     }
 
     if (type === 'scorecard') {
+      // Compare-with-N-1 binding: a single date/date-part dim used to
+      // compute the previous-period value via a parallel SQL query with
+      // the year shifted back by 1.
+      const compareDateDim = binding.compareDateDim || null;
+      const setCompareDim = (fieldName) => {
+        const isFirstSet = !binding.compareDateDim;
+        // Default-on `showN1Percent` the first time the user drops a
+        // comparison dim so they immediately see a result instead of
+        // having to discover the toggles.
+        const cfg = isFirstSet
+          ? { ...(widget.config || {}), showN1Percent: widget.config?.showN1Percent ?? true }
+          : (widget.config || {});
+        // Don't clear `data` — the main value didn't change. Only the
+        // bindingKey shifts (compareKey is now part of it) which triggers
+        // a refetch that adds the N-1 value alongside the existing one.
+        onUpdate(widgetId, { ...widget, dataBinding: { ...binding, compareDateDim: fieldName }, config: cfg });
+      };
+      const removeCompareDim = () => {
+        const next = { ...binding };
+        delete next.compareDateDim;
+        onUpdate(widgetId, { ...widget, dataBinding: next });
+      };
+      const toggleCompareCfg = (key, val) => {
+        onUpdate(widgetId, { ...widget, config: { ...(widget.config || {}), [key]: val } });
+      };
       return (
         <Section title="" bare>
           <DropZone label="Value" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="value"
             onDrop={handleDrop('value')} onRemove={handleRemove} fieldInfos={fieldInfos} />
+          <DropZone label="Compare with (date dim)" accepts={['dimension']} fields={compareDateDim ? [compareDateDim] : []} zoneName="compareDate"
+            onDrop={setCompareDim} onRemove={removeCompareDim} fieldInfos={fieldInfos} />
+          {compareDateDim && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4, fontSize: 11, color: 'var(--text-secondary)' }}>
+              <CompareLineEditor
+                title="N-1 value" checked={widget.config?.showN1Value === true}
+                onToggle={(v) => toggleCompareCfg('showN1Value', v)}
+                style={widget.config?.n1ValueStyle} defaultLabel="N-1"
+                onStyleChange={(next) => toggleCompareCfg('n1ValueStyle', next)}
+                hasSign={false}
+              />
+              <CompareLineEditor
+                title="N vs N-1" checked={widget.config?.showN1Difference === true}
+                onToggle={(v) => toggleCompareCfg('showN1Difference', v)}
+                style={widget.config?.n1DifferenceStyle} defaultLabel="vs N-1"
+                onStyleChange={(next) => toggleCompareCfg('n1DifferenceStyle', next)}
+                hasSign
+              />
+              <CompareLineEditor
+                title="% evolution" checked={widget.config?.showN1Percent === true}
+                onToggle={(v) => toggleCompareCfg('showN1Percent', v)}
+                style={widget.config?.n1PercentStyle} defaultLabel="vs N-1"
+                onStyleChange={(next) => toggleCompareCfg('n1PercentStyle', next)}
+                hasSign
+              />
+            </div>
+          )}
         </Section>
       );
     }
@@ -1739,7 +1794,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
 }
 
 // Right column: model dimensions & measures (always visible, collapsible)
-export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, model, onModelUpdate, settings, onSettingsChange, reportFilters, onResizeStart, onResizeEnd }) {
+export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, onResizeStart, onResizeEnd }) {
   const [collapsed, setCollapsed] = useState(false);
   const { width, handleProps } = useResizableWidth({ storageKey: 'openreport.dataPanelWidth', defaultWidth: 220, min: 200, max: 480, onDragStart: onResizeStart, onDragEnd: onResizeEnd });
   const dynamicDataStyle = { ...dataPanelStyle, width, maxWidth: width, position: 'relative' };
@@ -1774,7 +1829,7 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, mod
           onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
         ><TbChevronsRight size={14} /></button>
       </div>
-      <DataPanel widgetId={widgetId} widget={widget} onUpdate={onUpdate} onUpdateSilent={onUpdateSilent} model={model} onModelUpdate={onModelUpdate} settings={settings} onSettingsChange={onSettingsChange} reportFilters={reportFilters} />
+      <DataPanel widgetId={widgetId} widget={widget} onUpdate={onUpdate} onUpdateSilent={onUpdateSilent} onSetWidgetLoading={onSetWidgetLoading} model={model} onModelUpdate={onModelUpdate} settings={settings} onSettingsChange={onSettingsChange} reportFilters={reportFilters} refreshNonce={refreshNonce} />
     </div>
   );
 }
@@ -1913,6 +1968,150 @@ function ColorInput({ value, onChange }) {
     </div>
   );
 }
+
+// Collapsible per-line editor for one comparison line in the scorecard.
+// Mirrors the Container section's design: clickable header with a chevron
+// that expands a body of `Field` rows and nested SubSection blocks.
+// The master checkbox lives in the header next to the title so the user
+// can toggle the line on/off without opening the section.
+function CompareLineEditor({ title, checked, onToggle, style, defaultLabel, onStyleChange, hasSign }) {
+  const [open, setOpen] = useState(false);
+  const s = style || {};
+  const update = (patch) => onStyleChange({ ...s, ...patch });
+  const inputStyle = compareInputStyle;
+  // Inputs use width:100% so they shrink to fit the Field's right cell
+  // (which has minWidth:0 + overflow:hidden) and never get truncated by
+  // the panel's narrow default width.
+  const fillStyle = { ...inputStyle, width: '100%' };
+  const selectStyle = fillStyle;
+  const textColorOn = s.textColorEnabled !== false; // back-compat: legacy `colorEnabled` falls back via the renderer
+  // Value-kind icon defaults OFF (no sign means no implicit symbol);
+  // delta kinds default ON to match the previous behavior.
+  const iconOn = hasSign ? (s.iconEnabled !== false) : (s.iconEnabled === true);
+  const iconColorOn = s.iconColorEnabled !== false;
+  return (
+    <div style={{
+      border: '1px solid var(--border-default)', borderRadius: 8,
+      overflow: 'hidden', background: 'var(--bg-panel)',
+      boxShadow: '0 1px 1px rgba(15,23,42,0.02)',
+    }}>
+      <div
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '8px 12px', cursor: 'pointer', userSelect: 'none', gap: 8,
+          background: 'var(--bg-panel)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <input
+            type="checkbox" checked={checked}
+            onChange={(e) => onToggle(e.target.checked)}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
+        </div>
+        <span style={{ display: 'inline-flex', color: 'var(--text-disabled)', transition: 'transform 0.15s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }}>
+          <TbChevronDown size={14} />
+        </span>
+      </div>
+      {open && (
+        <div style={{ padding: '8px 10px 4px', borderTop: '1px solid var(--border-default)' }}>
+          <Field label="Position">
+            <select value={s.position || 'bottom'} onChange={(e) => update({ position: e.target.value })}
+              style={selectStyle}>
+              <option value="bottom">Bottom</option>
+              <option value="left">Left</option>
+              <option value="right">Right</option>
+            </select>
+          </Field>
+          <Field label="Label">
+            <input type="text" value={s.label ?? defaultLabel}
+              onChange={(e) => update({ label: e.target.value })}
+              placeholder={defaultLabel}
+              style={fillStyle} />
+          </Field>
+          <Field label="Font size">
+            <input type="number" min={8} max={32} value={s.fontSize ?? 12}
+              onChange={(e) => update({ fontSize: Math.max(8, parseInt(e.target.value, 10) || 12) })}
+              style={fillStyle} />
+          </Field>
+          <Field label="Spacing">
+            <input type="number" min={0} max={64} value={s.spacing ?? 6}
+              onChange={(e) => update({ spacing: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+              style={fillStyle} />
+          </Field>
+          {hasSign && (
+            <>
+              <Field label="Color text on sign">
+                <input type="checkbox" checked={textColorOn}
+                  onChange={(e) => update({ textColorEnabled: e.target.checked })} />
+              </Field>
+              {textColorOn && (
+                <SubSection label="Text color">
+                  <Field label="Positive">
+                    <ColorInput value={s.positiveColor || '#16a34a'} onChange={(v) => update({ positiveColor: v })} />
+                  </Field>
+                  <Field label="Negative">
+                    <ColorInput value={s.negativeColor || '#dc2626'} onChange={(v) => update({ negativeColor: v })} />
+                  </Field>
+                </SubSection>
+              )}
+            </>
+          )}
+          <Field label={hasSign ? 'Show trend icon' : 'Show icon'}>
+            <input type="checkbox" checked={iconOn}
+              onChange={(e) => update({ iconEnabled: e.target.checked })} />
+          </Field>
+          {iconOn && (
+            <SubSection label="Icon">
+              <Field label="Position">
+                <select value={s.iconPosition || 'left'}
+                  onChange={(e) => update({ iconPosition: e.target.value })}
+                  style={fillStyle}>
+                  <option value="left">Left</option>
+                  <option value="right">Right</option>
+                </select>
+              </Field>
+              <Field label="Up">
+                <input type="text" value={s.positiveIcon ?? '▲'}
+                  onChange={(e) => update({ positiveIcon: e.target.value })}
+                  style={{ ...fillStyle, textAlign: 'center' }} />
+              </Field>
+              <Field label="Down">
+                <input type="text" value={s.negativeIcon ?? '▼'}
+                  onChange={(e) => update({ negativeIcon: e.target.value })}
+                  style={{ ...fillStyle, textAlign: 'center' }} />
+              </Field>
+              <Field label="Color icon on sign">
+                <input type="checkbox" checked={iconColorOn}
+                  onChange={(e) => update({ iconColorEnabled: e.target.checked })} />
+              </Field>
+              {iconColorOn && (
+                <>
+                  <Field label="Positive">
+                    <ColorInput value={s.iconPositiveColor || '#16a34a'}
+                      onChange={(v) => update({ iconPositiveColor: v })} />
+                  </Field>
+                  <Field label="Negative">
+                    <ColorInput value={s.iconNegativeColor || '#dc2626'}
+                      onChange={(v) => update({ iconNegativeColor: v })} />
+                  </Field>
+                </>
+              )}
+            </SubSection>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const compareInputStyle = {
+  padding: '4px 6px', border: '1px solid var(--border-default)', borderRadius: 4,
+  fontSize: 12, outline: 'none', boxSizing: 'border-box',
+  background: 'var(--bg-panel)', color: 'var(--text-primary)',
+};
 
 function PivotOptionsSection({ widget, updateConfig, Section, Field, inputStyle, sections }) {
   const pc = widget.config?.pivotConfig || {};

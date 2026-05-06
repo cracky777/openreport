@@ -7,6 +7,12 @@ const { canAccessReport } = require('./reports');
 
 const router = express.Router();
 
+// In-flight cancellable queries — keyed by client-generated queryId so the
+// client can explicitly request cancellation via a separate HTTP endpoint
+// (avoids the brittle res.on('close') / req.on('close') listener approach).
+// Value: { cancel, userId } so we can refuse cancellation across users.
+const inFlightQueries = new Map();
+
 // Returns true if the user has access to the model, either directly (owner / global admin)
 // or indirectly through a report that uses the model (public or workspace-shared).
 function canAccessModel(model, user) {
@@ -36,6 +42,70 @@ function castToString(expr, dbType) {
   if (dbType === 'mysql') return `CAST(${expr} AS CHAR)`;
   if (dbType === 'bigquery') return `CAST(${expr} AS STRING)`;
   return `CAST(${expr} AS VARCHAR)`;
+}
+
+const NUMERIC_TYPES = new Set(['integer', 'decimal', 'number']);
+
+// Convert a list of user-supplied values into native SQL literals when the
+// column type lets us — emitting `IN (2024, 2025)` against a numeric column
+// is far faster than `CAST(col AS VARCHAR) IN ('2024', '2025')` because
+// indexes survive and the engine doesn't materialise per-row casts. Returns
+// null when the values can't all be coerced cleanly, signalling the caller
+// to fall back to the cast-then-string path.
+function literalsForType(values, dimType) {
+  if (NUMERIC_TYPES.has(dimType)) {
+    const out = [];
+    for (const v of values) {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return null;
+      out.push(String(n));
+    }
+    return out;
+  }
+  if (dimType === 'boolean') {
+    const out = [];
+    for (const v of values) {
+      const s = String(v).trim().toLowerCase();
+      if (['true', 't', 'yes', 'y', '1'].includes(s)) out.push('TRUE');
+      else if (['false', 'f', 'no', 'n', '0'].includes(s)) out.push('FALSE');
+      else return null;
+    }
+    return out;
+  }
+  return null;
+}
+
+// Build an `IN`/`NOT IN` clause without an unconditional CAST: native
+// literals when the dim is numeric/boolean and the values parse, plain
+// quoted strings when the dim is already a string, CAST as the last resort
+// for unknown types or value/type mismatches. Single-value lists collapse
+// to `=` / `<>` — semantically identical, lighter to read, and on some
+// engines avoids a tiny IN-list overhead.
+function buildInList(colExpr, dimType, list, dbType, negate) {
+  if (!list || list.length === 0) return null;
+  const single = list.length === 1;
+  const inOp = negate ? 'NOT IN' : 'IN';
+  const eqOp = negate ? '<>' : '=';
+  const native = literalsForType(list, dimType);
+  if (native) {
+    return single ? `${colExpr} ${eqOp} ${native[0]}` : `${colExpr} ${inOp} (${native.join(', ')})`;
+  }
+  const quote = (v) => `'${String(v).replace(/'/g, "''")}'`;
+  if (dimType === 'string') {
+    return single ? `${colExpr} ${eqOp} ${quote(list[0])}` : `${colExpr} ${inOp} (${list.map(quote).join(', ')})`;
+  }
+  const cast = castToString(colExpr, dbType);
+  return single ? `${cast} ${eqOp} ${quote(list[0])}` : `${cast} ${inOp} (${list.map(quote).join(', ')})`;
+}
+
+// Effective comparison type for a dim. Date-part dims (year, month name,
+// etc.) aren't `type='date'` themselves — they're computed numbers/strings
+// derived from the underlying date — so derive the type from the date-part
+// flavour to keep the IN clause numeric-vs-string aligned.
+function effectiveDimType(dim) {
+  if (!dim) return 'string';
+  if (dim.datePart) return dim.datePart.startsWith('name_') ? 'string' : 'integer';
+  return dim.type || 'string';
 }
 
 // Generate the SQL expression that converts a (possibly text) column into
@@ -193,6 +263,24 @@ function buildDatePartExpr(dim, dbType, columnTypes) {
     case 'name_day': return `TO_CHAR(${dateExpr}, 'Day')`;
     default: return col;
   }
+}
+
+// Pick the SQL JOIN keyword for a relation based on its cardinality. The
+// UI now expresses joins as cardinality (1 / * on each end) rather than a
+// raw LEFT/INNER/RIGHT pill — the SQL dialect is derived here:
+//   *:1 / 1:* → LEFT JOIN  (keep all rows on the "many" side, decorate with dim)
+//   1:1       → INNER JOIN (no fan-out, both sides match by definition)
+//   *:*       → INNER JOIN (semantically a bridge — emit something usable but
+//                           the canvas should warn the user)
+// Falls back to the legacy `type` field on joins that pre-date cardinality.
+function deriveJoinKeyword(j) {
+  const c = j && j.cardinality;
+  if (c && c.from && c.to) {
+    if (c.from === '1' && c.to === '1') return 'INNER';
+    if (c.from === '*' && c.to === '*') return 'INNER';
+    return 'LEFT';
+  }
+  return (j?.type || 'LEFT').toUpperCase();
 }
 
 // Convert a (possibly text) column expression into a numeric SQL value
@@ -764,6 +852,86 @@ router.post('/:id/validate-column-type', requireAuth, async (req, res) => {
   }
 });
 
+// Detect the cardinality of a join column by sampling. Returns "1" if all
+// sampled values are unique (likely a PK / unique side), "*" if duplicates
+// were found. Used by the SchemaCanvas when the user creates a new join,
+// to suggest the cardinality of each end. The sample is intentionally
+// small (1000 rows) — fast and good enough for a suggestion. Final word
+// belongs to the user; they can override the marker manually.
+//
+// Body: { table, column }
+// Returns: { cardinality: '1'|'*', sampleSize, distinct }
+router.post('/:id/detect-cardinality', requireAuth, async (req, res) => {
+  const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!model) return res.status(404).json({ error: 'Model not found' });
+  const { table, column } = req.body || {};
+  if (!table || !column) return res.status(400).json({ error: 'table and column are required' });
+
+  const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
+  if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
+
+  let conn;
+  try {
+    conn = createConnection(datasource);
+    // Defensive: column must exist on the table (also blocks SQL injection
+    // through the column name since we splice it into the query string).
+    const cols = await conn.getColumns(table);
+    const colSet = new Set((cols || []).map((c) => {
+      if (typeof c === 'string') return c;
+      return c?.column_name ?? c?.name ?? c?.Name ?? c?.COLUMN_NAME ?? '';
+    }).filter(Boolean));
+    if (!colSet.has(column)) return res.status(400).json({ error: `Column "${column}" not found in table` });
+
+    const SAMPLE = 1000;
+    const colExpr = `${quoteTable(table)}."${column}"`;
+    const isMssql = datasource.db_type === 'azure_sql' || datasource.db_type === 'mssql';
+    const sql = isMssql
+      ? `SELECT TOP ${SAMPLE} ${colExpr} AS v FROM ${quoteTable(table)} WHERE ${colExpr} IS NOT NULL`
+      : `SELECT ${colExpr} AS v FROM ${quoteTable(table)} WHERE ${colExpr} IS NOT NULL LIMIT ${SAMPLE}`;
+
+    const rows = await conn.query(sql);
+    const sampleSize = rows.length;
+    if (sampleSize === 0) {
+      return res.json({ cardinality: '1', sampleSize: 0, distinct: 0, note: 'No non-null values to sample' });
+    }
+    const seen = new Set();
+    for (const r of rows) {
+      const v = r.v ?? r.V;
+      seen.add(String(v));
+    }
+    const cardinality = seen.size === sampleSize ? '1' : '*';
+    res.json({ cardinality, sampleSize, distinct: seen.size });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn?.close();
+  }
+});
+
+// Cancel an in-flight query by its client-generated queryId. The client
+// passes the same queryId both in /query (to register) and here (to cancel).
+// We only allow cancellation by the same authenticated user who started the
+// query — a public report viewer can cancel their own queries but not those
+// of other sessions sharing the server.
+router.post('/cancel-query', (req, res) => {
+  const { queryId } = req.body || {};
+  if (!queryId) return res.status(400).json({ error: 'Missing queryId' });
+  const entry = inFlightQueries.get(String(queryId));
+  if (!entry) return res.json({ canceled: false, reason: 'not-found' });
+  // Same-user check. null userId means the original query was public, so
+  // anyone can cancel it; authenticated queries require a matching user.
+  const requesterId = req.isAuthenticated() ? req.user.id : null;
+  if (entry.userId != null && entry.userId !== requesterId) {
+    return res.status(403).json({ error: 'Not allowed to cancel this query' });
+  }
+  try { entry.cancel(); }
+  catch (e) { console.warn('[cancel-query] cancel threw', e.message); }
+  // Remove eagerly so a duplicate cancel returns 'not-found' instead of
+  // double-canceling (the /query finally also deletes, redundant but safe).
+  inFlightQueries.delete(String(queryId));
+  res.json({ canceled: true });
+});
+
 // Query model: build SQL from selected dimensions + measures.
 // Accessible if the user has access to any report linked to this model
 // (owner, global admin, public report, or workspace member).
@@ -778,6 +946,10 @@ router.post('/:id/query', async (req, res) => {
   const {
     dimensionNames, measureNames, limit, offset, filters, widgetFilters,
     distinct, measureAggOverrides, sqlOnly,
+    // Optional: client-generated UUID. When set, the server registers the
+    // running query in inFlightQueries so a sibling POST /cancel-query
+    // request can abort it via the dialect's native cancel mechanism.
+    queryId,
     // Report-scoped extensions: dims/measures defined ONLY in the calling
     // report (so other reports on the same model don't see them), plus
     // label/type overrides for model-level dims/measures. The model itself
@@ -881,22 +1053,23 @@ router.post('/:id/query', async (req, res) => {
       if (dimDef) {
         tablesUsed.add(dimDef.table);
         const col = `${quoteTable(dimDef.table)}."${dimDef.column}"`;
-        const escaped = values.map((v) => `'${String(v).replace(/'/g, "''")}'`).join(', ');
         if (dimDef.datePart) {
-          // Drill-down on a date-part dim (year, month, etc.). Filter against
-          // the same EXTRACT/YEAR(...) expression as the SELECT projection,
-          // not the raw timestamp — otherwise YEAR=2024 would compare to
-          // "2024-12-31 10:00:00" and never match.
+          // Drill-down on a date-part dim — filter against the same
+          // EXTRACT/YEAR(...) expression used in SELECT. Type-aware IN
+          // emits a numeric `IN (2024)` for num_year etc. instead of
+          // wrapping a CAST around the EXTRACT.
           const expr = buildDatePartExpr(dimDef, dbType, columnTypes);
-          whereParts.push(`${castToString(expr, dbType)} IN (${escaped})`);
+          const clause = buildInList(expr, effectiveDimType(dimDef), values, dbType);
+          if (clause) whereParts.push(clause);
         } else if (dimDef.type === 'date') {
-          // Date columns: cast to DATE so timestamps like "2024-04-30 10:30:00" match "2024-04-30".
-          // The format hint (if any) tells castToDate which parser to use for text columns.
           const fmt = getDateFormat(dimDef.table, dimDef.column, columnTypes);
+          const escaped = values.map((v) => `'${String(v).replace(/'/g, "''")}'`).join(', ');
           whereParts.push(`${castToDate(col, dbType, fmt)} IN (${escaped})`);
         } else {
-          // Non-date columns: cast to VARCHAR for consistent comparison across all DB types
-          whereParts.push(`${castToString(col, dbType)} IN (${escaped})`);
+          // Type-aware IN — string columns compared without a CAST so the
+          // engine can hit the index, numeric columns compared as numbers.
+          const clause = buildInList(col, effectiveDimType(dimDef), values, dbType);
+          if (clause) whereParts.push(clause);
         }
       }
     }
@@ -909,17 +1082,15 @@ router.post('/:id/query', async (req, res) => {
   const havingParts = [];
   const escVal = (v) => `'${String(v).replace(/'/g, "''")}'`;
   const isEmpty = (v) => v == null || v === '';
-  function buildScalarClause(colExpr, op, value, values, isDateCol, dateFmt) {
+  function buildScalarClause(colExpr, op, value, values, isDateCol, dateFmt, dimType) {
     const cast = isDateCol ? castToDate(colExpr, dbType, dateFmt || 'auto') : colExpr;
     const list = Array.isArray(values) ? values : (Array.isArray(value) ? value : null);
     const numericFor = (v) => isDateCol ? escVal(v) : Number(v);
     switch (op) {
       case 'in':
-        if (!list?.length) return null;
-        return `${castToString(colExpr, dbType)} IN (${list.map(escVal).join(', ')})`;
+        return list?.length ? buildInList(colExpr, dimType || 'string', list, dbType) : null;
       case 'not_in':
-        if (!list?.length) return null;
-        return `${castToString(colExpr, dbType)} NOT IN (${list.map(escVal).join(', ')})`;
+        return list?.length ? buildInList(colExpr, dimType || 'string', list, dbType, true) : null;
       case 'eq':  return isEmpty(value) ? null : `${cast} = ${escVal(value)}`;
       case 'neq': return isEmpty(value) ? null : `${cast} <> ${escVal(value)}`;
       case 'gt':  return isEmpty(value) ? null : `${cast} > ${numericFor(value)}`;
@@ -964,6 +1135,7 @@ router.post('/:id/query', async (req, res) => {
         // datePart dims aren't date-typed — they're year/month numbers etc.
         !dimDef.datePart && dimDef.type === 'date',
         getDateFormat(dimDef.table, dimDef.column, columnTypes),
+        effectiveDimType(dimDef),
       );
       if (clause) whereParts.push(clause);
     }
@@ -1079,23 +1251,54 @@ router.post('/:id/query', async (req, res) => {
     }
   }
 
-  // Build FROM + JOINs
+  // Build FROM + JOINs. Greedy traversal of the join graph: start with the
+  // most "fact-like" table (the one appearing with cardinality "*" on the
+  // most joins), then keep pulling in any remaining table that has a
+  // direct join with one already added. Starting from a dim would emit
+  // `FROM dim LEFT JOIN fact` — semantically OK, but `FROM fact LEFT JOIN dim`
+  // is the canonical star-schema shape and what most analytics readers
+  // expect.
   const tableList = Array.from(tablesUsed);
-  let fromClause = quoteTable(tableList[0]);
-
   if (tableList.length > 1) {
-    for (let i = 1; i < tableList.length; i++) {
-      const join = allJoins.find(
-        (j) => (j.from_table === tableList[i] || j.to_table === tableList[i]) &&
-               (j.from_table === tableList[0] || j.to_table === tableList[0] ||
-                tableList.slice(0, i).some((t) => j.from_table === t || j.to_table === t))
-      );
-      if (join) {
-        const joinType = (join.type || 'LEFT').toUpperCase();
-        fromClause += ` ${joinType} JOIN ${quoteTable(tableList[i])} ON ${quoteTable(join.from_table)}."${join.from_column}" = ${quoteTable(join.to_table)}."${join.to_column}"`;
-      } else {
-        fromClause += `, ${quoteTable(tableList[i])}`;
+    const factScore = {};
+    for (const t of tableList) factScore[t] = 0;
+    for (const j of allJoins) {
+      const c = j.cardinality;
+      if (!c) continue;
+      if (c.from === '*' && tableList.includes(j.from_table)) factScore[j.from_table] += 1;
+      if (c.to === '*' && tableList.includes(j.to_table)) factScore[j.to_table] += 1;
+    }
+    // Stable sort: highest fact score first, original index as tie-breaker
+    // so two equal-score tables keep their original relative order.
+    tableList.sort((a, b) => (factScore[b] - factScore[a]) || (Array.from(tablesUsed).indexOf(a) - Array.from(tablesUsed).indexOf(b)));
+  }
+  let fromClause = quoteTable(tableList[0]);
+  if (tableList.length > 1) {
+    const added = new Set([tableList[0]]);
+    const remaining = tableList.slice(1);
+    while (remaining.length > 0) {
+      let pickedIdx = -1;
+      let pickedJoin = null;
+      for (let i = 0; i < remaining.length; i++) {
+        const t = remaining[i];
+        const join = allJoins.find(
+          (j) => (j.from_table === t && added.has(j.to_table)) ||
+                 (j.to_table === t && added.has(j.from_table))
+        );
+        if (join) { pickedIdx = i; pickedJoin = join; break; }
       }
+      if (pickedIdx === -1) {
+        // No more reachable tables — fall back to a cross-join (comma) for
+        // each leftover. Better than dropping them; they'll likely be
+        // filtered down by WHERE in practice. A warning would help here
+        // but we don't have a structured logger surfaced to the response.
+        for (const t of remaining) fromClause += `, ${quoteTable(t)}`;
+        break;
+      }
+      const t = remaining.splice(pickedIdx, 1)[0];
+      const joinType = deriveJoinKeyword(pickedJoin);
+      fromClause += ` ${joinType} JOIN ${quoteTable(t)} ON ${quoteTable(pickedJoin.from_table)}."${pickedJoin.from_column}" = ${quoteTable(pickedJoin.to_table)}."${pickedJoin.to_column}"`;
+      added.add(t);
     }
   }
 
@@ -1162,9 +1365,28 @@ router.post('/:id/query', async (req, res) => {
   }
 
   let conn;
+  let registeredQueryId = null;
   try {
     conn = createConnection(datasource);
-    const rawRows = await conn.query(sql);
+    // When the client supplies a queryId AND the connector exposes a
+    // cancellable variant, register the cancel callback so a sibling
+    // /cancel-query call can abort the in-flight DB query. Otherwise fall
+    // back to the legacy non-cancellable path.
+    let rawRows;
+    if (queryId && typeof conn.queryCancellable === 'function') {
+      const { promise, cancel } = conn.queryCancellable(sql);
+      registeredQueryId = String(queryId);
+      const userId = req.isAuthenticated() ? req.user.id : null;
+      inFlightQueries.set(registeredQueryId, { cancel, userId });
+      try {
+        rawRows = await promise;
+      } finally {
+        inFlightQueries.delete(registeredQueryId);
+        registeredQueryId = null;
+      }
+    } else {
+      rawRows = await conn.query(sql);
+    }
     // Normalize Date objects to ISO date strings for all DB types
     const rows = rawRows.map((r) => {
       const obj = {};

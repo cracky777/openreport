@@ -29,7 +29,17 @@ export function filterForTarget(targetId, baseFilters, currentWidgets, crossHigh
   const out = { ...baseFilters };
   for (const dim of Object.keys(out)) {
     const sourceId = findSourceForDim(dim, currentWidgets, crossHighlight);
-    if (!sourceId || sourceId === targetId) continue;
+    if (!sourceId) continue;
+    if (sourceId === targetId) {
+      // The widget that PROVIDES the filter doesn't apply it to itself.
+      // Cross-highlight source: it stays unfiltered so the user keeps the
+      // full chart with the clicked value highlighted (Power BI / Looker
+      // semantics). Slicer self-fetch already bypasses filters in DataPanel
+      // — including the dim here would still be wrong if the source ever
+      // fell back to this code path.
+      delete out[dim];
+      continue;
+    }
     const exclusions = currentWidgets?.[sourceId]?.config?.crossFilterExclusions || [];
     if (exclusions.includes(targetId)) delete out[dim];
   }

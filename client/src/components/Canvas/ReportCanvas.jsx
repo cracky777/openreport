@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useCallback, memo, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import Draggable from 'react-draggable';
-import { TbCode, TbX, TbCopy } from 'react-icons/tb';
+import { TbCode, TbX, TbCopy, TbRefresh } from 'react-icons/tb';
 import { WIDGET_TYPES } from '../Widgets';
 import MaxRowsWarning from '../Widgets/MaxRowsWarning';
 import { evaluateColorCondition } from '../../utils/conditionalFormat';
@@ -21,7 +21,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget }) {
   const nodeRef = useRef(null);
   const [showSql, setShowSql] = useState(false);
   const WidgetType = WIDGET_TYPES[widget.type];
@@ -176,6 +176,28 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             <TbCode size={14} />
           </button>
         )}
+        {/* Refresh — explicit per-widget refetch. Sits right under the SQL
+            button. Auto-fetch on click is disabled, so this is the way to
+            trigger a fresh query without editing the binding. */}
+        {isSelected && !readOnly && !editInteractionsActive
+          && !['text', 'shape', 'filter', 'customVisual'].includes(widget.type) && onRefreshWidget && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onRefreshWidget(item.i); }}
+            title="Refresh this widget's data"
+            style={{
+              position: 'absolute', top: 36, right: 6, zIndex: 11,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 24, height: 24, borderRadius: 12, padding: 0,
+              border: '1px solid var(--border-default)', background: 'var(--bg-panel)',
+              color: 'var(--text-secondary)', cursor: 'pointer',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.borderColor = 'var(--accent-primary)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
+          >
+            <TbRefresh size={14} />
+          </button>
+        )}
         {showSql && createPortal(
           <SqlViewerModal sql={widget.data?._sql} onClose={() => setShowSql(false)} />,
           document.body,
@@ -301,6 +323,7 @@ export default function ReportCanvas({
   editInteractions,
   onToggleCrossFilter,
   onCancelFetch,
+  onRefreshWidget,
   // Print mode strips the surrounding chrome (outer padding + bg-app
   // background + auto-margin centering + fit-to-width scale) so a server
   // -side Puppeteer renderer can capture just the report canvas at its
@@ -485,6 +508,7 @@ export default function ReportCanvas({
               isExcludedFromSource={isExcludedFromSource}
               onToggleCrossFilter={onToggleCrossFilter}
               onCancelFetch={onCancelFetch}
+              onRefreshWidget={onRefreshWidget}
             />
           );
         })}

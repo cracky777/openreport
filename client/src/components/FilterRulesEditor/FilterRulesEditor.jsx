@@ -21,11 +21,17 @@ function opsForType(t, isMeasure) {
     { v: 'gte', l: 'on or after' }, { v: 'lte', l: 'on or before' },
   ];
   // number / measure
-  const numericOps = [
+  const numericOps = [];
+  // is in / is not in only for numeric dimensions — measures are aggregates,
+  // and DimensionMultiSelect can't enumerate their possible values.
+  if (!isMeasure) {
+    numericOps.push({ v: 'in', l: 'is in' }, { v: 'not_in', l: 'is not in' });
+  }
+  numericOps.push(
     { v: 'gt', l: '>' }, { v: 'gte', l: '≥' },
     { v: 'lt', l: '<' }, { v: 'lte', l: '≤' },
     { v: 'between', l: 'between' },
-  ];
+  );
   if (isMeasure) {
     numericOps.push({ v: 'top_n', l: 'Top N' });
     numericOps.push({ v: 'bottom_n', l: 'Bottom N' });

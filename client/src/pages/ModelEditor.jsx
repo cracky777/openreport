@@ -731,6 +731,7 @@ export default function ModelEditor() {
             onJoinsChange={setJoins}
             onAddDimension={addDimension}
             onAddMeasure={addMeasure}
+            modelId={id}
             datasourceId={model?.datasource_id}
             isNumeric={isNumeric}
             isDateType={isDateType}
@@ -820,13 +821,15 @@ export default function ModelEditor() {
                                   value={normalizeStoredType(d.type)}
                                   onChange={(e) => setColumnType(d.table, d.column, e.target.value, currentFormat)}
                                   style={{
-                                    ...inlineInput,
-                                    padding: '2px 6px',
-                                    background: isOverridden ? 'var(--accent-primary-soft)' : undefined,
-                                    color: isOverridden ? 'var(--accent-primary-text)' : undefined,
+                                    ...editableSelectStyle,
+                                    background: isOverridden
+                                      ? `var(--accent-primary-soft) ${chevronSvg('var(--accent-primary)')}`
+                                      : `var(--bg-panel) ${chevronSvg('var(--text-muted)')}`,
+                                    borderColor: isOverridden ? 'var(--accent-primary)' : 'var(--border-default)',
+                                    color: isOverridden ? 'var(--accent-primary-text)' : 'var(--text-secondary)',
                                     fontWeight: isOverridden ? 600 : 500,
                                   }}
-                                  title={isOverridden ? 'User-overridden type' : 'Inferred from column native type'}
+                                  title={isOverridden ? 'Type overridden by user — click to change' : 'Inferred from column native type — click to override'}
                                 >
                                   <option value="string">string</option>
                                   <option value="integer">integer</option>
@@ -838,8 +841,12 @@ export default function ModelEditor() {
                                   <select
                                     value={currentFormat}
                                     onChange={(e) => setColumnType(d.table, d.column, 'date', e.target.value)}
-                                    style={{ ...inlineInput, padding: '2px 6px', fontSize: 11 }}
-                                    title="Expected date format in this column"
+                                    style={{
+                                      ...editableSelectStyle,
+                                      fontSize: 11,
+                                      background: `var(--bg-panel) ${chevronSvg('var(--text-muted)')}`,
+                                    }}
+                                    title="Expected date format in this column — click to change"
                                   >
                                     <option value="auto">auto</option>
                                     <option value="iso">ISO (YYYY-MM-DD)</option>
@@ -869,9 +876,10 @@ export default function ModelEditor() {
                         </td>
                         <td style={tdStyle}>
                           <input
-                            style={inlineInput}
+                            style={editableInputStyle}
                             value={d.label}
                             onChange={(e) => setDimensions((prev) => prev.map((x) => x.name === d.name ? { ...x, label: e.target.value } : x))}
+                            title="Display name shown to report users — click to edit"
                           />
                         </td>
                         <td style={tdStyle}>
@@ -1066,6 +1074,34 @@ const tdStyle = { padding: '6px 10px', borderBottom: '1px solid #f1f5f9', color:
 const inlineInput = {
   padding: '4px 6px', border: '1px solid var(--border-default)', borderRadius: 4,
   fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box',
+};
+// Encoded chevron used as a CSS background-image so the select looks like a
+// real interactive dropdown instead of a flat read-only field.
+const chevronSvg = (color) => `no-repeat right 6px center / 10px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='none' stroke='${encodeURIComponent(color)}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M4 6l4 4 4-4'/></svg>")`;
+const editableSelectStyle = {
+  appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
+  padding: '3px 22px 3px 8px', borderRadius: 4, fontSize: 12,
+  border: '1px solid var(--border-default)', outline: 'none',
+  cursor: 'pointer', boxSizing: 'border-box',
+  transition: 'border-color 0.12s, background-color 0.12s',
+};
+const editableInputStyle = {
+  padding: '4px 8px', border: '1px solid var(--border-default)', borderRadius: 4,
+  fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box',
+  background: 'var(--bg-panel)', cursor: 'text',
+  transition: 'border-color 0.12s',
+};
+const editableHintStyle = {
+  display: 'flex', alignItems: 'center', gap: 8,
+  fontSize: 12, color: 'var(--text-muted)',
+  padding: '8px 12px', marginBottom: 10, borderRadius: 6,
+  background: 'var(--accent-primary-soft)', border: '1px dashed var(--accent-primary)',
+};
+const editableTagStyle = {
+  fontSize: 9, fontWeight: 700, textTransform: 'uppercase',
+  padding: '1px 5px', borderRadius: 3,
+  background: 'var(--accent-primary-soft)', color: 'var(--accent-primary)',
+  letterSpacing: 0.3,
 };
 const badge = { padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 };
 const removeBtn = {

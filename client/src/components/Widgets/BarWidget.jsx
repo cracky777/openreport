@@ -135,6 +135,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
     ? (zoneSorts.values || 'none')
     : (config?.sortOrder || (isStackedSubType ? 'desc' : 'none'));
   const axisSort = zoneSorts?.axis || 'none';
+  const groupBySort = zoneSorts?.groupBy || 'none';
   const topNEnabled = config?.topNEnabled === true;
   const topN = config?.topN ?? 20;
   const othersLabel = config?.othersLabel || 'Others';
@@ -252,20 +253,22 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
     const earlyBarDir = config?.barDirection || 'vertical';
     const earlyIsHoriz = earlyBarDir === 'horizontal' || earlyBarDir === 'horizontalInverse';
     if (hasSeries) {
-      if (isStacked) {
-        seriesData.sort((a, b) => {
-          const totalA = a.values.reduce((sum, v) => sum + (v || 0), 0);
-          const totalB = b.values.reduce((sum, v) => sum + (v || 0), 0);
-          return totalB - totalA;
-        });
+      const legendDimDef = data._legendDimDef;
+      const totalOf = (s) => s.values.reduce((sum, v) => sum + (v || 0), 0);
+      if (groupBySort !== 'none') {
+        // Per-zone Legend sort = order series by total VOLUME so a
+        // clustered bar reads naturally from smallest to biggest (asc) or
+        // the inverse (desc).
+        seriesData.sort((a, b) => groupBySort === 'desc' ? totalOf(b) - totalOf(a) : totalOf(a) - totalOf(b));
+      } else if (isStacked) {
+        seriesData.sort((a, b) => totalOf(b) - totalOf(a));
       } else if (sortOrder !== 'none') {
-        // Mirror the cluster-level sort inside each cluster: order the bars
-        // (series) by total in the same direction the user picked.
-        seriesData.sort((a, b) => {
-          const totalA = a.values.reduce((sum, v) => sum + (v || 0), 0);
-          const totalB = b.values.reduce((sum, v) => sum + (v || 0), 0);
-          return sortOrder === 'desc' ? totalB - totalA : totalA - totalB;
-        });
+        seriesData.sort((a, b) => sortOrder === 'desc' ? totalOf(b) - totalOf(a) : totalOf(a) - totalOf(b));
+      } else if (legendDimDef?.datePart || legendDimDef?.type === 'date') {
+        // Auto-chrono for date / date-table legend dims when no explicit
+        // sort was chosen — months / years naturally read in calendar
+        // order rather than the SQL row order.
+        seriesData.sort((a, b) => compareAxisValues(a.name, b.name, legendDimDef, 'asc'));
       }
 
       if (!isStacked) {
@@ -578,7 +581,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
     const legendItems = (allSeriesForLegend || []).map((s, i) => ({ name: s.name, color: getColor(s.name, i) }));
 
     return { option: opt, legendItems, rawLabels, othersLabelIdx };
-  }, [data, subType, showLabels, hideZeros, showLegend, legendPosition, sortOrder, axisSort, hasData, config?.color,
+  }, [data, subType, showLabels, hideZeros, showLegend, legendPosition, sortOrder, axisSort, groupBySort, hasData, config?.color,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors, config?.barDirection,
       config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,

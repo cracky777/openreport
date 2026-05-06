@@ -4,8 +4,9 @@ import api from '../../utils/api';
 import SqlExpressionInput from '../SqlExpressionInput/SqlExpressionInput';
 import { sanitizeWidgetFilters } from '../../utils/widgetFilters';
 import { computeBindingKey } from '../../utils/bindingKey';
+import { shiftFiltersForN1, shiftWidgetFiltersForN1, hasShiftableFilterForN1 } from '../../utils/comparePeriod';
 
-export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, model, onModelUpdate, settings, onSettingsChange, reportFilters }) {
+export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce }) {
   // Helper used by every action that previously mutated the model. Updates
   // the report's `settings` JSON in-memory; the user's next Save persists it
   // to /api/reports/:id. Returns false when the host didn't provide
@@ -75,7 +76,14 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   const isFilterWidget = widget?.type === 'filter';
   const colorEnabled = widget?.config?.colorCondition?.enabled === true;
   const colorMeasure = colorEnabled ? (binding.colorMeasure || '') : '';
-  const widgetFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
+  // Combine report-level filters (Settings panel) with the widget's own
+  // filters — same pattern as Editor.jsx's main fetch path. Without this,
+  // DataPanel-triggered refetches (binding edits, drag-drop) silently drop
+  // the report-wide filters until something else nudges Editor.jsx into
+  // refetching.
+  const reportLevelFilters = Array.isArray(settings?.reportFilters) ? settings.reportFilters : [];
+  const ownWidgetFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
+  const widgetFilters = [...reportLevelFilters, ...ownWidgetFilters];
   const aggOverrides = binding.measureAggOverrides || {};
 
   // Cache key — shared with Editor.jsx via computeBindingKey so both fetchers
@@ -92,9 +100,21 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
     e.dataTransfer.effectAllowed = 'copyMove';
   };
 
-  // Auto-fetch when dimensions/measures selection changes
+  // Track previous (widgetId, bindingKey) plus a per-widget refresh nonce
+  // map. The map is critical: refreshNonce is the SELECTED widget's nonce
+  // and changes each time the selection moves to a widget with a
+  // different historical nonce — clicking from a refreshed widget (nonce=1)
+  // to an untouched one (nonce=0) would otherwise look like a refresh
+  // request and trigger a fetch we don't want.
+  const prevWidgetIdRef = useRef(null);
+  const prevBindingKeyRef = useRef(null);
+  const prevRefreshNoncesByWidgetRef = useRef({});
   useEffect(() => {
-    if (!selectionKey) return;
+    if (!selectionKey) {
+      prevWidgetIdRef.current = null;
+      prevBindingKeyRef.current = null;
+      return;
+    }
 
     const parts = selectionKey.split(':');
     const wId = parts[0];
@@ -104,22 +124,53 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
 
     const hasMainBinding = dims.length > 0 || meass.length > 0;
     const hasColorMeas = !!colorMeasure;
+
+    const capturedWidget = widgetRef.current;
+    const capturedWidgetId = widgetIdRef.current;
+
+    const prevWId = prevWidgetIdRef.current;
+    const prevBK = prevBindingKeyRef.current;
+    // Per-widget previous nonce. `undefined` means "first time we see this
+    // widget" — not a refresh request.
+    const prevNonceForThisWidget = prevRefreshNoncesByWidgetRef.current[capturedWidgetId];
+    prevWidgetIdRef.current = capturedWidgetId;
+    prevBindingKeyRef.current = bindingKey;
+    prevRefreshNoncesByWidgetRef.current[capturedWidgetId] = refreshNonce;
+
     if (!hasMainBinding && !hasColorMeas) {
       setStatus(null);
       return;
     }
-
-    const capturedWidget = widgetRef.current;
-    const capturedWidgetId = widgetIdRef.current;
     if (!capturedWidget || !capturedWidgetId) return;
 
-    // Skip fetch if widget already has data for this exact binding
-    if (capturedWidget.data?._fetchedBinding === bindingKey && Object.keys(capturedWidget.data).length > 1) {
-      setStatus({ type: 'ok', message: 'cached' });
+    const refreshTriggered = prevNonceForThisWidget !== undefined
+      && prevNonceForThisWidget !== refreshNonce;
+    // Selection change = different widget than the previous render. Skip:
+    // the user is just navigating, no data work expected.
+    if (prevWId !== null && prevWId !== capturedWidgetId && !refreshTriggered) {
+      const hasCachedData = capturedWidget.data?._fetchedBinding === bindingKey
+        && Object.keys(capturedWidget.data).length > 1;
+      if (hasCachedData) setStatus({ type: 'ok', message: 'cached' });
+      return;
+    }
+    // Same widget but binding unchanged AND no manual refresh: just a
+    // benign re-render (parent re-rendered for an unrelated reason).
+    if (prevWId === capturedWidgetId && prevBK === bindingKey && !refreshTriggered) {
+      return;
+    }
+    // First time we see this widget (initial mount with no prior render):
+    // honour the cache if it's there, otherwise let Editor.jsx's main
+    // fetch loop be the one to populate it. We don't auto-fetch on first
+    // sight either — explicit refresh / binding edit is the contract.
+    if (prevWId === null) {
+      const hasCachedData = capturedWidget.data?._fetchedBinding === bindingKey
+        && Object.keys(capturedWidget.data).length > 1;
+      if (hasCachedData) setStatus({ type: 'ok', message: 'cached' });
       return;
     }
 
     let cancelled = false;
+    let stampedLoadingFor = null; // widgetId we set _loading on, so we can revert on abort
     const abortController = new AbortController();
 
     const timer = setTimeout(async () => {
@@ -130,6 +181,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
       const lw = widgetRef.current;
       if (lw && widgetIdRef.current === capturedWidgetId) {
         onUpdateSilentRef.current(capturedWidgetId, { ...lw, _loading: true });
+        stampedLoadingFor = capturedWidgetId;
       }
 
       try {
@@ -229,7 +281,33 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
             }, { signal: abortController.signal }).catch(() => null)
           : Promise.resolve(null);
 
-        const [res, colorRes, totalRes] = await Promise.all([mainPromise, colorPromise, totalPromise]);
+        // N-1 comparison query (scorecards only). Shifts every filter on
+        // `compareDateDim` back by one year so the parallel SQL returns
+        // the previous-period value with the same WHERE shape otherwise.
+        const compareDateDim = capturedWidget.type === 'scorecard'
+          ? (capturedWidget.dataBinding?.compareDateDim || null) : null;
+        // Same as Editor.jsx: drop any date dim to opt in, then shift
+        // every year-like or full-date filter on the model's dim list.
+        const shouldFetchN1 = !!compareDateDim
+          && hasShiftableFilterForN1(mergedFiltersLocal, widgetFilters, model?.dimensions);
+        const n1Filters = shouldFetchN1
+          ? shiftFiltersForN1(mergedFiltersLocal, model?.dimensions)
+          : null;
+        const n1WidgetFilters = shouldFetchN1
+          ? shiftWidgetFiltersForN1(widgetFilters, model?.dimensions)
+          : null;
+        const n1Promise = shouldFetchN1
+          ? api.post(`/models/${model.id}/query`, {
+              dimensionNames: allDims,
+              measureNames: uniqueMeass,
+              limit: 1,
+              filters: n1Filters,
+              widgetFilters: sanitizeWidgetFilters(n1WidgetFilters),
+              ...reportExtras,
+            }, { signal: abortController.signal }).catch(() => null)
+          : Promise.resolve(null);
+
+        const [res, colorRes, totalRes, n1Res] = await Promise.all([mainPromise, colorPromise, totalPromise, n1Promise]);
         let _colorValue;
         if (colorRes) {
           const cRow = colorRes.data?.rows?.[0];
@@ -428,6 +506,13 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               value: measureVal,
               label: valueMeasDef?.label || valueMeasName || '',
             };
+            // N-1 comparison (scorecard only).
+            if (currentType === 'scorecard' && n1Res?.data?.rows?.[0]) {
+              const n1Row = n1Res.data.rows[0];
+              const n1Raw = valueKey && n1Row[valueKey] !== undefined ? n1Row[valueKey] : Object.values(n1Row)[0];
+              const n1Num = typeof n1Raw === 'number' ? n1Raw : parseFloat(String(n1Raw));
+              if (!isNaN(n1Num)) newData._n1Value = n1Num;
+            }
             // Threshold & max from measures (gauge only)
             if (currentType === 'gauge') {
               const extractMeasureValue = (measName) => {
@@ -518,6 +603,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           // right comparator (chrono for month names, numeric for date parts).
           if (axisDim) newData._axisDimDef = { type: axisDim.type, datePart: axisDim.datePart };
         }
+        if (grpBy.length > 0) {
+          const legendDim = (model.dimensions || []).find((x) => x.name === grpBy[0]);
+          if (legendDim) newData._legendDimDef = { type: legendDim.type, datePart: legendDim.datePart };
+        }
         newData._rowCount = rows.length;
         newData._colorValue = _colorValue;
         newData._sql = res.data?.sql || null;
@@ -563,8 +652,17 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
       cancelled = true;
       clearTimeout(timer);
       abortController.abort();
+      // If we already stamped `_loading: true` on a widget for this run
+      // and the fetch is being aborted (user clicked another widget,
+      // edited binding again, etc.), clear the flag so the spinner
+      // doesn't stay stuck on that widget. The catch path returns
+      // silently on `cancelled`, so this is the only place the cleanup
+      // can happen.
+      if (stampedLoadingFor && typeof onSetWidgetLoading === 'function') {
+        onSetWidgetLoading(stampedLoadingFor, false);
+      }
     };
-  }, [selectionKey, bindingKey, model.id]);
+  }, [selectionKey, bindingKey, model.id, refreshNonce]);
 
   // Helper to get short table name
   const shortTable = (t) => t.includes('.') ? t.split('.').pop() : t;
