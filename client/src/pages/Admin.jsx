@@ -24,6 +24,8 @@ export default function Admin() {
   const [newPw, setNewPw] = useState('');
   const [settings, setSettings] = useState(null);
   const [savingTimeout, setSavingTimeout] = useState(false);
+  const [savingCache, setSavingCache] = useState(false);
+  const [flushingCache, setFlushingCache] = useState(false);
 
   useEffect(() => {
     api.get('/admin/users')
@@ -45,6 +47,37 @@ export default function Admin() {
       alert(err.response?.data?.error || 'Failed to save');
     } finally {
       setSavingTimeout(false);
+    }
+  };
+
+  const saveQueryCache = async ({ enabled, ttlSeconds }) => {
+    if (!settings) return;
+    setSavingCache(true);
+    try {
+      const body = {};
+      if (enabled !== undefined) body.enabled = enabled;
+      if (ttlSeconds !== undefined) body.ttlMs = ttlSeconds * 1000;
+      const res = await api.put('/admin/settings/query-cache', body);
+      setSettings({ ...settings, ...res.data });
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to save');
+    } finally {
+      setSavingCache(false);
+    }
+  };
+
+  const flushQueryCache = async () => {
+    if (!settings) return;
+    if (!confirm('Drop every cached query result on this instance? Next refresh on every report will re-hit the source DB.')) return;
+    setFlushingCache(true);
+    try {
+      const res = await api.post('/admin/settings/query-cache/flush');
+      setSettings({ ...settings, queryCacheStats: { ...(settings.queryCacheStats || {}), size: 0 } });
+      alert(`Flushed ${res.data.evicted} cached entries`);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to flush');
+    } finally {
+      setFlushingCache(false);
     }
   };
 
@@ -127,6 +160,18 @@ export default function Admin() {
               defaultMs={settings.queryTimeoutDefaultMs}
               onSave={saveQueryTimeout}
               saving={savingTimeout}
+            />
+            <div style={{ height: 1, background: 'var(--border-default)', margin: '14px 0' }} />
+            <QueryCacheControl
+              enabled={settings.queryCacheEnabled}
+              ttlMs={settings.queryCacheTtlMs}
+              minMs={settings.queryCacheTtlMinMs}
+              maxMs={settings.queryCacheTtlMaxMs}
+              stats={settings.queryCacheStats}
+              onSave={saveQueryCache}
+              onFlush={flushQueryCache}
+              saving={savingCache}
+              flushing={flushingCache}
             />
           </div>
         )}
@@ -278,6 +323,84 @@ function QueryTimeoutControl({ valueMs, minMs, maxMs, defaultMs, onSave, saving 
       </div>
       <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>
         Visual queries are cancelled when they exceed this limit. Lower values protect the database under load; higher values allow heavier reports to finish.
+      </p>
+    </div>
+  );
+}
+
+// Query cache control — toggle + TTL slider + Flush button. Same shape
+// as QueryTimeoutControl: local state for the slider so the user can
+// scrub freely; explicit Save commits. Toggle saves immediately because
+// it has no intermediate state to validate.
+function QueryCacheControl({ enabled, ttlMs, minMs, maxMs, stats, onSave, onFlush, saving, flushing }) {
+  const minS = Math.round(minMs / 1000);
+  const maxS = Math.round(maxMs / 1000);
+  const [seconds, setSeconds] = useState(Math.round(ttlMs / 1000));
+  useEffect(() => { setSeconds(Math.round(ttlMs / 1000)); }, [ttlMs]);
+  const dirty = seconds !== Math.round(ttlMs / 1000);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+          Query result cache
+        </label>
+        <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>
+          {stats?.size != null ? `${stats.size} cached entries` : ''}
+        </span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <input
+          type="checkbox"
+          id="query-cache-enabled"
+          checked={!!enabled}
+          onChange={(e) => onSave({ enabled: e.target.checked })}
+          disabled={saving}
+        />
+        <label htmlFor="query-cache-enabled" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+          Enabled — repeat visual queries with the same SQL + RLS context are served from memory
+        </label>
+      </div>
+      {enabled && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 60 }}>TTL</span>
+          <input
+            type="range" min={minS} max={maxS} step={5}
+            value={seconds}
+            onChange={(e) => setSeconds(parseInt(e.target.value, 10))}
+            style={{ flex: 1 }}
+          />
+          <input
+            type="number" min={minS} max={maxS}
+            value={seconds}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10);
+              if (Number.isFinite(n)) setSeconds(Math.max(minS, Math.min(maxS, n)));
+            }}
+            style={{ ...inputStyle, width: 80, padding: '6px 8px', textAlign: 'center' }}
+          />
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>seconds</span>
+          <button
+            className="btn-hover btn-hover-primary"
+            onClick={() => onSave({ ttlSeconds: seconds })}
+            disabled={!dirty || saving}
+            style={{ ...primaryBtn, padding: '6px 14px', fontSize: 12, opacity: (!dirty || saving) ? 0.5 : 1, cursor: (!dirty || saving) ? 'default' : 'pointer' }}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      )}
+      <div>
+        <button
+          className="btn-hover"
+          onClick={onFlush}
+          disabled={flushing}
+          style={{ ...secondaryBtn, padding: '6px 12px', fontSize: 12, opacity: flushing ? 0.5 : 1 }}
+        >
+          {flushing ? 'Flushing…' : 'Flush cache now'}
+        </button>
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>
+        Saved a model? Updated a datasource? Those automatically drop the relevant entries. Use Flush only after an out-of-band schema change you couldn't capture through the UI.
       </p>
     </div>
   );

@@ -40,13 +40,60 @@ function setQueryTimeoutMs(ms) {
   return clamped;
 }
 
+// ─── Query result cache ─────────────────────────────────────────────
+// Same shape as the timeout: bounded values, persisted in app_settings,
+// admin-tunable via /api/admin/settings.
+const QUERY_CACHE_TTL_MIN_MS = 0;            // 0 = cache disabled
+const QUERY_CACHE_TTL_MAX_MS = 24 * 3600_000; // 24 h ceiling
+const QUERY_CACHE_TTL_DEFAULT_MS = 5 * 60_000; // 5 min default
+const QUERY_CACHE_MAX_ENTRIES_DEFAULT = 5000;
+
+function clampQueryCacheTtl(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n)) return QUERY_CACHE_TTL_DEFAULT_MS;
+  return Math.max(QUERY_CACHE_TTL_MIN_MS, Math.min(QUERY_CACHE_TTL_MAX_MS, Math.round(n)));
+}
+
+function isQueryCacheEnabled() {
+  return getSetting('query_cache_enabled', true) !== false;
+}
+
+function setQueryCacheEnabled(enabled) {
+  setSetting('query_cache_enabled', !!enabled);
+  return !!enabled;
+}
+
+function getQueryCacheTtlMs() {
+  return clampQueryCacheTtl(getSetting('query_cache_ttl_ms', QUERY_CACHE_TTL_DEFAULT_MS));
+}
+
+function setQueryCacheTtlMs(ms) {
+  const clamped = clampQueryCacheTtl(ms);
+  setSetting('query_cache_ttl_ms', clamped);
+  return clamped;
+}
+
+function getQueryCacheMaxEntries() {
+  const v = Number(getSetting('query_cache_max_entries', QUERY_CACHE_MAX_ENTRIES_DEFAULT));
+  return Number.isFinite(v) && v > 0 ? Math.round(v) : QUERY_CACHE_MAX_ENTRIES_DEFAULT;
+}
+
 module.exports = {
   QUERY_TIMEOUT_MIN_MS,
   QUERY_TIMEOUT_MAX_MS,
   QUERY_TIMEOUT_DEFAULT_MS,
+  QUERY_CACHE_TTL_MIN_MS,
+  QUERY_CACHE_TTL_MAX_MS,
+  QUERY_CACHE_TTL_DEFAULT_MS,
   getSetting,
   setSetting,
   clampQueryTimeout,
   getQueryTimeoutMs,
   setQueryTimeoutMs,
+  clampQueryCacheTtl,
+  isQueryCacheEnabled,
+  setQueryCacheEnabled,
+  getQueryCacheTtlMs,
+  setQueryCacheTtlMs,
+  getQueryCacheMaxEntries,
 };

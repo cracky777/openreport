@@ -8,9 +8,17 @@ const {
   QUERY_TIMEOUT_MIN_MS,
   QUERY_TIMEOUT_MAX_MS,
   QUERY_TIMEOUT_DEFAULT_MS,
+  QUERY_CACHE_TTL_MIN_MS,
+  QUERY_CACHE_TTL_MAX_MS,
+  QUERY_CACHE_TTL_DEFAULT_MS,
   getQueryTimeoutMs,
   setQueryTimeoutMs,
+  isQueryCacheEnabled,
+  setQueryCacheEnabled,
+  getQueryCacheTtlMs,
+  setQueryCacheTtlMs,
 } = require('../utils/settingsHelper');
+const queryCache = require('../utils/queryCache');
 
 const router = express.Router();
 
@@ -92,6 +100,12 @@ router.get('/settings', requireAdmin, (req, res) => {
     queryTimeoutMinMs: QUERY_TIMEOUT_MIN_MS,
     queryTimeoutMaxMs: QUERY_TIMEOUT_MAX_MS,
     queryTimeoutDefaultMs: QUERY_TIMEOUT_DEFAULT_MS,
+    queryCacheEnabled: isQueryCacheEnabled(),
+    queryCacheTtlMs: getQueryCacheTtlMs(),
+    queryCacheTtlMinMs: QUERY_CACHE_TTL_MIN_MS,
+    queryCacheTtlMaxMs: QUERY_CACHE_TTL_MAX_MS,
+    queryCacheTtlDefaultMs: QUERY_CACHE_TTL_DEFAULT_MS,
+    queryCacheStats: queryCache.stats(),
   });
 });
 
@@ -101,6 +115,30 @@ router.put('/settings/query-timeout', requireAdmin, (req, res) => {
   if (!Number.isFinite(n)) return res.status(400).json({ error: 'queryTimeoutMs must be a number' });
   const stored = setQueryTimeoutMs(n);
   res.json({ queryTimeoutMs: stored });
+});
+
+// Query cache settings — admin-only. Toggling `enabled` off doesn't flush
+// existing entries (we keep them around in case the admin re-enables); use
+// the explicit /flush endpoint to drop everything in memory.
+router.put('/settings/query-cache', requireAdmin, (req, res) => {
+  const { enabled, ttlMs } = req.body || {};
+  const out = {};
+  if (enabled !== undefined) out.queryCacheEnabled = setQueryCacheEnabled(enabled);
+  if (ttlMs !== undefined) {
+    const n = Number(ttlMs);
+    if (!Number.isFinite(n)) return res.status(400).json({ error: 'ttlMs must be a number' });
+    out.queryCacheTtlMs = setQueryCacheTtlMs(n);
+  }
+  res.json(out);
+});
+
+// Flush — drops every cached entry on this instance. The next visual
+// refresh on every report rebuilds the cache from the DB. Useful after
+// an out-of-band schema change on a source DB the admin couldn't surface
+// through the model-save invalidation hook.
+router.post('/settings/query-cache/flush', requireAdmin, (req, res) => {
+  const evicted = queryCache.flush();
+  res.json({ evicted });
 });
 
 module.exports = router;

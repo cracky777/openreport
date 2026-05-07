@@ -270,6 +270,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               widgetFilters: sanitizeWidgetFilters(widgetFiltersWithTopN),
               distinct: isFilterWidget || undefined,
               reportId,
+              bypassCache: refreshTriggered,
               ...reportExtras,
             }, { signal: abortController.signal })
               .finally(() => { if (mainQid) activeQueryIds.delete(mainQid); })
@@ -286,6 +287,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               filters: mergedFiltersLocal,
               widgetFilters: sanitizeWidgetFilters(widgetFilters),
               reportId,
+              bypassCache: refreshTriggered,
               ...reportExtras,
             }, { signal: abortController.signal })
               .catch(() => null)
@@ -303,6 +305,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               filters: mergedFiltersLocal,
               widgetFilters: sanitizeWidgetFilters(widgetFilters),
               reportId,
+              bypassCache: refreshTriggered,
               ...reportExtras,
             }, { signal: abortController.signal })
               .catch(() => null)
@@ -334,6 +337,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               filters: n1Filters,
               widgetFilters: sanitizeWidgetFilters(n1WidgetFilters),
               reportId,
+              bypassCache: refreshTriggered,
               ...reportExtras,
             }, { signal: abortController.signal })
               .catch(() => null)

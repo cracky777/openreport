@@ -5,6 +5,7 @@ const db = require('../db');
 const { createConnection } = require('../utils/dbConnector');
 const { canAccessReport } = require('./reports');
 const { getQueryTimeoutMs } = require('../utils/settingsHelper');
+const queryCache = require('../utils/queryCache');
 
 // Hook for cloud edition to override the global query-timeout with a
 // workspace/org-scoped value. Default in OSS just returns the global
@@ -540,6 +541,12 @@ router.put('/:id', requireAuth, (req, res) => {
     req.params.id
   );
 
+  // The model's logical shape may have changed (renamed dim, new measure,
+  // RLS rules, format overrides). Drop every cached row tied to this model
+  // so the next visual refresh hits the DB and rebuilds. Cheap because the
+  // index is keyed by modelId.
+  queryCache.invalidateModel(req.params.id);
+
   const updated = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
   res.json({
     model: {
@@ -968,6 +975,11 @@ router.post('/:id/query', async (req, res) => {
     // running query in inFlightQueries so a sibling POST /cancel-query
     // request can abort it via the dialect's native cancel mechanism.
     queryId,
+    // When `true`, skip the cache lookup and force a fresh DB hit. The
+    // client sets this on user-initiated refresh; the freshly-fetched
+    // rows still get written back into the cache so subsequent requests
+    // for the same shape become hot.
+    bypassCache,
     // Report-scoped extensions: dims/measures defined ONLY in the calling
     // report (so other reports on the same model don't see them), plus
     // label/type overrides for model-level dims/measures. The model itself
@@ -1382,6 +1394,43 @@ router.post('/:id/query', async (req, res) => {
     return res.json({ sql, rows: [], rowCount: 0, sqlOnly: true });
   }
 
+  // Cache key includes the user-RLS context so a viewer with restricted
+  // row access never reads a cached payload built for an unrestricted
+  // owner. RLS bypass (owner / admin) gets a stable marker so admins
+  // share a cache pool too.
+  const rlsContextForCache = {
+    bypass: isOwner ? 'owner' : (isAdmin ? 'admin' : null),
+    allowed: allowedRlsKeys,
+  };
+  const cacheOpts = {
+    datasourceId: datasource.id,
+    modelId: model.id,
+    sql,
+    rlsContext: rlsContextForCache,
+  };
+  if (!bypassCache) {
+    const cached = queryCache.get(cacheOpts);
+    if (cached) {
+      return res.json({
+        rows: cached.rows,
+        rowCount: cached.rows.length,
+        maxReached: cached.rows.length >= MAX_ROWS,
+        sql,
+        _cache: { hit: true, builtAt: cached.builtAt },
+        _rls: {
+          configured: !!(rls && rls.enabled),
+          applies: !!rlsApplies,
+          bypass: rlsContextForCache.bypass,
+          table: rls?.table || null,
+          primaryKey: rls?.primaryKey || null,
+          ruleCount: rls?.rules ? Object.keys(rls.rules).length : 0,
+          userEmail: req.isAuthenticated() ? req.user.email : null,
+          allowedKeys: allowedRlsKeys,
+        },
+      });
+    }
+  }
+
   let conn;
   let registeredQueryId = null;
   try {
@@ -1392,6 +1441,7 @@ router.post('/:id/query', async (req, res) => {
     // back to the legacy non-cancellable path.
     const timeoutMs = resolveQueryTimeoutMs(req);
     let rawRows;
+    const startedAt = Date.now();
     if (typeof conn.queryCancellable === 'function') {
       // Always go through queryCancellable now — it's the only path that
       // enforces the timeout. If the client provided a queryId we also
@@ -1422,8 +1472,17 @@ router.post('/:id/query', async (req, res) => {
       }
       return obj;
     });
+    // Store in cache so the next identical request hits warm. We skip
+    // empty / very-large payloads in stats but still cache them — an
+    // empty result is still a meaningful answer to the user.
+    queryCache.set(cacheOpts, {
+      rows,
+      builtAt: new Date().toISOString(),
+      queryDurationMs: Date.now() - startedAt,
+    });
     res.json({
       rows, rowCount: rows.length, maxReached: rows.length >= MAX_ROWS, sql,
+      _cache: { hit: false },
       _rls: {
         configured: !!(rls && rls.enabled),
         applies: !!rlsApplies,

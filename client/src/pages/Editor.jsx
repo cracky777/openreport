@@ -646,6 +646,10 @@ export default function Editor() {
           // Report context — cloud uses this to resolve the workspace
           // override for query timeout. OSS ignores it.
           reportId: id,
+          // Manual refresh skips the result cache but still warms it on
+          // the way back. Other re-renders (filter / drill / interaction
+          // toggle) read straight from cache when shape matches.
+          bypassCache: refreshRequested,
           ...reportExtras,
         };
         const mainPromise = hasMainBinding
@@ -666,6 +670,7 @@ export default function Editor() {
               // grand total, not the truncated one.
               widgetFilters: sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]),
               reportId: id,
+              bypassCache: refreshRequested,
               ...reportExtras,
             }, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
@@ -695,6 +700,7 @@ export default function Editor() {
               // doesn't apply when there's no GROUP BY.
               widgetFilters: sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]),
               reportId: id,
+              bypassCache: refreshRequested,
               ...reportExtras,
             }, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
@@ -724,6 +730,7 @@ export default function Editor() {
               filters: n1Filters,
               widgetFilters: sanitizeWidgetFilters(n1WidgetFilters),
               reportId: id,
+              bypassCache: refreshRequested,
               ...reportExtras,
             }, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
