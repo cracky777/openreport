@@ -357,7 +357,7 @@ function QueryCacheControl({ enabled, ttlMs, minMs, maxMs, stats, onSave, onFlus
           disabled={saving}
         />
         <label htmlFor="query-cache-enabled" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-          Enabled — repeat visual queries with the same SQL + RLS context are served from memory
+          Cache visual query results across the whole instance — when off, every refresh re-hits the source DB
         </label>
       </div>
       {enabled && (
