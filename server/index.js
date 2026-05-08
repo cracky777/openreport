@@ -149,23 +149,15 @@ app.get('/api/custom-visual-template.zip', requireAuth, (req, res) => {
   }
 });
 
-// Serve React frontend in production (BEFORE Cube.js to avoid route conflicts)
+// Serve React frontend in production
 const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
 if (fs.existsSync(clientDistPath)) {
   app.use(express.static(clientDistPath));
   app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api/') && !req.path.startsWith('/cubejs-api/')) {
+    if (!req.path.startsWith('/api/')) {
       res.sendFile(path.join(clientDistPath, 'index.html'));
     }
   });
-}
-
-// Cube.js semantic layer
-try {
-  const { setupCube } = require('./cube/cubeSetup');
-  setupCube(app);
-} catch (err) {
-  console.warn('Cube.js setup skipped:', err.message);
 }
 
 // Global safety nets — prevent the server from crashing on async DB errors (e.g. ECONNRESET on a pool socket)

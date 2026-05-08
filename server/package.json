@@ -3,9 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
-    "@cubejs-backend/mysql-driver": "^1.6.33",
-    "@cubejs-backend/postgres-driver": "^1.6.33",
-    "@cubejs-backend/server-core": "^1.6.33",
     "@google-cloud/bigquery": "^8.1.1",
     "adm-zip": "^0.5.17",
     "bcryptjs": "^2.4.3",
