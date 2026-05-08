@@ -241,8 +241,13 @@ router.put('/:id', requireAuth, (req, res) => {
 
   const { title, layout, widgets, settings, is_public, workspace_id, pages } = req.body;
 
-  // Merge pages into settings for storage
-  const mergedSettings = { ...(settings || {}), ...(pages ? { pages } : {}) };
+  // Only build a settings payload when the caller actually supplied one.
+  // Returning null lets the COALESCE keep the existing row value — otherwise
+  // metadata-only saves (toggle is_public, rename, move workspace) would
+  // overwrite settings with `{}` and lose extraDimensions / extraMeasures.
+  const settingsParam = (settings !== undefined || pages !== undefined)
+    ? JSON.stringify({ ...(settings || {}), ...(pages ? { pages } : {}) })
+    : null;
 
   // Snapshot the BEFORE state for content changes only — skip metadata-only saves.
   const isContentChange = title !== undefined
@@ -266,7 +271,7 @@ router.put('/:id', requireAuth, (req, res) => {
     title || null,
     layout ? JSON.stringify(layout) : null,
     widgets ? JSON.stringify(widgets) : null,
-    mergedSettings ? JSON.stringify(mergedSettings) : null,
+    settingsParam,
     is_public !== undefined ? (is_public ? 1 : 0) : null,
     workspace_id !== undefined ? 1 : 0,
     workspace_id !== undefined ? workspace_id : null,
