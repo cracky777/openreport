@@ -380,6 +380,19 @@ export default function Viewer() {
         ? [...widgetFilters, { field: topNMeasure, op: 'top_n', value: topNValue, isMeasure: true }]
         : widgetFilters;
 
+      // Report-scoped dim/measure definitions (custom `_calc.*` measures,
+      // `_date.*` parts, label/type overrides). Must be sent on EVERY
+      // /query call — the server merges them with the model definitions
+      // before resolving names. Without this, the viewer 400s with
+      // "Missing in model" for any widget that references a report-only
+      // field, even though the editor (which sends them) renders fine.
+      const reportExtras = {
+        extraDimensions: report?.settings?.extraDimensions || [],
+        extraMeasures: report?.settings?.extraMeasures || [],
+        dimensionOverrides: report?.settings?.dimensionOverrides || {},
+        measureOverrides: report?.settings?.measureOverrides || {},
+      };
+
       const mainPromise = hasMainBinding
         ? api.post(`/models/${model.id}/query`, {
             dimensionNames: allDims, measureNames: meass,
@@ -387,6 +400,7 @@ export default function Viewer() {
             widgetFilters: sanitizeWidgetFilters(widgetFiltersWithTopN),
             distinct: isFilterWidget || undefined,
             reportId: id,
+            ...reportExtras,
           })
         : Promise.resolve({ data: { rows: [] } });
       const colorPromise = colorMeasure
@@ -395,6 +409,7 @@ export default function Viewer() {
             filters: queryFilters,
             widgetFilters: sanitizeWidgetFilters(widgetFilters),
             reportId: id,
+            ...reportExtras,
           }).catch(() => null)
         : Promise.resolve(null);
       const totalPromise = topNApplies
@@ -403,17 +418,21 @@ export default function Viewer() {
             filters: queryFilters,
             widgetFilters: sanitizeWidgetFilters(widgetFilters),
             reportId: id,
+            ...reportExtras,
           }).catch(() => null)
         : Promise.resolve(null);
       // N-1 comparison query (scorecards only).
       const compareDateDim = w.type === 'scorecard' ? (binding.compareDateDim || null) : null;
+      // Use the merged dim list (model + extras) so a `_date.*` part can
+      // be detected as year-like by the N-1 helper.
+      const dimsForN1 = [...(model?.dimensions || []), ...reportExtras.extraDimensions];
       const shouldFetchN1 = !!compareDateDim
-        && hasShiftableFilterForN1(queryFilters, widgetFilters, model?.dimensions);
+        && hasShiftableFilterForN1(queryFilters, widgetFilters, dimsForN1);
       const n1Filters = shouldFetchN1
-        ? shiftFiltersForN1(queryFilters, model?.dimensions)
+        ? shiftFiltersForN1(queryFilters, dimsForN1)
         : null;
       const n1WidgetFilters = shouldFetchN1
-        ? shiftWidgetFiltersForN1(widgetFilters, model?.dimensions)
+        ? shiftWidgetFiltersForN1(widgetFilters, dimsForN1)
         : null;
       const n1Promise = shouldFetchN1
         ? api.post(`/models/${model.id}/query`, {
@@ -421,6 +440,7 @@ export default function Viewer() {
             filters: n1Filters,
             widgetFilters: sanitizeWidgetFilters(n1WidgetFilters),
             reportId: id,
+            ...reportExtras,
           }).catch(() => null)
         : Promise.resolve(null);
       Promise.all([mainPromise, colorPromise, totalPromise, n1Promise]).then(([res, colorRes, totalRes, n1Res]) => {
