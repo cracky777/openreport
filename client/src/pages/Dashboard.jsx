@@ -1470,7 +1470,7 @@ export default function Dashboard() {
                               onClick={() => openCacheSchedules(report)}
                               onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                               onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                              <TbCalendarTime size={14} /> Refresh schedule
+                              <TbCalendarTime size={14} /> Schedule refresh
                             </button>
                             {/* Schedule email — cloud-only. The endpoint 404s in OSS,
                                 so we only show the entry when an active org is set
@@ -1670,66 +1670,75 @@ const CRON_PRESETS = [
   { label: 'Custom…', expr: '' },
 ];
 
-// Lightweight cache_warm schedule manager. Same modal pattern as the
-// email ScheduleModal but stripped to the essentials — cron expression
-// + timezone + enabled toggle. No recipients, no subject, no PDF render.
+// Cache_warm schedule manager. Mirrors the email `ScheduleModal` look:
+// banner + 2-mode (list / editor), `cardActionBtn` row buttons, and a
+// space-between action row with primary on the left and Close on the
+// right. Only fields differ — no recipients / subject / PDF render.
 function CacheScheduleModal({ modal, runningIds, onClose, onCreate, onToggle, onDelete, onRunNow }) {
   const { report, schedules, loading, error } = modal;
-  const [cron, setCron] = useState('0 * * * *'); // every hour by default
-  const [tz, setTz] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
-  const [submitting, setSubmitting] = useState(false);
-  const [formErr, setFormErr] = useState(null);
-  const submit = async () => {
-    if (!cron.trim()) { setFormErr('Cron expression required'); return; }
-    setSubmitting(true);
-    setFormErr(null);
-    try {
-      await onCreate({ cronExpression: cron.trim(), timezone: tz || 'UTC' });
-      setCron('0 * * * *');
-    } catch (err) {
-      setFormErr(err.response?.data?.error || err.message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const [editing, setEditing] = useState(false);
   return (
     <div style={actionModalBackdrop} onClick={onClose}>
-      <div style={{ ...actionModalCard, minWidth: 480, maxWidth: 580 }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ ...actionModalTitle, marginBottom: 12 }}>Refresh schedule — {report.title}</div>
+      <div style={{ ...actionModalCard, minWidth: 520, maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ ...actionModalTitle, marginBottom: 14 }}>Schedule refresh — {report.title}</div>
 
-        {loading ? (
-          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading…</div>
-        ) : error ? (
-          <div style={{ color: 'var(--state-danger)', fontSize: 12 }}>{error}</div>
-        ) : (
+        {!editing && (
           <>
-            {schedules.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--text-disabled)', marginBottom: 14 }}>No cache schedule yet for this report.</div>
+            {loading ? (
+              <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-disabled)' }}>Loading...</div>
+            ) : error ? (
+              <div style={{ padding: 12, color: 'var(--state-danger)', fontSize: 13 }}>{error}</div>
+            ) : schedules.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-disabled)', fontSize: 13, border: '1px dashed var(--border-default)', borderRadius: 6 }}>
+                No schedules yet for this report.
+              </div>
             ) : (
-              <div style={{ marginBottom: 14, border: '1px solid var(--border-default)', borderRadius: 6 }}>
+              <div style={{ maxHeight: 320, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 6 }}>
                 {schedules.map((s) => {
                   const isRunning = runningIds.has(s.id);
                   return (
-                    <div key={s.id} style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--bg-subtle)' }}>
-                      <code style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--text-primary)' }}>{s.cron_expression}</code>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.timezone}</span>
-                      <span style={{ flex: 1 }} />
-                      {s.last_run_at && (
-                        <span style={{ fontSize: 11, color: s.last_run_status === 'ok' ? 'var(--state-success)' : 'var(--state-danger)' }}
-                          title={s.last_error || ''}>
-                          last run: {new Date(s.last_run_at).toLocaleString()} ({s.last_run_status})
-                        </span>
-                      )}
-                      <button className="btn-hover" onClick={() => onToggle(s)} title={s.enabled ? 'Disable' : 'Enable'}
-                        style={{ background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '4px 6px', cursor: 'pointer', color: s.enabled ? 'var(--accent-primary)' : 'var(--text-disabled)' }}>
-                        {s.enabled ? <TbToggleRight size={14} /> : <TbToggleLeft size={14} />}
+                    <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--border-default)' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <code style={{ background: 'var(--bg-subtle)', padding: '1px 6px', borderRadius: 3, fontFamily: 'monospace' }}>{s.cron_expression}</code>
+                          {!s.enabled && (
+                            <span style={{ fontSize: 10, color: 'var(--text-disabled)', textTransform: 'uppercase', fontWeight: 700, background: 'var(--bg-subtle)', padding: '1px 6px', borderRadius: 3 }}>paused</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                          {s.timezone}
+                          {s.last_run_at && (
+                            <span style={{ color: s.last_run_status === 'error' ? 'var(--state-danger)' : 'var(--text-muted)' }}>
+                              {' · last run '}{new Date(s.last_run_at).toLocaleString()}{s.last_run_status === 'error' ? ' (error)' : ''}
+                            </span>
+                          )}
+                        </div>
+                        {s.last_run_status === 'error' && s.last_error && (
+                          <div style={{ fontSize: 11, color: 'var(--state-danger)', marginTop: 3 }}>
+                            {s.last_error}
+                          </div>
+                        )}
+                      </div>
+                      {(() => {
+                        const sendBtn = cardActionBtn('accent');
+                        return (
+                          <button
+                            title={isRunning ? 'Refreshing…' : 'Run now'}
+                            onClick={() => onRunNow(s)}
+                            disabled={isRunning}
+                            {...sendBtn}
+                            style={{ ...sendBtn.style, cursor: isRunning ? 'wait' : 'pointer', opacity: isRunning ? 0.7 : 1 }}
+                          >
+                            {isRunning
+                              ? <TbLoader2 size={14} className="spin" />
+                              : <TbPlayerPlay size={14} />}
+                          </button>
+                        );
+                      })()}
+                      <button title={s.enabled ? 'Pause' : 'Resume'} onClick={() => onToggle(s)} {...cardActionBtn(s.enabled ? 'accent' : 'muted')}>
+                        {s.enabled ? <TbToggleRight size={16} /> : <TbToggleLeft size={16} />}
                       </button>
-                      <button className="btn-hover" onClick={() => onRunNow(s)} disabled={isRunning} title="Run now"
-                        style={{ background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '4px 6px', cursor: isRunning ? 'default' : 'pointer', opacity: isRunning ? 0.5 : 1 }}>
-                        {isRunning ? <TbLoader2 size={14} className="spin" /> : <TbPlayerPlay size={14} />}
-                      </button>
-                      <button className="btn-hover btn-hover-danger" onClick={() => onDelete(s)} title="Delete"
-                        style={{ background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '4px 6px', cursor: 'pointer', color: 'var(--state-danger)' }}>
+                      <button title="Delete" onClick={() => onDelete(s)} {...cardActionBtn('danger')}>
                         <TbTrash size={14} />
                       </button>
                     </div>
@@ -1737,37 +1746,90 @@ function CacheScheduleModal({ modal, runningIds, onClose, onCreate, onToggle, on
                 })}
               </div>
             )}
-
-            <div style={{ borderTop: '1px solid var(--border-default)', paddingTop: 12 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Add a schedule</div>
-              <label style={scheduleFieldLabel}>Cron expression</label>
-              <input value={cron} onChange={(e) => setCron(e.target.value)}
-                placeholder="0 * * * *"
-                style={{ ...actionModalInput, fontFamily: 'monospace', fontSize: 12 }} />
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 8 }}>
-                Minute hour day-of-month month day-of-week. Example: <code>0 9 * * 1-5</code> = weekdays at 9am.
-              </div>
-
-              <label style={scheduleFieldLabel}>Timezone</label>
-              <input list="cache-schedule-timezones" value={tz} onChange={(e) => setTz(e.target.value)}
-                style={{ ...actionModalInput, fontFamily: 'monospace', fontSize: 12 }} />
-              <datalist id="cache-schedule-timezones">
-                {TIMEZONE_OPTIONS.map((tzn) => <option key={tzn} value={tzn} />)}
-              </datalist>
-
-              {formErr && <div style={{ color: 'var(--state-danger)', fontSize: 12, marginBottom: 10 }}>{formErr}</div>}
+            <div style={{ ...actionModalActions, justifyContent: 'space-between' }}>
+              <button
+                className="btn-hover btn-hover-primary"
+                style={actionModalBtnPrimary}
+                onClick={() => setEditing(true)}
+              >
+                + New schedule
+              </button>
+              <button className="btn-hover" style={actionModalBtnSecondary} onClick={onClose}>Close</button>
             </div>
           </>
         )}
 
-        <div style={actionModalActions}>
-          <button className="btn-hover" style={actionModalBtnSecondary} onClick={onClose}>Close</button>
-          {!loading && !error && (
-            <button className="btn-hover btn-hover-primary" style={actionModalBtnPrimary} onClick={submit} disabled={submitting}>
-              {submitting ? 'Adding…' : 'Add schedule'}
-            </button>
-          )}
-        </div>
+        {editing && (
+          <CacheScheduleEditor
+            onCancel={() => setEditing(false)}
+            onSubmit={async ({ cronExpression, timezone }) => {
+              await onCreate({ cronExpression, timezone });
+              setEditing(false);
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CacheScheduleEditor({ onCancel, onSubmit }) {
+  const [cron, setCron] = useState('0 * * * *');
+  const [tz, setTz] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+  const [presetIdx, setPresetIdx] = useState(CRON_PRESETS.length - 1);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState(null);
+  const handleSubmit = async () => {
+    if (!cron.trim()) { setErr('Cron expression required'); return; }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await onSubmit({ cronExpression: cron.trim(), timezone: tz || 'UTC' });
+    } catch (e) {
+      setErr(e.response?.data?.error || e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return (
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>
+        New schedule
+      </div>
+
+      <label style={scheduleFieldLabel}>When</label>
+      <select value={presetIdx} onChange={(e) => {
+        const idx = parseInt(e.target.value, 10);
+        setPresetIdx(idx);
+        const preset = CRON_PRESETS[idx];
+        if (preset.expr) setCron(preset.expr);
+      }} style={{ ...actionModalInput, marginBottom: 6 }}>
+        {CRON_PRESETS.map((p, i) => <option key={i} value={i}>{p.label}</option>)}
+      </select>
+      <input
+        value={cron}
+        onChange={(e) => { setCron(e.target.value); setPresetIdx(CRON_PRESETS.length - 1); }}
+        placeholder="0 9 * * 1"
+        style={{ ...actionModalInput, fontFamily: 'monospace', fontSize: 12 }}
+      />
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 8 }}>
+        Cron expression — minute hour day-of-month month day-of-week.
+      </div>
+
+      <label style={scheduleFieldLabel}>Timezone</label>
+      <input list="cache-schedule-timezones" value={tz} onChange={(e) => setTz(e.target.value)}
+        style={{ ...actionModalInput, fontFamily: 'monospace', fontSize: 12 }} />
+      <datalist id="cache-schedule-timezones">
+        {TIMEZONE_OPTIONS.map((tzn) => <option key={tzn} value={tzn} />)}
+      </datalist>
+
+      {err && <div style={{ color: 'var(--state-danger)', fontSize: 12, marginBottom: 10 }}>{err}</div>}
+
+      <div style={{ ...actionModalActions, justifyContent: 'space-between' }}>
+        <button className="btn-hover" style={actionModalBtnSecondary} onClick={onCancel} disabled={submitting}>Cancel</button>
+        <button className="btn-hover btn-hover-primary" style={actionModalBtnPrimary} onClick={handleSubmit} disabled={submitting}>
+          {submitting ? 'Saving…' : 'Save'}
+        </button>
       </div>
     </div>
   );
