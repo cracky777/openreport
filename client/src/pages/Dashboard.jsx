@@ -582,11 +582,6 @@ export default function Dashboard() {
     await api.delete(`/cache-schedules/${s.id}`);
     await refreshCacheSchedules(s.report_id);
   };
-  // One-shot warm of a report's cache — independent of any schedule.
-  // The modal exposes this as "Warm cache now"; the result is reported
-  // inline so the user sees how many widgets were warmed.
-  const [cacheWarmingNow, setCacheWarmingNow] = useState(false);
-  const [cacheWarmNowResult, setCacheWarmNowResult] = useState(null);
   // Per-report-card warm state. `cardWarmingIds` is the set of reports
   // whose Refresh button is currently spinning; `cardCacheStats` is the
   // last known size for each report (entries + bytes), shown under the
@@ -697,20 +692,6 @@ export default function Dashboard() {
     // after F5. Empty dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const runCacheNow = async () => {
-    if (!cacheScheduleModal || cacheWarmingNow) return;
-    setCacheWarmingNow(true);
-    setCacheWarmNowResult(null);
-    try {
-      const res = await api.post(`/cache-schedules/run-now/${cacheScheduleModal.report.id}`);
-      setCacheWarmNowResult(res.data?.result || null);
-    } catch (err) {
-      setCacheWarmNowResult({ error: err.response?.data?.error || err.message });
-    } finally {
-      setCacheWarmingNow(false);
-    }
-  };
-
   const runCacheScheduleNow = async (s) => {
     if (cacheScheduleRunning.has(s.id)) return;
     setCacheScheduleRunning((prev) => { const n = new Set(prev); n.add(s.id); return n; });
@@ -1489,7 +1470,7 @@ export default function Dashboard() {
                               onClick={() => openCacheSchedules(report)}
                               onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                               onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                              <TbCalendarTime size={14} /> Cache schedule
+                              <TbCalendarTime size={14} /> Refresh schedule
                             </button>
                             {/* Schedule email — cloud-only. The endpoint 404s in OSS,
                                 so we only show the entry when an active org is set
@@ -1605,16 +1586,13 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Cache schedules — works in both OSS and cloud. Each tick warms
+      {/* Refresh schedules — works in both OSS and cloud. Each tick warms
           the report's queries to populate queryCache + preAggCache. */}
       {cacheScheduleModal && (
         <CacheScheduleModal
           modal={cacheScheduleModal}
           runningIds={cacheScheduleRunning}
-          warmingNow={cacheWarmingNow}
-          warmNowResult={cacheWarmNowResult}
-          onWarmNow={runCacheNow}
-          onClose={() => { setCacheScheduleModal(null); setCacheWarmNowResult(null); }}
+          onClose={() => setCacheScheduleModal(null)}
           onCreate={createCacheSchedule}
           onToggle={toggleCacheSchedule}
           onDelete={deleteCacheSchedule}
@@ -1695,7 +1673,7 @@ const CRON_PRESETS = [
 // Lightweight cache_warm schedule manager. Same modal pattern as the
 // email ScheduleModal but stripped to the essentials — cron expression
 // + timezone + enabled toggle. No recipients, no subject, no PDF render.
-function CacheScheduleModal({ modal, runningIds, warmingNow, warmNowResult, onWarmNow, onClose, onCreate, onToggle, onDelete, onRunNow }) {
+function CacheScheduleModal({ modal, runningIds, onClose, onCreate, onToggle, onDelete, onRunNow }) {
   const { report, schedules, loading, error } = modal;
   const [cron, setCron] = useState('0 * * * *'); // every hour by default
   const [tz, setTz] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
@@ -1717,41 +1695,7 @@ function CacheScheduleModal({ modal, runningIds, warmingNow, warmNowResult, onWa
   return (
     <div style={actionModalBackdrop} onClick={onClose}>
       <div style={{ ...actionModalCard, minWidth: 480, maxWidth: 580 }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ ...actionModalTitle, marginBottom: 12 }}>Cache schedule — {report.title}</div>
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -4, marginBottom: 12 }}>
-          At each tick the server fires this report's queries to refresh the in-memory cache. Users opening the report within the cache TTL window after a tick see instant loads.
-        </p>
-
-        {/* One-shot warm — handy to refresh the cache right now without
-            having to set up a recurring schedule. Reports its outcome
-            inline so the user sees how many widgets were warmed. */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-          <button
-            className="btn-hover btn-hover-primary"
-            onClick={onWarmNow}
-            disabled={warmingNow}
-            style={{
-              ...actionModalBtnPrimary,
-              padding: '6px 14px', fontSize: 12,
-              opacity: warmingNow ? 0.6 : 1, cursor: warmingNow ? 'default' : 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-            }}
-          >
-            {warmingNow ? <TbLoader2 size={14} className="spin" /> : <TbPlayerPlay size={14} />}
-            {warmingNow ? 'Warming…' : 'Warm cache now'}
-          </button>
-          {warmNowResult && !warmNowResult.error && (
-            <span style={{ fontSize: 11, color: 'var(--state-success)' }}>
-              Warmed {warmNowResult.warmed ?? 0}/{warmNowResult.fired ?? 0} widget(s)
-              {warmNowResult.preAggsStored ? `, ${warmNowResult.preAggsStored} pre-agg` : ''}
-            </span>
-          )}
-          {warmNowResult && warmNowResult.error && (
-            <span style={{ fontSize: 11, color: 'var(--state-danger)' }}>
-              Failed: {warmNowResult.error}
-            </span>
-          )}
-        </div>
+        <div style={{ ...actionModalTitle, marginBottom: 12 }}>Refresh schedule — {report.title}</div>
 
         {loading ? (
           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading…</div>
