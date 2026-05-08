@@ -1370,9 +1370,9 @@ export default function Dashboard() {
                         {formatFileSize(report.fileSize)}
                       </p>
                     )}
-                    <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Edit update {new Date(report.updated_at).toLocaleDateString()}</p>
+                    <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Edit update {new Date(report.updated_at).toLocaleString()}</p>
                     {cardCacheStats[report.id]?.builtAt && (
-                      <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Data update {new Date(cardCacheStats[report.id].builtAt).toLocaleDateString()}</p>
+                      <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Data update {new Date(cardCacheStats[report.id].builtAt).toLocaleString()}</p>
                     )}
                   </div>
                   <div style={{ padding: '8px 20px 14px', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
