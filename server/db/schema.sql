@@ -80,6 +80,29 @@ CREATE TABLE IF NOT EXISTS app_settings (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Cron-triggered cache warm passes per report. Each row registers a
+-- `node-cron` job at boot (and on create/update via the scheduler's
+-- hot-reload). The runner fires the report's queries with bypassCache=1
+-- so queryCache + preAggCache get freshly populated. No email path —
+-- email schedules live in the cloud edition only.
+CREATE TABLE IF NOT EXISTS cache_schedules (
+  id              TEXT PRIMARY KEY,
+  report_id       TEXT NOT NULL,
+  user_id         TEXT NOT NULL,
+  cron_expression TEXT NOT NULL,
+  timezone        TEXT NOT NULL DEFAULT 'UTC',
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  last_run_at     TEXT,
+  last_run_status TEXT,                    -- 'ok' | 'error'
+  last_error      TEXT,
+  created_at      TEXT DEFAULT (datetime('now')),
+  updated_at      TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_cache_schedules_report ON cache_schedules(report_id);
+CREATE INDEX IF NOT EXISTS idx_cache_schedules_enabled ON cache_schedules(enabled);
+
 CREATE TABLE IF NOT EXISTS reports (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,

@@ -159,6 +159,12 @@ body {
   100% { transform: rotate(360deg); }
 }
 
+/* Drop-in helper for any inline icon that should spin while a request
+   is in flight (cache warm, schedule run-now, etc.). */
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
 @keyframes tooltipIn {
   from { opacity: 0; transform: translate(-50%, -2px); }
   to { opacity: 1; transform: translate(-50%, 0); }

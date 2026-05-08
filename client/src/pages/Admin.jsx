@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { TbShield, TbEdit, TbEye, TbTrash, TbUserPlus, TbKey, TbExternalLink, TbClock } from 'react-icons/tb';
+import { formatDuration, formatBytes } from '../utils/formatHuman';
 import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton } from '../components/PageHeader/PageHeader';
 // Cloud edition contributes extra admin links here (e.g. Billing). Empty in OSS builds.
 import { adminLinks as cloudAdminLinks } from '../cloud';
@@ -72,10 +73,17 @@ export default function Admin() {
     setFlushingCache(true);
     try {
       const res = await api.post('/admin/settings/query-cache/flush');
-      setSettings({ ...settings, queryCacheStats: { ...(settings.queryCacheStats || {}), size: 0 } });
-      alert(`Flushed ${res.data.evicted} cached entries`);
+      setSettings({
+        ...settings,
+        queryCacheStats: { ...(settings.queryCacheStats || {}), size: 0 },
+        preAggCacheStats: { ...(settings.preAggCacheStats || {}), size: 0 },
+        // Surface the count inline instead of through a blocking
+        // `alert(...)` that left the button stuck in "Flushing…" until
+        // the user dismissed the popup.
+        _lastFlushed: { evicted: res.data.evicted, evictedPreAgg: res.data.evictedPreAgg, at: Date.now() },
+      });
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to flush');
+      alert(err.response?.data?.error || 'Failed to delete cache');
     } finally {
       setFlushingCache(false);
     }
@@ -153,6 +161,15 @@ export default function Admin() {
             <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
               <TbClock size={16} color="var(--accent-primary)" /> System Settings
             </h3>
+            {/* Storage usage summary — uploaded source files (disk) +
+                in-memory caches (RAM). Mirrors what the cloud edition's
+                StorageBar shows on the Datasources page, scoped down to
+                "this instance" since OSS has no per-tenant breakdown. */}
+            <StorageUsageRow
+              uploadedFileCount={settings.storage?.uploadedFileCount ?? 0}
+              uploadedBytes={settings.storage?.uploadedBytes ?? 0}
+              cacheBytes={(settings.queryCacheStats?.bytes ?? 0) + (settings.preAggCacheStats?.bytes ?? 0)}
+            />
             <QueryTimeoutControl
               valueMs={settings.queryTimeoutMs}
               minMs={settings.queryTimeoutMinMs}
@@ -168,6 +185,8 @@ export default function Admin() {
               minMs={settings.queryCacheTtlMinMs}
               maxMs={settings.queryCacheTtlMaxMs}
               stats={settings.queryCacheStats}
+              preAggStats={settings.preAggCacheStats}
+              lastFlushed={settings._lastFlushed}
               onSave={saveQueryCache}
               onFlush={flushQueryCache}
               saving={savingCache}
@@ -328,16 +347,57 @@ function QueryTimeoutControl({ valueMs, minMs, maxMs, defaultMs, onSave, saving 
   );
 }
 
+// Compact 2-stat row: uploaded source files (disk) + cache (RAM). Both
+// are instance-wide totals so the admin sees at a glance how heavy the
+// install is. No quota or limit — OSS doesn't ship with billing plans.
+function StorageUsageRow({ uploadedFileCount, uploadedBytes, cacheBytes }) {
+  const cell = {
+    flex: 1, padding: '10px 12px',
+    background: 'var(--bg-subtle)', borderRadius: 6,
+    border: '1px solid var(--border-default)',
+  };
+  return (
+    <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+      <div style={cell}>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+          Uploaded files
+        </div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginTop: 4 }}>
+          {formatBytes(uploadedBytes)}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-disabled)', marginTop: 2 }}>
+          {uploadedFileCount} file{uploadedFileCount === 1 ? '' : 's'} on disk
+        </div>
+      </div>
+      <div style={cell}>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+          Cache in RAM
+        </div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginTop: 4 }}>
+          {formatBytes(cacheBytes)}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-disabled)', marginTop: 2 }}>
+          query results + pre-aggregations
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Query cache control — toggle + TTL slider + Flush button. Same shape
 // as QueryTimeoutControl: local state for the slider so the user can
 // scrub freely; explicit Save commits. Toggle saves immediately because
 // it has no intermediate state to validate.
-function QueryCacheControl({ enabled, ttlMs, minMs, maxMs, stats, onSave, onFlush, saving, flushing }) {
+function QueryCacheControl({ enabled, ttlMs, minMs, maxMs, stats, preAggStats, lastFlushed, onSave, onFlush, saving, flushing }) {
   const minS = Math.round(minMs / 1000);
   const maxS = Math.round(maxMs / 1000);
   const [seconds, setSeconds] = useState(Math.round(ttlMs / 1000));
   useEffect(() => { setSeconds(Math.round(ttlMs / 1000)); }, [ttlMs]);
   const dirty = seconds !== Math.round(ttlMs / 1000);
+  const sqlEntries = stats?.size ?? 0;
+  const preAggEntries = preAggStats?.size ?? 0;
+  const totalEntries = sqlEntries + preAggEntries;
+  const totalBytes = (stats?.bytes ?? 0) + (preAggStats?.bytes ?? 0);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -345,7 +405,7 @@ function QueryCacheControl({ enabled, ttlMs, minMs, maxMs, stats, onSave, onFlus
           Query result cache
         </label>
         <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>
-          {stats?.size != null ? `${stats.size} cached entries` : ''}
+          {totalEntries} entries · {formatBytes(totalBytes)} in RAM{preAggEntries > 0 ? ` (${preAggEntries} pre-agg)` : ''}
         </span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -362,23 +422,16 @@ function QueryCacheControl({ enabled, ttlMs, minMs, maxMs, stats, onSave, onFlus
       </div>
       {enabled && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 60 }}>TTL</span>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 30 }}>TTL</span>
           <input
             type="range" min={minS} max={maxS} step={5}
             value={seconds}
             onChange={(e) => setSeconds(parseInt(e.target.value, 10))}
             style={{ flex: 1 }}
           />
-          <input
-            type="number" min={minS} max={maxS}
-            value={seconds}
-            onChange={(e) => {
-              const n = parseInt(e.target.value, 10);
-              if (Number.isFinite(n)) setSeconds(Math.max(minS, Math.min(maxS, n)));
-            }}
-            style={{ ...inputStyle, width: 80, padding: '6px 8px', textAlign: 'center' }}
-          />
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>seconds</span>
+          <span style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 500, minWidth: 56, textAlign: 'right' }}>
+            {formatDuration(seconds)}
+          </span>
           <button
             className="btn-hover btn-hover-primary"
             onClick={() => onSave({ ttlSeconds: seconds })}
@@ -389,15 +442,20 @@ function QueryCacheControl({ enabled, ttlMs, minMs, maxMs, stats, onSave, onFlus
           </button>
         </div>
       )}
-      <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <button
           className="btn-hover"
           onClick={onFlush}
           disabled={flushing}
           style={{ ...secondaryBtn, padding: '6px 12px', fontSize: 12, opacity: flushing ? 0.5 : 1 }}
         >
-          {flushing ? 'Flushing…' : 'Flush cache now'}
+          {flushing ? 'Deleting…' : 'Delete Cache'}
         </button>
+        {lastFlushed && (
+          <span style={{ fontSize: 11, color: 'var(--state-success)' }}>
+            Deleted {(lastFlushed.evicted || 0) + (lastFlushed.evictedPreAgg || 0)} entries
+          </span>
+        )}
       </div>
       <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>
         Saved a model? Updated a datasource? Those automatically drop the relevant entries. Use Flush only after an out-of-band schema change you couldn't capture through the UI.

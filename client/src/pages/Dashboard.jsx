@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbPencil, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbLoader2 } from 'react-icons/tb';
+import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbPencil, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbLoader2, TbRefresh } from 'react-icons/tb';
+import { formatBytes } from '../utils/formatHuman';
 import { useTheme } from '../hooks/useTheme';
 import { TopbarSwitcher, UserMenuExtras } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
@@ -463,6 +464,11 @@ export default function Dashboard() {
   const [moveModal, setMoveModal] = useState(null);        // { report, targetWs }
   const [historyModal, setHistoryModal] = useState(null);  // { report, versions, loading }
   const [scheduleModal, setScheduleModal] = useState(null); // { report, schedules, loading, editing }
+  // Cache-warm schedules — separate from the email scheduleModal because
+  // they hit /api/cache-schedules (works in OSS too) instead of the
+  // cloud-only /api/cloud/schedules.
+  const [cacheScheduleModal, setCacheScheduleModal] = useState(null);
+  const [cacheScheduleRunning, setCacheScheduleRunning] = useState(() => new Set());
   const [scheduleToast, setScheduleToast] = useState(null); // { type: 'ok' | 'error', message }
   // Set of schedule IDs currently being run via the manual "Send now" button.
   // Drives the inline spinner + disables the trigger so a user can't kick off
@@ -540,6 +546,184 @@ export default function Dashboard() {
     // Refresh the report list so the title in the card reflects the restored state
     const reportsRes = await api.get('/reports');
     setReports(reportsRes.data.reports);
+  };
+
+  // Cache-warm schedules — works in OSS and cloud. Each tick fires the
+  // report's queries to populate queryCache + preAggCache so users see
+  // instant loads in the cache TTL window after a warm pass.
+  const openCacheSchedules = async (report) => {
+    setCardMenu(null);
+    setCacheScheduleModal({ report, schedules: [], loading: true });
+    try {
+      const res = await api.get(`/cache-schedules/by-report/${report.id}`);
+      setCacheScheduleModal({ report, schedules: res.data.schedules || [], loading: false });
+    } catch (err) {
+      setCacheScheduleModal({ report, schedules: [], loading: false, error: err.response?.data?.error || err.message });
+    }
+  };
+  const refreshCacheSchedules = async (reportId) => {
+    if (!cacheScheduleModal || cacheScheduleModal.report.id !== reportId) return;
+    const res = await api.get(`/cache-schedules/by-report/${reportId}`);
+    setCacheScheduleModal((prev) => prev ? { ...prev, schedules: res.data.schedules || [] } : prev);
+  };
+  const createCacheSchedule = async ({ cronExpression, timezone }) => {
+    if (!cacheScheduleModal) return;
+    await api.post(`/cache-schedules/by-report/${cacheScheduleModal.report.id}`, {
+      cronExpression, timezone: timezone || 'UTC', enabled: true,
+    });
+    await refreshCacheSchedules(cacheScheduleModal.report.id);
+  };
+  const toggleCacheSchedule = async (s) => {
+    await api.put(`/cache-schedules/${s.id}`, { enabled: !s.enabled });
+    await refreshCacheSchedules(s.report_id);
+  };
+  const deleteCacheSchedule = async (s) => {
+    if (!confirm('Delete this cache schedule?')) return;
+    await api.delete(`/cache-schedules/${s.id}`);
+    await refreshCacheSchedules(s.report_id);
+  };
+  // One-shot warm of a report's cache — independent of any schedule.
+  // The modal exposes this as "Warm cache now"; the result is reported
+  // inline so the user sees how many widgets were warmed.
+  const [cacheWarmingNow, setCacheWarmingNow] = useState(false);
+  const [cacheWarmNowResult, setCacheWarmNowResult] = useState(null);
+  // Per-report-card warm state. `cardWarmingIds` is the set of reports
+  // whose Refresh button is currently spinning; `cardCacheStats` is the
+  // last known size for each report (entries + bytes), shown under the
+  // button. We hydrate stats lazily — only for reports the user has
+  // refreshed at least once, to avoid flooding the API on report list
+  // load.
+  const [cardWarmingIds, setCardWarmingIds] = useState(() => new Set());
+  const [cardCacheStats, setCardCacheStats] = useState({});
+  const fetchCardCacheStats = useCallback(async (reportId) => {
+    try {
+      const res = await api.get(`/cache-schedules/size/${reportId}`);
+      setCardCacheStats((p) => ({ ...p, [reportId]: res.data }));
+    } catch { /* size fetch is best-effort */ }
+  }, []);
+  const refreshReportCacheFromCard = useCallback(async (report) => {
+    if (cardWarmingIds.has(report.id)) return;
+    setCardWarmingIds((p) => { const n = new Set(p); n.add(report.id); return n; });
+    try {
+      // Fire-and-don't-await — the server tracks the in-flight warm in
+      // its own Set, so even if this tab navigates / reloads mid-warm,
+      // the next mount picks it up via the /warming endpoint and the
+      // spinner stays on. We still await to clean up local state on
+      // success, but a navigation interruption is now non-fatal.
+      await api.post(`/cache-schedules/run-now/${report.id}`);
+      await fetchCardCacheStats(report.id);
+      setCardWarmingIds((p) => { const n = new Set(p); n.delete(report.id); return n; });
+    } catch (err) {
+      // On failure (or aborted because the tab was closed) clear the
+      // local flag immediately — the polling loop below will re-add it
+      // if the warm is genuinely still in flight server-side.
+      setCardWarmingIds((p) => { const n = new Set(p); n.delete(report.id); return n; });
+      alert(err.response?.data?.error || 'Failed to refresh');
+    }
+  }, [cardWarmingIds, fetchCardCacheStats]);
+
+  // Auto-fetch cache size for every visible report when the workspace's
+  // report list changes. This is what makes the "Cache: X entries · Y MB"
+  // line persist across F5 / workspace switches — the data lives on the
+  // server, we just re-pull it on mount. Skipped for reports we already
+  // have stats for, so a click-Refresh-then-this-effect doesn't double-
+  // fetch.
+  useEffect(() => {
+    if (!Array.isArray(wsReports) || wsReports.length === 0) return;
+    const missing = wsReports.filter((r) => !cardCacheStats[r.id]);
+    if (missing.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      // Parallel one-shot — small payloads, the server already has them
+      // in memory so each call is sub-millisecond. With ~30 cards on a
+      // big workspace this is still well under the visual threshold.
+      const results = await Promise.all(missing.map(async (r) => {
+        try {
+          const res = await api.get(`/cache-schedules/size/${r.id}`);
+          return [r.id, res.data];
+        } catch { return null; }
+      }));
+      if (cancelled) return;
+      setCardCacheStats((prev) => {
+        const next = { ...prev };
+        for (const entry of results) {
+          if (entry) next[entry[0]] = entry[1];
+        }
+        return next;
+      });
+    })();
+    return () => { cancelled = true; };
+    // We intentionally depend on the array IDENTITY (not contents) so a
+    // simple state update (setReports([...same])) doesn't re-fetch every
+    // card; the workspace selector already replaces wsReports with a
+    // fresh array when it actually changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsReports]);
+
+  // Poll the server's warming-reports set so the spinner survives F5 /
+  // tab close. Fires once on mount (catches in-progress warms that
+  // started in another tab or before reload), then keeps polling at
+  // 2 s intervals while at least one report is warming. Stops cleanly
+  // once everything is idle.
+  useEffect(() => {
+    let cancelled = false;
+    let timer = null;
+    const poll = async () => {
+      try {
+        const res = await api.get('/cache-schedules/warming');
+        if (cancelled) return;
+        const serverIds = new Set(res.data?.reportIds || []);
+        // Find reports we WERE showing as warming that the server says
+        // finished — refresh their cache stats so the size line updates
+        // without the user clicking Refresh again.
+        setCardWarmingIds((prev) => {
+          for (const id of prev) {
+            if (!serverIds.has(id)) {
+              fetchCardCacheStats(id).catch(() => {});
+            }
+          }
+          return serverIds;
+        });
+        if (serverIds.size > 0) {
+          timer = setTimeout(poll, 2000);
+        }
+      } catch {
+        // Don't loop on error — the user might just be logged out.
+      }
+    };
+    poll();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    // Intentional: we want this to run on each Dashboard mount, including
+    // after F5. Empty dep array.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const runCacheNow = async () => {
+    if (!cacheScheduleModal || cacheWarmingNow) return;
+    setCacheWarmingNow(true);
+    setCacheWarmNowResult(null);
+    try {
+      const res = await api.post(`/cache-schedules/run-now/${cacheScheduleModal.report.id}`);
+      setCacheWarmNowResult(res.data?.result || null);
+    } catch (err) {
+      setCacheWarmNowResult({ error: err.response?.data?.error || err.message });
+    } finally {
+      setCacheWarmingNow(false);
+    }
+  };
+
+  const runCacheScheduleNow = async (s) => {
+    if (cacheScheduleRunning.has(s.id)) return;
+    setCacheScheduleRunning((prev) => { const n = new Set(prev); n.add(s.id); return n; });
+    try {
+      const res = await api.post(`/cache-schedules/${s.id}/run`);
+      const r = res.data?.result;
+      if (r?.error) alert(`Run failed: ${r.error}`);
+      await refreshCacheSchedules(s.report_id);
+    } catch (err) {
+      alert(err.response?.data?.error || err.message);
+    } finally {
+      setCacheScheduleRunning((prev) => { const n = new Set(prev); n.delete(s.id); return n; });
+    }
   };
 
   // Email schedules — cloud-only feature. Endpoints live under
@@ -1168,7 +1352,7 @@ export default function Dashboard() {
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
               {wsReports.map((report) => (
-                <div key={report.id} style={cardStyle}>
+                <div key={report.id} style={report.is_public ? { ...cardStyle, ...publicCardAccent } : cardStyle}>
                   {canEdit && (
                     <button
                       onClick={(e) => { e.stopPropagation(); deleteReport(report.id); }}
@@ -1205,17 +1389,29 @@ export default function Dashboard() {
                         {formatFileSize(report.fileSize)}
                       </p>
                     )}
-                    <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Updated {new Date(report.updated_at).toLocaleDateString()}</p>
+                    <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Edit update {new Date(report.updated_at).toLocaleDateString()}</p>
+                    {cardCacheStats[report.id]?.builtAt && (
+                      <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Data update {new Date(cardCacheStats[report.id].builtAt).toLocaleDateString()}</p>
+                    )}
                   </div>
-                  <div style={{ padding: '8px 20px 16px', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ padding: '8px 20px 14px', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                     <button onClick={() => window.open(`/view/${report.id}`, '_blank')} title="View" {...cardActionBtn('accent')}><TbEye size={16} /></button>
                     {canEdit && <button onClick={() => navigate(`/edit/${report.id}`)} title="Edit" {...cardActionBtn()}><TbEdit size={16} /></button>}
-                    {canEdit && (
-                      <button onClick={() => togglePublic(report)} title={report.is_public ? 'Make private' : 'Share public link'}
-                        {...cardActionBtn(report.is_public ? 'success' : 'muted')}>
-                        {report.is_public ? <TbShare size={16} /> : <TbShareOff size={16} />}
-                      </button>
-                    )}
+                    {canEdit && (() => {
+                      const warming = cardWarmingIds.has(report.id);
+                      return (
+                        <button
+                          onClick={() => refreshReportCacheFromCard(report)}
+                          disabled={warming}
+                          title={warming ? 'Refreshing cache…' : 'Refresh cache for this report'}
+                          {...cardActionBtn(warming ? 'accent' : 'muted')}
+                        >
+                          {warming
+                            ? <TbLoader2 size={16} className="spin" />
+                            : <TbRefresh size={16} />}
+                        </button>
+                      );
+                    })()}
                     {canEdit && (
                       <div style={{ position: 'relative', marginLeft: 'auto' }}
                         ref={cardMenu === report.id ? cardMenuRef : null}>
@@ -1257,6 +1453,16 @@ export default function Dashboard() {
                               onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                               <TbArrowsRightLeft size={14} /> Move to workspace
                             </button>
+                            {canEdit && (
+                              <button style={cardMenuItem}
+                                onClick={() => { setCardMenu(null); togglePublic(report); }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                                {report.is_public
+                                  ? <><TbShareOff size={14} /> Make private</>
+                                  : <><TbShare size={14} /> Share public link</>}
+                              </button>
+                            )}
                             {report.is_public ? (
                               <button style={cardMenuItem}
                                 onClick={() => {
@@ -1278,7 +1484,14 @@ export default function Dashboard() {
                                 <TbHistory size={14} /> History
                               </button>
                             )}
-                            {/* Schedule — cloud-only. The endpoint 404s in OSS,
+                            {/* Cache schedules — works in both OSS and cloud. */}
+                            <button style={cardMenuItem}
+                              onClick={() => openCacheSchedules(report)}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                              <TbCalendarTime size={14} /> Cache schedule
+                            </button>
+                            {/* Schedule email — cloud-only. The endpoint 404s in OSS,
                                 so we only show the entry when an active org is set
                                 (proxy: activeOrgRole !== null means we're in cloud). */}
                             {activeOrgRole && (
@@ -1294,6 +1507,14 @@ export default function Dashboard() {
                       </div>
                     )}
                   </div>
+                  {/* Cache footprint for this report. Populated lazily —
+                      only after the user clicks Refresh at least once,
+                      so the report list itself loads fast. */}
+                  {cardCacheStats[report.id] && (
+                    <div style={{ padding: '0 20px 12px', fontSize: 11, color: 'var(--text-disabled)' }}>
+                      Cache: {formatBytes(cardCacheStats[report.id].totalBytes)} in RAM
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1384,6 +1605,23 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Cache schedules — works in both OSS and cloud. Each tick warms
+          the report's queries to populate queryCache + preAggCache. */}
+      {cacheScheduleModal && (
+        <CacheScheduleModal
+          modal={cacheScheduleModal}
+          runningIds={cacheScheduleRunning}
+          warmingNow={cacheWarmingNow}
+          warmNowResult={cacheWarmNowResult}
+          onWarmNow={runCacheNow}
+          onClose={() => { setCacheScheduleModal(null); setCacheWarmNowResult(null); }}
+          onCreate={createCacheSchedule}
+          onToggle={toggleCacheSchedule}
+          onDelete={deleteCacheSchedule}
+          onRunNow={runCacheScheduleNow}
+        />
+      )}
+
       {/* Schedule emails — cloud-only. Lists the report's existing schedules
           and a small inline form to create / edit one. Phase 1: deep link in
           the email; PDF attachment + per-recipient personalisation later. */}
@@ -1453,6 +1691,143 @@ const CRON_PRESETS = [
   { label: 'First of the month at 9:00', expr: '0 9 1 * *' },
   { label: 'Custom…', expr: '' },
 ];
+
+// Lightweight cache_warm schedule manager. Same modal pattern as the
+// email ScheduleModal but stripped to the essentials — cron expression
+// + timezone + enabled toggle. No recipients, no subject, no PDF render.
+function CacheScheduleModal({ modal, runningIds, warmingNow, warmNowResult, onWarmNow, onClose, onCreate, onToggle, onDelete, onRunNow }) {
+  const { report, schedules, loading, error } = modal;
+  const [cron, setCron] = useState('0 * * * *'); // every hour by default
+  const [tz, setTz] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+  const [submitting, setSubmitting] = useState(false);
+  const [formErr, setFormErr] = useState(null);
+  const submit = async () => {
+    if (!cron.trim()) { setFormErr('Cron expression required'); return; }
+    setSubmitting(true);
+    setFormErr(null);
+    try {
+      await onCreate({ cronExpression: cron.trim(), timezone: tz || 'UTC' });
+      setCron('0 * * * *');
+    } catch (err) {
+      setFormErr(err.response?.data?.error || err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return (
+    <div style={actionModalBackdrop} onClick={onClose}>
+      <div style={{ ...actionModalCard, minWidth: 480, maxWidth: 580 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ ...actionModalTitle, marginBottom: 12 }}>Cache schedule — {report.title}</div>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -4, marginBottom: 12 }}>
+          At each tick the server fires this report's queries to refresh the in-memory cache. Users opening the report within the cache TTL window after a tick see instant loads.
+        </p>
+
+        {/* One-shot warm — handy to refresh the cache right now without
+            having to set up a recurring schedule. Reports its outcome
+            inline so the user sees how many widgets were warmed. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <button
+            className="btn-hover btn-hover-primary"
+            onClick={onWarmNow}
+            disabled={warmingNow}
+            style={{
+              ...actionModalBtnPrimary,
+              padding: '6px 14px', fontSize: 12,
+              opacity: warmingNow ? 0.6 : 1, cursor: warmingNow ? 'default' : 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+            }}
+          >
+            {warmingNow ? <TbLoader2 size={14} className="spin" /> : <TbPlayerPlay size={14} />}
+            {warmingNow ? 'Warming…' : 'Warm cache now'}
+          </button>
+          {warmNowResult && !warmNowResult.error && (
+            <span style={{ fontSize: 11, color: 'var(--state-success)' }}>
+              Warmed {warmNowResult.warmed ?? 0}/{warmNowResult.fired ?? 0} widget(s)
+              {warmNowResult.preAggsStored ? `, ${warmNowResult.preAggsStored} pre-agg` : ''}
+            </span>
+          )}
+          {warmNowResult && warmNowResult.error && (
+            <span style={{ fontSize: 11, color: 'var(--state-danger)' }}>
+              Failed: {warmNowResult.error}
+            </span>
+          )}
+        </div>
+
+        {loading ? (
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading…</div>
+        ) : error ? (
+          <div style={{ color: 'var(--state-danger)', fontSize: 12 }}>{error}</div>
+        ) : (
+          <>
+            {schedules.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-disabled)', marginBottom: 14 }}>No cache schedule yet for this report.</div>
+            ) : (
+              <div style={{ marginBottom: 14, border: '1px solid var(--border-default)', borderRadius: 6 }}>
+                {schedules.map((s) => {
+                  const isRunning = runningIds.has(s.id);
+                  return (
+                    <div key={s.id} style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--bg-subtle)' }}>
+                      <code style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--text-primary)' }}>{s.cron_expression}</code>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.timezone}</span>
+                      <span style={{ flex: 1 }} />
+                      {s.last_run_at && (
+                        <span style={{ fontSize: 11, color: s.last_run_status === 'ok' ? 'var(--state-success)' : 'var(--state-danger)' }}
+                          title={s.last_error || ''}>
+                          last run: {new Date(s.last_run_at).toLocaleString()} ({s.last_run_status})
+                        </span>
+                      )}
+                      <button className="btn-hover" onClick={() => onToggle(s)} title={s.enabled ? 'Disable' : 'Enable'}
+                        style={{ background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '4px 6px', cursor: 'pointer', color: s.enabled ? 'var(--accent-primary)' : 'var(--text-disabled)' }}>
+                        {s.enabled ? <TbToggleRight size={14} /> : <TbToggleLeft size={14} />}
+                      </button>
+                      <button className="btn-hover" onClick={() => onRunNow(s)} disabled={isRunning} title="Run now"
+                        style={{ background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '4px 6px', cursor: isRunning ? 'default' : 'pointer', opacity: isRunning ? 0.5 : 1 }}>
+                        {isRunning ? <TbLoader2 size={14} className="spin" /> : <TbPlayerPlay size={14} />}
+                      </button>
+                      <button className="btn-hover btn-hover-danger" onClick={() => onDelete(s)} title="Delete"
+                        style={{ background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '4px 6px', cursor: 'pointer', color: 'var(--state-danger)' }}>
+                        <TbTrash size={14} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{ borderTop: '1px solid var(--border-default)', paddingTop: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Add a schedule</div>
+              <label style={scheduleFieldLabel}>Cron expression</label>
+              <input value={cron} onChange={(e) => setCron(e.target.value)}
+                placeholder="0 * * * *"
+                style={{ ...actionModalInput, fontFamily: 'monospace', fontSize: 12 }} />
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 8 }}>
+                Minute hour day-of-month month day-of-week. Example: <code>0 9 * * 1-5</code> = weekdays at 9am.
+              </div>
+
+              <label style={scheduleFieldLabel}>Timezone</label>
+              <input list="cache-schedule-timezones" value={tz} onChange={(e) => setTz(e.target.value)}
+                style={{ ...actionModalInput, fontFamily: 'monospace', fontSize: 12 }} />
+              <datalist id="cache-schedule-timezones">
+                {TIMEZONE_OPTIONS.map((tzn) => <option key={tzn} value={tzn} />)}
+              </datalist>
+
+              {formErr && <div style={{ color: 'var(--state-danger)', fontSize: 12, marginBottom: 10 }}>{formErr}</div>}
+            </div>
+          </>
+        )}
+
+        <div style={actionModalActions}>
+          <button className="btn-hover" style={actionModalBtnSecondary} onClick={onClose}>Close</button>
+          {!loading && !error && (
+            <button className="btn-hover btn-hover-primary" style={actionModalBtnPrimary} onClick={submit} disabled={submitting}>
+              {submitting ? 'Adding…' : 'Add schedule'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ScheduleModal({ modal, runningIds, onClose, onStartCreate, onStartEdit, onCancelEdit, onSubmit, onToggle, onDelete, onRunNow }) {
   const { report, schedules, loading, error, editing, limits, dimensions } = modal;
@@ -1930,6 +2305,11 @@ const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border:
 const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: 'var(--bg-panel)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer' };
 const iconBtn = { background: 'transparent', border: '1px solid', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
 const cardStyle = { position: 'relative', backgroundColor: 'var(--bg-panel)', borderRadius: 8, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.15s' };
+// Public reports get a colored border (green = "publicly available")
+// so an admin scanning the workspace can spot sharable reports at a
+// glance. Background stays the regular panel colour to keep the cards
+// visually quiet — only the rim differs.
+const publicCardAccent = { borderColor: 'var(--state-success)' };
 const cardCloseBtn = {
   position: 'absolute', top: 6, right: 6, zIndex: 2,
   width: 22, height: 22, padding: 0,
@@ -2019,7 +2399,9 @@ const CARD_BTN_VARIANTS = {
 function cardActionBtn(variant) {
   const c = CARD_BTN_VARIANTS[variant] || CARD_BTN_VARIANTS.default;
   const base = {
-    padding: '6px 10px', borderRadius: 8,
+    // Bumped from 6px → 9px vertical so the icons have a bit more room
+    // to breathe. The horizontal stays at 10px to keep the row compact.
+    padding: '9px 10px', borderRadius: 8,
     background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
     color: c.color, cursor: 'pointer',
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',

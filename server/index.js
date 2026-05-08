@@ -17,6 +17,9 @@ const adminRoutes = require('./routes/admin');
 const workspaceRoutes = require('./routes/workspaces');
 const customVisualRoutes = require('./routes/customVisuals');
 const fileUploadRoutes = require('./routes/fileUpload');
+const cacheScheduleRoutes = require('./routes/cacheSchedules');
+const internalToken = require('./utils/internalToken');
+const cacheScheduler = require('./utils/cacheScheduler');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -69,6 +72,12 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
+// In-process internal-token middleware. When a localhost caller (the
+// cacheScheduler tick, mostly) presents a valid `x-or-internal-token`
+// header AND the request isn't already authenticated via passport, we
+// promote it to the token's user. No-op for browser traffic.
+app.use(internalToken.middleware);
+
 // Cloud edition extension point — loaded BEFORE OSS routes so the cloud module
 // can mount tenant-scoped shadows for /api/workspaces, /api/reports, etc. that
 // take precedence (Express picks the first matching handler). In OSS mode this
@@ -106,6 +115,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/datasources', datasourceRoutes);
 app.use('/api/models', modelRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/cache-schedules', cacheScheduleRoutes);
 // Custom visuals share the /api/workspaces prefix — mount BEFORE workspaces so
 // /:wsId/visuals/... is matched here instead of falling through to a 404 in the
 // workspaces router.
@@ -182,4 +192,9 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Open Report running on http://0.0.0.0:${PORT}`);
+  // Hot-load every enabled cache_warm schedule into node-cron now that
+  // the HTTP server is up — the warmer fires queries against this same
+  // server, so a tick before listen would deadlock on the first call.
+  try { cacheScheduler.bootRegisterAll(); }
+  catch (err) { console.warn('[cacheScheduler] boot failed:', err.message); }
 });

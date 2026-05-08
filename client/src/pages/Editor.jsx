@@ -403,11 +403,19 @@ export default function Editor() {
   const pendingLoadingRef = useRef(null);
   const skipNextRefetch = useRef(false); // set to true when filters are restored from saved state
   const prevRefreshCounter = useRef(0);
+  // Tracks whether the *next* refresh-counter bump was caused by an
+  // explicit user action (Refresh button) vs an internal trigger like
+  // drill-down. Only the former should bypass the cache — drills should
+  // still hit the pre-agg cache instead of re-running SQL on every
+  // hierarchy change. Set right before the counter bump, consumed by
+  // the fetch effect.
+  const refreshIsManualRef = useRef(false);
 
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const handleRefresh = useCallback(() => {
     setRefreshing((r) => r ? r : true);
+    refreshIsManualRef.current = true;
     setRefreshCounter((n) => n + 1);
   }, []);
   // Per-widget refresh nonces — bumped by the canvas Refresh button to
@@ -464,6 +472,12 @@ export default function Editor() {
     });
     const sourceId = crossFilterSourceRef.current;
     const refreshRequested = refreshCounter !== prevRefreshCounter.current;
+    // `bypassCache` is for the Refresh button (force-fresh data), not
+    // for drill-triggered refetches — those should still hit the pre-
+    // agg cache. The drill flow bumps `refreshCounter` to nudge the
+    // effect into running, but doesn't set `refreshIsManualRef`.
+    const manualRefresh = refreshRequested && refreshIsManualRef.current;
+    refreshIsManualRef.current = false;
     prevRefreshCounter.current = refreshCounter;
     // Skip refetch if we just restored filters from saved state — saved widget data already reflects them
     if (skipNextRefetch.current) {
@@ -649,7 +663,7 @@ export default function Editor() {
           // Manual refresh skips the result cache but still warms it on
           // the way back. Other re-renders (filter / drill / interaction
           // toggle) read straight from cache when shape matches.
-          bypassCache: refreshRequested,
+          bypassCache: manualRefresh,
           ...reportExtras,
         };
         const mainPromise = hasMainBinding
@@ -670,7 +684,7 @@ export default function Editor() {
               // grand total, not the truncated one.
               widgetFilters: sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]),
               reportId: id,
-              bypassCache: refreshRequested,
+              bypassCache: manualRefresh,
               ...reportExtras,
             }, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
@@ -700,7 +714,7 @@ export default function Editor() {
               // doesn't apply when there's no GROUP BY.
               widgetFilters: sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]),
               reportId: id,
-              bypassCache: refreshRequested,
+              bypassCache: manualRefresh,
               ...reportExtras,
             }, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
@@ -730,7 +744,7 @@ export default function Editor() {
               filters: n1Filters,
               widgetFilters: sanitizeWidgetFilters(n1WidgetFilters),
               reportId: id,
-              bypassCache: refreshRequested,
+              bypassCache: manualRefresh,
               ...reportExtras,
             }, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);

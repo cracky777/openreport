@@ -6,6 +6,8 @@ const { createConnection } = require('../utils/dbConnector');
 const { canAccessReport } = require('./reports');
 const { getQueryTimeoutMs } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
+const preAggCache = require('../utils/preAggCache');
+const { additiveTypeForMeasure } = require('../utils/measureType');
 
 // Hook for cloud edition to override the global query-timeout with a
 // workspace/org-scoped value. Default in OSS just returns the global
@@ -546,6 +548,7 @@ router.put('/:id', requireAuth, (req, res) => {
   // so the next visual refresh hits the DB and rebuilds. Cheap because the
   // index is keyed by modelId.
   queryCache.invalidateModel(req.params.id);
+  preAggCache.invalidateModel(req.params.id);
 
   const updated = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
   res.json({
@@ -1409,6 +1412,62 @@ router.post('/:id/query', async (req, res) => {
     rlsContext: rlsContextForCache,
   };
   if (!bypassCache) {
+    // Try the pre-aggregated cache FIRST — it covers every filter combo
+    // for the same visual shape, so it's a far broader win than the
+    // SQL-keyed cache below (which needs an exact SQL match). Only the
+    // visual's intrinsic identity (dims/measures/widgetFilters/extras)
+    // goes into the key — runtime slicer filters become an `inMemoryAgg`
+    // pass over the cached rows.
+    const allMeasureTypes = (selectedMeasures || []).map(additiveTypeForMeasure);
+    const allAdditive = allMeasureTypes.length > 0 && allMeasureTypes.every((t) => t !== null);
+    // A widget-level measure filter compiles to HAVING at the visual's
+    // baseDims granularity. The pre-agg dataset is grouped at a finer
+    // grain (baseDims + slicerDims), so re-applying that HAVING after
+    // the in-memory re-group would still let through rows whose finer-
+    // grain SUM is below the threshold — and dropping them at warm
+    // time discards regions whose total IS above it. Either way the
+    // result is wrong. Skip pre-agg whenever a measure filter is set.
+    const hasMeasureFilter = Array.isArray(widgetFilters)
+      && widgetFilters.some((f) => f && f.isMeasure);
+    if (allAdditive && !hasMeasureFilter) {
+      const preAggOpts = {
+        datasourceId: datasource.id,
+        modelId: model.id,
+        shape: preAggCache.stableShape({
+          dims: dimensionNames,
+          measures: measureNames,
+          widgetFilters,
+          reportExtras: { extraDimensions, extraMeasures, dimensionOverrides, measureOverrides },
+        }),
+        rlsContext: rlsContextForCache,
+      };
+      const preAggHit = preAggCache.tryServe(preAggOpts, {
+        dims: dimensionNames || [],
+        measures: measureNames || [],
+        filters: filters || {},
+      });
+      if (preAggHit) {
+        return res.json({
+          rows: preAggHit.rows,
+          rowCount: preAggHit.rows.length,
+          maxReached: preAggHit.rows.length >= MAX_ROWS,
+          sql,
+          _cache: { hit: true, preAgg: true, builtAt: preAggHit.builtAt },
+          _rls: {
+            configured: !!(rls && rls.enabled),
+            applies: !!rlsApplies,
+            bypass: rlsContextForCache.bypass,
+            table: rls?.table || null,
+            primaryKey: rls?.primaryKey || null,
+            ruleCount: rls?.rules ? Object.keys(rls.rules).length : 0,
+            userEmail: req.isAuthenticated() ? req.user.email : null,
+            allowedKeys: allowedRlsKeys,
+          },
+        });
+      }
+    }
+
+    // Fall back to the regular SQL-keyed cache.
     const cached = queryCache.get(cacheOpts);
     if (cached) {
       return res.json({

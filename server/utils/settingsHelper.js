@@ -43,9 +43,11 @@ function setQueryTimeoutMs(ms) {
 // ─── Query result cache ─────────────────────────────────────────────
 // Same shape as the timeout: bounded values, persisted in app_settings,
 // admin-tunable via /api/admin/settings.
-const QUERY_CACHE_TTL_MIN_MS = 0;            // 0 = cache disabled
+const QUERY_CACHE_TTL_MIN_MS = 0;             // 0 = cache disabled
 const QUERY_CACHE_TTL_MAX_MS = 24 * 3600_000; // 24 h ceiling
-const QUERY_CACHE_TTL_DEFAULT_MS = 5 * 60_000; // 5 min default
+// 24 h default — long enough that a once-a-night warm schedule keeps
+// reports cached the whole day. Lower it if your data churns hourly.
+const QUERY_CACHE_TTL_DEFAULT_MS = 24 * 3600_000;
 const QUERY_CACHE_MAX_ENTRIES_DEFAULT = 5000;
 
 function clampQueryCacheTtl(ms) {

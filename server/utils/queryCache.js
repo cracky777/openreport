@@ -116,12 +116,68 @@ function flush() {
   return n;
 }
 
+// Estimate the byte footprint of an entry by JSON-stringifying it.
+// Lossy (UTF-8 byte vs char-count, V8 representation overhead) but
+// good enough for admin telemetry — within ~20% of actual heap.
+function entryBytes(entry) {
+  if (!entry) return 0;
+  try { return JSON.stringify(entry).length; }
+  catch { return 0; }
+}
+
+function totalBytes() {
+  let n = 0;
+  for (const v of cache.values()) n += entryBytes(v);
+  return n;
+}
+
+function bytesForModel(modelId) {
+  if (!modelId) return 0;
+  const set = indexByModel.get(modelId);
+  if (!set) return 0;
+  let n = 0;
+  for (const key of set) {
+    const v = cache.get(key);
+    if (v) n += entryBytes(v);
+  }
+  return n;
+}
+
+function entriesForModel(modelId) {
+  if (!modelId) return 0;
+  const set = indexByModel.get(modelId);
+  if (!set) return 0;
+  let n = 0;
+  for (const key of set) {
+    if (cache.get(key)) n++;
+  }
+  return n;
+}
+
+// Most recent `builtAt` ISO timestamp across all live entries for a model.
+// Returns null when nothing is cached. Surfaced on the report card so the
+// user knows when the data was last warmed.
+function latestBuiltAtForModel(modelId) {
+  if (!modelId) return null;
+  const set = indexByModel.get(modelId);
+  if (!set) return null;
+  let latest = null;
+  for (const key of set) {
+    const v = cache.get(key);
+    if (v && v.builtAt && (latest == null || v.builtAt > latest)) {
+      latest = v.builtAt;
+    }
+  }
+  return latest;
+}
+
 function stats() {
   return {
     size: cache.size,
     maxConfigured: getQueryCacheMaxEntries(),
     ttlMs: getQueryCacheTtlMs(),
     enabled: isQueryCacheEnabled(),
+    bytes: totalBytes(),
   };
 }
 
@@ -134,4 +190,8 @@ module.exports = {
   invalidateDatasource,
   flush,
   stats,
+  totalBytes,
+  bytesForModel,
+  entriesForModel,
+  latestBuiltAtForModel,
 };

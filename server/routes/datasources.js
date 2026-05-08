@@ -4,6 +4,7 @@ const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const { createConnection } = require('../utils/dbConnector');
 const queryCache = require('../utils/queryCache');
+const preAggCache = require('../utils/preAggCache');
 
 const router = express.Router();
 
@@ -114,6 +115,7 @@ router.put('/:id', requireAuth, (req, res) => {
   // Connection params (host / db / credentials / type) may have changed
   // — every cached row tied to this datasource is now potentially wrong.
   queryCache.invalidateDatasource(req.params.id);
+  preAggCache.invalidateDatasource(req.params.id);
 
   const updated = db.prepare(
     'SELECT id, name, db_type, host, port, db_name, db_user, created_at FROM datasources WHERE id = ? AND user_id = ?'

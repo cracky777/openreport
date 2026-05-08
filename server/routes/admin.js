@@ -19,6 +19,7 @@ const {
   setQueryCacheTtlMs,
 } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
+const preAggCache = require('../utils/preAggCache');
 
 const router = express.Router();
 
@@ -95,6 +96,26 @@ router.put('/users/:id/password', requireAdmin, (req, res) => {
 // timeout (clamped to [QUERY_TIMEOUT_MIN_MS, QUERY_TIMEOUT_MAX_MS]
 // at the helper level so misuse can't park a runaway query).
 router.get('/settings', requireAdmin, (req, res) => {
+  // Sum the byte size of every DuckDB upload tracked in datasources —
+  // gives the admin a single number for "how much disk this instance
+  // is using for source files". Stored as `fileSize` in extra_config
+  // when the upload route records the import (see routes/fileUpload).
+  let totalUploadedBytes = 0;
+  let uploadedFileCount = 0;
+  try {
+    const rows = db.prepare(
+      "SELECT extra_config FROM datasources WHERE db_type = 'duckdb'"
+    ).all();
+    for (const r of rows) {
+      try {
+        const cfg = JSON.parse(r.extra_config || '{}');
+        if (typeof cfg.fileSize === 'number') {
+          totalUploadedBytes += cfg.fileSize;
+          uploadedFileCount++;
+        }
+      } catch { /* skip malformed */ }
+    }
+  } catch { /* table missing on a fresh install */ }
   res.json({
     queryTimeoutMs: getQueryTimeoutMs(),
     queryTimeoutMinMs: QUERY_TIMEOUT_MIN_MS,
@@ -106,6 +127,11 @@ router.get('/settings', requireAdmin, (req, res) => {
     queryCacheTtlMaxMs: QUERY_CACHE_TTL_MAX_MS,
     queryCacheTtlDefaultMs: QUERY_CACHE_TTL_DEFAULT_MS,
     queryCacheStats: queryCache.stats(),
+    preAggCacheStats: preAggCache.stats(),
+    storage: {
+      uploadedFileCount,
+      uploadedBytes: totalUploadedBytes,
+    },
   });
 });
 
@@ -138,7 +164,8 @@ router.put('/settings/query-cache', requireAdmin, (req, res) => {
 // through the model-save invalidation hook.
 router.post('/settings/query-cache/flush', requireAdmin, (req, res) => {
   const evicted = queryCache.flush();
-  res.json({ evicted });
+  const evictedPreAgg = preAggCache.flush();
+  res.json({ evicted, evictedPreAgg });
 });
 
 module.exports = router;
