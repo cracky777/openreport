@@ -71,6 +71,38 @@ function bootRegisterAll() {
   const all = cacheSchedules.listAllEnabled();
   for (const s of all) register(s);
   if (all.length > 0) console.log(`[cacheScheduler] registered ${all.length} cache schedule(s)`);
+  // Container restarts wipe the in-memory queryCache + preAggCache; without
+  // any backing store (no Cube Store / Redis), every report would serve
+  // cold for as long as the schedule's interval — up to 24 h with our
+  // default cron presets. Fire one warm pass per schedule right after the
+  // server is listening to rebuild the cache immediately on boot.
+  //
+  // REMOVE THIS BLOCK when a persistent cache backend (Cube Store / Redis)
+  // is wired up — at that point the cache survives restarts and the boot
+  // warm is wasted DB load.
+  if (all.length > 0) kickWarmOnBoot(all);
+}
+
+// Fire a one-shot warm for every active schedule, sequentially so we
+// don't overload the source DBs at startup. Non-blocking: returns
+// immediately and logs progress. Errors per schedule are absorbed by
+// `runOne` so a single bad schedule can't poison the rest.
+function kickWarmOnBoot(schedules) {
+  (async () => {
+    console.log(`[cacheScheduler] warming ${schedules.length} schedule(s) on boot…`);
+    let ok = 0;
+    let failed = 0;
+    for (const s of schedules) {
+      try {
+        const r = await runOne(s.id);
+        if (r && r.error) failed++;
+        else ok++;
+      } catch {
+        failed++;
+      }
+    }
+    console.log(`[cacheScheduler] boot warm complete: ${ok} ok, ${failed} failed`);
+  })().catch((err) => console.error('[cacheScheduler] boot warm crashed:', err));
 }
 
 module.exports = { register, unregister, runOne, bootRegisterAll };
