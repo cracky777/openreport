@@ -205,9 +205,11 @@ async function warmReport({ scheduleId, reportId, userId }) {
 }
 
 async function _warmReportInner({ scheduleId, reportId, userId }) {
-  const row = db.prepare(
-    'SELECT id, title, model_id, widgets, settings FROM reports WHERE id = ?'
-  ).get(reportId);
+  // SELECT * so the optional cloud-only `organization_id` column is
+  // surfaced when present. Falls back to undefined in OSS where the
+  // column doesn't exist; the warmer then stamps no org context on the
+  // internal token and the OSS routes don't care either way.
+  const row = db.prepare('SELECT * FROM reports WHERE id = ?').get(reportId);
   if (!row) return { skipped: true, reason: 'report-missing' };
 
   let widgets = {};
@@ -240,7 +242,10 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
     return { fired: 0, ok: 0, failed: 0, warmed: 0, reason: 'no-widgets' };
   }
 
-  const token = internalToken.sign({ userId });
+  // Stamp the report's org on the token (cloud-only; harmless in OSS).
+  // Lets the cloud activeOrg middleware preserve the right tenant when
+  // the warmer's localhost fetch hits /api/models/:id/query.
+  const token = internalToken.sign({ userId, organizationId: row.organization_id || null });
   const base = appBase();
   let ok = 0;
   let failed = 0;

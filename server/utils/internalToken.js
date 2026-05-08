@@ -29,8 +29,16 @@ function getSecret() {
   return process.env.SESSION_SECRET || 'dev-secret-change-me';
 }
 
-function sign({ userId }) {
-  return jwt.sign({ userId, scope: SCOPE }, getSecret(), { expiresIn: TTL_SECONDS });
+// `organizationId` is optional and ignored in OSS — it's only meaningful
+// in cloud where the activeOrg middleware respects a pre-set context. The
+// cache warmer reads the report's organization_id and stamps it here so
+// the internal HTTP request lands in the right tenant; without this, the
+// activeOrg middleware would default to the user's personal org and
+// `canAccessModel` would 404 a model that lives in a team org.
+function sign({ userId, organizationId }) {
+  const payload = { userId, scope: SCOPE };
+  if (organizationId) payload.organizationId = organizationId;
+  return jwt.sign(payload, getSecret(), { expiresIn: TTL_SECONDS });
 }
 
 function verify(token) {
@@ -46,7 +54,10 @@ function verify(token) {
 
 // Express middleware. Mounted before the protected routes — when a valid
 // internal token is present, we patch req.user / req.isAuthenticated so
-// downstream `requireAuth` accepts the request as that user.
+// downstream `requireAuth` accepts the request as that user. If the token
+// also carries an organizationId, we pre-set req.organizationId so the
+// cloud activeOrg middleware preserves it (it has an early return when
+// the field is already populated, mirroring the renderToken pattern).
 function middleware(req, res, next) {
   if (req.isAuthenticated && req.isAuthenticated()) return next();
   const token = req.headers[HEADER];
@@ -59,6 +70,7 @@ function middleware(req, res, next) {
   if (!user) return next();
   req.user = user;
   req.isAuthenticated = () => true;
+  if (payload.organizationId) req.organizationId = payload.organizationId;
   next();
 }
 
