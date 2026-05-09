@@ -302,6 +302,9 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
                 reportExtras: item.reportExtras,
               }),
               rlsContext,
+              // Tag with the report's org so the cloud's RAM quota
+              // resolver can gate the write. Undefined in OSS — no-op.
+              orgId: row.organization_id || null,
             },
             {
               dims: item.expandedDims,

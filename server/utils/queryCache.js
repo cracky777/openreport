@@ -39,6 +39,16 @@ const cache = new LRUCache({
 });
 const indexByModel = new Map();      // modelId → Set<key>
 const indexByDatasource = new Map(); // datasourceId → Set<key>
+const indexByOrg = new Map();        // orgId → Set<key> (cloud only — OSS never populates this)
+
+// Per-org RAM quota hook. Cloud installs `setOrgQuotaResolver(orgId => maxBytes)`
+// at boot so `set()` can refuse new entries when the calling org has filled
+// its plan's `cacheRamLimits.maxBytes`. OSS leaves the resolver null and
+// every set() succeeds — no orgs to gate.
+let _orgQuotaResolver = null;
+function setOrgQuotaResolver(fn) {
+  _orgQuotaResolver = typeof fn === 'function' ? fn : null;
+}
 
 function indexAdd(map, id, key) {
   if (!id) return;
@@ -74,13 +84,26 @@ function get(opts) {
 
 function set(opts, payload) {
   if (!isQueryCacheEnabled()) return;
-  const key = buildKey(opts);
   const ttl = getQueryCacheTtlMs();
   if (ttl <= 0) return;
-  // Cap the cache size by tracking insertion order; LRU handles the rest.
+  // Hard org-RAM quota: when the cloud has installed a resolver and the
+  // caller tagged the entry with an orgId, refuse the write if it would
+  // push that org over its plan's cache budget. Silent failure — the
+  // route still serves the row from the live query, the dashboard's
+  // RamBar shows red, and the user gets nudged to upgrade.
+  if (opts.orgId && _orgQuotaResolver) {
+    const max = _orgQuotaResolver(opts.orgId);
+    if (max != null && max > 0) {
+      const used = bytesForOrg(opts.orgId);
+      const incoming = entryBytes(payload);
+      if (used + incoming > max) return;
+    }
+  }
+  const key = buildKey(opts);
   cache.set(key, payload, { ttl });
   if (opts.modelId) indexAdd(indexByModel, opts.modelId, key);
   if (opts.datasourceId) indexAdd(indexByDatasource, opts.datasourceId, key);
+  if (opts.orgId) indexAdd(indexByOrg, opts.orgId, key);
 }
 
 function invalidateKey(opts) {
@@ -113,6 +136,7 @@ function flush() {
   cache.clear();
   indexByModel.clear();
   indexByDatasource.clear();
+  indexByOrg.clear();
   return n;
 }
 
@@ -150,6 +174,22 @@ function entriesForModel(modelId) {
   let n = 0;
   for (const key of set) {
     if (cache.get(key)) n++;
+  }
+  return n;
+}
+
+function bytesForOrg(orgId) {
+  if (!orgId) return 0;
+  const set = indexByOrg.get(orgId);
+  if (!set) return 0;
+  let n = 0;
+  // Prune stale keys (model/datasource invalidation deletes the entry but
+  // can't reach into indexByOrg). Lazy cleanup keeps the index honest
+  // without a full reverse-index walk.
+  for (const key of set) {
+    const v = cache.get(key);
+    if (v) n += entryBytes(v);
+    else set.delete(key);
   }
   return n;
 }
@@ -192,6 +232,8 @@ module.exports = {
   stats,
   totalBytes,
   bytesForModel,
+  bytesForOrg,
   entriesForModel,
   latestBuiltAtForModel,
+  setOrgQuotaResolver,
 };

@@ -48,6 +48,15 @@ const cache = new LRUCache({
 });
 const indexByModel = new Map();
 const indexByDatasource = new Map();
+const indexByOrg = new Map(); // orgId → Set<key> (cloud only)
+
+// Same hook pattern as queryCache: cloud installs a resolver at boot to
+// gate writes against per-org RAM quotas; OSS leaves it null and every
+// set() is allowed.
+let _orgQuotaResolver = null;
+function setOrgQuotaResolver(fn) {
+  _orgQuotaResolver = typeof fn === 'function' ? fn : null;
+}
 
 function indexAdd(map, id, key) {
   if (!id) return;
@@ -118,10 +127,22 @@ function set(opts, dataset) {
   if (!isQueryCacheEnabled()) return;
   const ttl = getQueryCacheTtlMs();
   if (ttl <= 0) return;
+  const entry = { dataset, builtAt: new Date().toISOString() };
+  // Hard org-RAM quota: refuse the write if it would push the org over
+  // its plan's cache budget. Same contract as queryCache.set.
+  if (opts.orgId && _orgQuotaResolver) {
+    const max = _orgQuotaResolver(opts.orgId);
+    if (max != null && max > 0) {
+      const used = bytesForOrg(opts.orgId);
+      const incoming = entryBytes(entry);
+      if (used + incoming > max) return;
+    }
+  }
   const key = buildKey(opts);
-  cache.set(key, { dataset, builtAt: new Date().toISOString() }, { ttl });
+  cache.set(key, entry, { ttl });
   if (opts.modelId) indexAdd(indexByModel, opts.modelId, key);
   if (opts.datasourceId) indexAdd(indexByDatasource, opts.datasourceId, key);
+  if (opts.orgId) indexAdd(indexByOrg, opts.orgId, key);
 }
 
 function invalidateModel(modelId) {
@@ -149,6 +170,7 @@ function flush() {
   cache.clear();
   indexByModel.clear();
   indexByDatasource.clear();
+  indexByOrg.clear();
   return n;
 }
 
@@ -183,6 +205,21 @@ function entriesForModel(modelId) {
   let n = 0;
   for (const key of s) {
     if (cache.get(key)) n++;
+  }
+  return n;
+}
+
+function bytesForOrg(orgId) {
+  if (!orgId) return 0;
+  const s = indexByOrg.get(orgId);
+  if (!s) return 0;
+  let n = 0;
+  // Lazy cleanup of stale keys (model/datasource invalidation can't
+  // reach indexByOrg). Same approach as queryCache.bytesForOrg.
+  for (const key of s) {
+    const v = cache.get(key);
+    if (v) n += entryBytes(v);
+    else s.delete(key);
   }
   return n;
 }
@@ -222,6 +259,8 @@ module.exports = {
   stats,
   totalBytes,
   bytesForModel,
+  bytesForOrg,
   entriesForModel,
   latestBuiltAtForModel,
+  setOrgQuotaResolver,
 };
