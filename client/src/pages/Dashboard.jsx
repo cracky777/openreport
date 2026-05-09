@@ -1663,12 +1663,28 @@ const TIMEZONE_OPTIONS = (() => {
   ];
 })();
 
-const CRON_PRESETS = [
-  { label: 'Every day at 9:00', expr: '0 9 * * *' },
-  { label: 'Every Monday at 9:00', expr: '0 9 * * 1' },
-  { label: 'First of the month at 9:00', expr: '0 9 1 * *' },
-  { label: 'Custom…', expr: '' },
-];
+// Daily HH:MM ↔ cron helpers. The schedule editors expose a simple time
+// picker; the server sees the canonical "<minute> <hour> * * *" form. Any
+// cron the picker can't represent (weekly, monthly, etc.) round-trips
+// untouched and the list view falls back to showing the raw expression.
+function timeToCron(timeStr) {
+  const [h, m] = (timeStr || '09:00').split(':').map((n) => parseInt(n, 10) || 0);
+  return `${Math.max(0, Math.min(59, m))} ${Math.max(0, Math.min(23, h))} * * *`;
+}
+function cronToTime(cron) {
+  const parts = (cron || '').trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const [min, hour, day, mon, dow] = parts;
+  if (day !== '*' || mon !== '*' || dow !== '*') return null;
+  if (!/^\d+$/.test(min) || !/^\d+$/.test(hour)) return null;
+  const mn = Number(min); const hn = Number(hour);
+  if (mn < 0 || mn > 59 || hn < 0 || hn > 23) return null;
+  return `${String(hn).padStart(2, '0')}:${String(mn).padStart(2, '0')}`;
+}
+function formatCronHuman(cron) {
+  const t = cronToTime(cron);
+  return t ? `Daily at ${t}` : cron;
+}
 
 // Cache_warm schedule manager. Mirrors the email `ScheduleModal` look:
 // banner + 2-mode (list / editor), `cardActionBtn` row buttons, and a
@@ -1696,11 +1712,15 @@ function CacheScheduleModal({ modal, runningIds, onClose, onCreate, onToggle, on
               <div style={{ maxHeight: 320, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 6 }}>
                 {schedules.map((s) => {
                   const isRunning = runningIds.has(s.id);
+                  const human = formatCronHuman(s.cron_expression);
+                  const isHuman = human !== s.cron_expression;
                   return (
                     <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--border-default)' }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <code style={{ background: 'var(--bg-subtle)', padding: '1px 6px', borderRadius: 3, fontFamily: 'monospace' }}>{s.cron_expression}</code>
+                          {isHuman
+                            ? <span>{human}</span>
+                            : <code style={{ background: 'var(--bg-subtle)', padding: '1px 6px', borderRadius: 3, fontFamily: 'monospace' }}>{s.cron_expression}</code>}
                           {!s.enabled && (
                             <span style={{ fontSize: 10, color: 'var(--text-disabled)', textTransform: 'uppercase', fontWeight: 700, background: 'var(--bg-subtle)', padding: '1px 6px', borderRadius: 3 }}>paused</span>
                           )}
@@ -1774,17 +1794,16 @@ function CacheScheduleModal({ modal, runningIds, onClose, onCreate, onToggle, on
 }
 
 function CacheScheduleEditor({ onCancel, onSubmit }) {
-  const [cron, setCron] = useState('0 * * * *');
+  const [time, setTime] = useState('09:00');
   const [tz, setTz] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
-  const [presetIdx, setPresetIdx] = useState(CRON_PRESETS.length - 1);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState(null);
   const handleSubmit = async () => {
-    if (!cron.trim()) { setErr('Cron expression required'); return; }
+    if (!time) { setErr('Pick a time'); return; }
     setSubmitting(true);
     setErr(null);
     try {
-      await onSubmit({ cronExpression: cron.trim(), timezone: tz || 'UTC' });
+      await onSubmit({ cronExpression: timeToCron(time), timezone: tz || 'UTC' });
     } catch (e) {
       setErr(e.response?.data?.error || e.message);
     } finally {
@@ -1797,23 +1816,15 @@ function CacheScheduleEditor({ onCancel, onSubmit }) {
         New schedule
       </div>
 
-      <label style={scheduleFieldLabel}>When</label>
-      <select value={presetIdx} onChange={(e) => {
-        const idx = parseInt(e.target.value, 10);
-        setPresetIdx(idx);
-        const preset = CRON_PRESETS[idx];
-        if (preset.expr) setCron(preset.expr);
-      }} style={{ ...actionModalInput, marginBottom: 6 }}>
-        {CRON_PRESETS.map((p, i) => <option key={i} value={i}>{p.label}</option>)}
-      </select>
+      <label style={scheduleFieldLabel}>Run every day at</label>
       <input
-        value={cron}
-        onChange={(e) => { setCron(e.target.value); setPresetIdx(CRON_PRESETS.length - 1); }}
-        placeholder="0 9 * * 1"
-        style={{ ...actionModalInput, fontFamily: 'monospace', fontSize: 12 }}
+        type="time"
+        value={time}
+        onChange={(e) => setTime(e.target.value)}
+        style={{ ...actionModalInput, fontFamily: 'monospace', fontSize: 13 }}
       />
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 8 }}>
-        Cron expression — minute hour day-of-month month day-of-week.
+        For multiple runs in a day, create one schedule per time slot.
       </div>
 
       <label style={scheduleFieldLabel}>Timezone</label>
@@ -1887,7 +1898,12 @@ function ScheduleModal({ modal, runningIds, onClose, onStartCreate, onStartEdit,
                         )}
                       </div>
                       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                        <code style={{ background: 'var(--bg-subtle)', padding: '1px 5px', borderRadius: 3 }}>{s.cron_expression}</code>
+                        {(() => {
+                          const human = formatCronHuman(s.cron_expression);
+                          return human !== s.cron_expression
+                            ? <span>{human}</span>
+                            : <code style={{ background: 'var(--bg-subtle)', padding: '1px 5px', borderRadius: 3 }}>{s.cron_expression}</code>;
+                        })()}
                         {' · '}
                         {s.recipients.length} recipient{s.recipients.length === 1 ? '' : 's'}
                         {s.last_run_at && (
@@ -1976,23 +1992,26 @@ function ScheduleEditor({ initial, limits, dimensions, onCancel, onSubmit }) {
     perRecipientRender: !!initial?.per_recipient_render,
     recipientRules: Array.isArray(initial?.recipient_rules) ? initial.recipient_rules : [],
   }));
+  // Seed the time picker from the existing cron when it parses as a daily
+  // HH:MM. Falls back to 09:00 for new schedules or for non-daily crons.
+  const [time, setTime] = useState(cronToTime(initial?.cron_expression) || '09:00');
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState(null);
-  const [presetIdx, setPresetIdx] = useState(() => {
-    const idx = CRON_PRESETS.findIndex((p) => p.expr === (initial?.cron_expression || '0 9 * * 1'));
-    return idx >= 0 ? idx : CRON_PRESETS.length - 1; // default to "Custom"
-  });
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const handleSubmit = async () => {
-    if (!form.name.trim() || !form.cronExpression.trim() || !form.subject.trim()) {
-      setErr('Name, cron expression and subject are required');
+    if (!form.name.trim() || !form.subject.trim()) {
+      setErr('Name and subject are required');
+      return;
+    }
+    if (!time) {
+      setErr('Pick a time');
       return;
     }
     setSubmitting(true);
     setErr(null);
     try {
-      await onSubmit(form);
+      await onSubmit({ ...form, cronExpression: timeToCron(time) });
     } catch (e) {
       setErr(e.response?.data?.error || e.message);
     } finally {
@@ -2009,28 +2028,15 @@ function ScheduleEditor({ initial, limits, dimensions, onCancel, onSubmit }) {
       <label style={scheduleFieldLabel}>Name</label>
       <input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Weekly sales digest" style={actionModalInput} />
 
-      <label style={scheduleFieldLabel}>When</label>
-      <select value={presetIdx} onChange={(e) => {
-        const idx = parseInt(e.target.value, 10);
-        setPresetIdx(idx);
-        const preset = CRON_PRESETS[idx];
-        if (preset.expr) set('cronExpression', preset.expr);
-      }} style={{ ...actionModalInput, marginBottom: 6 }}>
-        {CRON_PRESETS.map((p, i) => <option key={i} value={i}>{p.label}</option>)}
-      </select>
+      <label style={scheduleFieldLabel}>Run every day at</label>
       <input
-        value={form.cronExpression}
-        onChange={(e) => { set('cronExpression', e.target.value); setPresetIdx(CRON_PRESETS.length - 1); }}
-        placeholder="0 9 * * 1"
-        style={{ ...actionModalInput, fontFamily: 'monospace', fontSize: 12 }}
+        type="time"
+        value={time}
+        onChange={(e) => setTime(e.target.value)}
+        style={{ ...actionModalInput, fontFamily: 'monospace', fontSize: 13 }}
       />
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 8 }}>
-        Cron expression — minute hour day-of-month month day-of-week.
-        {limits && limits.maxFiresPerDay != null && (
-          <span style={{ display: 'block', marginTop: 4, color: 'var(--state-warning)' }}>
-            Your {limits.planName || limits.plan} plan allows at most {limits.maxFiresPerDay} send{limits.maxFiresPerDay === 1 ? '' : 's'} per day per schedule.
-          </span>
-        )}
+        For multiple sends in a day, create one schedule per time slot.
       </div>
 
       <label style={scheduleFieldLabel}>Timezone</label>
