@@ -744,6 +744,17 @@ router.get('/:id/rls/rows', requireAuth, async (req, res) => {
       const obj = {};
       for (const [k, v] of Object.entries(r)) {
         if (v instanceof Date) obj[k] = v.toISOString().split('T')[0];
+        else if (v != null && typeof v === 'object' && !Array.isArray(v)
+          && ('years' in v || 'months' in v || 'days' in v || 'hours' in v
+            || 'minutes' in v || 'seconds' in v || 'milliseconds' in v)) {
+          obj[k] = (Number(v.years) || 0) * 31557600
+            + (Number(v.months) || 0) * 2629800
+            + (Number(v.days) || 0) * 86400
+            + (Number(v.hours) || 0) * 3600
+            + (Number(v.minutes) || 0) * 60
+            + (Number(v.seconds) || 0)
+            + (Number(v.milliseconds) || 0) / 1000;
+        }
         else obj[k] = v;
       }
       return obj;
@@ -1219,7 +1230,20 @@ router.post('/:id/query', async (req, res) => {
       const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
         ? castToNumber(rawCol, dbType, ovType)
         : rawCol;
-      selectParts.push(`${m.aggregation.toUpperCase()}(${colExpr}) AS "${m.label || m.name}"`);
+      const aggExpr = `${m.aggregation.toUpperCase()}(${colExpr})`;
+      // `interval` columns: SUM/AVG/MIN/MAX return an interval value, which
+      // the underlying driver delivers as a JS object — widgets then render
+      // `[object Object]`. PostgreSQL and DuckDB both support
+      // `EXTRACT(EPOCH FROM …)` to flatten to seconds at SQL time. BigQuery
+      // also has an INTERVAL type but no equivalent EPOCH extract — its
+      // intervals get flattened by the row post-processor instead. MySQL
+      // and MSSQL have no native interval column type so nothing to wrap.
+      const isInterval = String(m.dataType || '').toLowerCase() === 'interval';
+      const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
+      const finalExpr = (isInterval && supportsExtractEpoch)
+        ? `EXTRACT(EPOCH FROM ${aggExpr})`
+        : aggExpr;
+      selectParts.push(`${finalExpr} AS "${m.label || m.name}"`);
     }
   });
 
@@ -1239,12 +1263,21 @@ router.post('/:id/query', async (req, res) => {
     const colExprH = rawColH && (ovTypeH === 'integer' || ovTypeH === 'decimal' || ovTypeH === 'number')
       ? castToNumber(rawColH, dbType, ovTypeH)
       : rawColH;
-    const aggExpr = measDef.aggregation === 'count'
+    const baseAggExpr = measDef.aggregation === 'count'
       ? 'COUNT(*)'
       : (colExprH
           ? `${(measDef.aggregation || 'sum').toUpperCase()}(${colExprH})`
           : null);
-    if (!aggExpr) continue;
+    if (!baseAggExpr) continue;
+    // Mirror the SELECT path: `interval` aggregates need EXTRACT(EPOCH …)
+    // so HAVING comparisons are against a number rather than an interval.
+    // PG + DuckDB share the syntax; BigQuery falls back to the row post-
+    // processor (and HAVING on intervals there is rare anyway).
+    const isIntervalH = String(measDef.dataType || '').toLowerCase() === 'interval';
+    const supportsExtractEpochH = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
+    const aggExpr = (isIntervalH && supportsExtractEpochH && measDef.aggregation !== 'count')
+      ? `EXTRACT(EPOCH FROM ${baseAggExpr})`
+      : baseAggExpr;
     if (measDef.table) tablesUsed.add(measDef.table);
     // Top N / Bottom N — these aren't WHERE/HAVING clauses; they override
     // ORDER BY and LIMIT after aggregation. First top/bottom filter wins.
@@ -1522,11 +1555,37 @@ router.post('/:id/query', async (req, res) => {
     } else {
       rawRows = await conn.query(sql);
     }
-    // Normalize Date objects to ISO date strings for all DB types
+    // Normalize Date objects to ISO date strings for all DB types, and
+    // flatten PostgreSQL `interval` values (delivered by node-postgres as
+    // a `{ years, months, days, hours, minutes, seconds, milliseconds }`
+    // object) to total seconds — otherwise they'd JSON-serialize as an
+    // object and widgets would render `[object Object]`. Acts as a
+    // backstop for measures that pre-date the per-measure `dataType`
+    // tagging in the model editor.
     const rows = rawRows.map((r) => {
       const obj = {};
       for (const [k, v] of Object.entries(r)) {
         if (v instanceof Date) obj[k] = v.toISOString().split('T')[0];
+        else if (v != null && typeof v === 'object' && !Array.isArray(v)
+          && ('years' in v || 'months' in v || 'days' in v || 'hours' in v
+            || 'minutes' in v || 'seconds' in v || 'milliseconds' in v
+            || 'micros' in v || 'fractionalSeconds' in v)) {
+          // Interval object → total seconds. Driver-specific shapes:
+          //   - pg                    : { years, months, days, hours, minutes, seconds, milliseconds }
+          //   - duckdb-async          : { months, days, micros }
+          //   - @google-cloud/bigquery: { years, months, days, hours, minutes, seconds, fractionalSeconds }
+          // Years / months are approximate (no fixed length) but consistent
+          // with EXTRACT(EPOCH …)'s output for PG/DuckDB.
+          obj[k] = (Number(v.years) || 0) * 31557600
+            + (Number(v.months) || 0) * 2629800
+            + (Number(v.days) || 0) * 86400
+            + (Number(v.hours) || 0) * 3600
+            + (Number(v.minutes) || 0) * 60
+            + (Number(v.seconds) || 0)
+            + (Number(v.milliseconds) || 0) / 1000
+            + (Number(v.micros) || 0) / 1_000_000
+            + (Number(v.fractionalSeconds) || 0);
+        }
         else obj[k] = v;
       }
       return obj;

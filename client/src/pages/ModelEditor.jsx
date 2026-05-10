@@ -358,6 +358,10 @@ export default function ModelEditor() {
     setMeasures((prev) => [...prev, {
       name: measName, table, column: col.column_name,
       aggregation: 'sum', label: col.column_name,
+      // Stamp the source data type so the SQL builder can wrap PostgreSQL
+      // `interval` columns with EXTRACT(EPOCH FROM …) — otherwise SUM/AVG
+      // returns a JS object that renders as "[object Object]" in widgets.
+      dataType: String(col.data_type || '').toLowerCase(),
     }]);
   };
 
