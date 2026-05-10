@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import Draggable from 'react-draggable';
 import { TbCode, TbX, TbCopy, TbRefresh } from 'react-icons/tb';
 import { WIDGET_TYPES } from '../Widgets';
+import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 import MaxRowsWarning from '../Widgets/MaxRowsWarning';
 import { evaluateColorCondition } from '../../utils/conditionalFormat';
 
@@ -89,7 +90,10 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           overflow: widget.config?.shadow?.enabled ? 'visible' : 'hidden',
         }}>
         {widget.config?.title && (
-          <div style={{ padding: '8px 12px 0', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
+          <div style={{
+            padding: '8px 12px 0', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)',
+            fontFamily: widget.config?.titleFontFamily ? fontStack(widget.config.titleFontFamily) : undefined,
+          }}>
             {widget.config.title}
           </div>
         )}
@@ -103,6 +107,14 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           </>
         )}
         <div className="widget-content" style={{
+          // Override the project-wide `* { box-sizing: border-box }` for
+          // this one node: contentWidth/contentHeight are computed as
+          // `w - paddingTotal` and only make sense as the *content* size,
+          // not the outer size. Without this override the widget-content
+          // shrinks by 16 px and leaves a strip of empty space on the
+          // right (and below) — visible as off-centre content inside an
+          // otherwise correctly sized widget.
+          boxSizing: 'content-box',
           padding: contentPadding,
           width: contentWidth,
           height: contentHeight,
