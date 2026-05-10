@@ -1,6 +1,6 @@
 /**
- * Sync the report-level `reportFilters` state with the URL search params so a
- * filtered view can be bookmarked and shared.
+ * Sync the report-level filter rules (`settings.reportFilters`) with the
+ * URL search params so a filtered view can be bookmarked and shared.
  *
  * Format: one URL param per dimension, prefixed with `f_`, value
  * comma-separated. The schema/table prefix is stripped — `orders.country`
@@ -8,10 +8,13 @@
  *
  *   ?f_country=FR,DE&f_status=Open
  *
- * If two model dimensions share the same column name (e.g. `orders.country`
- * and `customers.country`), the parser maps to the first match. The
- * serializer falls back to `f_orders.country` for the duplicate to keep the
- * URL unambiguous.
+ * Only the `in` operator is reflected in the URL — other rules (between,
+ * comparisons, top-N, measure filters) don't have a natural URL encoding
+ * and are kept solely in `settings.reportFilters`.
+ *
+ * If two model dimensions share the same column name, the parser maps to
+ * the first match. The serializer falls back to `f_orders.country` for
+ * the duplicate to keep the URL unambiguous.
  *
  * Both functions need the loaded `model` to map between short and full
  * dimension names. Call them only AFTER the model has loaded.
@@ -25,10 +28,16 @@ function shortName(dimName) {
   return idx >= 0 ? dimName.slice(idx + 1) : dimName;
 }
 
+/**
+ * Parse the URL search string into an array of filter rules using the same
+ * shape as `settings.reportFilters`. Returns null if no `f_*` params match a
+ * dimension. Caller merges these into the existing rules (URL wins for
+ * fields it covers; other saved rules stay).
+ */
 export function parseFiltersFromUrl(search, model) {
   if (!model || !Array.isArray(model.dimensions)) return null;
   const params = new URLSearchParams(search || '');
-  const out = {};
+  const out = [];
   for (const [key, raw] of params.entries()) {
     if (!key.startsWith(PREFIX)) continue;
     const lookupKey = key.slice(PREFIX.length);
@@ -36,39 +45,53 @@ export function parseFiltersFromUrl(search, model) {
       || model.dimensions.find((d) => shortName(d.name) === lookupKey);
     if (!dim) continue;
     const values = raw.split(',').map((s) => s.trim()).filter((s) => s !== '');
-    if (values.length > 0) out[dim.name] = values;
+    if (values.length === 0) continue;
+    out.push({ field: dim.name, isMeasure: false, op: 'in', value: '', values });
   }
-  return Object.keys(out).length > 0 ? out : null;
+  return out.length > 0 ? out : null;
 }
 
 /**
  * Push or replace the filter params in the current URL without triggering a
  * router navigation. Mutates window.history directly so the data fetcher
- * (which already reacts to reportFilters state) doesn't fire twice.
+ * doesn't fire twice.
+ *
+ * Accepts the rules array (`settings.reportFilters` shape). Skips rules
+ * whose `op` isn't `in` and rules without resolvable values — they stay in
+ * `settings.reportFilters` but don't surface in the URL.
  */
-export function syncFiltersToUrl(filters, model) {
+export function syncFiltersToUrl(rules, model) {
   if (typeof window === 'undefined') return;
   if (!model || !Array.isArray(model.dimensions)) return;
 
   const params = new URLSearchParams(window.location.search);
-  // Wipe existing filter params first so removed dims don't linger
+  // Wipe existing filter params first so removed rules don't linger.
   for (const key of Array.from(params.keys())) {
     if (key.startsWith(PREFIX)) params.delete(key);
   }
 
-  // Detect duplicate short names so we can keep the full name for the loser
+  // Detect duplicate short names so we can keep the full name for the loser.
   const shortCounts = {};
   for (const d of model.dimensions) {
     const s = shortName(d.name);
     shortCounts[s] = (shortCounts[s] || 0) + 1;
   }
 
-  if (filters && typeof filters === 'object') {
-    for (const [dimName, values] of Object.entries(filters)) {
-      if (!Array.isArray(values) || values.length === 0) continue;
-      const s = shortName(dimName);
+  if (Array.isArray(rules)) {
+    for (const r of rules) {
+      if (!r || r.isMeasure) continue;
+      if (r.op !== 'in') continue;
+      const values = Array.isArray(r.values)
+        ? r.values.filter((v) => v !== '' && v != null)
+        : [];
+      if (values.length === 0) continue;
+      // Only encode rules whose field actually exists in the model — stale
+      // references would produce unparseable params after a model rename.
+      const dim = model.dimensions.find((d) => d.name === r.field);
+      if (!dim) continue;
+      const s = shortName(dim.name);
       const useShort = shortCounts[s] === 1;
-      params.set(PREFIX + (useShort ? s : dimName), values.join(','));
+      params.set(PREFIX + (useShort ? s : dim.name), values.join(','));
     }
   }
 

@@ -22,21 +22,39 @@ export default function Viewer() {
   widgetsRef.current = widgets;
   const [reportFilters, setReportFilters] = useState({});
   const urlFiltersAppliedRef = useRef(false);
-  // Once the model is loaded, seed reportFilters from the URL `?f_<col>=…` params.
-  // URL filters win over saved slicer defaults so a shared link is reproducible.
-  // The cloud scheduler's `pf=` param (print filters) wins over both — it's
-  // a server-side override for per-recipient PDF rendering.
+  // Once the model is loaded, apply URL filters:
+  //   - `?f_<col>=…`  → merged into `report.settings.reportFilters`. URL
+  //     rules win over saved rules for the same field, so a shared link
+  //     reproduces the exact filtered view; non-`in` rules from settings
+  //     (between, comparisons, etc.) and rules on other fields stay.
+  //   - `pf=…`        → merged into the local slicer-shaped `reportFilters`.
+  //     This is the cloud scheduler's per-recipient personalisation hook,
+  //     applied as if the recipient had clicked those slicer values.
   useEffect(() => {
     if (!model || urlFiltersAppliedRef.current) return;
     urlFiltersAppliedRef.current = true;
     const fromUrl = parseFiltersFromUrl(window.location.search, model);
+    if (Array.isArray(fromUrl) && fromUrl.length > 0) {
+      setReport((prev) => {
+        if (!prev) return prev;
+        const existing = Array.isArray(prev?.settings?.reportFilters) ? prev.settings.reportFilters : [];
+        const urlFields = new Set(fromUrl.map((r) => r.field));
+        const merged = [...existing.filter((r) => !urlFields.has(r.field)), ...fromUrl];
+        return { ...prev, settings: { ...(prev.settings || {}), reportFilters: merged } };
+      });
+    }
     const fromPrint = parsePrintFiltersFromUrl(window.location.search, model);
-    const merged = { ...(fromUrl || {}), ...(fromPrint || {}) };
-    if (Object.keys(merged).length > 0) {
-      setReportFilters((prev) => ({ ...prev, ...merged }));
+    if (fromPrint && Object.keys(fromPrint).length > 0) {
+      setReportFilters((prev) => ({ ...prev, ...fromPrint }));
     }
   }, [model]);
-  useEffect(() => { syncFiltersToUrl(reportFilters, model); }, [reportFilters, model]);
+  // Keep `?f_<col>=…` in sync with the report-level rules so the URL
+  // matches the active filter set even after the user navigates pages.
+  // Slicer-driven `reportFilters` are NOT mirrored — only Settings panel
+  // rules are.
+  useEffect(() => {
+    syncFiltersToUrl(report?.settings?.reportFilters, model);
+  }, [report?.settings?.reportFilters, model]);
   // Tracks only slicer-driven selections (not cross-filters) — drives FilterWidget visual state
   const [slicerSelections, setSlicerSelections] = useState({});
   const [refreshCounter, setRefreshCounter] = useState(0);
