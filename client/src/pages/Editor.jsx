@@ -123,13 +123,6 @@ export default function Editor() {
   // early so useEffect dep arrays referencing `settings.reportFilters` don't
   // trip the temporal dead zone.
   const [settings, setSettings] = useState({});
-  // Stable string version of the report-level filters list — used as a useEffect
-  // dep so the data fetcher only re-fires when the actual content changes (not
-  // every time `settings` gets a new object reference for some unrelated key).
-  const settingsFiltersKey = useMemo(
-    () => JSON.stringify(Array.isArray(settings?.reportFilters) ? settings.reportFilters : []),
-    [settings?.reportFilters]
-  );
 
   // Effective model = model + report-scoped extras/overrides applied. The
   // model itself stays untouched; this is what every UI that reads dims /
@@ -171,19 +164,32 @@ export default function Editor() {
   const [clipboard, setClipboard] = useState(null);
   const [reportFilters, setReportFilters] = useState({});
   const urlFiltersAppliedRef = useRef(false);
-  // Once the model is loaded, seed reportFilters from the URL `?f_<col>=…` params.
-  // Runs once per model instance; further changes flow back to the URL via the
-  // sync effect below.
+  // Once the model is loaded, seed `settings.reportFilters` from the URL
+  // `?f_<col>=…` params. URL rules win over saved rules for the same field
+  // (so a shared link fully reproduces the filtered view); rules on other
+  // fields, and non-`in` rules (between, comparisons, …) saved in settings
+  // stay untouched. Runs once per model instance; further changes flow
+  // back to the URL via the sync effect below.
   useEffect(() => {
     if (!model || urlFiltersAppliedRef.current) return;
     urlFiltersAppliedRef.current = true;
     const fromUrl = parseFiltersFromUrl(window.location.search, model);
-    if (fromUrl && Object.keys(fromUrl).length > 0) {
-      setReportFilters((prev) => ({ ...prev, ...fromUrl }));
+    if (Array.isArray(fromUrl) && fromUrl.length > 0) {
+      setSettings((prev) => {
+        const existing = Array.isArray(prev?.reportFilters) ? prev.reportFilters : [];
+        const urlFields = new Set(fromUrl.map((r) => r.field));
+        const merged = [...existing.filter((r) => !urlFields.has(r.field)), ...fromUrl];
+        return { ...prev, reportFilters: merged };
+      });
     }
   }, [model]);
-  // Mirror reportFilters into the URL so a filtered view is bookmarkable.
-  useEffect(() => { syncFiltersToUrl(reportFilters, model); }, [reportFilters, model]);
+  // Mirror `settings.reportFilters` (the report-level rules configured in
+  // the Settings panel) into the URL so a filtered view is bookmarkable.
+  // Slicer-driven `reportFilters` are NOT URL-mirrored — only Settings
+  // panel rules are, since slicers are a runtime/interactive concern.
+  useEffect(() => {
+    syncFiltersToUrl(settings?.reportFilters, model);
+  }, [settings?.reportFilters, model]);
   const [slicerSelections, setSlicerSelections] = useState({});
   // Cross-highlight: which widget is the source and what value is highlighted
   const [crossHighlight, setCrossHighlight] = useState(null); // { widgetId, dim, value }
@@ -1005,7 +1011,13 @@ export default function Editor() {
         });
       }
     };
-  }, [reportFilters, model, refreshCounter, settingsFiltersKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    // `settingsFiltersKey` is intentionally NOT in the deps. Edits to
+    // `settings.reportFilters` come through the SettingsPanel, which has
+    // its own Save / Save & refresh buttons — Save commits the rules
+    // silently (next manual refresh picks them up), Save & refresh bumps
+    // `refreshCounter` to fire the fetch. Re-adding settingsFiltersKey
+    // would auto-fetch on every keystroke inside the panel.
+  }, [reportFilters, model, refreshCounter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -1719,6 +1731,7 @@ export default function Editor() {
           onSettingsChange={setSettings}
           onClose={() => setShowSettings(false)}
           model={model}
+          onRefresh={() => setRefreshCounter((c) => c + 1)}
         />
       )}
       {saveMsg && (
