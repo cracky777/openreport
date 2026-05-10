@@ -1,7 +1,14 @@
 import formatNumber from '../../utils/formatNumber';
+import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
 export default function ScorecardWidget({ data, config }) {
   const hasData = data?.value !== undefined && data?.value !== '';
+  // Trigger Google Fonts loading for whichever family the user picked. This
+  // is a side-effect inside render — fine here because `loadGoogleFont` is
+  // idempotent (Set-guarded) and re-running it on every paint costs nothing
+  // after the first injection.
+  if (config?.valueFontFamily) loadGoogleFont(config.valueFontFamily);
+  if (config?.labelFontFamily) loadGoogleFont(config.labelFontFamily);
 
   if (!hasData) {
     if (data?._rowCount === 0) {
@@ -129,6 +136,7 @@ export default function ScorecardWidget({ data, config }) {
         style={{
           fontSize: config?.labelSize || 14,
           color: config?.labelColor || 'var(--text-muted)',
+          fontFamily: config?.labelFontFamily ? fontStack(config.labelFontFamily) : undefined,
           marginBottom: 4,
           fontWeight: 500,
         }}
@@ -153,6 +161,7 @@ export default function ScorecardWidget({ data, config }) {
             fontSize: config?.valueSize || 36,
             fontWeight: 700,
             color: config?.valueColor || 'var(--text-primary)',
+            fontFamily: config?.valueFontFamily ? fontStack(config.valueFontFamily) : undefined,
           }}
         >
           {displayValue}

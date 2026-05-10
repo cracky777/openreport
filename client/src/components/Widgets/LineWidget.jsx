@@ -6,6 +6,7 @@ import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues } from '../../utils/axisSort';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
+import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -61,6 +62,14 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
   const dataLabelColor = config?.dataLabelColor || '#475569';
   const dataLabelBgColor = config?.dataLabelBgColor || '#ffffff';
   const dataLabelBgOpacity = config?.dataLabelBgOpacity ?? 0;
+  // Font family lookups — declared up here to dodge the TDZ trap on the
+  // option literals below. Same pattern as BarWidget.
+  if (config?.dataLabelFontFamily) loadGoogleFont(config.dataLabelFontFamily);
+  if (config?.xAxisLabelFontFamily) loadGoogleFont(config.xAxisLabelFontFamily);
+  if (config?.yAxisLabelFontFamily) loadGoogleFont(config.yAxisLabelFontFamily);
+  const dataLabelFontFamily = config?.dataLabelFontFamily ? fontStack(config.dataLabelFontFamily) : undefined;
+  const xAxisFontFamily = config?.xAxisLabelFontFamily ? fontStack(config.xAxisLabelFontFamily) : undefined;
+  const yAxisFontFamily = config?.yAxisLabelFontFamily ? fontStack(config.yAxisLabelFontFamily) : undefined;
   const hideZeros = config?.hideZeros ?? false;
   const zoneSorts = config?.zoneSorts;
   const sortOrder = zoneSorts ? (zoneSorts.values || 'none') : (config?.sortOrder || 'none');
@@ -136,6 +145,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
 
     const labelOpts = {
       show: showDataLabels, position: dataLabelPosition, fontSize: config?.dataLabelFontSize ?? 10,
+      fontFamily: dataLabelFontFamily,
       rotate: dataLabelRotate, color: dataLabelColor,
       align: dataLabelRotate > 0 ? 'left' : dataLabelRotate < 0 ? 'right' : 'center',
       verticalAlign: Math.abs(dataLabelRotate) === 90 ? 'middle' : dataLabelPosition === 'top' ? 'bottom' : 'middle',
@@ -191,8 +201,8 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
     const showYTitle = config?.showYAxisTitle ?? true;
     const xTitle = showXTitle ? ((config?.xAxisTitle ?? '') || (data._dimLabel || '')) : '';
     const yTitle = showYTitle ? ((config?.yAxisTitle ?? '') || (data._measureLabel || '')) : '';
-    const xNameCfg = xTitle ? { name: xTitle, nameLocation: 'center', nameGap: 28, nameTextStyle: { fontSize: (config?.xAxisLabelFontSize ?? 11) + 1, color: config?.xAxisLabelColor || '#64748b', fontWeight: 500 } } : {};
-    const yNameCfg = yTitle ? { name: yTitle, nameLocation: 'center', nameGap: 40, nameTextStyle: { fontSize: (config?.yAxisLabelFontSize ?? 11) + 1, color: config?.yAxisLabelColor || '#64748b', fontWeight: 500 } } : {};
+    const xNameCfg = xTitle ? { name: xTitle, nameLocation: 'center', nameGap: 28, nameTextStyle: { fontSize: (config?.xAxisLabelFontSize ?? 11) + 1, color: config?.xAxisLabelColor || '#64748b', fontWeight: 500, fontFamily: xAxisFontFamily } } : {};
+    const yNameCfg = yTitle ? { name: yTitle, nameLocation: 'center', nameGap: 40, nameTextStyle: { fontSize: (config?.yAxisLabelFontSize ?? 11) + 1, color: config?.yAxisLabelColor || '#64748b', fontWeight: 500, fontFamily: yAxisFontFamily } } : {};
     const xTitleExtra = xTitle ? 18 : 0;
     const yTitleExtra = yTitle ? 20 : 0;
 
@@ -218,6 +228,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
           show: showLabels, rotate: calcLabelRotation(labels, w),
           fontSize: config?.xAxisLabelFontSize ?? 11,
           color: config?.xAxisLabelColor || '#64748b',
+          fontFamily: xAxisFontFamily,
         },
       },
       yAxis: {
@@ -227,6 +238,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
           show: showLabels,
           fontSize: config?.yAxisLabelFontSize ?? 11,
           color: config?.yAxisLabelColor || '#64748b',
+          fontFamily: yAxisFontFamily,
           formatter: (val) => {
             const abbr = abbreviateNumber(val, valueAbbr);
             if (abbr != null) return abbr;
@@ -338,11 +350,11 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
   return (
     <div style={{ display: 'flex', flexDirection: flexDir, width: '100%', height: '100%' }}>
       {showHtmlLegend && (legendPosition === 'top' || legendPosition === 'left') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} />
+        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
       )}
       <div ref={chartRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
       {showHtmlLegend && (legendPosition === 'bottom' || legendPosition === 'right') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} />
+        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
       )}
     </div>
   );

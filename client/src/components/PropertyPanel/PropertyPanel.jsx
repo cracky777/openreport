@@ -5,6 +5,7 @@ import DropZone from '../DropZone/DropZone';
 import TablePropertySections from './TablePropertySections';
 import DimensionMultiSelect from './DimensionMultiSelect';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
+import FontPicker from '../FontPicker/FontPicker';
 import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase } from 'react-icons/tb';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
 
@@ -716,6 +717,10 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <ColorInput value={widget.config?.slicerFontColor || '#0f172a'}
               onChange={(v) => updateConfig('slicerFontColor', v)} />
           </Field>
+          <Field label="Font family">
+            <FontPicker value={widget.config?.slicerFontFamily}
+              onChange={(v) => updateConfig('slicerFontFamily', v)} />
+          </Field>
           <Field label="Selected color">
             <ColorInput value={widget.config?.slicerSelectedColor || '#7c3aed'}
               onChange={(v) => updateConfig('slicerSelectedColor', v)} />
@@ -760,6 +765,10 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       <Section title="Title">
         <input type="text" value={widget.config?.title || ''} onChange={(e) => updateConfig('title', e.target.value)}
           placeholder="Widget title" style={inputStyle} />
+        <Field label="Font family">
+          <FontPicker value={widget.config?.titleFontFamily}
+            onChange={(v) => updateConfig('titleFontFamily', v)} />
+        </Field>
       </Section>
 
       {widget.type !== 'text' && widget.type !== 'shape' && (
@@ -777,6 +786,10 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 <ColorInput value={widget.config?.valueColor || '#0f172a'}
                   onChange={(v) => updateConfig('valueColor', v)} />
               </Field>
+              <Field label="Value font">
+                <FontPicker value={widget.config?.valueFontFamily}
+                  onChange={(v) => updateConfig('valueFontFamily', v)} />
+              </Field>
               <Field label="Label size">
                 <input type="number" min={8} max={32} value={widget.config?.labelSize || 14}
                   onChange={(e) => updateConfig('labelSize', parseInt(e.target.value))} style={{ ...inputStyle, width: 60 }} />
@@ -784,6 +797,10 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               <Field label="Label color">
                 <ColorInput value={widget.config?.labelColor || '#64748b'}
                   onChange={(v) => updateConfig('labelColor', v)} />
+              </Field>
+              <Field label="Label font">
+                <FontPicker value={widget.config?.labelFontFamily}
+                  onChange={(v) => updateConfig('labelFontFamily', v)} />
               </Field>
             </>
           )}
@@ -1147,10 +1164,16 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                     style={{ ...inputStyle, width: 50, marginBottom: 0 }} />
                 </Field>
                 {canColor && (
-                  <Field label="Label color">
-                    <ColorInput value={widget.config?.dataLabelColor || '#475569'}
-                      onChange={(v) => updateConfig('dataLabelColor', v)} />
-                  </Field>
+                  <>
+                    <Field label="Label color">
+                      <ColorInput value={widget.config?.dataLabelColor || '#475569'}
+                        onChange={(v) => updateConfig('dataLabelColor', v)} />
+                    </Field>
+                    <Field label="Label font">
+                      <FontPicker value={widget.config?.dataLabelFontFamily}
+                        onChange={(v) => updateConfig('dataLabelFontFamily', v)} />
+                    </Field>
+                  </>
                 )}
                 {canBg && (
                   <>
@@ -1190,6 +1213,10 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                       <option value="left">Left</option>
                       <option value="right">Right</option>
                     </select>
+                  </Field>
+                  <Field label="Font family">
+                    <FontPicker value={widget.config?.legendFontFamily}
+                      onChange={(v) => updateConfig('legendFontFamily', v)} />
                   </Field>
                 </SubSection>
               )}
@@ -1236,6 +1263,10 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                     <ColorInput value={widget.config?.xAxisLabelColor || '#64748b'}
                       onChange={(v) => updateConfig('xAxisLabelColor', v)} />
                   </Field>
+                  <Field label="Font family">
+                    <FontPicker value={widget.config?.xAxisLabelFontFamily}
+                      onChange={(v) => updateConfig('xAxisLabelFontFamily', v)} />
+                  </Field>
                 </SubSection>
               )}
               <Field label="Show Y axis">
@@ -1271,6 +1302,10 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                   <Field label="Color">
                     <ColorInput value={widget.config?.yAxisLabelColor || '#64748b'}
                       onChange={(v) => updateConfig('yAxisLabelColor', v)} />
+                  </Field>
+                  <Field label="Font family">
+                    <FontPicker value={widget.config?.yAxisLabelFontFamily}
+                      onChange={(v) => updateConfig('yAxisLabelFontFamily', v)} />
                   </Field>
                 </SubSection>
               )}
@@ -1311,6 +1346,10 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                           <ColorInput value={widget.config?.secondaryYAxisLabelColor || '#64748b'}
                             onChange={(v) => updateConfig('secondaryYAxisLabelColor', v)} />
                         </Field>
+                        <Field label="Font family">
+                          <FontPicker value={widget.config?.secondaryYAxisLabelFontFamily}
+                            onChange={(v) => updateConfig('secondaryYAxisLabelFontFamily', v)} />
+                        </Field>
                       </SubSection>
                     </>
                   )}
@@ -1345,6 +1384,10 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <Field label="Color">
             <ColorInput value={widget.config?.headerColor || '#475569'}
               onChange={(v) => updateConfig('headerColor', v)} />
+          </Field>
+          <Field label="Font family">
+            <FontPicker value={widget.config?.headerFontFamily}
+              onChange={(v) => updateConfig('headerFontFamily', v)} />
           </Field>
           <Field label="Bold">
             <input type="checkbox" checked={widget.config?.headerBold ?? false}
@@ -1515,6 +1558,10 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <input type="number" min={10} max={72} value={widget.config?.fontSize || 16}
               onChange={(e) => updateConfig('fontSize', parseInt(e.target.value))}
               style={{ ...inputStyle, width: 60 }} />
+          </Field>
+          <Field label="Font family">
+            <FontPicker value={widget.config?.fontFamily}
+              onChange={(v) => updateConfig('fontFamily', v)} />
           </Field>
         </Section>
       )}
@@ -1687,6 +1734,10 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 onChange={(e) => updateConfig('gaugeValueColor', e.target.value)}
                 style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
             </Field>
+            <Field label="Font family">
+              <FontPicker value={widget.config?.gaugeValueFontFamily}
+                onChange={(v) => updateConfig('gaugeValueFontFamily', v)} />
+            </Field>
           </SubSection>
           <SubSection label="Label font">
             <Field label="Size" vertical>
@@ -1697,6 +1748,10 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               <input type="color" value={widget.config?.gaugeLabelColor || '#64748b'}
                 onChange={(e) => updateConfig('gaugeLabelColor', e.target.value)}
                 style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
+            </Field>
+            <Field label="Font family">
+              <FontPicker value={widget.config?.gaugeLabelFontFamily}
+                onChange={(v) => updateConfig('gaugeLabelFontFamily', v)} />
             </Field>
           </SubSection>
           {(widget.config?.gaugeShowMinMax ?? false) && (

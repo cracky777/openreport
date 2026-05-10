@@ -6,6 +6,7 @@ import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
 import { applyTopN } from '../../utils/topNGroup';
 import { compareAxisValues } from '../../utils/axisSort';
+import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
 const OTHERS_COLOR = '#94a3b8'; // slate-400 — neutral fill for the Others slice
 
@@ -44,6 +45,8 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
   const dataLabelColor = config?.dataLabelColor || '#475569';
   const dataLabelBgColor = config?.dataLabelBgColor || '#ffffff';
   const dataLabelBgOpacity = config?.dataLabelBgOpacity ?? 0;
+  if (config?.dataLabelFontFamily) loadGoogleFont(config.dataLabelFontFamily);
+  const dataLabelFontFamily = config?.dataLabelFontFamily ? fontStack(config.dataLabelFontFamily) : undefined;
   const zoneSorts = config?.zoneSorts;
   const sortOrder = zoneSorts ? (zoneSorts.values || 'none') : (config?.sortOrder || 'none');
   const axisSort = zoneSorts?.axis || 'none';
@@ -143,6 +146,7 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
           show: showDataLabels,
           position: config?.dataLabelPosition || 'outside',
           fontSize: config?.dataLabelFontSize ?? 12,
+          fontFamily: dataLabelFontFamily,
           formatter: buildLabel,
           rotate: dataLabelRotate,
           color: dataLabelColor,
@@ -239,11 +243,11 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
   return (
     <div style={{ display: 'flex', flexDirection: flexDir, width: '100%', height: '100%' }}>
       {showHtmlLegend && (legendPosition === 'top' || legendPosition === 'left') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} />
+        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
       )}
       <div ref={chartRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
       {showHtmlLegend && (legendPosition === 'bottom' || legendPosition === 'right') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} />
+        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
       )}
     </div>
   );

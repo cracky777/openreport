@@ -1,5 +1,6 @@
 import { useRef, useCallback, useMemo, useState, memo } from 'react';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
+import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 import {
   getColumnHeaderStyle, getColumnValueStyle, getColumnDisplayName,
   getColumnWidth, getColumnTotalFn, getGridConfig, getRowConfig,
@@ -47,6 +48,10 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
   const grid = getGridConfig(tc);
   const rowCfg = getRowConfig(tc);
   const totalsCfg = getTotalsConfig(tc);
+  // Lazy-load any Fontsource face referenced by the table config so the
+  // first paint already uses the right typeface instead of the fallback.
+  if (tc.header?.fontFamily) loadGoogleFont(tc.header.fontFamily);
+  if (tc.values?.fontFamily) loadGoogleFont(tc.values.fontFamily);
   const freeze = getFreezeConfig(tc);
   const sortCol = tc.sort?.columnName || null;
   const sortDir = tc.sort?.direction || 'asc';
@@ -181,6 +186,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                         padding: `${grid.cellPadding}px`,
                         fontSize: hs.fontSize || 13,
                         color: hs.fontColor || 'var(--text-primary)',
+                        fontFamily: hs.fontFamily ? fontStack(hs.fontFamily) : undefined,
                         fontWeight: hs.fontBold !== false ? 600 : 400,
                         fontStyle: hs.fontItalic ? 'italic' : 'normal',
                         backgroundColor: hs.bgColor || 'var(--bg-hover)',
@@ -269,6 +275,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                           padding: `${Math.max(2, grid.cellPadding - 2)}px ${grid.cellPadding}px`,
                           fontSize: vs.fontSize || 13,
                           color: vs.fontColor || 'var(--text-secondary)',
+                          fontFamily: vs.fontFamily ? fontStack(vs.fontFamily) : undefined,
                           fontWeight: vs.fontBold ? 600 : 400,
                           fontStyle: vs.fontItalic ? 'italic' : 'normal',
                           textAlign: align,

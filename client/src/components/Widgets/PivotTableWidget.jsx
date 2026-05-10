@@ -1,6 +1,7 @@
 import { memo, useMemo, useState } from 'react';
 import { pivotData, flattenHeaderLevels, resolveCell } from '../../utils/pivotEngine';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
+import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 import {
   getGridConfig, getRowConfig, getTotalsConfig, getFreezeConfig, ROW_HEIGHTS,
   getColumnHeaderStyle, getColumnValueStyle, getColumnDisplayName,
@@ -155,12 +156,14 @@ export default memo(function PivotTableWidget({ data, config }) {
 
   const getHeaderStyle = (colName, stickyTop = 0) => {
     const hs = getColumnHeaderStyle(tc, colName);
+    if (hs.fontFamily) loadGoogleFont(hs.fontFamily);
     return {
       padding: cellPad,
       fontWeight: hs.fontBold !== false ? 600 : 400,
       fontStyle: hs.fontItalic ? 'italic' : 'normal',
       fontSize: hs.fontSize || 12,
       color: hs.fontColor || 'var(--text-primary)',
+      fontFamily: hs.fontFamily ? fontStack(hs.fontFamily) : undefined,
       backgroundColor: hs.bgColor || 'var(--bg-hover)',
       borderBottom: hBorder, borderRight: vBorder,
       whiteSpace: hs.wordWrap ? 'normal' : 'nowrap',
@@ -171,11 +174,13 @@ export default memo(function PivotTableWidget({ data, config }) {
 
   const getCellStyle = (measureName) => {
     const vs = getColumnValueStyle(tc, measureName);
+    if (vs.fontFamily) loadGoogleFont(vs.fontFamily);
     return {
       padding: cellPad,
       textAlign: vs.alignment === 'auto' || !vs.alignment ? 'right' : vs.alignment,
       fontSize: vs.fontSize || 12,
       color: vs.fontColor || 'var(--text-secondary)',
+      fontFamily: vs.fontFamily ? fontStack(vs.fontFamily) : undefined,
       fontWeight: vs.fontBold ? 600 : 400,
       fontStyle: vs.fontItalic ? 'italic' : 'normal',
       borderBottom: hBorder, borderRight: vBorder,
@@ -185,10 +190,12 @@ export default memo(function PivotTableWidget({ data, config }) {
   // For row dimension cells: merge header + values overrides (header takes priority)
   const getRowDimCellStyle = () => {
     const vs = getColumnValueStyle(tc, 'Rows');
+    if (vs.fontFamily) loadGoogleFont(vs.fontFamily);
     return {
       padding: cellPad,
       fontSize: vs.fontSize || 12,
       color: vs.fontColor || 'var(--text-primary)',
+      fontFamily: vs.fontFamily ? fontStack(vs.fontFamily) : undefined,
       fontWeight: vs.fontBold ? 600 : 400,
       fontStyle: vs.fontItalic ? 'italic' : 'normal',
       backgroundColor: vs.bgColor || undefined,

@@ -1,6 +1,7 @@
 import { useState, useMemo, memo, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import MiniCalendar from './MiniCalendar';
+import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
 /**
  * Power BI-style Slicer widget.
@@ -79,6 +80,12 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
   const fontColor = config?.slicerFontColor || 'var(--text-primary)';
   const selectedColor = config?.slicerSelectedColor || '#7c3aed';
   const selectedBg = config?.slicerSelectedBg || 'var(--bg-active)';
+  if (config?.slicerFontFamily) loadGoogleFont(config.slicerFontFamily);
+  // Cascade the picked font to every label / input / button inside the
+  // slicer via the outer wrapper. CSS inheritance handles the rest.
+  const slicerFontStyle = config?.slicerFontFamily
+    ? { fontFamily: fontStack(config.slicerFontFamily) }
+    : null;
 
   const filteredValues = useMemo(() => {
     if (!search) return values;
@@ -157,7 +164,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
     const isHoriz = dateLayout === 'horizontal';
 
     return (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 10, gap: 8 }}>
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 10, gap: 8, ...slicerFontStyle }}>
         {/* Date inputs */}
         <div style={{ display: 'flex', flexDirection: isHoriz ? 'row' : 'column', gap: 6, flexShrink: 0, alignItems: isHoriz ? 'flex-end' : 'stretch' }}>
           <div style={{ flex: isHoriz ? 1 : undefined }}>
@@ -250,7 +257,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
     const cutoffStr = cutoff.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
 
     return (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 12, justifyContent: 'center' }}>
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 12, justifyContent: 'center', ...slicerFontStyle }}>
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>Relative Date</div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
           <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Last</span>
@@ -301,7 +308,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
     };
 
     return (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 4 }}>
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 4, ...slicerFontStyle }}>
         <div ref={dropdownRef} onClick={openDropdown}
           style={{
             padding: '6px 10px', border: '1px solid var(--border-default)', borderRadius: 6,
@@ -344,7 +351,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
   // ─── BUTTONS MODE ───
   if (slicerStyle === 'buttons') {
     return (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 4 }}>
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 4, ...slicerFontStyle }}>
         {showSelectAll && (
           <button onClick={handleSelectAll} style={{ ...linkBtn, marginBottom: 6, alignSelf: 'flex-start' }}>
             {selected.length === 0 ? 'All selected' : 'Select all'}
@@ -385,7 +392,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
     const rangeMax = selected[1] ?? max;
 
     return (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 12, justifyContent: 'center' }}>
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 12, justifyContent: 'center', ...slicerFontStyle }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
           <span>{rangeMin}</span><span>{rangeMax}</span>
         </div>
@@ -410,7 +417,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
 
   // ─── LIST MODE (default) ───
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 4 }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 4, ...slicerFontStyle }}>
       {showSearch && (
         <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
           placeholder="Search..." style={searchInputStyle} />

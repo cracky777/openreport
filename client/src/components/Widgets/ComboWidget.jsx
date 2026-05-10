@@ -7,6 +7,7 @@ import { compareAxisValues } from '../../utils/axisSort';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
+import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -45,6 +46,14 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
   const showDataLabels = config?.showDataLabels ?? false;
   const dataLabelFontSize = config?.dataLabelFontSize ?? 10;
   const dataLabelColor = config?.dataLabelColor || '#475569';
+  if (config?.dataLabelFontFamily) loadGoogleFont(config.dataLabelFontFamily);
+  if (config?.xAxisLabelFontFamily) loadGoogleFont(config.xAxisLabelFontFamily);
+  if (config?.yAxisLabelFontFamily) loadGoogleFont(config.yAxisLabelFontFamily);
+  if (config?.secondaryYAxisLabelFontFamily) loadGoogleFont(config.secondaryYAxisLabelFontFamily);
+  const dataLabelFontFamily = config?.dataLabelFontFamily ? fontStack(config.dataLabelFontFamily) : undefined;
+  const xAxisFontFamily = config?.xAxisLabelFontFamily ? fontStack(config.xAxisLabelFontFamily) : undefined;
+  const yAxisFontFamily = config?.yAxisLabelFontFamily ? fontStack(config.yAxisLabelFontFamily) : undefined;
+  const secYAxisFontFamily = config?.secondaryYAxisLabelFontFamily ? fontStack(config.secondaryYAxisLabelFontFamily) : undefined;
   const valueAbbr = config?.valueAbbreviation || 'none';
   const hideZeros = config?.hideZeros ?? false;
   const gridLineStyle = config?.gridLineStyle || 'solid';
@@ -237,7 +246,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
           itemStyle: { color },
           emphasis: { disabled: true },
           label: {
-            show: showDataLabels, position: 'top', fontSize: dataLabelFontSize, color: dataLabelColor,
+            show: showDataLabels, position: 'top', fontSize: dataLabelFontSize, fontFamily: dataLabelFontFamily, color: dataLabelColor,
             formatter: (p) => {
               if (hideZeros && (p.value === 0 || p.value == null)) return '';
               return abbreviateNumber(p.value, valueAbbr) ?? formatNumber(p.value);
@@ -264,7 +273,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
         symbolSize: 6,
         emphasis: { disabled: true },
         label: {
-          show: showDataLabels, position: 'top', fontSize: dataLabelFontSize, color: dataLabelColor,
+          show: showDataLabels, position: 'top', fontSize: dataLabelFontSize, fontFamily: dataLabelFontFamily, color: dataLabelColor,
           formatter: (p) => {
             if (hideZeros && (p.value === 0 || p.value == null)) return '';
             return abbreviateNumber(p.value, valueAbbr) ?? formatNumber(p.value);
@@ -320,15 +329,15 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     const xTitleVal = showXTitle ? ((config?.xAxisTitle ?? '') || (data._dimLabel || '')) : '';
     const yTitleVal = showYTitle ? ((config?.yAxisTitle ?? '') || defaultPrimaryTitle) : '';
     const secYTitleVal = showSecYTitle ? ((config?.secondaryYAxisTitle ?? '') || lineBucketLabel) : '';
-    const yNameCfg = yTitleVal ? { name: yTitleVal, nameLocation: 'center', nameGap: 40, nameTextStyle: { fontSize: yAxisFontSize + 1, color: yAxisColor, fontWeight: 500 } } : {};
-    const secYNameCfg = secYTitleVal ? { name: secYTitleVal, nameLocation: 'center', nameGap: 40, nameTextStyle: { fontSize: secYAxisFontSize + 1, color: secYAxisColor, fontWeight: 500 } } : {};
+    const yNameCfg = yTitleVal ? { name: yTitleVal, nameLocation: 'center', nameGap: 40, nameTextStyle: { fontSize: yAxisFontSize + 1, color: yAxisColor, fontWeight: 500, fontFamily: yAxisFontFamily } } : {};
+    const secYNameCfg = secYTitleVal ? { name: secYTitleVal, nameLocation: 'center', nameGap: 40, nameTextStyle: { fontSize: secYAxisFontSize + 1, color: secYAxisColor, fontWeight: 500, fontFamily: secYAxisFontFamily } } : {};
 
     const yAxes = [{
       type: 'value', show: showYAxis,
       max: leftMax,
       interval: yAxisInterval || undefined,
       ...yNameCfg,
-      axisLabel: { fontSize: yAxisFontSize, color: yAxisColor, formatter: (v) => abbreviateNumber(v, valueAbbr) ?? formatNumber(v) },
+      axisLabel: { fontSize: yAxisFontSize, color: yAxisColor, fontFamily: yAxisFontFamily, formatter: (v) => abbreviateNumber(v, valueAbbr) ?? formatNumber(v) },
       splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth } },
     }];
     if (showSecondaryAxis) {
@@ -337,7 +346,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
         max: rightMax,
         interval: secondaryYAxisInterval || undefined,
         ...secYNameCfg,
-        axisLabel: { fontSize: secYAxisFontSize, color: secYAxisColor, formatter: (v) => abbreviateNumber(v, valueAbbr) ?? formatNumber(v) },
+        axisLabel: { fontSize: secYAxisFontSize, color: secYAxisColor, fontFamily: secYAxisFontFamily, formatter: (v) => abbreviateNumber(v, valueAbbr) ?? formatNumber(v) },
         splitLine: { show: false },
       });
     }
@@ -368,11 +377,11 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
 
     const xAxisFontSize = config?.xAxisLabelFontSize ?? 11;
     const xAxisColor = config?.xAxisLabelColor || '#64748b';
-    const xNameCfg = xTitleVal ? { name: xTitleVal, nameLocation: 'center', nameGap: 28, nameTextStyle: { fontSize: xAxisFontSize + 1, color: xAxisColor, fontWeight: 500 } } : {};
+    const xNameCfg = xTitleVal ? { name: xTitleVal, nameLocation: 'center', nameGap: 28, nameTextStyle: { fontSize: xAxisFontSize + 1, color: xAxisColor, fontWeight: 500, fontFamily: xAxisFontFamily } } : {};
     const categoryAxis = {
       type: 'category', data: labels, show: showXAxis,
       ...xNameCfg,
-      axisLabel: { show: true, rotate: isHoriz ? 0 : calcLabelRotation(labels, w), fontSize: xAxisFontSize, color: xAxisColor },
+      axisLabel: { show: true, rotate: isHoriz ? 0 : calcLabelRotation(labels, w), fontSize: xAxisFontSize, color: xAxisColor, fontFamily: xAxisFontFamily },
       position: barDir === 'verticalInverse' ? 'top' : barDir === 'horizontalInverse' ? 'right' : undefined,
       inverse: barDir === 'horizontalInverse',
     };
@@ -496,11 +505,11 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: isLR ? 'row' : 'column' }}>
       {showLegend && legendItems.length > 0 && (legendPosition === 'top' || legendPosition === 'left') && (
-        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} />
+        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} />
       )}
       <div ref={chartRef} style={{ flex: 1, minHeight: 0, minWidth: 0 }} />
       {showLegend && legendItems.length > 0 && (legendPosition === 'bottom' || legendPosition === 'right') && (
-        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} />
+        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} />
       )}
     </div>
   );

@@ -5,6 +5,7 @@ import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
 import { applyTopN } from '../../utils/topNGroup';
 import { compareAxisValues } from '../../utils/axisSort';
+import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
 const OTHERS_COLOR = '#94a3b8';
 
@@ -24,6 +25,8 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
   const dataLabelAbbr = config?.dataLabelAbbr || 'none';
   const dataLabelColor = config?.dataLabelColor || '#ffffff';
   const dataLabelSize = config?.dataLabelFontSize || 12;
+  if (config?.dataLabelFontFamily) loadGoogleFont(config.dataLabelFontFamily);
+  const dataLabelFontFamily = config?.dataLabelFontFamily ? fontStack(config.dataLabelFontFamily) : undefined;
   // Treemap defaults to descending values when nothing else is configured —
   // a tile sorted by area is the genre's whole point.
   const zoneSorts = config?.zoneSorts;
@@ -128,6 +131,7 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
           show: showDataLabels,
           color: dataLabelColor,
           fontSize: dataLabelSize,
+          fontFamily: dataLabelFontFamily,
           lineHeight: Math.round(dataLabelSize * 1.5),
           formatter: buildLabel,
           overflow: 'truncate',

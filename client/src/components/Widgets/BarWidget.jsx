@@ -7,6 +7,7 @@ import { compareAxisValues } from '../../utils/axisSort';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
+import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
 const OTHERS_COLOR = '#94a3b8';
 
@@ -123,6 +124,18 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
   const dataLabelColor = config?.dataLabelColor || '#475569';
   const dataLabelBgColor = config?.dataLabelBgColor || '#ffffff';
   const dataLabelBgOpacity = config?.dataLabelBgOpacity ?? 0;
+  // Font family lookups — declared up here (before the series construction
+  // below) so the renderItem / label object literals don't hit a TDZ error
+  // when JS evaluates them eagerly. Loading triggers the matching Fontsource
+  // chunk; fontStack returns a CSS family list with a sensible fallback so
+  // the chart paints something while the woff2 lands.
+  if (config?.dataLabelFontFamily) loadGoogleFont(config.dataLabelFontFamily);
+  if (config?.xAxisLabelFontFamily) loadGoogleFont(config.xAxisLabelFontFamily);
+  if (config?.yAxisLabelFontFamily) loadGoogleFont(config.yAxisLabelFontFamily);
+  if (config?.titleFontFamily) loadGoogleFont(config.titleFontFamily);
+  const dataLabelFontFamily = config?.dataLabelFontFamily ? fontStack(config.dataLabelFontFamily) : undefined;
+  const xAxisFontFamily = config?.xAxisLabelFontFamily ? fontStack(config.xAxisLabelFontFamily) : undefined;
+  const yAxisFontFamily = config?.yAxisLabelFontFamily ? fontStack(config.yAxisLabelFontFamily) : undefined;
   const hideZeros = config?.hideZeros ?? false;
   const showLegend = config?.showLegend ?? false;
   const legendPosition = config?.legendPosition || 'top';
@@ -422,6 +435,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
                       text: labelText,
                       fill: dataLabelColor,
                       fontSize: config?.dataLabelFontSize ?? 10,
+                      fontFamily: dataLabelFontFamily,
                       align: lAlign,
                       verticalAlign: lVAlign,
                       backgroundColor: dataLabelBgOpacity > 0 ? hexToRgba(dataLabelBgColor, dataLabelBgOpacity) : undefined,
@@ -453,6 +467,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
             itemStyle: { color: getColor(s.name, origIdx2 >= 0 ? origIdx2 : i) },
             emphasis: { focus: 'series' },
             label: { show: showDataLabels, position: dataLabelPosition, fontSize: config?.dataLabelFontSize ?? 10,
+              fontFamily: dataLabelFontFamily,
               rotate: dataLabelRotate, color: dataLabelColor,
               align: dataLabelRotate > 0 ? 'left' : dataLabelRotate < 0 ? 'right' : 'center',
               verticalAlign: Math.abs(dataLabelRotate) === 90 ? 'middle' : dataLabelPosition === 'top' ? 'bottom' : 'middle',
@@ -470,6 +485,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
           : sortedIndices.map((i) => data.values[i] || 0),
         itemStyle: { color: config?.color || '#5470c6' },
         label: { show: showDataLabels, position: dataLabelPosition, fontSize: 10,
+          fontFamily: dataLabelFontFamily,
           rotate: dataLabelRotate, color: dataLabelColor,
           align: Math.abs(dataLabelRotate) === 90 ? 'center' : dataLabelRotate > 0 ? 'left' : dataLabelRotate < 0 ? 'right' : 'center',
           verticalAlign: dataLabelPosition === 'top' ? 'bottom' : 'middle',
@@ -505,8 +521,8 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
     const isHoriz = barDir === 'horizontal' || barDir === 'horizontalInverse';
     const isInverse = barDir === 'verticalInverse' || barDir === 'horizontalInverse';
 
-    const xAxisFont = { fontSize: config?.xAxisLabelFontSize ?? 11, color: config?.xAxisLabelColor || '#64748b' };
-    const yAxisFont = { fontSize: config?.yAxisLabelFontSize ?? 11, color: config?.yAxisLabelColor || '#64748b' };
+    const xAxisFont = { fontSize: config?.xAxisLabelFontSize ?? 11, color: config?.xAxisLabelColor || '#64748b', fontFamily: xAxisFontFamily };
+    const yAxisFont = { fontSize: config?.yAxisLabelFontSize ?? 11, color: config?.yAxisLabelColor || '#64748b', fontFamily: yAxisFontFamily };
     const showXTitle = config?.showXAxisTitle ?? true;
     const showYTitle = config?.showYAxisTitle ?? true;
     const xTitle = showXTitle ? ((config?.xAxisTitle ?? '') || (isHoriz ? (data._measureLabel || '') : (data._dimLabel || ''))) : '';
@@ -535,8 +551,8 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
       position: barDir === 'horizontalInverse' ? 'right' : undefined,
     };
 
-    const xNameCfg = xTitle ? { name: xTitle, nameLocation: 'center', nameGap: 28, nameTextStyle: { fontSize: (config?.xAxisLabelFontSize ?? 11) + 1, color: config?.xAxisLabelColor || '#64748b', fontWeight: 500 } } : {};
-    const yNameCfg = yTitle ? { name: yTitle, nameLocation: 'center', nameGap: 40, nameTextStyle: { fontSize: (config?.yAxisLabelFontSize ?? 11) + 1, color: config?.yAxisLabelColor || '#64748b', fontWeight: 500 } } : {};
+    const xNameCfg = xTitle ? { name: xTitle, nameLocation: 'center', nameGap: 28, nameTextStyle: { fontSize: (config?.xAxisLabelFontSize ?? 11) + 1, color: config?.xAxisLabelColor || '#64748b', fontWeight: 500, fontFamily: xAxisFontFamily } } : {};
+    const yNameCfg = yTitle ? { name: yTitle, nameLocation: 'center', nameGap: 40, nameTextStyle: { fontSize: (config?.yAxisLabelFontSize ?? 11) + 1, color: config?.yAxisLabelColor || '#64748b', fontWeight: 500, fontFamily: yAxisFontFamily } } : {};
     if (isHoriz) {
       opt.xAxis = { ...valueAxis, ...xNameCfg, axisLabel: { ...valueAxis.axisLabel, ...xAxisFont } };
       opt.yAxis = { ...categoryAxis, ...yNameCfg, axisLabel: { ...categoryAxis.axisLabel, ...yAxisFont } };
@@ -677,11 +693,11 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
   return (
     <div style={{ display: 'flex', flexDirection: flexDir, width: '100%', height: '100%' }}>
       {showHtmlLegend && (legendPosition === 'top' || legendPosition === 'left') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} />
+        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
       )}
       <div ref={chartRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
       {showHtmlLegend && (legendPosition === 'bottom' || legendPosition === 'right') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} />
+        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
       )}
     </div>
   );

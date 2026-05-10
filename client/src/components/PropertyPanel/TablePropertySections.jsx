@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { setNestedValue } from '../../utils/tableConfigHelpers';
+import FontPicker from '../FontPicker/FontPicker';
 
 /**
  * Complete table configuration panel with per-column and global settings.
@@ -74,6 +75,10 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
           <ColorInput value={get('header', 'fontColor', '#334155')}
             onChange={(v) => update('header.fontColor', v)} />
         </Field>
+        <Field label="Font family">
+          <FontPicker value={get('header', 'fontFamily', null)}
+            onChange={(v) => update('header.fontFamily', v)} />
+        </Field>
         <Field label="Bold">
           <input type="checkbox" checked={get('header', 'fontBold', true)}
             onChange={(e) => update('header.fontBold', e.target.checked)} />
@@ -121,6 +126,10 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
         <Field label="Font color">
           <ColorInput value={get('values', 'fontColor', '#475569')}
             onChange={(v) => update('values.fontColor', v)} />
+        </Field>
+        <Field label="Font family">
+          <FontPicker value={get('values', 'fontFamily', null)}
+            onChange={(v) => update('values.fontFamily', v)} />
         </Field>
         <Field label="Bold">
           <input type="checkbox" checked={get('values', 'fontBold', false)}

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, memo, useMemo } from 'rea
 import * as echarts from 'echarts';
 import formatNumber from '../../utils/formatNumber';
 import { lerpColor } from '../../utils/tableConfigHelpers';
+import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
 // Extract numeric value from scorecard-shaped data (handles legacy string values from old saves)
 const extractValue = (data) => {
@@ -131,19 +132,27 @@ const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, label, 
       splitLine: { show: false },
       axisLabel: { show: false }, // rendered as HTML overlay for fine positioning
       anchor: { show: false },
-      detail: showValue ? {
-        valueAnimation: true,
-        offsetCenter: [0, '0%'],
-        fontSize: config?.gaugeValueSize || 24,
-        fontWeight: 700,
-        color: config?.gaugeValueColor || '#0f172a',
-        formatter: () => displayValue,
-      } : { show: false },
-      title: showLabel && label ? {
-        offsetCenter: [0, '30%'],
-        fontSize: config?.gaugeLabelSize || 12,
-        color: config?.gaugeLabelColor || '#64748b',
-      } : { show: false },
+      detail: showValue ? (() => {
+        if (config?.gaugeValueFontFamily) loadGoogleFont(config.gaugeValueFontFamily);
+        return {
+          valueAnimation: true,
+          offsetCenter: [0, '0%'],
+          fontSize: config?.gaugeValueSize || 24,
+          fontWeight: 700,
+          color: config?.gaugeValueColor || '#0f172a',
+          fontFamily: config?.gaugeValueFontFamily ? fontStack(config.gaugeValueFontFamily) : undefined,
+          formatter: () => displayValue,
+        };
+      })() : { show: false },
+      title: showLabel && label ? (() => {
+        if (config?.gaugeLabelFontFamily) loadGoogleFont(config.gaugeLabelFontFamily);
+        return {
+          offsetCenter: [0, '30%'],
+          fontSize: config?.gaugeLabelSize || 12,
+          color: config?.gaugeLabelColor || '#64748b',
+          fontFamily: config?.gaugeLabelFontFamily ? fontStack(config.gaugeLabelFontFamily) : undefined,
+        };
+      })() : { show: false },
       data: [{ value, name: label }],
     }];
     // Threshold marker: a second gauge series drawing a thin line at the threshold position

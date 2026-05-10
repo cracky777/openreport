@@ -1,4 +1,7 @@
+import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
+
 export default function TextWidget({ data, config }) {
+  if (config?.fontFamily) loadGoogleFont(config.fontFamily);
   return (
     <div
       style={{
@@ -9,6 +12,7 @@ export default function TextWidget({ data, config }) {
         padding: 16,
         fontSize: config?.fontSize || 16,
         color: config?.color || '#334155',
+        fontFamily: config?.fontFamily ? fontStack(config.fontFamily) : undefined,
         fontWeight: config?.bold ? 700 : 400,
         fontStyle: config?.italic ? 'italic' : 'normal',
         overflow: 'auto',

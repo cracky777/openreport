@@ -1,11 +1,13 @@
 import { memo, useRef, useState, useEffect, useCallback } from 'react';
+import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
 /**
  * HTML legend rendered outside of ECharts canvas.
  * Uses arrow buttons for navigation instead of scrollbars.
  */
-export default memo(function ChartLegend({ items, position, onToggle, hiddenSeries }) {
+export default memo(function ChartLegend({ items, position, onToggle, hiddenSeries, fontFamily }) {
   if (!items || items.length === 0) return null;
+  if (fontFamily) loadGoogleFont(fontFamily);
 
   const isVertical = position === 'left' || position === 'right';
   const listRef = useRef(null);
@@ -53,6 +55,8 @@ export default memo(function ChartLegend({ items, position, onToggle, hiddenSeri
       flexDirection: isVertical ? 'column' : 'row',
       flexShrink: 0,
       alignItems: 'center',
+      // Cascades to every legend label below via CSS inheritance.
+      fontFamily: fontFamily ? fontStack(fontFamily) : undefined,
       ...(isVertical ? { width: 120, minWidth: 120, maxWidth: 120 } : { maxHeight: 50 }),
     }}>
       {/* Back arrow */}

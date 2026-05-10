@@ -4,6 +4,7 @@ import formatNumber from '../../utils/formatNumber';
 import ChartLegend from './ChartLegend';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
+import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
 const COLORS = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
@@ -31,6 +32,14 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
   const showYAxis = config?.showYAxis ?? true;
   const symbolSize = config?.symbolSize ?? 10;
   const showDataLabels = config?.showDataLabels ?? false;
+  if (config?.dataLabelFontFamily) loadGoogleFont(config.dataLabelFontFamily);
+  if (config?.xAxisLabelFontFamily) loadGoogleFont(config.xAxisLabelFontFamily);
+  if (config?.yAxisLabelFontFamily) loadGoogleFont(config.yAxisLabelFontFamily);
+  if (config?.headerFontFamily) loadGoogleFont(config.headerFontFamily);
+  const dataLabelFontFamily = config?.dataLabelFontFamily ? fontStack(config.dataLabelFontFamily) : undefined;
+  const xAxisFontFamily = config?.xAxisLabelFontFamily ? fontStack(config.xAxisLabelFontFamily) : undefined;
+  const yAxisFontFamily = config?.yAxisLabelFontFamily ? fontStack(config.yAxisLabelFontFamily) : undefined;
+  const headerFontFamily = config?.headerFontFamily ? fontStack(config.headerFontFamily) : undefined;
 
   const allGroupNames = useMemo(() => (data?.seriesGroups || []).map((g) => g?.name).filter((n) => n != null), [data?.seriesGroups]);
   const { getStableIdx } = useStableColorOrder(allGroupNames.join('|'), allGroupNames);
@@ -108,7 +117,7 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
             symbolSize: hasSize ? (val, params) => params.data?.symbolSize || symbolSize : symbolSize,
             itemStyle: { color: getColor(g.name, origIdx >= 0 ? origIdx : i) },
             emphasis: { disabled: true },
-            label: { show: showDataLabels, formatter: (p) => p.data._label || '', fontSize: config?.dataLabelFontSize ?? 10, position: 'top', color: 'var(--text-secondary)' },
+            label: { show: showDataLabels, formatter: (p) => p.data._label || '', fontSize: config?.dataLabelFontSize ?? 10, fontFamily: dataLabelFontFamily, position: 'top', color: 'var(--text-secondary)' },
           };
         });
     } else {
@@ -118,7 +127,7 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
         symbolSize: (val, params) => params.data?.symbolSize ?? symbolSize,
         itemStyle: { color: config?.color || '#5470c6' },
         emphasis: { disabled: true },
-        label: { show: showDataLabels, formatter: (p) => p.data._label || '', fontSize: 10, position: 'top', color: 'var(--text-secondary)' },
+        label: { show: showDataLabels, formatter: (p) => p.data._label || '', fontSize: 10, fontFamily: dataLabelFontFamily, position: 'top', color: 'var(--text-secondary)' },
       }];
     }
 
@@ -155,15 +164,15 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
       xAxis: {
         type: 'value', show: showXAxis,
         name: (config?.showXAxisTitle ?? config?.showXHeader ?? true) ? (config?.xAxisTitle ?? data._xLabel ?? '') : '', nameLocation: 'center', nameGap: 25,
-        nameTextStyle: { fontSize: config?.headerFontSize ?? 12, color: config?.headerColor || '#475569', fontWeight: config?.headerBold ? 'bold' : 'normal' },
-        axisLabel: { show: true, fontSize: config?.xAxisLabelFontSize ?? 11, color: config?.xAxisLabelColor || '#64748b' },
+        nameTextStyle: { fontSize: config?.headerFontSize ?? 12, color: config?.headerColor || '#475569', fontWeight: config?.headerBold ? 'bold' : 'normal', fontFamily: headerFontFamily },
+        axisLabel: { show: true, fontSize: config?.xAxisLabelFontSize ?? 11, color: config?.xAxisLabelColor || '#64748b', fontFamily: xAxisFontFamily },
         splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } },
       },
       yAxis: {
         type: 'value', show: showYAxis,
         name: (config?.showYAxisTitle ?? config?.showYHeader ?? true) ? (config?.yAxisTitle ?? data._yLabel ?? '') : '', nameLocation: 'center', nameGap: 35,
-        nameTextStyle: { fontSize: config?.headerFontSize ?? 12, color: config?.headerColor || '#475569', fontWeight: config?.headerBold ? 'bold' : 'normal' },
-        axisLabel: { show: true, fontSize: config?.yAxisLabelFontSize ?? 11, color: config?.yAxisLabelColor || '#64748b' },
+        nameTextStyle: { fontSize: config?.headerFontSize ?? 12, color: config?.headerColor || '#475569', fontWeight: config?.headerBold ? 'bold' : 'normal', fontFamily: headerFontFamily },
+        axisLabel: { show: true, fontSize: config?.yAxisLabelFontSize ?? 11, color: config?.yAxisLabelColor || '#64748b', fontFamily: yAxisFontFamily },
         splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } },
       },
       series: seriesList,
@@ -246,11 +255,11 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: isLR ? 'row' : 'column' }}>
       {showLegend && legendItems.length > 0 && (legendPosition === 'top' || legendPosition === 'left') && (
-        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} />
+        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} />
       )}
       <div ref={chartRef} style={{ flex: 1, minHeight: 0, minWidth: 0 }} />
       {showLegend && legendItems.length > 0 && (legendPosition === 'bottom' || legendPosition === 'right') && (
-        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} />
+        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} />
       )}
     </div>
   );
