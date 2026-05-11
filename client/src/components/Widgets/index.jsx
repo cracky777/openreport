@@ -12,8 +12,9 @@ import ComboWidget from './ComboWidget';
 import GaugeWidget from './GaugeWidget';
 import TreeMapWidget from './TreeMapWidget';
 import CustomVisualWidget from './CustomVisualWidget';
+import ImageWidget from './ImageWidget';
 
-import { TbChartBar, TbChartLine, TbChartPie, TbChartBubble, TbTable, TbLayoutGrid, TbHash, TbFilter, TbTypography, TbChartAreaLine, TbChartColumn, TbChartHistogram, TbChartBarPopular, TbShape, TbTypography as TbText, TbMinus, TbSquare, TbCircle, TbArrowRight, TbGauge, TbChartTreemap, TbPuzzle } from 'react-icons/tb';
+import { TbChartBar, TbChartLine, TbChartPie, TbChartBubble, TbTable, TbLayoutGrid, TbHash, TbFilter, TbTypography, TbChartAreaLine, TbChartColumn, TbChartHistogram, TbChartBarPopular, TbShape, TbTypography as TbText, TbMinus, TbSquare, TbCircle, TbArrowRight, TbGauge, TbChartTreemap, TbPuzzle, TbPhoto } from 'react-icons/tb';
 
 export const WIDGET_TYPES = {
   bar: { component: BarWidget, label: 'Bar Chart', icon: TbChartBar, defaultSize: { w: 24, h: 16 }, hasSubTypes: true },
@@ -32,10 +33,15 @@ export const WIDGET_TYPES = {
   // Custom (workspace-uploaded) visuals share a single widget type; the
   // specific visual is identified by config.visualId / config.bundleUrl.
   customVisual: { component: CustomVisualWidget, label: 'Custom Visual', icon: TbPuzzle, defaultSize: { w: 24, h: 16 }, hidden: true },
+  // Image: web URL (cloud) or uploaded file (OSS). Hidden from the main
+  // widget gallery — surfaced via the Objects dropdown so it sits next to
+  // text/shapes.
+  image: { component: ImageWidget, label: 'Image', icon: TbPhoto, defaultSize: { w: 16, h: 12 }, hidden: true },
 };
 
 export const OBJECT_SUB_TYPES = [
   { value: 'obj_text', label: 'Text', icon: TbText, type: 'text' },
+  { value: 'obj_image', label: 'Image', icon: TbPhoto, type: 'image', size: { w: 16, h: 12 }, config: { fit: 'contain' } },
   { value: 'obj_line', label: 'Line', icon: TbMinus, type: 'shape', size: { w: 300, h: 30 }, config: { shape: 'line', transparentBg: true, borderEnabled: false, borderRadius: 0 } },
   { value: 'obj_square', label: 'Square', icon: TbSquare, type: 'shape', config: { shape: 'square', backgroundColor: 'var(--accent-primary)', borderColor: '#6d28d9' } },
   { value: 'obj_round', label: 'Round', icon: TbCircle, type: 'shape', config: { shape: 'round', backgroundColor: 'var(--accent-primary)', borderColor: '#6d28d9' } },
@@ -70,4 +76,4 @@ export const GAUGE_SUB_TYPES = [
   { value: 'column', label: 'Column Gauge', icon: TbChartBar },
 ];
 
-export { BarWidget, LineWidget, PieWidget, ScatterWidget, ComboWidget, TableWidget, ScorecardWidget, TextWidget, FilterWidget, PivotTableWidget, GaugeWidget, TreeMapWidget, CustomVisualWidget };
+export { BarWidget, LineWidget, PieWidget, ScatterWidget, ComboWidget, TableWidget, ScorecardWidget, TextWidget, FilterWidget, PivotTableWidget, GaugeWidget, TreeMapWidget, CustomVisualWidget, ImageWidget };

@@ -17,6 +17,7 @@ const adminRoutes = require('./routes/admin');
 const workspaceRoutes = require('./routes/workspaces');
 const customVisualRoutes = require('./routes/customVisuals');
 const fileUploadRoutes = require('./routes/fileUpload');
+const imageUploadRoutes = require('./routes/imageUpload');
 const cacheScheduleRoutes = require('./routes/cacheSchedules');
 const internalToken = require('./utils/internalToken');
 const cacheScheduler = require('./utils/cacheScheduler');
@@ -122,6 +123,13 @@ app.use('/api/cache-schedules', cacheScheduleRoutes);
 app.use('/api/workspaces', customVisualRoutes);
 app.use('/api/workspaces', workspaceRoutes);
 app.use('/api/upload', fileUploadRoutes);
+app.use('/api/images', imageUploadRoutes);
+// Serve uploaded images to the browser. The path on disk maps 1:1 with
+// the URL returned by /api/images upload responses (`/uploads/images/…`).
+app.use('/uploads/images', express.static(path.join(__dirname, 'data', 'uploads', 'images'), {
+  maxAge: '7d',
+  fallthrough: false,
+}));
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -9,6 +9,7 @@ import FontPicker from '../FontPicker/FontPicker';
 import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase } from 'react-icons/tb';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
 import { parseIntOrNull, parseFloatOrNull } from '../../utils/input';
+import api from '../../utils/api';
 
 function getWidgetDisplayInfo(widget) {
   if (!widget) return { label: '', icon: null };
@@ -1563,6 +1564,62 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <Field label="Font family">
             <FontPicker value={widget.config?.fontFamily}
               onChange={(v) => updateConfig('fontFamily', v)} />
+          </Field>
+        </Section>
+      )}
+
+      {widget.type === 'image' && (
+        <Section title="Image" sectionState={sections}>
+          <Field label="URL">
+            <input type="text" value={widget.config?.url || ''} placeholder="https://…"
+              onChange={(e) => updateConfig('url', e.target.value)}
+              style={{ ...inputStyle, marginBottom: 0 }} />
+          </Field>
+          {/* Upload button — OSS only. Cloud builds set
+              VITE_OPENREPORT_CLOUD=1 at build time; Vite then strips this
+              block as dead code. Users on the cloud edition must paste a
+              web URL above (their own CDN, S3, image host, etc.). */}
+          {!import.meta.env.VITE_OPENREPORT_CLOUD && (
+            <Field label="Upload">
+              <input type="file" accept="image/*"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const form = new FormData();
+                  form.append('image', file);
+                  try {
+                    const res = await api.post('/images', form, {
+                      headers: { 'Content-Type': 'multipart/form-data' },
+                    });
+                    if (res.data?.url) updateConfig('url', res.data.url);
+                  } catch (err) {
+                    alert(err.response?.data?.error || 'Upload failed');
+                  } finally {
+                    e.target.value = '';
+                  }
+                }}
+                style={{ ...inputStyle, marginBottom: 0, padding: 2 }} />
+            </Field>
+          )}
+          <Field label="Fit">
+            <select value={widget.config?.fit || 'contain'}
+              onChange={(e) => updateConfig('fit', e.target.value)}
+              style={{ ...inputStyle, marginBottom: 0 }}>
+              <option value="contain">Contain (no crop)</option>
+              <option value="cover">Cover (crop to fill)</option>
+              <option value="fill">Fill (stretch)</option>
+              <option value="none">None (original size)</option>
+            </select>
+          </Field>
+          <Field label="Alt text">
+            <input type="text" value={widget.config?.alt || ''} placeholder="Image description"
+              onChange={(e) => updateConfig('alt', e.target.value)}
+              style={{ ...inputStyle, marginBottom: 0 }} />
+          </Field>
+          <Field label="Border radius">
+            <input type="number" min={0} max={64} value={widget.config?.borderRadius ?? ''} placeholder="0"
+              onChange={(e) => updateConfig('borderRadius', parseIntOrNull(e.target.value))}
+              style={{ ...inputStyle, width: 60 }} />
           </Field>
         </Section>
       )}
