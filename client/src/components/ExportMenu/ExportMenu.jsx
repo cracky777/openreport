@@ -134,11 +134,50 @@ export default function ExportMenu({
     return out;
   };
 
-  const exportRawJSON = () => {
+  // Inline any locally-uploaded image (URL starts with `/uploads/images/`)
+  // as a base64 data: URL so the JSON bundle is portable. Without this,
+  // exporting an OSS report with an uploaded image and re-importing it
+  // (cloud, another OSS instance, etc.) would silently break the image —
+  // the URL would point to a path that doesn't exist on the new host.
+  // External URLs (https://…) and data: URLs are left untouched.
+  const embedLocalImages = async (widgets) => {
+    if (!widgets || typeof widgets !== 'object') return widgets;
+    const out = {};
+    for (const [id, w] of Object.entries(widgets)) {
+      const url = w?.config?.url;
+      if (w?.type === 'image' && typeof url === 'string' && url.startsWith('/uploads/images/')) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const blob = await res.blob();
+          const dataUrl = await new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve(r.result);
+            r.onerror = () => reject(r.error);
+            r.readAsDataURL(blob);
+          });
+          out[id] = { ...w, config: { ...w.config, url: dataUrl } };
+        } catch (e) {
+          // Image not reachable: leave the original URL. Importing into
+          // a different host will show the empty-state placeholder.
+          console.warn(`Failed to embed image ${url}: ${e.message}`);
+          out[id] = w;
+        }
+      } else {
+        out[id] = w;
+      }
+    }
+    return out;
+  };
+
+  const exportRawJSON = async () => {
     setOpen(false);
     if (!report) return;
     const cleanedPages = Array.isArray(report.pages)
-      ? report.pages.map((p) => ({ ...p, widgets: stripWidgetData(p.widgets) }))
+      ? await Promise.all(report.pages.map(async (p) => ({
+          ...p,
+          widgets: await embedLocalImages(stripWidgetData(p.widgets)),
+        })))
       : null;
     const bundle = {
       format: EXPORT_FORMAT_VERSION,
@@ -148,7 +187,7 @@ export default function ExportMenu({
         model_id: report.model_id || null,
         model_name: report.model_name || null,
         layout: report.layout || [],
-        widgets: stripWidgetData(report.widgets || {}),
+        widgets: await embedLocalImages(stripWidgetData(report.widgets || {})),
         settings: report.settings || {},
         pages: cleanedPages,
       },
