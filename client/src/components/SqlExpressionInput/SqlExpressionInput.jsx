@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 const SQL_FUNCTIONS = ['SUM', 'AVG', 'COUNT', 'MIN', 'MAX', 'NULLIF', 'COALESCE', 'CASE WHEN', 'DISTINCT', 'ROUND'];
 
@@ -8,10 +9,37 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [cursorWord, setCursorWord] = useState('');
   const [cursorPos, setCursorPos] = useState(0);
+  // Anchor rect of the textarea — the dropdown is portalled to document.body
+  // so it escapes any `overflow: auto` ancestor (e.g. the measure-edit
+  // panel's scroll container). The rect is recomputed each time suggestions
+  // open AND while they're visible (on scroll / resize) so the popover
+  // tracks the textarea correctly.
+  const [anchorRect, setAnchorRect] = useState(null);
   const textareaRef = useRef(null);
   const suggestionsRef = useRef(null);
 
-  // Build all available fields
+  // Recompute the anchor rect when the dropdown is open. Listen on scroll
+  // (capture phase, so any scrolling ancestor triggers it) and resize.
+  useEffect(() => {
+    if (!showSuggestions) return;
+    const update = () => {
+      if (textareaRef.current) {
+        setAnchorRect(textareaRef.current.getBoundingClientRect());
+      }
+    };
+    update();
+    window.addEventListener('scroll', update, true);
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('scroll', update, true);
+      window.removeEventListener('resize', update);
+    };
+  }, [showSuggestions]);
+
+  // Build all available fields. Three "kinds":
+  //   - dim/meas: insert the raw "table"."column"
+  //   - calc: insert `${name}` so the server's inliner expands it to the
+  //     referenced measure's expression at query time
   const allFields = [];
   if (model) {
     for (const d of (model.dimensions || [])) {
@@ -24,7 +52,14 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
       });
     }
     for (const m of (model.measures || [])) {
-      if (m.aggregation !== 'custom' && m.column && m.column !== '*') {
+      if (m.aggregation === 'custom') {
+        allFields.push({
+          label: m.label || m.name,
+          insert: `\${${m.name}}`,
+          source: m.name,
+          type: 'calc',
+        });
+      } else if (m.column && m.column !== '*') {
         const table = m.table.includes('.') ? `"${m.table.split('.').join('"."')}"` : `"${m.table}"`;
         allFields.push({
           label: m.label || m.column,
@@ -69,7 +104,14 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
     const el = textareaRef.current;
     const pos = cursorPos;
     const wordLen = cursorWord.length;
-    const before = value.substring(0, pos - wordLen);
+    let before = value.substring(0, pos - wordLen);
+    // If the user already typed `${` (or `$`) right before the partial word,
+    // strip those characters from the prefix so the calc-measure insert
+    // (which already contains `${...}`) doesn't end up duplicated.
+    if (field.type === 'calc') {
+      if (before.endsWith('${')) before = before.slice(0, -2);
+      else if (before.endsWith('$')) before = before.slice(0, -1);
+    }
     const after = value.substring(pos);
     const newVal = before + field.insert + after;
     onChange(newVal);
@@ -144,42 +186,54 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
         value={value}
         onChange={handleInput}
         onKeyDown={handleKeyDown}
-        placeholder="SQL expression — type a field name to see suggestions"
+        placeholder="SQL expression — type a field or measure name (e.g. ${TotalSales}) to see suggestions"
         rows={3}
         style={{ ...inputStyle, ...style, fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }}
       />
 
-      {/* Autocomplete dropdown */}
-      {showSuggestions && (
-        <div ref={suggestionsRef} style={dropdownStyle}>
+      {/* Autocomplete dropdown — portalled to <body> so it escapes any
+          `overflow: auto` ancestor (e.g. the measure-edit panel). Position
+          is recomputed from the textarea's bounding rect. */}
+      {showSuggestions && anchorRect && createPortal(
+        <div ref={suggestionsRef} style={{
+          ...dropdownStyle,
+          top: anchorRect.bottom + 2,
+          left: anchorRect.left,
+          width: anchorRect.width,
+        }}>
           {suggestions.map((s, i) => (
             <div
               key={i}
               onClick={() => insertSuggestion(s)}
               onMouseEnter={() => setSelectedIdx(i)}
+              title={s.source}
               style={{
                 ...suggestionItem,
-                backgroundColor: i === selectedIdx ? '#f5f3ff' : 'transparent',
+                backgroundColor: i === selectedIdx ? 'var(--bg-active)' : 'transparent',
+                color: 'var(--text-primary)',
               }}
             >
               <span style={{
                 fontSize: 9, fontWeight: 700, marginRight: 6, padding: '0 3px',
-                borderRadius: 2,
-                backgroundColor: s.type === 'dim' ? '#ede9fe' : '#dcfce7',
-                color: s.type === 'dim' ? '#7c3aed' : '#16a34a',
+                borderRadius: 2, flex: '0 0 auto',
+                backgroundColor: s.type === 'dim' ? '#ede9fe' : (s.type === 'calc' ? '#fef3c7' : '#dcfce7'),
+                color: s.type === 'dim' ? '#7c3aed' : (s.type === 'calc' ? '#b45309' : '#16a34a'),
               }}>
-                {s.type === 'dim' ? 'DIM' : 'MES'}
+                {s.type === 'dim' ? 'DIM' : (s.type === 'calc' ? 'ƒ' : 'MES')}
               </span>
-              <span style={{ flex: 1, minWidth: 0 }}>{s.label}</span>
-              <span style={{ fontSize: 9, color: 'var(--text-disabled)', whiteSpace: 'nowrap', marginLeft: 4 }}>
-                {s.source.includes('.') ? s.source.split('.').slice(-2).join('.') : s.source}
-              </span>
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+              {s.type !== 'calc' && (
+                <span style={{ fontSize: 9, color: 'var(--text-disabled)', whiteSpace: 'nowrap', marginLeft: 8, flex: '0 0 auto', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '50%' }}>
+                  {s.source.includes('.') ? s.source.split('.').slice(-2).join('.') : s.source}
+                </span>
+              )}
             </div>
           ))}
-          <div style={{ fontSize: 9, color: 'var(--text-disabled)', padding: '3px 8px', borderTop: '1px solid #f1f5f9' }}>
+          <div style={{ fontSize: 9, color: 'var(--text-disabled)', padding: '3px 8px', borderTop: '1px solid var(--border-default)' }}>
             ↑↓ navigate &nbsp; Tab/Enter select &nbsp; Esc close
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -196,9 +250,9 @@ const fnChip = {
 };
 
 const dropdownStyle = {
-  position: 'absolute', left: 0, right: 0, zIndex: 100,
+  position: 'fixed', zIndex: 1000,
   backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 6,
-  boxShadow: '0 4px 12px rgba(0,0,0,0.12)', overflow: 'hidden',
+  boxShadow: '0 4px 12px rgba(0,0,0,0.25)', overflow: 'hidden',
 };
 
 const suggestionItem = {

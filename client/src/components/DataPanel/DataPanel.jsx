@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { TbPencil, TbChevronDown } from 'react-icons/tb';
 import api from '../../utils/api';
 import SqlExpressionInput from '../SqlExpressionInput/SqlExpressionInput';
+import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
 import { sanitizeWidgetFilters } from '../../utils/widgetFilters';
 import { computeBindingKey } from '../../utils/bindingKey';
 import { shiftFiltersForN1, shiftWidgetFiltersForN1, hasShiftableFilterForN1 } from '../../utils/comparePeriod';
@@ -22,9 +23,21 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
     return true;
   };
   const [status, setStatus] = useState(null);
+  // Unified measure-creation wizard. One form covers:
+  //   - simple aggregation (SUM/AVG/COUNT/MIN/MAX on a column)
+  //   - custom SQL expression
+  //   - optional filter context (CASE WHEN inside the aggregate)
+  // Stored under `_calc.<label>` regardless of shape — the server only
+  // looks at the measure's fields (aggregation/expression/filterRules) to
+  // decide what SQL to emit.
   const [showCalcForm, setShowCalcForm] = useState(false);
   const [calcLabel, setCalcLabel] = useState('');
+  const [calcAggregation, setCalcAggregation] = useState('sum');
+  const [calcField, setCalcField] = useState(''); // "table::column"
   const [calcExpr, setCalcExpr] = useState('');
+  const [calcFilterEnabled, setCalcFilterEnabled] = useState(false);
+  const [calcRules, setCalcRules] = useState([]);
+  const [calcOverride, setCalcOverride] = useState(false);
   const [calcSaving, setCalcSaving] = useState(false);
   const [editingField, setEditingField] = useState(null); // measure name being edited
   const [editForm, setEditForm] = useState({});
@@ -34,6 +47,55 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   // Date Table is collapsed by default — only the main date column is shown,
   // the per-period extension dims (year, month, weekday, …) appear when opened.
   const [dateTableOpen, setDateTableOpen] = useState(false);
+
+  // Bare expression for create form's Custom-SQL mode — what the user
+  // actually typed, before any CASE WHEN wrap from the filter toggle.
+  const [calcBareExpr, setCalcBareExpr] = useState('');
+
+  // Keep the create-form SQL editor in sync with the wizard inputs. Always
+  // regenerates the editor (including CASE WHEN wrap when a filter is on,
+  // even in Custom SQL mode). The bare expression is the canonical source
+  // for custom mode; structured modes generate the SQL fully from
+  // aggregation/column.
+  useEffect(() => {
+    if (!showCalcForm) return;
+    const [table, column] = (calcAggregation === 'count')
+      ? ['', '*']
+      : (calcAggregation === 'custom' ? ['', ''] : (calcField || '').split('::'));
+    const sql = buildMeasureSql({
+      aggregation: calcAggregation,
+      table: table || '',
+      column: column || '',
+      filterRules: calcFilterEnabled ? calcRules : null,
+      overrideFilters: calcOverride,
+      expression: calcBareExpr,
+    });
+    setCalcExpr(sql);
+  }, [showCalcForm, calcAggregation, calcField, calcFilterEnabled, calcRules, calcOverride, calcBareExpr]);
+
+  // Auto-sync for the edit panel. Same idea as the create form — regenerate
+  // the editor from state, including the CASE WHEN wrap. Uses
+  // `editForm.bareExpression` as the canonical un-wrapped expression for
+  // custom-mode measures.
+  useEffect(() => {
+    if (!editingField) return;
+    const [table, column] = (editForm.aggregation === 'count')
+      ? ['', '*']
+      : (editForm.aggregation === 'custom' ? ['', ''] : (editForm.field || '').split('::'));
+    const sql = buildMeasureSql({
+      aggregation: editForm.aggregation,
+      table: table || '',
+      column: column || '',
+      filterRules: editForm.filterEnabled ? editForm.filterRules : null,
+      overrideFilters: editForm.overrideFilters,
+      expression: editForm.bareExpression || '',
+    });
+    if (sql !== editForm.expression) {
+      setEditForm((prev) => ({ ...prev, expression: sql }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingField, editForm.aggregation, editForm.field, editForm.filterEnabled, editForm.filterRules, editForm.overrideFilters, editForm.bareExpression]);
+
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
   // Fetch-related updates (loading flag, fetched data) should NOT pollute undo history
@@ -756,35 +818,153 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           <span>Measures</span>
           <button onClick={() => setShowCalcForm(!showCalcForm)} style={addCalcBtnSmall}>+ Measure</button>
         </span>
-      } style={{ flex: '0 0 auto', maxHeight: showCalcForm ? '45%' : '25%' }}>
+      } style={{ flex: '0 0 auto', maxHeight: showCalcForm ? '60%' : '25%' }}>
+        {/* Unified measure wizard:
+              - Aggregation (SUM/AVG/COUNT/MIN/MAX/Custom)
+              - Column (or custom SQL when aggregation = 'custom')
+              - Optional filter context (CASE WHEN inside the aggregate)
+            Persists to settings.extraMeasures under `_calc.<label>`. */}
         {showCalcForm && (
-          <div style={{ padding: 6, background: 'var(--bg-active)', borderRadius: 4, marginBottom: 4, border: '1px solid var(--accent-primary-border)' }}>
+          <div style={{ padding: 6, background: 'var(--bg-active)', borderRadius: 4, marginBottom: 4, border: '1px solid var(--accent-primary-border)', maxHeight: '100%', overflow: 'auto' }}>
             <input type="text" placeholder="Label" value={calcLabel}
               onChange={(e) => setCalcLabel(e.target.value)}
               style={{ ...calcInputStyle, marginBottom: 4 }} />
-            <SqlExpressionInput value={calcExpr} onChange={setCalcExpr} model={model} />
-            <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-              <button onClick={() => { setShowCalcForm(false); setCalcLabel(''); setCalcExpr(''); }}
-                style={{ fontSize: 11, padding: '2px 8px', border: '1px solid var(--border-default)', borderRadius: 3, background: 'var(--bg-panel)', cursor: 'pointer', color: 'var(--text-muted)' }}>Cancel</button>
-              <button disabled={!calcLabel || !calcExpr || calcSaving} onClick={async () => {
-                setCalcSaving(true);
-                try {
-                  const measName = `_calc.${calcLabel.replace(/\s+/g, '_').toLowerCase()}`;
-                  const newMeasure = {
-                    name: measName, table: '', column: '', aggregation: 'custom',
-                    expression: calcExpr, label: calcLabel,
-                  };
-                  // Report-scoped: append to settings.extraMeasures so this
-                  // calc lives only inside the current report. If
-                  // updateSettings refuses, abort — never mutate the model.
-                  const wrote = updateSettings({
-                    extraMeasures: [...((settings && settings.extraMeasures) || []), newMeasure],
-                  });
-                  if (!wrote) return;
-                  setCalcLabel(''); setCalcExpr(''); setShowCalcForm(false);
-                } catch (err) { console.error(err); }
-                finally { setCalcSaving(false); }
-              }}
+            <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+              <select value={calcAggregation} onChange={(e) => setCalcAggregation(e.target.value)}
+                style={{ ...calcInputStyle, flex: '0 0 auto', width: 90, marginBottom: 0 }}>
+                <option value="sum">SUM</option>
+                <option value="avg">AVG</option>
+                <option value="count">COUNT</option>
+                <option value="min">MIN</option>
+                <option value="max">MAX</option>
+                <option value="custom">Custom SQL</option>
+              </select>
+              {calcAggregation !== 'custom' && (
+                <select value={calcField} onChange={(e) => setCalcField(e.target.value)}
+                  style={{ ...calcInputStyle, flex: 1, marginBottom: 0 }}
+                  disabled={calcAggregation === 'count'}>
+                  <option value="">{calcAggregation === 'count' ? '— count(*)' : '— pick a column —'}</option>
+                  {(model.measures || []).filter((mm) => mm.table && mm.column && mm.aggregation !== 'custom').map((mm) => (
+                    <option key={mm.name} value={`${mm.table}::${mm.column}`}>{mm.label || mm.column}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>
+              <input type="checkbox" checked={calcFilterEnabled}
+                onChange={(e) => setCalcFilterEnabled(e.target.checked)} />
+              <span>Apply filter context (CASE WHEN inside the aggregate)</span>
+            </label>
+            {calcFilterEnabled && (
+              <>
+                {model && (
+                  <select onChange={(e) => {
+                    const v = e.target.value;
+                    if (!v) return;
+                    const [kind, name] = v.split('::');
+                    setCalcRules([...calcRules, buildDefaultFilterRule(model, name, kind === 'm')]);
+                    e.target.value = '';
+                  }} value="" style={{ ...calcInputStyle, marginBottom: 4 }}>
+                    <option value="">+ Add a filter on…</option>
+                    {(model.dimensions || []).length > 0 && (
+                      <optgroup label="Dimensions">
+                        {model.dimensions.map((d) => (
+                          <option key={'d::' + d.name} value={'d::' + d.name}>{d.label || d.name}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {(model.measures || []).length > 0 && (
+                      <optgroup label="Measures">
+                        {model.measures.map((mm) => (
+                          <option key={'m::' + mm.name} value={'m::' + mm.name}>{mm.label || mm.name}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                )}
+                <FilterRulesEditor model={model} modelId={model?.id} rules={calcRules} onChange={setCalcRules} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
+                  <input type="checkbox" checked={calcOverride}
+                    onChange={(e) => setCalcOverride(e.target.checked)} />
+                  <span>Override report filters on these fields</span>
+                  <span title="When ON, this measure ignores the report-level filter on the fields it filters on." style={{ color: 'var(--text-disabled)', cursor: 'help' }}>ⓘ</span>
+                </label>
+              </>
+            )}
+            {/* SQL editor — ALWAYS visible. Auto-fills from the wizard
+                inputs above, including the CASE WHEN wrap when a filter
+                is active. Typing here:
+                  - flips aggregation to 'custom' if it wasn't already
+                  - clears the filter toggle so the typed SQL stands alone
+                    (otherwise the wizard would re-wrap it on next render
+                    and overwrite what the user just typed) */}
+            <div style={{ marginTop: 6 }}>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>SQL Expression</span>
+              <SqlExpressionInput value={calcExpr}
+                onChange={(v) => {
+                  setCalcExpr(v);
+                  setCalcBareExpr(v);
+                  if (calcAggregation !== 'custom') setCalcAggregation('custom');
+                  if (calcFilterEnabled) setCalcFilterEnabled(false);
+                }}
+                model={model} />
+            </div>
+            <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 }}>
+              <button onClick={() => {
+                setShowCalcForm(false); setCalcLabel(''); setCalcExpr(''); setCalcBareExpr(''); setCalcField('');
+                setCalcAggregation('sum'); setCalcFilterEnabled(false); setCalcRules([]); setCalcOverride(false);
+              }} style={{ fontSize: 11, padding: '2px 8px', border: '1px solid var(--border-default)', borderRadius: 3, background: 'var(--bg-panel)', cursor: 'pointer', color: 'var(--text-muted)' }}>Cancel</button>
+              <button
+                disabled={
+                  !calcLabel || calcSaving
+                  || (calcAggregation === 'custom' && !calcExpr)
+                  || (calcAggregation !== 'custom' && calcAggregation !== 'count' && !calcField)
+                  || (calcFilterEnabled && calcRules.length === 0)
+                }
+                onClick={async () => {
+                  setCalcSaving(true);
+                  try {
+                    const measName = `_calc.${calcLabel.replace(/\s+/g, '_').toLowerCase()}`;
+                    const [table, column] = (calcAggregation === 'custom')
+                      ? ['', '']
+                      : (calcAggregation === 'count' ? ['', '*'] : calcField.split('::'));
+                    // Save the BARE expression (un-wrapped) + filterRules
+                    // separately. The server's intersection / override
+                    // branch applies the CASE WHEN at query time. The
+                    // editor displays the wrapped form purely for
+                    // visibility — never persisted directly.
+                    const newMeasure = calcAggregation === 'custom' ? {
+                      name: measName,
+                      label: calcLabel,
+                      table: '',
+                      column: '',
+                      aggregation: 'custom',
+                      expression: calcBareExpr || calcExpr,
+                      ...(calcFilterEnabled && calcRules.length > 0 ? {
+                        filterRules: calcRules,
+                        overrideFilters: calcOverride,
+                      } : {}),
+                    } : {
+                      name: measName,
+                      label: calcLabel,
+                      table: table || '',
+                      column: column || '',
+                      aggregation: calcAggregation,
+                      ...(calcFilterEnabled ? {
+                        filterRules: calcRules,
+                        overrideFilters: calcOverride,
+                      } : {}),
+                    };
+                    const wrote = updateSettings({
+                      extraMeasures: [...((settings && settings.extraMeasures) || []), newMeasure],
+                    });
+                    if (!wrote) return;
+                    setCalcLabel(''); setCalcExpr(''); setCalcField('');
+                    setCalcAggregation('sum'); setCalcFilterEnabled(false); setCalcRules([]); setCalcOverride(false);
+                    setShowCalcForm(false);
+                  } catch (err) { console.error(err); }
+                  finally { setCalcSaving(false); }
+                }}
                 style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', border: 'none', borderRadius: 3, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer' }}>
                 {calcSaving ? '...' : 'Add'}
               </button>
@@ -806,8 +986,24 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                     setEditingDim(null); // close dimension edit if open
                     setEditForm({
                       label: m.label || m.column,
-                      expression: m.expression || '',
-                      decimals: m.format?.decimals ?? 2,
+                      aggregation: m.aggregation || 'sum',
+                      field: (m.table && m.column && m.column !== '*') ? `${m.table}::${m.column}` : '',
+                      // `bareExpression` is the un-wrapped expression — the
+                      // user's actual SQL minus any CASE WHEN wrap. Auto-sync
+                      // rebuilds the wrapped display from bareExpression +
+                      // filterRules so the editor reflects what the server
+                      // will run.
+                      bareExpression: m.expression || '',
+                      expression: m.expression || '', // filled by auto-sync
+                      filterEnabled: Array.isArray(m.filterRules) && m.filterRules.length > 0,
+                      filterRules: Array.isArray(m.filterRules) ? m.filterRules : [],
+                      overrideFilters: !!m.overrideFilters,
+                      // Decimals: leave empty when the measure has no
+                      // explicit format. Pre-filling 2 would push a value
+                      // the user never asked for into settings on Save;
+                      // empty means "let the renderer pick" until the user
+                      // explicitly types a number.
+                      decimals: m.format?.decimals ?? '',
                       thousandSep: m.format?.thousandSep ?? ' ',
                       prefix: m.format?.prefix ?? '',
                       suffix: m.format?.suffix ?? '',
@@ -847,18 +1043,120 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 style={editInput} />
             </div>
 
-            {m.aggregation === 'custom' && (
-              <div style={{ marginBottom: 6 }}>
-                <span style={editLabel}>SQL Expression</span>
-                <SqlExpressionInput value={editForm.expression}
-                  onChange={(v) => setEditForm({ ...editForm, expression: v })} model={model} />
-              </div>
+            {/* Report-scoped measures: full editable wizard, same UX as
+                + Measure. Model-scoped measures: locked shape (only the
+                custom expression is editable; agg/column belong to the
+                model definition and shouldn't drift per-report). */}
+            {m._source === 'report' ? (
+              <>
+                <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                  <select value={editForm.aggregation}
+                    onChange={(e) => setEditForm({ ...editForm, aggregation: e.target.value })}
+                    style={{ ...editInput, flex: '0 0 auto', width: 90 }}>
+                    <option value="sum">SUM</option>
+                    <option value="avg">AVG</option>
+                    <option value="count">COUNT</option>
+                    <option value="min">MIN</option>
+                    <option value="max">MAX</option>
+                    <option value="custom">Custom SQL</option>
+                  </select>
+                  {editForm.aggregation !== 'custom' && (
+                    <select value={editForm.field}
+                      onChange={(e) => setEditForm({ ...editForm, field: e.target.value })}
+                      style={{ ...editInput, flex: 1 }}
+                      disabled={editForm.aggregation === 'count'}>
+                      <option value="">{editForm.aggregation === 'count' ? '— count(*)' : '— pick a column —'}</option>
+                      {(model.measures || []).filter((mm) => mm.table && mm.column && mm.aggregation !== 'custom').map((mm) => (
+                        <option key={mm.name} value={`${mm.table}::${mm.column}`}>{mm.label || mm.column}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                  <input type="checkbox" checked={!!editForm.filterEnabled}
+                    onChange={(e) => setEditForm({ ...editForm, filterEnabled: e.target.checked })} />
+                  <span>Apply filter context (CASE WHEN inside the aggregate)</span>
+                </label>
+                {editForm.filterEnabled && (
+                  <>
+                    {model && (
+                      <select onChange={(e) => {
+                        const v = e.target.value;
+                        if (!v) return;
+                        const [kind, name] = v.split('::');
+                        setEditForm({
+                          ...editForm,
+                          filterRules: [...(editForm.filterRules || []), buildDefaultFilterRule(model, name, kind === 'm')],
+                        });
+                        e.target.value = '';
+                      }} value="" style={{ ...editInput, marginBottom: 4 }}>
+                        <option value="">+ Add a filter on…</option>
+                        {(model.dimensions || []).length > 0 && (
+                          <optgroup label="Dimensions">
+                            {model.dimensions.map((d) => (
+                              <option key={'d::' + d.name} value={'d::' + d.name}>{d.label || d.name}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {(model.measures || []).length > 0 && (
+                          <optgroup label="Measures">
+                            {model.measures.map((mm) => (
+                              <option key={'m::' + mm.name} value={'m::' + mm.name}>{mm.label || mm.name}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                    )}
+                    <FilterRulesEditor model={model} modelId={model?.id}
+                      rules={editForm.filterRules || []}
+                      onChange={(rules) => setEditForm({ ...editForm, filterRules: rules })} />
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
+                      <input type="checkbox" checked={!!editForm.overrideFilters}
+                        onChange={(e) => setEditForm({ ...editForm, overrideFilters: e.target.checked })} />
+                      <span>Override report filters on these fields</span>
+                      <span title="When ON, this measure ignores the report-level filter on the fields it filters on." style={{ color: 'var(--text-disabled)', cursor: 'help' }}>ⓘ</span>
+                    </label>
+                  </>
+                )}
+                {/* SQL editor — ALWAYS visible. Auto-fills from the wizard
+                    inputs above. Typing in here flips the aggregation to
+                    'custom' so the user takes ownership of the SQL. */}
+                <div style={{ marginTop: 6 }}>
+                  <span style={editLabel}>SQL Expression</span>
+                  <SqlExpressionInput value={editForm.expression || ''}
+                    onChange={(v) => setEditForm({
+                      ...editForm,
+                      expression: v,
+                      bareExpression: v,
+                      aggregation: 'custom',
+                      // Clear filter when user types so the typed SQL stands
+                      // alone — otherwise the auto-sync would re-wrap on
+                      // next render and overwrite what the user typed.
+                      filterEnabled: false,
+                    })}
+                    model={model} />
+                </div>
+              </>
+            ) : (
+              m.aggregation === 'custom' && (
+                <div style={{ marginBottom: 6 }}>
+                  <span style={editLabel}>SQL Expression</span>
+                  <SqlExpressionInput value={editForm.expression}
+                    onChange={(v) => setEditForm({ ...editForm, expression: v })} model={model} />
+                </div>
+              )
             )}
 
             <div style={editRow}>
               <span style={editLabel}>Decimals</span>
-              <input type="number" min={0} max={10} value={editForm.decimals}
-                onChange={(e) => setEditForm({ ...editForm, decimals: parseInt(e.target.value) || 0 })}
+              <input type="number" min={0} max={10} value={editForm.decimals ?? ''} placeholder="auto"
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setEditForm({
+                    ...editForm,
+                    decimals: v === '' ? '' : (Number.isFinite(parseInt(v, 10)) ? parseInt(v, 10) : ''),
+                  });
+                }}
                 style={{ ...editInput, width: 50 }} />
             </div>
             <div style={editRow}>
@@ -887,47 +1185,143 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
 
             <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 }}>
               {m._source === 'report' && (
-                <button
-                  onClick={async () => {
-                    // Move this measure from settings.extraMeasures into
-                    // model.measures so every report on this model can use it.
-                    try {
-                      const promoted = { ...m };
-                      delete promoted._source;
-                      const newModelMeasures = [...(model.measures || []).filter((x) => x._source !== 'report'), promoted];
-                      await api.put(`/models/${model.id}`, { measures: newModelMeasures });
+                <>
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm(`Delete measure "${m.label || m.name}"?`)) return;
                       const remaining = ((settings && settings.extraMeasures) || []).filter((x) => x.name !== m.name);
-                      if (typeof onSettingsChange === 'function') onSettingsChange({ ...(settings || {}), extraMeasures: remaining });
-                      if (onModelUpdate) onModelUpdate();
+                      const wrote = updateSettings({ extraMeasures: remaining });
+                      if (!wrote) return;
                       setEditingField(null);
-                    } catch (err) { console.error(err); }
-                  }}
-                  title="Make this measure available to all reports using this model"
-                  style={{ ...editCancelBtn, color: 'var(--accent-primary)', borderColor: 'var(--accent-primary)' }}
-                >
-                  ↑ Promote to model
-                </button>
+                    }}
+                    title="Delete this report-scoped measure"
+                    aria-label="Delete measure"
+                    style={iconBtn('var(--state-danger)')}
+                  >
+                    🗑
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const promoted = { ...m };
+                        delete promoted._source;
+                        const newModelMeasures = [...(model.measures || []).filter((x) => x._source !== 'report'), promoted];
+                        await api.put(`/models/${model.id}`, { measures: newModelMeasures });
+                        const remaining = ((settings && settings.extraMeasures) || []).filter((x) => x.name !== m.name);
+                        if (typeof onSettingsChange === 'function') onSettingsChange({ ...(settings || {}), extraMeasures: remaining });
+                        if (onModelUpdate) onModelUpdate();
+                        setEditingField(null);
+                      } catch (err) { console.error(err); }
+                    }}
+                    title="Promote to model — make this measure available to every report on this model"
+                    aria-label="Promote to model"
+                    style={iconBtn('var(--accent-primary)')}
+                  >
+                    ↑
+                  </button>
+                  <span style={{ flex: 1 }} />
+                </>
               )}
               <button onClick={() => setEditingField(null)} style={editCancelBtn}>Close</button>
               <button onClick={async () => {
                 try {
-                  const patch = {
-                    label: editForm.label,
-                    ...(m.aggregation === 'custom' ? { expression: editForm.expression } : {}),
-                    format: {
-                      decimals: editForm.decimals,
-                      thousandSep: editForm.thousandSep,
-                      prefix: editForm.prefix,
-                      suffix: editForm.suffix,
-                    },
-                  };
+                  // Build the patch. For report-scoped measures we let the
+                  // user edit every shape field (agg/column/expression/
+                  // filterRules) and stitch the resulting measure together
+                  // here. When aggregation is 'custom' the SQL editor is
+                  // the source of truth — we drop filterRules so the server
+                  // doesn't double-wrap with CASE WHEN. For model-scoped
+                  // measures we only touch label/expression/format.
+                  const isReport = m._source === 'report';
+                  let patch;
+                  if (isReport) {
+                    if (editForm.aggregation === 'custom') {
+                      // Save the BARE expression + filterRules separately.
+                      // The server's intersection/override branch applies
+                      // the CASE WHEN at query time. The editor shows the
+                      // wrapped form for visibility, never persisted.
+                      patch = {
+                        label: editForm.label,
+                        aggregation: 'custom',
+                        table: '',
+                        column: '',
+                        expression: editForm.bareExpression || editForm.expression,
+                        ...(editForm.filterEnabled && (editForm.filterRules || []).length > 0
+                          ? { filterRules: editForm.filterRules, overrideFilters: !!editForm.overrideFilters }
+                          : { filterRules: undefined, overrideFilters: undefined }),
+                        format: {
+                          // Only persist decimals when the user actually
+                          // typed a number — empty means "let the renderer
+                          // decide" rather than forcing zero into the format.
+                          ...(editForm.decimals === '' || editForm.decimals == null
+                            ? {}
+                            : { decimals: editForm.decimals }),
+                          thousandSep: editForm.thousandSep,
+                          prefix: editForm.prefix,
+                          suffix: editForm.suffix,
+                        },
+                      };
+                    } else {
+                      const [tbl, col] = editForm.aggregation === 'count'
+                        ? ['', '*']
+                        : (editForm.field || '').split('::');
+                      patch = {
+                        label: editForm.label,
+                        aggregation: editForm.aggregation,
+                        table: tbl || '',
+                        column: col || '',
+                        expression: undefined,
+                        ...(editForm.filterEnabled && (editForm.filterRules || []).length > 0
+                          ? { filterRules: editForm.filterRules, overrideFilters: !!editForm.overrideFilters }
+                          : { filterRules: undefined, overrideFilters: undefined }),
+                        format: {
+                          // Only persist decimals when the user actually
+                          // typed a number — empty means "let the renderer
+                          // decide" rather than forcing zero into the format.
+                          ...(editForm.decimals === '' || editForm.decimals == null
+                            ? {}
+                            : { decimals: editForm.decimals }),
+                          thousandSep: editForm.thousandSep,
+                          prefix: editForm.prefix,
+                          suffix: editForm.suffix,
+                        },
+                      };
+                    }
+                  } else {
+                    patch = {
+                      label: editForm.label,
+                      ...(m.aggregation === 'custom' ? { expression: editForm.expression } : {}),
+                      format: {
+                        ...(editForm.decimals === '' || editForm.decimals == null
+                          ? {}
+                          : { decimals: editForm.decimals }),
+                        thousandSep: editForm.thousandSep,
+                        prefix: editForm.prefix,
+                        suffix: editForm.suffix,
+                      },
+                    };
+                  }
                   let wrote = false;
                   if (m._source === 'report') {
                     // Edit a report-scoped measure: mutate the entry inside
-                    // settings.extraMeasures.
+                    // settings.extraMeasures. When converting _filt.X to a
+                    // custom expression, explicitly strip filterRules/
+                    // overrideFilters so the server doesn't keep applying
+                    // the CASE WHEN wrap on top of the user's SQL.
                     const currentExtras = (settings && settings.extraMeasures) || [];
                     wrote = updateSettings({
-                      extraMeasures: currentExtras.map((x) => x.name === m.name ? { ...x, ...patch } : x),
+                      extraMeasures: currentExtras.map((x) => {
+                        if (x.name !== m.name) return x;
+                        // Merge then strip keys explicitly set to undefined
+                        // in the patch (so e.g. disabling the filter toggle
+                        // actually removes filterRules/overrideFilters from
+                        // the saved object).
+                        const merged = { ...x, ...patch };
+                        for (const k of Object.keys(patch)) {
+                          if (patch[k] === undefined) delete merged[k];
+                        }
+                        return merged;
+                      }),
                     });
                   } else {
                     // Edit a model-scoped measure: write to settings.measureOverrides
@@ -1265,6 +1659,122 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   );
 }
 
+// Paren-aware aggregate transform — client port of the server helper.
+// Walks the expression and applies `transform(fn, arg)` to each top-level
+// SUM/AVG/MIN/MAX/COUNT call, tracking paren depth and string literals so
+// a CASE WHEN containing `IN (...)` doesn't break the matcher.
+function transformAggregates(expression, fns, transform) {
+  if (!expression) return expression;
+  const s = String(expression);
+  const fnRegex = new RegExp(`^(${fns.join('|')})\\(`, 'i');
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] === "'") {
+      const end = s.indexOf("'", i + 1);
+      if (end === -1) { out += s.slice(i); break; }
+      out += s.slice(i, end + 1);
+      i = end + 1;
+      continue;
+    }
+    const prev = i > 0 ? s[i - 1] : '';
+    const atBoundary = !/[A-Za-z0-9_]/.test(prev);
+    const m = atBoundary ? s.slice(i).match(fnRegex) : null;
+    if (!m) { out += s[i]; i++; continue; }
+    const fn = m[1];
+    let depth = 1;
+    let j = i + m[0].length;
+    let inStr = false;
+    while (j < s.length && depth > 0) {
+      const ch = s[j];
+      if (inStr) {
+        if (ch === "'") inStr = false;
+      } else if (ch === "'") {
+        inStr = true;
+      } else if (ch === '(') {
+        depth++;
+      } else if (ch === ')') {
+        depth--;
+        if (depth === 0) break;
+      }
+      j++;
+    }
+    if (depth !== 0) { out += s[i]; i++; continue; }
+    const arg = s.slice(i + m[0].length, j);
+    out += transform(fn, arg);
+    i = j + 1;
+  }
+  return out;
+}
+
+// Synthesize the SQL of a measure from its structured fields. Used by the
+// wizard to keep the SQL editor in sync with the user's choices. The
+// expression always comes through here so the user actually SEES what the
+// server will run — including the CASE WHEN wrap when a filter is active,
+// even for custom-expression measures.
+function buildMeasureSql({ aggregation, table, column, filterRules, overrideFilters, expression }) {
+  const hasFilter = Array.isArray(filterRules) && filterRules.length > 0;
+  const fmtVal = (v) => {
+    if (v == null) return 'NULL';
+    if (Array.isArray(v)) return v.map(fmtVal).join(', ');
+    if (typeof v === 'number' || /^-?\d+(\.\d+)?$/.test(String(v))) return String(v);
+    return `'${String(v).replace(/'/g, "''")}'`;
+  };
+  const renderRule = (r) => {
+    if (!r || !r.field || !r.op) return null;
+    const f = `"${r.field}"`;
+    const list = Array.isArray(r.values) ? r.values : (Array.isArray(r.value) ? r.value : null);
+    switch (r.op) {
+      case 'in': return list?.length ? `${f} IN (${list.map(fmtVal).join(', ')})` : null;
+      case 'not_in': return list?.length ? `${f} NOT IN (${list.map(fmtVal).join(', ')})` : null;
+      case 'eq': return `${f} = ${fmtVal(r.value)}`;
+      case 'neq': return `${f} <> ${fmtVal(r.value)}`;
+      case 'gt': return `${f} > ${fmtVal(r.value)}`;
+      case 'gte': return `${f} >= ${fmtVal(r.value)}`;
+      case 'lt': return `${f} < ${fmtVal(r.value)}`;
+      case 'lte': return `${f} <= ${fmtVal(r.value)}`;
+      case 'between': return list?.length === 2 ? `${f} BETWEEN ${fmtVal(list[0])} AND ${fmtVal(list[1])}` : null;
+      case 'contains': return `${f} LIKE '%${String(r.value).replace(/'/g, "''")}%'`;
+      case 'not_contains': return `${f} NOT LIKE '%${String(r.value).replace(/'/g, "''")}%'`;
+      case 'starts_with': return `${f} LIKE '${String(r.value).replace(/'/g, "''")}%'`;
+      case 'ends_with': return `${f} LIKE '%${String(r.value).replace(/'/g, "''")}'`;
+      case 'is_empty': return `(${f} IS NULL OR ${f} = '')`;
+      case 'is_not_empty': return `(${f} IS NOT NULL AND ${f} <> '')`;
+      default: return null;
+    }
+  };
+  const whenSql = hasFilter ? filterRules.map(renderRule).filter(Boolean).join(' AND ') : '';
+
+  // Custom expression: optionally wrap each aggregate inside the expression
+  // with CASE WHEN — same shape as what the server's transformAggregates
+  // produces at query time.
+  if (aggregation === 'custom') {
+    const bare = expression || '';
+    if (hasFilter && whenSql && !overrideFilters) {
+      return transformAggregates(
+        bare,
+        ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT'],
+        (fn, arg) => `${fn}(CASE WHEN ${whenSql} THEN ${arg} END)`,
+      );
+    }
+    if (hasFilter && whenSql && overrideFilters) {
+      return `(SELECT ${bare}\n FROM <model>\n WHERE <visual filters except override fields>\n   AND ${whenSql})`;
+    }
+    return bare;
+  }
+  // Structured path: synthesize <AGG>(col) or <AGG>(CASE WHEN ... THEN col END)
+  const isCount = aggregation === 'count' || (column === '*' && !table);
+  const colExpr = isCount ? null : (table && column ? `"${table}"."${column}"` : null);
+  const aggFn = isCount ? 'COUNT' : (aggregation || 'sum').toUpperCase();
+  const baseAgg = isCount ? 'COUNT(*)' : `${aggFn}(${colExpr || 'col'})`;
+  if (!hasFilter || !whenSql) return baseAgg;
+  if (overrideFilters) {
+    return `(SELECT ${baseAgg}\n FROM <model>\n WHERE <visual filters except override fields>\n   AND ${whenSql})`;
+  }
+  const inner = isCount ? '1' : colExpr;
+  return `${aggFn}(CASE WHEN ${whenSql}\n     THEN ${inner} END)`;
+}
+
 function FieldSection({ label, children, style }) {
   return (
     <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', minHeight: 0, ...style }}>
@@ -1324,6 +1834,7 @@ const customTag = {
 };
 const editPanelStyle = {
   padding: 8, background: 'var(--bg-panel-alt)', borderBottom: '1px solid var(--border-default)',
+  maxHeight: '60vh', overflowY: 'auto',
 };
 const editRow = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5,
@@ -1343,6 +1854,13 @@ const editSaveBtn = {
   fontSize: 10, fontWeight: 600, padding: '2px 8px', border: 'none', borderRadius: 3,
   background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
 };
+// Square icon-only button. The native `title` attribute renders a tooltip
+// after the OS hover delay so the icon stays compact but stays discoverable.
+const iconBtn = (color) => ({
+  fontSize: 12, padding: '2px 6px', border: `1px solid ${color}`, borderRadius: 3,
+  background: 'var(--bg-panel)', color, cursor: 'pointer', lineHeight: 1,
+  width: 24, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+});
 const addCalcBtnSmall = {
   fontSize: 10, fontWeight: 600, padding: '1px 6px', border: '1px solid var(--accent-primary)',
   borderRadius: 3, background: 'var(--bg-active)', color: 'var(--accent-primary)', cursor: 'pointer',

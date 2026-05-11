@@ -8,6 +8,7 @@ const { getQueryTimeoutMs } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
 const preAggCache = require('../utils/preAggCache');
 const { additiveTypeForMeasure } = require('../utils/measureType');
+const { quoteIdent, quoteTable, quoteCol } = require('../utils/sqlDialect');
 
 // Hook for cloud edition to override the global query-timeout with a
 // workspace/org-scoped value. Default in OSS just returns the global
@@ -45,15 +46,9 @@ function canAccessModel(model, user) {
   return reports.some((r) => canAccessReport(r, user));
 }
 
-// Quote a table name, handling schema.table format
-// "datakhi_elections.d_population" → "datakhi_elections"."d_population"
-// "users" → "users"
-function quoteTable(name) {
-  if (name.includes('.')) {
-    return name.split('.').map((p) => `"${p}"`).join('.');
-  }
-  return `"${name}"`;
-}
+// `quoteIdent` / `quoteTable` / `quoteCol` now come from utils/sqlDialect
+// (dialect-aware). Calling them without a dbType still works — they fall
+// back to PG-style double quotes, matching the previous behaviour.
 
 // Cast an expression to a string type using the dialect's expected keyword.
 // PostgreSQL / SQL Server / DuckDB accept VARCHAR; MySQL refuses VARCHAR
@@ -237,7 +232,7 @@ function getOverrideType(table, column, columnTypes) {
 // the raw timestamp string.
 function buildDatePartExpr(dim, dbType, columnTypes) {
   if (!dim || !dim.datePart) return null;
-  const col = `${quoteTable(dim.table)}."${dim.column}"`;
+  const col = quoteCol(dim.table, dim.column, dbType);
   // Re-use castToDate for the inner parsing so non-ISO text dates are
   // normalised before EXTRACT/strftime sees them.
   const dateExpr = castToDate(col, dbType, getDateFormat(dim.table, dim.column, columnTypes));
@@ -723,20 +718,21 @@ router.get('/:id/rls/rows', requireAuth, async (req, res) => {
 
     if (!colSet.has(primaryKey)) return res.status(400).json({ error: `Primary key column "${primaryKey}" not found in table` });
 
+    const dbType = datasource.db_type;
     const requestedCols = (typeof columns === 'string' ? columns.split(',') : []).map((s) => s.trim()).filter(Boolean);
     const safeCols = [primaryKey, ...requestedCols.filter((c) => c !== primaryKey && colSet.has(c))];
-    const selectList = safeCols.map((c) => `"${c}"`).join(', ');
+    const selectList = safeCols.map((c) => quoteIdent(c, dbType)).join(', ');
 
-    let sql = `SELECT ${selectList} FROM ${quoteTable(table)}`;
+    let sql = `SELECT ${selectList} FROM ${quoteTable(table, dbType)}`;
     const trimmedSearch = (search || '').toString().trim();
     if (trimmedSearch) {
       const escaped = trimmedSearch.replace(/'/g, "''");
       // CAST to VARCHAR so the LIKE works regardless of the column's native type (number, date, etc.)
-      sql += ` WHERE LOWER(${castToString(`${quoteTable(table)}."${primaryKey}"`, datasource.db_type)}) LIKE LOWER('%${escaped}%')`;
+      sql += ` WHERE LOWER(${castToString(quoteCol(table, primaryKey, dbType), dbType)}) LIKE LOWER('%${escaped}%')`;
     }
     // SQL Server / Azure SQL doesn't support LIMIT — use OFFSET/FETCH instead.
-    const isMssql = datasource.db_type === 'azure_sql' || datasource.db_type === 'mssql';
-    sql += ` ORDER BY "${primaryKey}"`;
+    const isMssql = dbType === 'azure_sql' || dbType === 'mssql';
+    sql += ` ORDER BY ${quoteIdent(primaryKey, dbType)}`;
     sql += isMssql ? ` OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY` : ` LIMIT 1000`;
 
     const rawRows = await conn.query(sql);
@@ -807,13 +803,14 @@ router.post('/:id/validate-column-type', requireAuth, async (req, res) => {
     if (!colSet.has(column)) return res.status(400).json({ error: `Column "${column}" not found in table` });
 
     const SAMPLE = 100000;
-    const colExpr = `${quoteTable(table)}."${column}"`;
-    const isMssql = datasource.db_type === 'azure_sql' || datasource.db_type === 'mssql';
+    const dbType = datasource.db_type;
+    const colExpr = quoteCol(table, column, dbType);
+    const isMssql = dbType === 'azure_sql' || dbType === 'mssql';
     // SQL Server uses TOP <n>; everyone else uses LIMIT <n>. WHERE filters
     // out NULLs so they don't pollute the validity ratio.
     const sql = isMssql
-      ? `SELECT TOP ${SAMPLE} ${colExpr} AS v FROM ${quoteTable(table)} WHERE ${colExpr} IS NOT NULL`
-      : `SELECT ${colExpr} AS v FROM ${quoteTable(table)} WHERE ${colExpr} IS NOT NULL LIMIT ${SAMPLE}`;
+      ? `SELECT TOP ${SAMPLE} ${colExpr} AS v FROM ${quoteTable(table, dbType)} WHERE ${colExpr} IS NOT NULL`
+      : `SELECT ${colExpr} AS v FROM ${quoteTable(table, dbType)} WHERE ${colExpr} IS NOT NULL LIMIT ${SAMPLE}`;
 
     const rows = await conn.query(sql);
     const sampleSize = rows.length;
@@ -922,11 +919,12 @@ router.post('/:id/detect-cardinality', requireAuth, async (req, res) => {
     if (!colSet.has(column)) return res.status(400).json({ error: `Column "${column}" not found in table` });
 
     const SAMPLE = 1000;
-    const colExpr = `${quoteTable(table)}."${column}"`;
-    const isMssql = datasource.db_type === 'azure_sql' || datasource.db_type === 'mssql';
+    const dbType = datasource.db_type;
+    const colExpr = quoteCol(table, column, dbType);
+    const isMssql = dbType === 'azure_sql' || dbType === 'mssql';
     const sql = isMssql
-      ? `SELECT TOP ${SAMPLE} ${colExpr} AS v FROM ${quoteTable(table)} WHERE ${colExpr} IS NOT NULL`
-      : `SELECT ${colExpr} AS v FROM ${quoteTable(table)} WHERE ${colExpr} IS NOT NULL LIMIT ${SAMPLE}`;
+      ? `SELECT TOP ${SAMPLE} ${colExpr} AS v FROM ${quoteTable(table, dbType)} WHERE ${colExpr} IS NOT NULL`
+      : `SELECT ${colExpr} AS v FROM ${quoteTable(table, dbType)} WHERE ${colExpr} IS NOT NULL LIMIT ${SAMPLE}`;
 
     const rows = await conn.query(sql);
     const sampleSize = rows.length;
@@ -1042,6 +1040,174 @@ router.post('/:id/query', async (req, res) => {
   // non-ISO format.
   const columnTypes = JSON.parse(model.column_types || '{}');
 
+  // Inline `${measure_name}` placeholders inside a custom SQL expression by
+  // expanding them to the referenced measure's SQL. Lets users compose
+  // custom measures from other measures (Power BI's `[Measure]` ref).
+  // Resolution rules:
+  //   - Regular measure (SUM/AVG/COUNT/MIN/MAX) → `<AGG>("table"."col")`
+  //   - Custom measure → `(<recursively-inlined expression>)`
+  //   - Filtered measure (intersection) → `<AGG>(CASE WHEN <rules> THEN col END)`
+  //   - Filtered measure (override) → emits a placeholder which is resolved to
+  //     a scalar subquery after fromClause/whereParts are finalised.
+  // Cycle detection: track the resolution path; throw on revisit so a
+  // mutually-recursive pair surfaces a clean error rather than blowing the
+  // stack.
+  // overrideRefInfos collects override-mode references so the post-FROM step
+  // can substitute the placeholders with subqueries.
+  const overrideRefInfos = [];
+  function inlineMeasureRefs(expression, pathStack = []) {
+    if (!expression) return expression;
+    return String(expression).replace(/\$\{\s*([^}]+?)\s*\}/g, (match, name) => {
+      const trimmed = name.trim();
+      if (pathStack.includes(trimmed)) {
+        throw new Error(`Cyclic measure reference: ${[...pathStack, trimmed].join(' → ')}`);
+      }
+      // Prefer name match (canonical, stable identifier) over label match —
+      // labels are user-editable and can collide between measures.
+      const target = allMeasures.find((mm) => mm.name === trimmed)
+        || allMeasures.find((mm) => mm.label === trimmed);
+      if (!target) return match; // leave unresolved so the SQL error is informative
+      const hasRules = Array.isArray(target.filterRules) && target.filterRules.length > 0;
+      // Filtered measure (intersection): wrap aggregate(s) with CASE WHEN.
+      // This branch handles BOTH bare aggregations (sum/avg/count/…) AND
+      // custom-expression filtered measures — the latter get every
+      // aggregate inside their expression wrapped via transformAggregates.
+      // Must run BEFORE the "custom expression" fall-through, otherwise a
+      // custom measure with filterRules would be inlined without its
+      // CASE WHEN context.
+      if (hasRules && !target.overrideFilters) {
+        const clauses = target.filterRules.map(buildRuleClause).filter(Boolean);
+        if (clauses.length > 0) {
+          const whenSql = clauses.join(' AND ');
+          if (target.aggregation === 'custom' && target.expression) {
+            // Recursively inline any nested refs in the bare expression,
+            // then wrap each aggregate with CASE WHEN.
+            const inlinedBare = inlineMeasureRefs(target.expression, [...pathStack, trimmed]);
+            const wrapped = transformAggregates(
+              inlinedBare,
+              ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT'],
+              (fn, arg) => `${fn}(CASE WHEN ${whenSql} THEN ${arg} END)`,
+            );
+            return `(${wrapped})`;
+          }
+          if (target.aggregation === 'count' || (target.column === '*' && !target.table)) {
+            return `COUNT(CASE WHEN ${whenSql} THEN 1 END)`;
+          }
+          if (target.table && target.column) {
+            tablesUsed.add(target.table);
+            return `${(target.aggregation || 'sum').toUpperCase()}(CASE WHEN ${whenSql} THEN ${quoteCol(target.table, target.column, dbType)} END)`;
+          }
+        }
+        // No clauses survived (rules pointed at unknown fields) → fall through.
+      }
+      if (hasRules && target.overrideFilters) {
+        // Override mode: emit a placeholder; resolved to a scalar subquery
+        // after fromClause is built. Register tables now so the JOIN graph
+        // picks them up.
+        for (const r of target.filterRules) {
+          if (!r || r.isMeasure || !r.field) continue;
+          const dimDef = allDimensions.find((d) => d.name === r.field);
+          if (dimDef) tablesUsed.add(dimDef.table);
+        }
+        if (target.table) tablesUsed.add(target.table);
+        const refIdx = overrideRefInfos.length;
+        overrideRefInfos.push({ target });
+        return `__OVERRIDE_REF_${refIdx}__`;
+      }
+      // Custom expression (no filterRules): recursively inline.
+      if (target.aggregation === 'custom' && target.expression) {
+        return `(${inlineMeasureRefs(target.expression, [...pathStack, trimmed])})`;
+      }
+      // Regular measure paths.
+      if (target.aggregation === 'count' || (target.column === '*' && !target.table)) {
+        return 'COUNT(*)';
+      }
+      if (target.table && target.column) {
+        tablesUsed.add(target.table);
+        return `${(target.aggregation || 'sum').toUpperCase()}(${quoteCol(target.table, target.column, dbType)})`;
+      }
+      return match;
+    });
+  }
+
+  // Walk a SQL expression and replace each top-level aggregate (SUM/AVG/
+  // MIN/MAX/COUNT) by `transform(fn, arg)`. Paren-aware: tracks depth so a
+  // CASE WHEN containing `IN (...)` inside the aggregate doesn't trick the
+  // matcher into terminating early. Skips string literals so an expression
+  // like `'SUM(x)'` stays untouched. The same primitive backs both the
+  // NUMERIC cast (for integer-division avoidance) and the CASE WHEN wrap
+  // (for filtered-measure intersection mode).
+  function transformAggregates(expression, fns, transform) {
+    if (!expression) return expression;
+    const s = String(expression);
+    const fnRegex = new RegExp(`^(${fns.join('|')})\\(`, 'i');
+    let out = '';
+    let i = 0;
+    while (i < s.length) {
+      if (s[i] === "'") {
+        const end = s.indexOf("'", i + 1);
+        if (end === -1) { out += s.slice(i); break; }
+        out += s.slice(i, end + 1);
+        i = end + 1;
+        continue;
+      }
+      // Aggregates are word-boundaried; skip if previous char is alpha/_
+      const prev = i > 0 ? s[i - 1] : '';
+      const atBoundary = !/[A-Za-z0-9_]/.test(prev);
+      const m = atBoundary ? s.slice(i).match(fnRegex) : null;
+      if (!m) { out += s[i]; i++; continue; }
+      const fn = m[1];
+      let depth = 1;
+      let j = i + m[0].length;
+      let inStr = false;
+      while (j < s.length && depth > 0) {
+        const ch = s[j];
+        if (inStr) {
+          if (ch === "'") inStr = false;
+        } else if (ch === "'") {
+          inStr = true;
+        } else if (ch === '(') {
+          depth++;
+        } else if (ch === ')') {
+          depth--;
+          if (depth === 0) break;
+        }
+        j++;
+      }
+      if (depth !== 0) { out += s[i]; i++; continue; }
+      const arg = s.slice(i + m[0].length, j);
+      out += transform(fn, arg);
+      i = j + 1;
+    }
+    return out;
+  }
+
+  // Wrap each top-level aggregate so its result is in a decimal/numeric
+  // type — prevents the integer-division-truncates-to-0 trap when the
+  // user writes a / inside a custom expression. Dialect-aware so it works
+  // on every supported backend:
+  //   - PG / Azure PG / DuckDB / MSSQL / Azure SQL: CAST(... AS NUMERIC)
+  //     (PG flavours accept DECIMAL too but NUMERIC is more idiomatic)
+  //   - MySQL: CAST(... AS DECIMAL(38,10)) — MySQL refuses CAST AS NUMERIC
+  //     without precision in older versions
+  //   - BigQuery: CAST(... AS NUMERIC) — BQ already returns FLOAT64 from
+  //     `/` so this is mostly defensive, but harmless
+  // SUM/AVG/MIN/MAX get the argument cast (preserves decimal precision);
+  // COUNT gets cast on its return value (it ignores its argument's type).
+  function dialectNumericCast(inner) {
+    if (dbType === 'mysql') return `CAST(${inner} AS DECIMAL(38,10))`;
+    return `CAST(${inner} AS NUMERIC)`;
+  }
+  function applyNumericCast(expression) {
+    return transformAggregates(
+      expression,
+      ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT'],
+      (fn, arg) => fn.toUpperCase() === 'COUNT'
+        ? dialectNumericCast(`${fn}(${arg})`)
+        : `${fn}(${dialectNumericCast(arg)})`,
+    );
+  }
+
   // RLS: model owner and global admins bypass. Everyone else (including unauthenticated
   // viewers of public reports) is filtered by the rule set against their email.
   const isOwner = req.isAuthenticated() && req.user.id === model.user_id;
@@ -1088,7 +1254,11 @@ router.post('/:id/query', async (req, res) => {
   const groupByParts = [];
   const tablesUsed = new Set();
 
-  // Pre-register filter tables so they get JOINed
+  // Pre-register filter tables so they get JOINed.
+  // whereParts is an array of `{ field, sql }` objects so that override-mode
+  // filtered measures (CALCULATE-style) can selectively drop the clauses on
+  // their override fields when building their correlated subquery.
+  // `field` is the dimension name (or null for non-dim clauses like RLS).
   const whereParts = [];
   if (filters && typeof filters === 'object') {
     for (const [dimName, values] of Object.entries(filters)) {
@@ -1096,7 +1266,7 @@ router.post('/:id/query', async (req, res) => {
       const dimDef = allDimensions.find((d) => d.name === dimName);
       if (dimDef) {
         tablesUsed.add(dimDef.table);
-        const col = `${quoteTable(dimDef.table)}."${dimDef.column}"`;
+        const col = quoteCol(dimDef.table, dimDef.column, dbType);
         if (dimDef.datePart) {
           // Drill-down on a date-part dim — filter against the same
           // EXTRACT/YEAR(...) expression used in SELECT. Type-aware IN
@@ -1104,16 +1274,16 @@ router.post('/:id/query', async (req, res) => {
           // wrapping a CAST around the EXTRACT.
           const expr = buildDatePartExpr(dimDef, dbType, columnTypes);
           const clause = buildInList(expr, effectiveDimType(dimDef), values, dbType);
-          if (clause) whereParts.push(clause);
+          if (clause) whereParts.push({ field: dimName, sql: clause });
         } else if (dimDef.type === 'date') {
           const fmt = getDateFormat(dimDef.table, dimDef.column, columnTypes);
           const escaped = values.map((v) => `'${String(v).replace(/'/g, "''")}'`).join(', ');
-          whereParts.push(`${castToDate(col, dbType, fmt)} IN (${escaped})`);
+          whereParts.push({ field: dimName, sql: `${castToDate(col, dbType, fmt)} IN (${escaped})` });
         } else {
           // Type-aware IN — string columns compared without a CAST so the
           // engine can hit the index, numeric columns compared as numbers.
           const clause = buildInList(col, effectiveDimType(dimDef), values, dbType);
-          if (clause) whereParts.push(clause);
+          if (clause) whereParts.push({ field: dimName, sql: clause });
         }
       }
     }
@@ -1173,7 +1343,7 @@ router.post('/:id/query', async (req, res) => {
       // timestamp column.
       const col = dimDef.datePart
         ? buildDatePartExpr(dimDef, dbType, columnTypes)
-        : `${quoteTable(dimDef.table)}."${dimDef.column}"`;
+        : quoteCol(dimDef.table, dimDef.column, dbType);
       const clause = buildScalarClause(
         col, f.op, f.value, f.values,
         // datePart dims aren't date-typed — they're year/month numbers etc.
@@ -1181,7 +1351,7 @@ router.post('/:id/query', async (req, res) => {
         getDateFormat(dimDef.table, dimDef.column, columnTypes),
         effectiveDimType(dimDef),
       );
-      if (clause) whereParts.push(clause);
+      if (clause) whereParts.push({ field: f.field, sql: clause });
     }
   }
 
@@ -1191,41 +1361,176 @@ router.post('/:id/query', async (req, res) => {
       // the SELECT and the WHERE/HAVING paths stay consistent (they all need
       // the same EXTRACT/YEAR(...) expression for drill-down to work).
       const expr = buildDatePartExpr(d, dbType, columnTypes);
-      selectParts.push(`${expr} AS "${d.label || d.name}"`);
+      selectParts.push(`${expr} AS ${quoteIdent(d.label || d.name, dbType)}`);
       groupByParts.push(expr);
       tablesUsed.add(d.table);
     } else {
-      selectParts.push(`${quoteTable(d.table)}."${d.column}" AS "${d.label || d.name}"`);
-      groupByParts.push(`${quoteTable(d.table)}."${d.column}"`);
+      selectParts.push(`${quoteCol(d.table, d.column, dbType)} AS ${quoteIdent(d.label || d.name, dbType)}`);
+      groupByParts.push(quoteCol(d.table, d.column, dbType));
       tablesUsed.add(d.table);
     }
   });
 
+  // Helper used by filtered measures to convert a single FilterRule into a
+  // SQL fragment. Mirrors the WHERE-loop above but returns the clause
+  // instead of pushing it. Skips measure-on-measure filters (no HAVING
+  // sense inside a CASE WHEN — would need a subquery), and stamps the
+  // referenced field's table on `tablesUsed` so the JOIN graph stays correct.
+  const buildRuleClause = (rule) => {
+    if (!rule || rule.isMeasure || !rule.field || !rule.op) return null;
+    const dimDef = allDimensions.find((d) => d.name === rule.field);
+    if (!dimDef) return null;
+    tablesUsed.add(dimDef.table);
+    const col = dimDef.datePart
+      ? buildDatePartExpr(dimDef, dbType, columnTypes)
+      : quoteCol(dimDef.table, dimDef.column, dbType);
+    return buildScalarClause(
+      col, rule.op, rule.value, rule.values,
+      !dimDef.datePart && dimDef.type === 'date',
+      getDateFormat(dimDef.table, dimDef.column, columnTypes),
+      effectiveDimType(dimDef),
+    );
+  };
+
+  // Override-mode filtered measures emit a placeholder during the SELECT
+  // construction loop and are filled in later (after the FROM clause is
+  // assembled) with a scalar subquery. The subquery is uncorrelated: it
+  // duplicates the main FROM/JOIN graph and applies its own WHERE clause
+  // that drops the visual's filters on the override fields and substitutes
+  // the measure's own filterRules. This works perfectly for scorecards (no
+  // GROUP BY); for grouped charts the same scalar value is repeated across
+  // every group — Power BI's CALCULATE-on-grouped semantics would require
+  // a correlated subquery, deferred to a follow-up.
+  const overrideMeasureInfos = [];
+
   selectedMeasures.forEach((m) => {
     if (m.table) tablesUsed.add(m.table);
+    // Override-mode filtered measure: register tables referenced by its
+    // filterRules so the JOIN graph picks them up, then push a placeholder
+    // into selectParts. We patch it up after fromClause is built.
+    if (Array.isArray(m.filterRules) && m.filterRules.length > 0 && m.overrideFilters) {
+      for (const r of m.filterRules) {
+        if (!r || r.isMeasure || !r.field) continue;
+        const dimDef = allDimensions.find((d) => d.name === r.field);
+        if (dimDef) tablesUsed.add(dimDef.table);
+      }
+      // Custom expression: inline `${measure}` refs and register tables
+      // referenced inside the resolved SQL so the outer JOIN graph picks
+      // them up (the subquery duplicates the outer FROM clause, so its
+      // tables must already be in tablesUsed).
+      let inlinedExpression = null;
+      if (m.aggregation === 'custom' && m.expression) {
+        try {
+          inlinedExpression = inlineMeasureRefs(m.expression);
+        } catch (e) {
+          return res.status(400).json({ error: e.message });
+        }
+        const allFieldsForLookup = [...allDimensions, ...allMeasures.filter((x) => x.table)];
+        for (const field of allFieldsForLookup) {
+          if (inlinedExpression.includes(field.column) || inlinedExpression.includes(field.table)) {
+            tablesUsed.add(field.table);
+          }
+        }
+      }
+      overrideMeasureInfos.push({
+        index: selectParts.length,
+        m,
+        label: m.label || m.name,
+        inlinedExpression,
+      });
+      selectParts.push(null); // placeholder, filled in after fromClause is built
+      return;
+    }
+    // Filtered measure (intersection mode): aggregate over rows that
+    // satisfy `filterRules`, otherwise NULL. The visual's WHERE clauses
+    // still apply, so this is a strict subset of the visual's data —
+    // perfect for "active sales only", "this category only" etc.
+    if (Array.isArray(m.filterRules) && m.filterRules.length > 0 && !m.overrideFilters) {
+      const clauses = m.filterRules.map(buildRuleClause).filter(Boolean);
+      if (clauses.length > 0) {
+        const whenSql = clauses.join(' AND ');
+        if (m.aggregation === 'custom' && m.expression) {
+          // Inline `${measure}` references before the CASE WHEN wrap so any
+          // aggregates from referenced measures get the filter context too.
+          let inlined;
+          try {
+            inlined = inlineMeasureRefs(m.expression);
+          } catch (e) {
+            return res.status(400).json({ error: e.message });
+          }
+          // Wrap each top-level aggregate's argument in `CASE WHEN <rules>
+          // THEN <arg> END`. Paren-aware so an inlined CASE WHEN containing
+          // `IN (...)` doesn't break the matcher. Composes with the NUMERIC
+          // cast for SUM/AVG so divisions preserve decimals.
+          const rewritten = transformAggregates(
+            inlined,
+            ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT'],
+            (fn, arg) => {
+              const cast = (fn.toUpperCase() === 'SUM' || fn.toUpperCase() === 'AVG')
+                ? dialectNumericCast(arg)
+                : arg;
+              return `${fn}(CASE WHEN ${whenSql} THEN ${cast} END)`;
+            },
+          );
+          selectParts.push(`(${rewritten}) AS ${quoteIdent(m.label || m.name, dbType)}`);
+          // Register tables referenced by the inlined expression
+          const allFieldsForLookup = [...allDimensions, ...allMeasures.filter((x) => x.table)];
+          for (const field of allFieldsForLookup) {
+            if (inlined.includes(field.column) || inlined.includes(field.table)) {
+              tablesUsed.add(field.table);
+            }
+          }
+        } else if (m.aggregation === 'count' || (m.column === '*' && !m.table)) {
+          selectParts.push(`COUNT(CASE WHEN ${whenSql} THEN 1 END) AS ${quoteIdent(m.label || m.name, dbType)}`);
+        } else if (m.table && m.column) {
+          const rawCol = quoteCol(m.table, m.column, dbType);
+          const ovType = getOverrideType(m.table, m.column, columnTypes);
+          const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
+            ? castToNumber(rawCol, dbType, ovType)
+            : rawCol;
+          const aggExpr = `${(m.aggregation || 'sum').toUpperCase()}(CASE WHEN ${whenSql} THEN ${colExpr} END)`;
+          // Same INTERVAL handling as regular measures.
+          const isInterval = String(m.dataType || '').toLowerCase() === 'interval';
+          const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
+          const finalExpr = (isInterval && supportsExtractEpoch)
+            ? `EXTRACT(EPOCH FROM ${aggExpr})`
+            : aggExpr;
+          selectParts.push(`${finalExpr} AS ${quoteIdent(m.label || m.name, dbType)}`);
+        }
+        return; // handled
+      }
+      // No clauses survived (e.g. all rules pointed at non-existent fields)
+      // → fall through to the regular aggregation path.
+    }
     if (m.aggregation === 'custom' && m.expression) {
+      // Inline `${measure}` references first so the NUMERIC cast also wraps
+      // any aggregates that came from referenced measures.
+      let inlined;
+      try {
+        inlined = inlineMeasureRefs(m.expression);
+      } catch (e) {
+        return res.status(400).json({ error: e.message });
+      }
       // Custom SQL expression - force NUMERIC inside aggregates to avoid integer division truncation
-      // SUM(col) becomes SUM((col)::NUMERIC) so division preserves decimals
-      const numericExpr = m.expression.replace(
-        /\b(SUM|AVG|MIN|MAX)\(([^)]+)\)/gi,
-        (match, fn, col) => `${fn}((${col})::NUMERIC)`
-      );
-      selectParts.push(`(${numericExpr}) AS "${m.label || m.name}"`);
-      // Extract table references from expression for joins
-      // Check all dimensions and measures for column/table references
+      // SUM(col) becomes SUM((col)::NUMERIC) so division preserves decimals.
+      // Paren-aware so a CASE WHEN ... IN (..) inside an aggregate doesn't
+      // break the matcher.
+      const numericExpr = applyNumericCast(inlined);
+      selectParts.push(`(${numericExpr}) AS ${quoteIdent(m.label || m.name, dbType)}`);
+      // Extract table references from the INLINED expression for joins
       const allFieldsForLookup = [...allDimensions, ...allMeasures.filter((x) => x.table)];
       for (const field of allFieldsForLookup) {
-        if (m.expression.includes(field.column) || m.expression.includes(field.table)) {
+        if (inlined.includes(field.column) || inlined.includes(field.table)) {
           tablesUsed.add(field.table);
         }
       }
     } else if (m.aggregation === 'count') {
-      selectParts.push(`COUNT(*) AS "${m.label || m.name}"`);
+      selectParts.push(`COUNT(*) AS ${quoteIdent(m.label || m.name, dbType)}`);
     } else {
       // Wrap the column in CAST when the user has overridden it to a numeric
       // type — otherwise SUM/AVG on a text column (e.g. nvarchar storing
       // numbers) blows up with "operand data type ... is invalid for sum".
-      const rawCol = `${quoteTable(m.table)}."${m.column}"`;
+      const rawCol = quoteCol(m.table, m.column, dbType);
       const ovType = getOverrideType(m.table, m.column, columnTypes);
       const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
         ? castToNumber(rawCol, dbType, ovType)
@@ -1257,7 +1562,7 @@ router.post('/:id/query', async (req, res) => {
     // Same numeric-cast logic as the SELECT path so HAVING references the
     // exact same expression.
     const rawColH = (measDef.table && measDef.column)
-      ? `${quoteTable(measDef.table)}."${measDef.column}"`
+      ? quoteCol(measDef.table, measDef.column, dbType)
       : null;
     const ovTypeH = getOverrideType(measDef.table, measDef.column, columnTypes);
     const colExprH = rawColH && (ovTypeH === 'integer' || ovTypeH === 'decimal' || ovTypeH === 'number')
@@ -1304,15 +1609,15 @@ router.post('/:id/query', async (req, res) => {
     if (unreachable.length > 0) {
       // Deny everything rather than risk leaking rows from an unconstrained table.
       tablesUsed.add(rls.table);
-      whereParts.push('1 = 0');
+      whereParts.push({ field: null, sql: '1 = 0' });
     } else {
       tablesUsed.add(rls.table);
       if (!allowedRlsKeys || allowedRlsKeys.length === 0) {
         // No matching rule for this user → deny everything.
-        whereParts.push('1 = 0');
+        whereParts.push({ field: null, sql: '1 = 0' });
       } else {
         const escaped = allowedRlsKeys.map((v) => `'${String(v).replace(/'/g, "''")}'`).join(', ');
-        whereParts.push(`${castToString(`${quoteTable(rls.table)}."${rls.primaryKey}"`, dbType)} IN (${escaped})`);
+        whereParts.push({ field: null, sql: `${castToString(quoteCol(rls.table, rls.primaryKey, dbType), dbType)} IN (${escaped})` });
       }
     }
   }
@@ -1338,7 +1643,7 @@ router.post('/:id/query', async (req, res) => {
     // so two equal-score tables keep their original relative order.
     tableList.sort((a, b) => (factScore[b] - factScore[a]) || (Array.from(tablesUsed).indexOf(a) - Array.from(tablesUsed).indexOf(b)));
   }
-  let fromClause = quoteTable(tableList[0]);
+  let fromClause = quoteTable(tableList[0], dbType);
   if (tableList.length > 1) {
     const added = new Set([tableList[0]]);
     const remaining = tableList.slice(1);
@@ -1358,13 +1663,112 @@ router.post('/:id/query', async (req, res) => {
         // each leftover. Better than dropping them; they'll likely be
         // filtered down by WHERE in practice. A warning would help here
         // but we don't have a structured logger surfaced to the response.
-        for (const t of remaining) fromClause += `, ${quoteTable(t)}`;
+        for (const t of remaining) fromClause += `, ${quoteTable(t, dbType)}`;
         break;
       }
       const t = remaining.splice(pickedIdx, 1)[0];
       const joinType = deriveJoinKeyword(pickedJoin);
-      fromClause += ` ${joinType} JOIN ${quoteTable(t)} ON ${quoteTable(pickedJoin.from_table)}."${pickedJoin.from_column}" = ${quoteTable(pickedJoin.to_table)}."${pickedJoin.to_column}"`;
+      fromClause += ` ${joinType} JOIN ${quoteTable(t, dbType)} ON ${quoteCol(pickedJoin.from_table, pickedJoin.from_column, dbType)} = ${quoteCol(pickedJoin.to_table, pickedJoin.to_column, dbType)}`;
       added.add(t);
+    }
+  }
+
+  // Fill in override-mode filtered measure placeholders. Each becomes a
+  // scalar subquery that re-runs the same FROM/JOIN graph, drops the
+  // visual's WHERE clauses on the override fields, and applies the
+  // measure's own filterRules. This runs AFTER fromClause/whereParts are
+  // finalised so the subquery has the same join graph as the outer query.
+  for (const info of overrideMeasureInfos) {
+    const { m, index, label, inlinedExpression } = info;
+    const overrideFields = new Set(
+      (m.filterRules || []).map((r) => r && r.field).filter(Boolean)
+    );
+    // Keep all WHERE clauses NOT tied to an override field. Untagged
+    // clauses (RLS) are always kept so security is preserved.
+    const keptWhere = whereParts
+      .filter((w) => !w.field || !overrideFields.has(w.field))
+      .map((w) => w.sql);
+    const ruleClauses = (m.filterRules || []).map(buildRuleClause).filter(Boolean);
+    const innerWhere = [...keptWhere, ...ruleClauses];
+    // Build the inner aggregation expression — same shape as the regular
+    // measure path so INTERVAL / numeric overrides / custom expressions
+    // behave identically. Custom expressions are used verbatim (with the
+    // same NUMERIC-cast trick as the regular custom path) since the
+    // subquery's own WHERE applies the filter context.
+    let innerAgg;
+    if (m.aggregation === 'custom' && m.expression) {
+      // Tables already registered in the selectedMeasures loop above.
+      // `inlinedExpression` was computed there too — `${measure}` refs
+      // already expanded.
+      innerAgg = applyNumericCast(inlinedExpression || m.expression);
+    } else if (m.aggregation === 'count' || (m.column === '*' && !m.table)) {
+      innerAgg = 'COUNT(*)';
+    } else if (m.table && m.column) {
+      const rawCol = quoteCol(m.table, m.column, dbType);
+      const ovType = getOverrideType(m.table, m.column, columnTypes);
+      const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
+        ? castToNumber(rawCol, dbType, ovType)
+        : rawCol;
+      innerAgg = `${(m.aggregation || 'sum').toUpperCase()}(${colExpr})`;
+      const isInterval = String(m.dataType || '').toLowerCase() === 'interval';
+      const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
+      if (isInterval && supportsExtractEpoch) {
+        innerAgg = `EXTRACT(EPOCH FROM ${innerAgg})`;
+      }
+    } else {
+      innerAgg = 'NULL';
+    }
+    let subSql = `SELECT ${innerAgg} FROM ${fromClause}`;
+    if (innerWhere.length > 0) {
+      subSql += ` WHERE ${innerWhere.join(' AND ')}`;
+    }
+    selectParts[index] = `(${subSql}) AS ${quoteIdent(label, dbType)}`;
+  }
+
+  // Resolve `__OVERRIDE_REF_<i>__` placeholders left by the inliner when a
+  // custom expression referenced an override-mode filtered measure. Each
+  // becomes an inline scalar subquery — same shape as the standalone
+  // override-mode placeholder. Runs AFTER the overrideMeasureInfos patch-up
+  // because those output strings can themselves contain these markers (when
+  // an override-mode top-level measure has a custom expression that refs
+  // another override-mode filtered measure).
+  if (overrideRefInfos.length > 0) {
+    for (let i = 0; i < overrideRefInfos.length; i++) {
+      const { target } = overrideRefInfos[i];
+      const overrideFields = new Set(
+        (target.filterRules || []).map((r) => r && r.field).filter(Boolean)
+      );
+      const keptWhere = whereParts
+        .filter((w) => !w.field || !overrideFields.has(w.field))
+        .map((w) => w.sql);
+      const ruleClauses = (target.filterRules || []).map(buildRuleClause).filter(Boolean);
+      const innerWhere = [...keptWhere, ...ruleClauses];
+      let innerAgg;
+      if (target.aggregation === 'custom' && target.expression) {
+        // Custom-expression target: inline any nested ${...} refs and use
+        // verbatim. The subquery's own WHERE applies the filter context.
+        innerAgg = applyNumericCast(inlineMeasureRefs(target.expression));
+      } else if (target.aggregation === 'count' || (target.column === '*' && !target.table)) {
+        innerAgg = 'COUNT(*)';
+      } else if (target.table && target.column) {
+        const rawCol = quoteCol(target.table, target.column, dbType);
+        const ovType = getOverrideType(target.table, target.column, columnTypes);
+        const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
+          ? castToNumber(rawCol, dbType, ovType)
+          : rawCol;
+        innerAgg = `${(target.aggregation || 'sum').toUpperCase()}(${colExpr})`;
+      } else {
+        innerAgg = 'NULL';
+      }
+      let subSql = `SELECT ${innerAgg} FROM ${fromClause}`;
+      if (innerWhere.length > 0) subSql += ` WHERE ${innerWhere.join(' AND ')}`;
+      const placeholder = `__OVERRIDE_REF_${i}__`;
+      const replacement = `(${subSql})`;
+      for (let j = 0; j < selectParts.length; j++) {
+        if (typeof selectParts[j] === 'string' && selectParts[j].includes(placeholder)) {
+          selectParts[j] = selectParts[j].split(placeholder).join(replacement);
+        }
+      }
     }
   }
 
@@ -1372,7 +1776,7 @@ router.post('/:id/query', async (req, res) => {
   let sql = `SELECT ${useDistinct ? 'DISTINCT ' : ''}${selectParts.join(', ')} FROM ${fromClause}`;
 
   if (whereParts.length > 0) {
-    sql += ` WHERE ${whereParts.join(' AND ')}`;
+    sql += ` WHERE ${whereParts.map((w) => w.sql).join(' AND ')}`;
   }
 
   if (groupByParts.length > 0 && selectedMeasures.length > 0) {
