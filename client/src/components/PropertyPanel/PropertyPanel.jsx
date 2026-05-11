@@ -8,6 +8,7 @@ import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/
 import FontPicker from '../FontPicker/FontPicker';
 import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase } from 'react-icons/tb';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
+import { parseIntOrNull, parseFloatOrNull } from '../../utils/input';
 
 function getWidgetDisplayInfo(widget) {
   if (!widget) return { label: '', icon: null };
@@ -709,8 +710,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             </>
           )}
           <Field label="Font size">
-            <input type="number" min={8} max={24} value={widget.config?.slicerFontSize || 12}
-              onChange={(e) => updateConfig('slicerFontSize', parseInt(e.target.value) || 12)}
+            <input type="number" min={8} max={24} value={widget.config?.slicerFontSize ?? ''} placeholder="12"
+              onChange={(e) => updateConfig('slicerFontSize', parseIntOrNull(e.target.value))}
               style={{ ...inputStyle, marginBottom: 0 }} />
           </Field>
           <Field label="Font color">
@@ -779,8 +780,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 <input type="text" value={widget.data?.label || ''} onChange={(e) => updateData('label', e.target.value)} style={inputStyle} />
               </Field>
               <Field label="Value size">
-                <input type="number" min={16} max={72} value={widget.config?.valueSize || 36}
-                  onChange={(e) => updateConfig('valueSize', parseInt(e.target.value))} style={{ ...inputStyle, width: 60 }} />
+                <input type="number" min={16} max={72} value={widget.config?.valueSize ?? ''} placeholder="36"
+                  onChange={(e) => updateConfig('valueSize', parseIntOrNull(e.target.value))} style={{ ...inputStyle, width: 60 }} />
               </Field>
               <Field label="Value color">
                 <ColorInput value={widget.config?.valueColor || '#0f172a'}
@@ -791,8 +792,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                   onChange={(v) => updateConfig('valueFontFamily', v)} />
               </Field>
               <Field label="Label size">
-                <input type="number" min={8} max={32} value={widget.config?.labelSize || 14}
-                  onChange={(e) => updateConfig('labelSize', parseInt(e.target.value))} style={{ ...inputStyle, width: 60 }} />
+                <input type="number" min={8} max={32} value={widget.config?.labelSize ?? ''} placeholder="14"
+                  onChange={(e) => updateConfig('labelSize', parseIntOrNull(e.target.value))} style={{ ...inputStyle, width: 60 }} />
               </Field>
               <Field label="Label color">
                 <ColorInput value={widget.config?.labelColor || '#64748b'}
@@ -806,8 +807,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           )}
           {widget.type !== 'scorecard' && (
             <Field label="Row limit">
-              <input type="number" min={1} max={10000} value={widget.config?.dataLimit || 1000}
-                onChange={(e) => updateConfig('dataLimit', parseInt(e.target.value) || 1000)}
+              <input type="number" min={1} max={10000} value={widget.config?.dataLimit ?? ''} placeholder="1000"
+                onChange={(e) => updateConfig('dataLimit', parseIntOrNull(e.target.value))}
                 style={{ ...inputStyle, marginBottom: 0 }} />
             </Field>
           )}
@@ -825,8 +826,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               {widget.config?.topNEnabled === true && (
                 <Field label="N">
                   <input type="number" min={1} max={1000}
-                    value={widget.config?.topN ?? 20}
-                    onChange={(e) => updateConfig('topN', Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    value={widget.config?.topN ?? ''} placeholder="20"
+                    onChange={(e) => updateConfig('topN', Math.max(1, parseIntOrNull(e.target.value)))}
                     style={{ ...inputStyle, width: 70, marginBottom: 0 }} />
                 </Field>
               )}
@@ -865,7 +866,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
         )}
         <Field label="Border radius" vertical>
           <RangeInput min={0} max={24} value={widget.config?.borderRadius ?? 8}
-            onChange={(e) => updateConfig('borderRadius', parseInt(e.target.value) || 0)} />
+            onChange={(e) => updateConfig('borderRadius', parseIntOrNull(e.target.value))} />
         </Field>
         <Field label="Transparent bg">
           <input type="checkbox" checked={widget.config?.transparentBg ?? false}
@@ -881,7 +882,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               <SubSection label="Gradient">
                 <Field label="Angle" vertical>
                   <RangeInput min={0} max={360} value={widget.config?.gradientBg?.angle ?? 180} suffix="°"
-                    onChange={(e) => updateConfig('gradientBg', { ...widget.config?.gradientBg, angle: parseInt(e.target.value) })} />
+                    onChange={(e) => updateConfig('gradientBg', { ...widget.config?.gradientBg, angle: parseIntOrNull(e.target.value) })} />
                 </Field>
                 <Field label="Color 1">
                   <ColorInput value={widget.config?.gradientBg?.color1 || '#ffffff'}
@@ -916,15 +917,15 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             </Field>
             <Field label="Angle" vertical>
               <RangeInput min={0} max={360} value={widget.config?.shadow?.angle ?? 135} suffix="°"
-                onChange={(e) => updateConfig('shadow', { ...widget.config?.shadow, angle: parseInt(e.target.value) })} />
+                onChange={(e) => updateConfig('shadow', { ...widget.config?.shadow, angle: parseIntOrNull(e.target.value) })} />
             </Field>
             <Field label="Blur" vertical>
               <RangeInput min={0} max={40} value={widget.config?.shadow?.blur ?? 10}
-                onChange={(e) => updateConfig('shadow', { ...widget.config?.shadow, blur: parseInt(e.target.value) })} />
+                onChange={(e) => updateConfig('shadow', { ...widget.config?.shadow, blur: parseIntOrNull(e.target.value) })} />
             </Field>
             <Field label="Spread" vertical>
               <RangeInput min={0} max={20} value={widget.config?.shadow?.spread ?? 2}
-                onChange={(e) => updateConfig('shadow', { ...widget.config?.shadow, spread: parseInt(e.target.value) })} />
+                onChange={(e) => updateConfig('shadow', { ...widget.config?.shadow, spread: parseIntOrNull(e.target.value) })} />
             </Field>
             <Field label="Shadow color">
               <ColorInput value={widget.config?.shadow?.color || '#000000'}
@@ -934,7 +935,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
         )}
         <Field label="Rotation" vertical>
           <RangeInput min={0} max={360} value={widget.config?.rotation ?? 0} suffix="°"
-            onChange={(e) => updateConfig('rotation', parseInt(e.target.value))} />
+            onChange={(e) => updateConfig('rotation', parseIntOrNull(e.target.value))} />
         </Field>
         <Field label="Conditional formatting">
           <input type="checkbox" checked={widget.config?.colorCondition?.enabled === true}
@@ -1155,12 +1156,12 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 {canAngle && (
                   <Field label="Angle" vertical>
                     <RangeInput min={-90} max={90} value={widget.config?.dataLabelRotate ?? 0} suffix="°"
-                      onChange={(e) => updateConfig('dataLabelRotate', parseInt(e.target.value))} />
+                      onChange={(e) => updateConfig('dataLabelRotate', parseIntOrNull(e.target.value))} />
                   </Field>
                 )}
                 <Field label="Font size">
-                  <input type="number" min={6} max={36} value={widget.config?.dataLabelFontSize ?? 10}
-                    onChange={(e) => updateConfig('dataLabelFontSize', parseInt(e.target.value) || 10)}
+                  <input type="number" min={6} max={36} value={widget.config?.dataLabelFontSize ?? ''} placeholder="10"
+                    onChange={(e) => updateConfig('dataLabelFontSize', parseIntOrNull(e.target.value))}
                     style={{ ...inputStyle, width: 50, marginBottom: 0 }} />
                 </Field>
                 {canColor && (
@@ -1183,7 +1184,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                     </Field>
                     <Field label="Label bg opacity" vertical>
                       <RangeInput min={0} max={100} value={widget.config?.dataLabelBgOpacity ?? 0} suffix="%"
-                        onChange={(e) => updateConfig('dataLabelBgOpacity', parseInt(e.target.value))} />
+                        onChange={(e) => updateConfig('dataLabelBgOpacity', parseIntOrNull(e.target.value))} />
                     </Field>
                   </>
                 )}
@@ -1225,7 +1226,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           {widget.type === 'scatter' && (
             <Field label="Point size" vertical>
               <RangeInput min={2} max={30} value={widget.config?.symbolSize ?? 10}
-                onChange={(e) => updateConfig('symbolSize', parseInt(e.target.value))} suffix="px" />
+                onChange={(e) => updateConfig('symbolSize', parseIntOrNull(e.target.value))} suffix="px" />
             </Field>
           )}
           {widget.type === 'combo' && (
@@ -1255,8 +1256,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                     </Field>
                   )}
                   <Field label="Font size">
-                    <input type="number" min={6} max={24} value={widget.config?.xAxisLabelFontSize ?? 11}
-                      onChange={(e) => updateConfig('xAxisLabelFontSize', parseInt(e.target.value) || 11)}
+                    <input type="number" min={6} max={24} value={widget.config?.xAxisLabelFontSize ?? ''} placeholder="11"
+                      onChange={(e) => updateConfig('xAxisLabelFontSize', parseIntOrNull(e.target.value))}
                       style={{ ...inputStyle, width: 60, marginBottom: 0 }} />
                   </Field>
                   <Field label="Color">
@@ -1295,8 +1296,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                     </Field>
                   )}
                   <Field label="Font size">
-                    <input type="number" min={6} max={24} value={widget.config?.yAxisLabelFontSize ?? 11}
-                      onChange={(e) => updateConfig('yAxisLabelFontSize', parseInt(e.target.value) || 11)}
+                    <input type="number" min={6} max={24} value={widget.config?.yAxisLabelFontSize ?? ''} placeholder="11"
+                      onChange={(e) => updateConfig('yAxisLabelFontSize', parseIntOrNull(e.target.value))}
                       style={{ ...inputStyle, width: 60, marginBottom: 0 }} />
                   </Field>
                   <Field label="Color">
@@ -1338,8 +1339,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                           </Field>
                         )}
                         <Field label="Font size">
-                          <input type="number" min={6} max={24} value={widget.config?.secondaryYAxisLabelFontSize ?? 11}
-                            onChange={(e) => updateConfig('secondaryYAxisLabelFontSize', parseInt(e.target.value) || 11)}
+                          <input type="number" min={6} max={24} value={widget.config?.secondaryYAxisLabelFontSize ?? ''} placeholder="11"
+                            onChange={(e) => updateConfig('secondaryYAxisLabelFontSize', parseIntOrNull(e.target.value))}
                             style={{ ...inputStyle, width: 60, marginBottom: 0 }} />
                         </Field>
                         <Field label="Color">
@@ -1366,7 +1367,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               </Field>
               <Field label="Grid width" vertical>
                 <RangeInput min={0} max={5} step={0.5} value={widget.config?.gridLineWidth ?? 1}
-                  onChange={(e) => updateConfig('gridLineWidth', parseFloat(e.target.value))} />
+                  onChange={(e) => updateConfig('gridLineWidth', parseFloatOrNull(e.target.value))} />
               </Field>
             </>
           )}
@@ -1377,8 +1378,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       {widget.type === 'scatter' && (
         <Section title="Title style" sectionState={sections}>
           <Field label="Font size">
-            <input type="number" min={8} max={24} value={widget.config?.headerFontSize ?? 12}
-              onChange={(e) => updateConfig('headerFontSize', parseInt(e.target.value) || 12)}
+            <input type="number" min={8} max={24} value={widget.config?.headerFontSize ?? ''} placeholder="12"
+              onChange={(e) => updateConfig('headerFontSize', parseIntOrNull(e.target.value))}
               style={{ ...inputStyle, width: 50, marginBottom: 0 }} />
           </Field>
           <Field label="Color">
@@ -1509,7 +1510,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               </Field>
               <Field label="Thickness" vertical>
                 <RangeInput min={1} max={20} value={widget.config?.lineThickness ?? 2}
-                  onChange={(e) => updateConfig('lineThickness', parseInt(e.target.value))} suffix="px" />
+                  onChange={(e) => updateConfig('lineThickness', parseIntOrNull(e.target.value))} suffix="px" />
               </Field>
             </>
           )}
@@ -1524,13 +1525,13 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                   onChange={(v) => updateConfig('shapeStroke', v)} />
               </Field>
               <Field label="Stroke width">
-                <input type="number" min={0} max={20} value={widget.config?.shapeStrokeWidth ?? 2}
-                  onChange={(e) => updateConfig('shapeStrokeWidth', parseInt(e.target.value) || 0)}
+                <input type="number" min={0} max={20} value={widget.config?.shapeStrokeWidth ?? ''} placeholder="2"
+                  onChange={(e) => updateConfig('shapeStrokeWidth', parseIntOrNull(e.target.value))}
                   style={{ ...inputStyle, marginBottom: 0 }} />
               </Field>
               <Field label="Opacity (%)">
-                <input type="number" min={0} max={100} value={widget.config?.shapeOpacity ?? 100}
-                  onChange={(e) => updateConfig('shapeOpacity', parseInt(e.target.value) || 0)}
+                <input type="number" min={0} max={100} value={widget.config?.shapeOpacity ?? ''} placeholder="100"
+                  onChange={(e) => updateConfig('shapeOpacity', parseIntOrNull(e.target.value))}
                   style={{ ...inputStyle, marginBottom: 0 }} />
               </Field>
             </>
@@ -1555,8 +1556,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <textarea value={widget.data?.text || ''} onChange={(e) => updateData('text', e.target.value)}
             rows={4} style={{ ...inputStyle, resize: 'vertical' }} placeholder="Enter text..." />
           <Field label="Font size">
-            <input type="number" min={10} max={72} value={widget.config?.fontSize || 16}
-              onChange={(e) => updateConfig('fontSize', parseInt(e.target.value))}
+            <input type="number" min={10} max={72} value={widget.config?.fontSize ?? ''} placeholder="16"
+              onChange={(e) => updateConfig('fontSize', parseIntOrNull(e.target.value))}
               style={{ ...inputStyle, width: 60 }} />
           </Field>
           <Field label="Font family">
@@ -1593,7 +1594,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           {(widget.config?.lineSymbol ?? 'circle') !== 'none' && (
             <Field label="Point size" vertical>
               <RangeInput min={2} max={20} value={widget.config?.lineSymbolSize ?? 6}
-                onChange={(e) => updateConfig('lineSymbolSize', parseInt(e.target.value))} suffix="px" />
+                onChange={(e) => updateConfig('lineSymbolSize', parseIntOrNull(e.target.value))} suffix="px" />
             </Field>
           )}
         </Section>
@@ -1614,7 +1615,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               </Field>
               <Field label="Border width" vertical>
                 <RangeInput min={0} max={8} value={widget.config?.itemBorderWidth ?? 1}
-                  onChange={(e) => updateConfig('itemBorderWidth', parseInt(e.target.value))} suffix="px" />
+                  onChange={(e) => updateConfig('itemBorderWidth', parseIntOrNull(e.target.value))} suffix="px" />
               </Field>
             </>
           )}
@@ -1640,13 +1641,13 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               min={widget.config?.subType === 'column' ? 10 : 4}
               max={widget.config?.subType === 'column' ? 120 : 60}
               value={widget.config?.gaugeArcWidth ?? (widget.config?.subType === 'column' ? 40 : 18)}
-              onChange={(e) => updateConfig('gaugeArcWidth', parseInt(e.target.value))}
+              onChange={(e) => updateConfig('gaugeArcWidth', parseIntOrNull(e.target.value))}
               suffix="px" />
           </Field>
           {widget.config?.subType !== 'column' && (
             <Field label="Arc opening" vertical>
               <RangeInput min={90} max={360} step={10} value={widget.config?.gaugeArcSpan ?? 240}
-                onChange={(e) => updateConfig('gaugeArcSpan', parseInt(e.target.value))} suffix="°" />
+                onChange={(e) => updateConfig('gaugeArcSpan', parseIntOrNull(e.target.value))} suffix="°" />
             </Field>
           )}
           {widget.config?.subType === 'column' && (
@@ -1727,7 +1728,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <SubSection label="Value font">
             <Field label="Size" vertical>
               <RangeInput min={10} max={60} value={widget.config?.gaugeValueSize ?? (widget.config?.subType === 'column' ? 20 : 24)}
-                onChange={(e) => updateConfig('gaugeValueSize', parseInt(e.target.value))} suffix="px" />
+                onChange={(e) => updateConfig('gaugeValueSize', parseIntOrNull(e.target.value))} suffix="px" />
             </Field>
             <Field label="Color">
               <input type="color" value={widget.config?.gaugeValueColor || '#0f172a'}
@@ -1742,7 +1743,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <SubSection label="Label font">
             <Field label="Size" vertical>
               <RangeInput min={8} max={30} value={widget.config?.gaugeLabelSize ?? 12}
-                onChange={(e) => updateConfig('gaugeLabelSize', parseInt(e.target.value))} suffix="px" />
+                onChange={(e) => updateConfig('gaugeLabelSize', parseIntOrNull(e.target.value))} suffix="px" />
             </Field>
             <Field label="Color">
               <input type="color" value={widget.config?.gaugeLabelColor || '#64748b'}
@@ -1758,7 +1759,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <SubSection label="Min/Max font">
               <Field label="Size" vertical>
                 <RangeInput min={8} max={24} value={widget.config?.gaugeAxisSize ?? (widget.config?.subType === 'column' ? 10 : 11)}
-                  onChange={(e) => updateConfig('gaugeAxisSize', parseInt(e.target.value))} suffix="px" />
+                  onChange={(e) => updateConfig('gaugeAxisSize', parseIntOrNull(e.target.value))} suffix="px" />
               </Field>
               <Field label="Color">
                 <input type="color" value={widget.config?.gaugeAxisColor || '#94a3b8'}
@@ -1769,11 +1770,11 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 <>
                   <Field label="Distance from arc" vertical>
                     <RangeInput min={-20} max={80} value={widget.config?.gaugeAxisOutset ?? 25}
-                      onChange={(e) => updateConfig('gaugeAxisOutset', parseInt(e.target.value))} suffix="px" />
+                      onChange={(e) => updateConfig('gaugeAxisOutset', parseIntOrNull(e.target.value))} suffix="px" />
                   </Field>
                   <Field label="Pull to center" vertical>
                     <RangeInput min={0} max={200} value={widget.config?.gaugeAxisCenterPull ?? 15}
-                      onChange={(e) => updateConfig('gaugeAxisCenterPull', parseInt(e.target.value))} suffix="px" />
+                      onChange={(e) => updateConfig('gaugeAxisCenterPull', parseIntOrNull(e.target.value))} suffix="px" />
                   </Field>
                 </>
               )}
@@ -2088,12 +2089,12 @@ function CompareLineEditor({ title, checked, onToggle, style, defaultLabel, onSt
           </Field>
           <Field label="Font size">
             <input type="number" min={8} max={32} value={s.fontSize ?? 12}
-              onChange={(e) => update({ fontSize: Math.max(8, parseInt(e.target.value, 10) || 12) })}
+              onChange={(e) => update({ fontSize: Math.max(8, parseIntOrNull(e.target.value)) })}
               style={fillStyle} />
           </Field>
           <Field label="Spacing">
             <input type="number" min={0} max={64} value={s.spacing ?? 6}
-              onChange={(e) => update({ spacing: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+              onChange={(e) => update({ spacing: Math.max(0, parseIntOrNull(e.target.value)) })}
               style={fillStyle} />
           </Field>
           {hasSign && (

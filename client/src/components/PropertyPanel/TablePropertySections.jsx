@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { setNestedValue } from '../../utils/tableConfigHelpers';
+import { parseIntOrNull, parseFloatOrNull } from '../../utils/input';
 import FontPicker from '../FontPicker/FontPicker';
 
 /**
@@ -68,7 +69,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
         </Field>
         <Field label="Font size">
           <input type="number" min={8} max={24} value={get('header', 'fontSize', 13)}
-            onChange={(e) => update('header.fontSize', parseInt(e.target.value) || 13)}
+            onChange={(e) => update('header.fontSize', parseIntOrNull(e.target.value))}
             style={{ ...inputStyle, width: 55, marginBottom: 0 }} />
         </Field>
         <Field label="Font color">
@@ -120,7 +121,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
         {colSelect}
         <Field label="Font size">
           <input type="number" min={8} max={24} value={get('values', 'fontSize', 13)}
-            onChange={(e) => update('values.fontSize', parseInt(e.target.value) || 13)}
+            onChange={(e) => update('values.fontSize', parseIntOrNull(e.target.value))}
             style={{ ...inputStyle, width: 55, marginBottom: 0 }} />
         </Field>
         <Field label="Font color">
@@ -173,7 +174,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
             <input type="number" min={0} max={6}
               value={get('values', 'numberFormat', {}).decimals ?? ''}
               placeholder="Auto"
-              onChange={(e) => update('values.numberFormat.decimals', e.target.value ? parseInt(e.target.value) : null)}
+              onChange={(e) => update('values.numberFormat.decimals', e.target.value ? parseIntOrNull(e.target.value) : null)}
               style={{ ...inputStyle, width: 55, marginBottom: 0 }} />
           </Field>
         </SubSection>
@@ -194,7 +195,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
               </Field>
               <Field label="Width" vertical>
                 <RangeInput min={0} max={3} step={0.5} value={getGlobal('grid.horizontalWidth', 1)}
-                  onChange={(e) => updateGlobal('grid.horizontalWidth', parseFloat(e.target.value))} />
+                  onChange={(e) => updateGlobal('grid.horizontalWidth', parseFloatOrNull(e.target.value))} />
               </Field>
             </>
           )}
@@ -212,7 +213,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
               </Field>
               <Field label="Width" vertical>
                 <RangeInput min={0} max={3} step={0.5} value={getGlobal('grid.verticalWidth', 1)}
-                  onChange={(e) => updateGlobal('grid.verticalWidth', parseFloat(e.target.value))} />
+                  onChange={(e) => updateGlobal('grid.verticalWidth', parseFloatOrNull(e.target.value))} />
               </Field>
             </>
           )}
@@ -230,14 +231,14 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
               </Field>
               <Field label="Width" vertical>
                 <RangeInput min={0} max={3} step={0.5} value={getGlobal('grid.outerBorderWidth', 1)}
-                  onChange={(e) => updateGlobal('grid.outerBorderWidth', parseFloat(e.target.value))} />
+                  onChange={(e) => updateGlobal('grid.outerBorderWidth', parseFloatOrNull(e.target.value))} />
               </Field>
             </>
           )}
         </SubSection>
         <Field label="Cell padding" vertical>
           <RangeInput min={2} max={16} value={getGlobal('grid.cellPadding', 8)}
-            onChange={(e) => updateGlobal('grid.cellPadding', parseInt(e.target.value))} />
+            onChange={(e) => updateGlobal('grid.cellPadding', parseIntOrNull(e.target.value))} />
         </Field>
       </Section>
 
@@ -343,7 +344,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
         {getGlobal('pagination.mode', 'infinite') === 'paginated' && (
           <Field label="Rows/page">
             <input type="number" min={5} max={500} value={getGlobal('pagination.rowsPerPage', 50)}
-              onChange={(e) => updateGlobal('pagination.rowsPerPage', parseInt(e.target.value) || 50)}
+              onChange={(e) => updateGlobal('pagination.rowsPerPage', parseIntOrNull(e.target.value))}
               style={{ ...inputStyle, width: 60, marginBottom: 0 }} />
           </Field>
         )}
@@ -365,7 +366,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
             <input type="number" min={40} max={600}
               value={tc.columns?.[selectedCol]?.width || ''}
               placeholder="Auto"
-              onChange={(e) => updateGlobal(`columns.${selectedCol}.width`, e.target.value ? parseInt(e.target.value) : undefined)}
+              onChange={(e) => updateGlobal(`columns.${selectedCol}.width`, e.target.value ? parseIntOrNull(e.target.value) : undefined)}
               style={{ ...inputStyle, width: 65, marginBottom: 0 }} />
           </Field>
         )}
@@ -447,7 +448,7 @@ function ConditionalFormatEditor({ rules, onChange, inputStyle, Field, SubSectio
               </Field>
               <Field label="Min value">
                 <input type="number" value={rule.minValue ?? ''} placeholder="Auto"
-                  onChange={(e) => updateRule(i, 'minValue', e.target.value !== '' ? parseFloat(e.target.value) : null)}
+                  onChange={(e) => updateRule(i, 'minValue', e.target.value !== '' ? parseFloatOrNull(e.target.value) : null)}
                   style={{ ...inputStyle, width: 65, marginBottom: 0 }} />
               </Field>
               <Field label="Max color">
@@ -456,7 +457,7 @@ function ConditionalFormatEditor({ rules, onChange, inputStyle, Field, SubSectio
               </Field>
               <Field label="Max value">
                 <input type="number" value={rule.maxValue ?? ''} placeholder="Auto"
-                  onChange={(e) => updateRule(i, 'maxValue', e.target.value !== '' ? parseFloat(e.target.value) : null)}
+                  onChange={(e) => updateRule(i, 'maxValue', e.target.value !== '' ? parseFloatOrNull(e.target.value) : null)}
                   style={{ ...inputStyle, width: 65, marginBottom: 0 }} />
               </Field>
             </>
@@ -469,7 +470,7 @@ function ConditionalFormatEditor({ rules, onChange, inputStyle, Field, SubSectio
               </Field>
               <Field label="Min value">
                 <input type="number" value={rule.minValue ?? ''} placeholder="Auto"
-                  onChange={(e) => updateRule(i, 'minValue', e.target.value !== '' ? parseFloat(e.target.value) : null)}
+                  onChange={(e) => updateRule(i, 'minValue', e.target.value !== '' ? parseFloatOrNull(e.target.value) : null)}
                   style={{ ...inputStyle, width: 65, marginBottom: 0 }} />
               </Field>
               <Field label="Max color">
@@ -478,7 +479,7 @@ function ConditionalFormatEditor({ rules, onChange, inputStyle, Field, SubSectio
               </Field>
               <Field label="Max value">
                 <input type="number" value={rule.maxValue ?? ''} placeholder="Auto"
-                  onChange={(e) => updateRule(i, 'maxValue', e.target.value !== '' ? parseFloat(e.target.value) : null)}
+                  onChange={(e) => updateRule(i, 'maxValue', e.target.value !== '' ? parseFloatOrNull(e.target.value) : null)}
                   style={{ ...inputStyle, width: 65, marginBottom: 0 }} />
               </Field>
             </>
@@ -554,7 +555,7 @@ function IconLevelEditor({ label, icon, color, value, valuePlaceholder, onIconCh
         <ColorInput value={color} onChange={(v) => onColorChange(v)}
           style={{ width: 26, height: 26, border: '1px solid var(--border-default)', borderRadius: 3, padding: 1, cursor: 'pointer' }} />
         <input type="number" value={value ?? ''} placeholder={valuePlaceholder}
-          onChange={(e) => onValueChange(e.target.value !== '' ? parseFloat(e.target.value) : null)}
+          onChange={(e) => onValueChange(e.target.value !== '' ? parseFloatOrNull(e.target.value) : null)}
           style={{ ...inputStyle, flex: 1, marginBottom: 0, fontSize: 11 }} />
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { TbCheck } from 'react-icons/tb';
 import { useTheme } from '../../hooks/useTheme';
+import { parseIntOrNull } from '../../utils/input';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
 
 export default function SettingsPanel({ settings, onSettingsChange, onClose, model, onRefresh }) {
@@ -179,7 +180,7 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose, mod
             <input
               type="number" min={400} max={3000}
               value={settings.pageWidth || 1140}
-              onChange={(e) => update('pageWidth', parseInt(e.target.value) || 1140)}
+              onChange={(e) => update('pageWidth', parseIntOrNull(e.target.value))}
               style={inputStyle}
             />
           </Field>
@@ -187,7 +188,7 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose, mod
             <input
               type="number" min={400} max={5000}
               value={settings.pageHeight || 800}
-              onChange={(e) => update('pageHeight', parseInt(e.target.value) || 800)}
+              onChange={(e) => update('pageHeight', parseIntOrNull(e.target.value))}
               style={inputStyle}
             />
           </Field>
@@ -231,7 +232,7 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose, mod
                 <input
                   type="number" min={5} max={100}
                   value={settings.gridSize || 20}
-                  onChange={(e) => update('gridSize', parseInt(e.target.value) || 20)}
+                  onChange={(e) => update('gridSize', parseIntOrNull(e.target.value))}
                   style={inputStyle}
                 />
               </Field>
@@ -318,7 +319,7 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose, mod
             <input
               type="range" min={0} max={24}
               value={settings.borderRadius ?? 8}
-              onChange={(e) => update('borderRadius', parseInt(e.target.value))}
+              onChange={(e) => update('borderRadius', parseIntOrNull(e.target.value))}
               style={{ width: 80 }}
             />
             <span style={{ fontSize: 11, color: 'var(--text-disabled)', marginLeft: 4 }}>{settings.borderRadius ?? 8}px</span>
