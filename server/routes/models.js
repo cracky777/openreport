@@ -8,7 +8,7 @@ const { getQueryTimeoutMs } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
 const preAggCache = require('../utils/preAggCache');
 const { additiveTypeForMeasure } = require('../utils/measureType');
-const { quoteIdent, quoteTable, quoteCol } = require('../utils/sqlDialect');
+const { quoteIdent, quoteTable, quoteCol, escapeLiteral, quoteLiteral, normalizeAggregation } = require('../utils/sqlDialect');
 
 // Hook for cloud edition to override the global query-timeout with a
 // workspace/org-scoped value. Default in OSS just returns the global
@@ -106,7 +106,7 @@ function buildInList(colExpr, dimType, list, dbType, negate) {
   if (native) {
     return single ? `${colExpr} ${eqOp} ${native[0]}` : `${colExpr} ${inOp} (${native.join(', ')})`;
   }
-  const quote = (v) => `'${String(v).replace(/'/g, "''")}'`;
+  const quote = (v) => quoteLiteral(v, dbType);
   if (dimType === 'string') {
     return single ? `${colExpr} ${eqOp} ${quote(list[0])}` : `${colExpr} ${inOp} (${list.map(quote).join(', ')})`;
   }
@@ -726,7 +726,7 @@ router.get('/:id/rls/rows', requireAuth, async (req, res) => {
     let sql = `SELECT ${selectList} FROM ${quoteTable(table, dbType)}`;
     const trimmedSearch = (search || '').toString().trim();
     if (trimmedSearch) {
-      const escaped = trimmedSearch.replace(/'/g, "''");
+      const escaped = escapeLiteral(trimmedSearch, dbType);
       // CAST to VARCHAR so the LIKE works regardless of the column's native type (number, date, etc.)
       sql += ` WHERE LOWER(${castToString(quoteCol(table, primaryKey, dbType), dbType)}) LIKE LOWER('%${escaped}%')`;
     }
@@ -980,7 +980,7 @@ router.post('/:id/query', async (req, res) => {
   if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
   const dbType = datasource.db_type;
 
-  const {
+  let {
     dimensionNames, measureNames, limit, offset, filters, widgetFilters,
     distinct, measureAggOverrides, sqlOnly,
     // Optional: client-generated UUID. When set, the server registers the
@@ -997,7 +997,38 @@ router.post('/:id/query', async (req, res) => {
     // label/type overrides for model-level dims/measures. The model itself
     // stays untouched. The frontend sends these from report.settings.
     extraDimensions, extraMeasures, dimensionOverrides, measureOverrides,
+    // Optional: report context. Used here to gate extras (a viewer can't
+    // smuggle a custom-SQL measure into a /query they don't own) and by
+    // cloud to resolve workspace-scoped timeouts.
+    reportId,
   } = req.body;
+
+  // Gate `extraMeasures` / `extraDimensions` / overrides: these can carry
+  // arbitrary SQL (via `aggregation: 'custom'` + `expression`) or arbitrary
+  // table/column references. Only the model owner and admins may pass
+  // *unpersisted* extras in the request body — that's how the UI preview
+  // works for unsaved changes. Everyone else gets either the report's
+  // already-saved extras (when reportId points to a report they can read)
+  // or nothing at all.
+  const userIsModelOwner = req.isAuthenticated() && req.user.id === model.user_id;
+  const userIsAdmin = req.isAuthenticated() && req.user.role === 'admin';
+  if (!userIsModelOwner && !userIsAdmin) {
+    if (reportId) {
+      const report = db.prepare('SELECT settings FROM reports WHERE id = ?').get(String(reportId));
+      const persisted = report ? JSON.parse(report.settings || '{}') : {};
+      extraMeasures = Array.isArray(persisted.extraMeasures) ? persisted.extraMeasures : [];
+      extraDimensions = Array.isArray(persisted.extraDimensions) ? persisted.extraDimensions : [];
+      measureOverrides = (persisted.measureOverrides && typeof persisted.measureOverrides === 'object')
+        ? persisted.measureOverrides : {};
+      dimensionOverrides = (persisted.dimensionOverrides && typeof persisted.dimensionOverrides === 'object')
+        ? persisted.dimensionOverrides : {};
+    } else {
+      extraMeasures = [];
+      extraDimensions = [];
+      measureOverrides = {};
+      dimensionOverrides = {};
+    }
+  }
   // dimensionNames: ["orders.customer_name", "orders.status"]
   // measureNames: ["orders.total_amount_sum", "orders.count"]
 
@@ -1095,7 +1126,7 @@ router.post('/:id/query', async (req, res) => {
           }
           if (target.table && target.column) {
             tablesUsed.add(target.table);
-            return `${(target.aggregation || 'sum').toUpperCase()}(CASE WHEN ${whenSql} THEN ${quoteCol(target.table, target.column, dbType)} END)`;
+            return `${normalizeAggregation(target.aggregation).toUpperCase()}(CASE WHEN ${whenSql} THEN ${quoteCol(target.table, target.column, dbType)} END)`;
           }
         }
         // No clauses survived (rules pointed at unknown fields) → fall through.
@@ -1124,7 +1155,7 @@ router.post('/:id/query', async (req, res) => {
       }
       if (target.table && target.column) {
         tablesUsed.add(target.table);
-        return `${(target.aggregation || 'sum').toUpperCase()}(${quoteCol(target.table, target.column, dbType)})`;
+        return `${normalizeAggregation(target.aggregation).toUpperCase()}(${quoteCol(target.table, target.column, dbType)})`;
       }
       return match;
     });
@@ -1277,7 +1308,7 @@ router.post('/:id/query', async (req, res) => {
           if (clause) whereParts.push({ field: dimName, sql: clause });
         } else if (dimDef.type === 'date') {
           const fmt = getDateFormat(dimDef.table, dimDef.column, columnTypes);
-          const escaped = values.map((v) => `'${String(v).replace(/'/g, "''")}'`).join(', ');
+          const escaped = values.map((v) => quoteLiteral(v, dbType)).join(', ');
           whereParts.push({ field: dimName, sql: `${castToDate(col, dbType, fmt)} IN (${escaped})` });
         } else {
           // Type-aware IN — string columns compared without a CAST so the
@@ -1294,7 +1325,7 @@ router.post('/:id/query', async (req, res) => {
   // measure aggregation expressions are constructed). Custom-expression
   // measures are not yet supported in HAVING.
   const havingParts = [];
-  const escVal = (v) => `'${String(v).replace(/'/g, "''")}'`;
+  const escVal = (v) => quoteLiteral(v, dbType);
   const isEmpty = (v) => v == null || v === '';
   function buildScalarClause(colExpr, op, value, values, isDateCol, dateFmt, dimType) {
     const cast = isDateCol ? castToDate(colExpr, dbType, dateFmt || 'auto') : colExpr;
@@ -1488,7 +1519,7 @@ router.post('/:id/query', async (req, res) => {
           const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
             ? castToNumber(rawCol, dbType, ovType)
             : rawCol;
-          const aggExpr = `${(m.aggregation || 'sum').toUpperCase()}(CASE WHEN ${whenSql} THEN ${colExpr} END)`;
+          const aggExpr = `${normalizeAggregation(m.aggregation).toUpperCase()}(CASE WHEN ${whenSql} THEN ${colExpr} END)`;
           // Same INTERVAL handling as regular measures.
           const isInterval = String(m.dataType || '').toLowerCase() === 'interval';
           const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
@@ -1535,7 +1566,7 @@ router.post('/:id/query', async (req, res) => {
       const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
         ? castToNumber(rawCol, dbType, ovType)
         : rawCol;
-      const aggExpr = `${m.aggregation.toUpperCase()}(${colExpr})`;
+      const aggExpr = `${normalizeAggregation(m.aggregation).toUpperCase()}(${colExpr})`;
       // `interval` columns: SUM/AVG/MIN/MAX return an interval value, which
       // the underlying driver delivers as a JS object — widgets then render
       // `[object Object]`. PostgreSQL and DuckDB both support
@@ -1571,7 +1602,7 @@ router.post('/:id/query', async (req, res) => {
     const baseAggExpr = measDef.aggregation === 'count'
       ? 'COUNT(*)'
       : (colExprH
-          ? `${(measDef.aggregation || 'sum').toUpperCase()}(${colExprH})`
+          ? `${normalizeAggregation(measDef.aggregation).toUpperCase()}(${colExprH})`
           : null);
     if (!baseAggExpr) continue;
     // Mirror the SELECT path: `interval` aggregates need EXTRACT(EPOCH …)
@@ -1616,7 +1647,7 @@ router.post('/:id/query', async (req, res) => {
         // No matching rule for this user → deny everything.
         whereParts.push({ field: null, sql: '1 = 0' });
       } else {
-        const escaped = allowedRlsKeys.map((v) => `'${String(v).replace(/'/g, "''")}'`).join(', ');
+        const escaped = allowedRlsKeys.map((v) => quoteLiteral(v, dbType)).join(', ');
         whereParts.push({ field: null, sql: `${castToString(quoteCol(rls.table, rls.primaryKey, dbType), dbType)} IN (${escaped})` });
       }
     }
@@ -1709,7 +1740,7 @@ router.post('/:id/query', async (req, res) => {
       const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
         ? castToNumber(rawCol, dbType, ovType)
         : rawCol;
-      innerAgg = `${(m.aggregation || 'sum').toUpperCase()}(${colExpr})`;
+      innerAgg = `${normalizeAggregation(m.aggregation).toUpperCase()}(${colExpr})`;
       const isInterval = String(m.dataType || '').toLowerCase() === 'interval';
       const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
       if (isInterval && supportsExtractEpoch) {
@@ -1756,7 +1787,7 @@ router.post('/:id/query', async (req, res) => {
         const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
           ? castToNumber(rawCol, dbType, ovType)
           : rawCol;
-        innerAgg = `${(target.aggregation || 'sum').toUpperCase()}(${colExpr})`;
+        innerAgg = `${normalizeAggregation(target.aggregation).toUpperCase()}(${colExpr})`;
       } else {
         innerAgg = 'NULL';
       }

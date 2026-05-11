@@ -55,9 +55,46 @@ function quoteCol(table, column, dbType) {
   return `${quoteTable(table, dbType)}.${quoteIdent(column, dbType)}`;
 }
 
+// Escape a value for use inside a single-quoted string literal. Dialect-
+// aware: MySQL (default mode) and BigQuery interpret backslashes as escape
+// sequences, so a user-supplied `\'` would terminate the string and inject
+// SQL after — we double backslashes there. PG / DuckDB / MSSQL treat `\`
+// as literal (with PG's standard_conforming_strings=on, default since 9.1),
+// so we leave them alone and only double the single quotes.
+//
+// Returns the raw escaped string (no surrounding quotes). Callers wrap
+// with their own `'<escaped>'`.
+function escapeLiteral(value, dbType) {
+  const s = String(value);
+  if (dbType === 'mysql' || dbType === 'bigquery') {
+    return s.replace(/\\/g, '\\\\').replace(/'/g, "''");
+  }
+  return s.replace(/'/g, "''");
+}
+
+// Convenience wrapper returning a complete quoted literal — `'foo''bar'`.
+function quoteLiteral(value, dbType) {
+  return `'${escapeLiteral(value, dbType)}'`;
+}
+
+// Whitelist of aggregation function names accepted from user input.
+// Anything else in `m.aggregation` would be concatenated verbatim into
+// the emitted SQL (e.g. `${agg.toUpperCase()}(col)`), which is an
+// injection vector — `aggregation: "1) UNION SELECT secret--"` would
+// otherwise land directly in the query.
+const VALID_AGGREGATIONS = new Set(['sum', 'avg', 'count', 'min', 'max', 'custom']);
+
+function normalizeAggregation(agg, fallback = 'sum') {
+  const lower = String(agg || '').toLowerCase();
+  return VALID_AGGREGATIONS.has(lower) ? lower : fallback;
+}
+
 module.exports = {
   quoteIdent,
   quoteTable,
   quoteCol,
+  escapeLiteral,
+  quoteLiteral,
+  normalizeAggregation,
   dialectFor,
 };
