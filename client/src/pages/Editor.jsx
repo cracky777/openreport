@@ -755,7 +755,31 @@ export default function Editor() {
             }, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
 
-        return Promise.all([mainPromise, colorPromise, totalPromise, n1Promise]).then(([res, colorRes, totalRes, n1Res]) => {
+        // Combo + groupBy + line measures: bars need (dim, groupBy)
+        // granularity (each group/category gets its own bar), but the line
+        // should be aggregated at the (dim) level only. The previous
+        // implementation reduced the line client-side by summing across
+        // groups — fine for additive measures, broken for ratios/averages,
+        // and worse still it propagates per-row div-by-zero errors from
+        // the server (when a category has 0 in the denominator). Run a
+        // dedicated line query with just (dim, lineMeasures) so the line
+        // is aggregated at the right level and the per-category quirks
+        // can't blow up the whole widget.
+        const comboLineApplies = w.type === 'combo' && grpBy.length > 0 && clm.length > 0;
+        const comboLinePromise = comboLineApplies
+          ? api.post(`/models/${model.id}/query`, {
+              dimensionNames: dims,
+              measureNames: [...new Set(clm)],
+              limit: w.config?.dataLimit || 1000,
+              filters: mergedFilters,
+              widgetFilters: sanitizeWidgetFilters(widgetFilters),
+              reportId: id,
+              bypassCache: manualRefresh,
+              ...reportExtras,
+            }, { signal: controller.signal }).catch(() => null)
+          : Promise.resolve(null);
+
+        return Promise.all([mainPromise, colorPromise, totalPromise, n1Promise, comboLinePromise]).then(([res, colorRes, totalRes, n1Res, comboLineRes]) => {
           // Conditional formatting — extract a single aggregated value from the color query
           let _colorValue;
           if (colorRes) {
@@ -844,10 +868,34 @@ export default function Editor() {
               } else {
                 cbm.forEach((mn) => { const ml = gl(mn, effectiveModel.measures || []); const mk = fk(ml); if (!mk) return; barSeries.push({ name: ml, values: labels.map((l) => { const row = rows.find((r) => String(r[axisKey] ?? '') === l); return row ? Number(row[mk]) || 0 : 0; }) }); });
               }
-              // Line series: aggregate across legend
-              const lineSeries = clm.map((mn) => { const ml = gl(mn, effectiveModel.measures || []); const mk = fk(ml); if (!mk) return null;
-                return { name: ml, values: labels.map((l) => rows.filter((r) => String(r[axisKey] ?? '') === l).reduce((s, r) => s + (Number(r[mk]) || 0), 0)) };
-              }).filter(Boolean);
+              // Line series: when there's a groupBy we run a dedicated
+              // query (comboLineRes) that aggregates the line at the
+              // (dim) level only — the rows there have one entry per
+              // axis value with the line measure already aggregated
+              // correctly. Without that auxiliary query (no groupBy or
+              // the request errored), fall back to the legacy client-
+              // side reduce which is only correct for additive measures.
+              let lineSeries;
+              const lineRows = comboLineRes?.data?.rows;
+              if (lineRows && grpBy.length > 0) {
+                const lineKeys = lineRows.length > 0 ? Object.keys(lineRows[0]) : [];
+                lineSeries = clm.map((mn) => {
+                  const ml = gl(mn, effectiveModel.measures || []);
+                  const mk = lineKeys.includes(ml) ? ml : (lineKeys.includes(mn) ? mn : null);
+                  if (!mk) return null;
+                  return {
+                    name: ml,
+                    values: labels.map((l) => {
+                      const row = lineRows.find((r) => String(r[axisKey] ?? '') === l);
+                      return row ? Number(row[mk]) || 0 : 0;
+                    }),
+                  };
+                }).filter(Boolean);
+              } else {
+                lineSeries = clm.map((mn) => { const ml = gl(mn, effectiveModel.measures || []); const mk = fk(ml); if (!mk) return null;
+                  return { name: ml, values: labels.map((l) => rows.filter((r) => String(r[axisKey] ?? '') === l).reduce((s, r) => s + (Number(r[mk]) || 0), 0)) };
+                }).filter(Boolean);
+              }
               newData = { labels, barSeries, lineSeries };
               newData._barMeasureLabel = cbm.map((mn) => gl(mn, effectiveModel.measures || [])).join(', ');
               newData._lineMeasureLabel = clm.map((mn) => gl(mn, effectiveModel.measures || [])).join(', ');

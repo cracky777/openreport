@@ -461,7 +461,25 @@ export default function Viewer() {
             ...reportExtras,
           }).catch(() => null)
         : Promise.resolve(null);
-      Promise.all([mainPromise, colorPromise, totalPromise, n1Promise]).then(([res, colorRes, totalRes, n1Res]) => {
+
+      // Combo + groupBy + line measures: bars need (dim, groupBy)
+      // granularity but the line should be aggregated at the (dim) level
+      // only. See the Editor counterpart for the full rationale —
+      // mirrored here so the Viewer behaves the same.
+      const comboLineApplies = w.type === 'combo' && grpBy.length > 0 && clm.length > 0;
+      const comboLinePromise = comboLineApplies
+        ? api.post(`/models/${model.id}/query`, {
+            dimensionNames: dims,
+            measureNames: [...new Set(clm)],
+            limit: w.config?.dataLimit || 1000,
+            filters: queryFilters,
+            widgetFilters: sanitizeWidgetFilters(widgetFilters),
+            reportId: id,
+            ...reportExtras,
+          }).catch(() => null)
+        : Promise.resolve(null);
+
+      Promise.all([mainPromise, colorPromise, totalPromise, n1Promise, comboLinePromise]).then(([res, colorRes, totalRes, n1Res, comboLineRes]) => {
         let _colorValue;
         if (colorRes) {
           const cRow = colorRes.data?.rows?.[0];
@@ -550,9 +568,29 @@ export default function Viewer() {
           } else {
             cbm.forEach((mn) => { const ml = gl(mn, model.measures || []); const mk = fk(ml); if (!mk) return; barSeries.push({ name: ml, values: labels.map((l) => { const row = rows.find((r) => String(r[axisKey] ?? '') === l); return row ? Number(row[mk]) || 0 : 0; }) }); });
           }
-          const lineSeries = clm.map((mn) => { const ml = gl(mn, model.measures || []); const mk = fk(ml); if (!mk) return null;
-            return { name: ml, values: labels.map((l) => rows.filter((r) => String(r[axisKey] ?? '') === l).reduce((s, r) => s + (Number(r[mk]) || 0), 0)) };
-          }).filter(Boolean);
+          // Line series: prefer the dedicated (dim, line) query so the
+          // value is aggregated at the right level. See Editor counterpart.
+          let lineSeries;
+          const lineRows = comboLineRes?.data?.rows;
+          if (lineRows && grpBy.length > 0) {
+            const lineKeys = lineRows.length > 0 ? Object.keys(lineRows[0]) : [];
+            lineSeries = clm.map((mn) => {
+              const ml = gl(mn, model.measures || []);
+              const mk = lineKeys.includes(ml) ? ml : (lineKeys.includes(mn) ? mn : null);
+              if (!mk) return null;
+              return {
+                name: ml,
+                values: labels.map((l) => {
+                  const row = lineRows.find((r) => String(r[axisKey] ?? '') === l);
+                  return row ? Number(row[mk]) || 0 : 0;
+                }),
+              };
+            }).filter(Boolean);
+          } else {
+            lineSeries = clm.map((mn) => { const ml = gl(mn, model.measures || []); const mk = fk(ml); if (!mk) return null;
+              return { name: ml, values: labels.map((l) => rows.filter((r) => String(r[axisKey] ?? '') === l).reduce((s, r) => s + (Number(r[mk]) || 0), 0)) };
+            }).filter(Boolean);
+          }
           newData = { labels, barSeries, lineSeries };
           newData._barMeasureLabel = cbm.map((mn) => gl(mn, model.measures || [])).join(', ');
           newData._lineMeasureLabel = clm.map((mn) => gl(mn, model.measures || [])).join(', ');
