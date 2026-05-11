@@ -316,6 +316,10 @@ export default function Editor() {
   // narrows toFetch to the drilling widget only, so other visuals stay put.
   // (Cross-filter at leaf level still propagates via reportFilters as before.)
   const drillingWidgetIdRef = useRef(null);
+  // Same idea as `drillingWidgetIdRef` but for the per-widget Refresh
+  // button (the 🔄 icon on each visual). When clicked, only THAT widget
+  // refetches — the others keep their cached data and don't get re-queried.
+  const widgetRefreshIdRef = useRef(null);
   const applyDrillMutation = useCallback((widgetId, mutate) => {
     history.setSilent((prev) => {
       const w = prev.widgets?.[widgetId];
@@ -430,7 +434,17 @@ export default function Editor() {
   const [widgetRefreshNonces, setWidgetRefreshNonces] = useState({});
   const handleRefreshWidget = useCallback((wId) => {
     if (!wId) return;
+    // Bump the DataPanel-facing nonce so the panel's auxiliary fetches
+    // (column-distinct previews, sqlOnly previews) re-fire too.
     setWidgetRefreshNonces((prev) => ({ ...prev, [wId]: (prev[wId] || 0) + 1 }));
+    // Scope the widget-data refetch to this widget only, mark as a manual
+    // refresh so the server bypasses the result cache, and bump
+    // refreshCounter to wake the fetch effect. Without this the per-widget
+    // 🔄 button only refreshed DataPanel previews — the actual chart's
+    // queries (incl. the combo line-aux query) wouldn't re-fire.
+    widgetRefreshIdRef.current = wId;
+    refreshIsManualRef.current = true;
+    setRefreshCounter((n) => n + 1);
   }, []);
 
   // Cancel an in-flight data fetch and clear the loading flags so the user
@@ -513,7 +527,10 @@ export default function Editor() {
     // the target whose None↔Filter setting just changed should refetch.
     const interactionId = interactionToggleTargetRef.current;
     interactionToggleTargetRef.current = null;
-    const scopedToId = drillingId || interactionId;
+    // Same idea again for the per-widget Refresh button (🔄 on each visual).
+    const widgetRefreshId = widgetRefreshIdRef.current;
+    widgetRefreshIdRef.current = null;
+    const scopedToId = drillingId || interactionId || widgetRefreshId;
 
     const toFetch = Object.entries(currentWidgets).filter(([wId, w]) => {
       if (!w) return false;
@@ -792,7 +809,14 @@ export default function Editor() {
           }
 
           const rows = res.data?.rows;
-          const sql = res.data?.sql || null;
+          // Combine both queries' SQL when an auxiliary line query was
+          // fired, so the SQL viewer shows the user every statement that
+          // contributed to the rendered chart — not just the bars query.
+          const mainSql = res.data?.sql || null;
+          const lineSql = comboLineRes?.data?.sql || null;
+          const sql = mainSql && lineSql
+            ? `-- Main query (bars)\n${mainSql}\n\n-- Line aggregation (dim only, no groupBy)\n${lineSql}`
+            : mainSql;
           if (!rows || rows.length === 0) {
             // Even on empty results, we keep the drill metadata around so the
             // canvas still shows the up/reset arrows — otherwise the user gets
