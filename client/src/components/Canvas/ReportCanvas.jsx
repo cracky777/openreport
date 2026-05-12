@@ -348,6 +348,11 @@ export default function ReportCanvas({
   reportRef,
   editInteractions,
   onToggleCrossFilter,
+  // When non-null and editInteractions is true, the source for the edit-
+  // interactions overlay is settings.reportFilters[interactionsRule.idx]
+  // rather than the selected widget. `interactionsRule.exclusions` drives
+  // the per-widget badge state instead of source.config.crossFilterExclusions.
+  interactionsRule,
   onCancelFetch,
   onRefreshWidget,
   // Print mode strips the surrounding chrome (outer padding + bg-app
@@ -504,11 +509,22 @@ export default function ReportCanvas({
 
           // Show the Edit Interactions overlay on every widget except the
           // currently-selected source. The overlay reads the source's
-          // `crossFilterExclusions` to render its filter / off state.
-          const editInteractionsActive = editInteractions && selectedWidget && selectedWidget !== item.i;
-          const sourceWidget = selectedWidget ? widgets[selectedWidget] : null;
-          const sourceExclusions = sourceWidget?.config?.crossFilterExclusions || [];
-          const isExcludedFromSource = sourceExclusions.includes(item.i);
+          // exclusions to render its filter / off state. Source can be either
+          // the selected widget (cross-filter / slicer) or a global filter
+          // rule (settings.reportFilters[idx]) — the latter wins when set.
+          const ruleSource = editInteractions && interactionsRule ? interactionsRule : null;
+          const editInteractionsActive = ruleSource
+            ? true
+            : (editInteractions && selectedWidget && selectedWidget !== item.i);
+          let isExcludedFromSource = false;
+          if (ruleSource) {
+            const excl = Array.isArray(ruleSource.exclusions) ? ruleSource.exclusions : [];
+            isExcludedFromSource = excl.includes(item.i);
+          } else {
+            const sourceWidget = selectedWidget ? widgets[selectedWidget] : null;
+            const sourceExclusions = sourceWidget?.config?.crossFilterExclusions || [];
+            isExcludedFromSource = sourceExclusions.includes(item.i);
+          }
 
           return (
             <WidgetItem

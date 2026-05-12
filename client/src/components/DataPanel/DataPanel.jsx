@@ -146,7 +146,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   // DataPanel-triggered refetches (binding edits, drag-drop) silently drop
   // the report-wide filters until something else nudges Editor.jsx into
   // refetching.
-  const reportLevelFilters = Array.isArray(settings?.reportFilters) ? settings.reportFilters : [];
+  // Drop any global rule whose `exclusions` list contains this widget — it
+  // was opted out via the global filter bar's edit-interactions UI.
+  const reportLevelFilters = (Array.isArray(settings?.reportFilters) ? settings.reportFilters : [])
+    .filter((r) => !Array.isArray(r?.exclusions) || !r.exclusions.includes(widgetId));
   const ownWidgetFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
   const widgetFilters = [...reportLevelFilters, ...ownWidgetFilters];
   const aggOverrides = binding.measureAggOverrides || {};

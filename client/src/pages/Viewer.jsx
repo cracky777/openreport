@@ -378,7 +378,11 @@ export default function Viewer() {
       const queryFilters = isFilterWidget ? {} : mergedFilters;
       const queryLimit = isFilterWidget ? 1000000 : (w.config?.dataLimit || 1000);
 
-      const reportLevelFilters = Array.isArray(report?.settings?.reportFilters) ? report.settings.reportFilters : [];
+      // Drop any global rule whose `exclusions` list contains this widget —
+      // it was opted out via the global filter bar's edit-interactions UI in
+      // the editor.
+      const reportLevelFilters = (Array.isArray(report?.settings?.reportFilters) ? report.settings.reportFilters : [])
+        .filter((r) => !Array.isArray(r?.exclusions) || !r.exclusions.includes(wId));
       const widgetOwnFilters = Array.isArray(w.dataBinding?.widgetFilters) ? w.dataBinding.widgetFilters : [];
       const widgetFilters = [...reportLevelFilters, ...widgetOwnFilters];
       const colorMeasure = (w.config?.colorCondition?.enabled === true) ? w.dataBinding?.colorMeasure : undefined;

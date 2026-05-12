@@ -7,6 +7,7 @@ import ExportMenu from '../components/ExportMenu/ExportMenu';
 import { WidgetConfigPanel, DataModelPanel } from '../components/PropertyPanel/PropertyPanel';
 import { WIDGET_TYPES } from '../components/Widgets';
 import SettingsPanel from '../components/SettingsPanel/SettingsPanel';
+import ReportFilterBar from '../components/ReportFilterBar/ReportFilterBar';
 import PagesColumn, { PAGES_COLUMN_TRANSITION_MS } from '../components/PagesColumn/PagesColumn';
 import { useHistory } from '../hooks/useHistory';
 import { useTheme } from '../hooks/useTheme';
@@ -161,6 +162,11 @@ export default function Editor() {
   // filter / off toggle in its top-right corner. The handler is declared
   // further down because it depends on the history hook.
   const [editInteractions, setEditInteractions] = useState(false);
+  // When set, the edit-interactions overlay's source is a report-level
+  // global filter rule (settings.reportFilters[idx]) instead of the currently
+  // selected widget. Cleared when edit-interactions mode exits or a different
+  // source is picked.
+  const [interactionsRuleIdx, setInteractionsRuleIdx] = useState(null);
   const [clipboard, setClipboard] = useState(null);
   const [reportFilters, setReportFilters] = useState({});
   const urlFiltersAppliedRef = useRef(false);
@@ -208,6 +214,24 @@ export default function Editor() {
   // data could be stale even though no other widget changed.
   const interactionToggleTargetRef = useRef(null);
   const handleToggleCrossFilter = useCallback((targetId) => {
+    // Global-filter-rule source: toggle goes to settings.reportFilters[idx].exclusions
+    if (interactionsRuleIdx != null) {
+      setSettings((prev) => {
+        const rules = Array.isArray(prev?.reportFilters) ? [...prev.reportFilters] : [];
+        const rule = rules[interactionsRuleIdx];
+        if (!rule) return prev;
+        const excl = Array.isArray(rule.exclusions) ? rule.exclusions : [];
+        const next = excl.includes(targetId)
+          ? excl.filter((x) => x !== targetId)
+          : [...excl, targetId];
+        rules[interactionsRuleIdx] = { ...rule, exclusions: next };
+        return { ...prev, reportFilters: rules };
+      });
+      interactionToggleTargetRef.current = targetId;
+      setRefreshCounter((n) => n + 1);
+      return;
+    }
+    // Widget source (existing flow)
     const sourceId = selectedWidget;
     if (!sourceId || sourceId === targetId) return;
     history.set((prev) => {
@@ -229,7 +253,13 @@ export default function Editor() {
     // reads this ref and filters its widget list down to it.
     interactionToggleTargetRef.current = targetId;
     setRefreshCounter((n) => n + 1);
-  }, [selectedWidget, history]);
+  }, [selectedWidget, history, interactionsRuleIdx]);
+
+  // Reset the rule source whenever edit-interactions mode is turned off so
+  // a stale idx doesn't leak into the next session.
+  useEffect(() => {
+    if (!editInteractions) setInteractionsRuleIdx(null);
+  }, [editInteractions]);
   // Ref mirror so click handlers always read the freshest widget state (closures can be stale)
   const widgetsRef = useRef(widgets);
   widgetsRef.current = widgets;
@@ -630,7 +660,10 @@ export default function Editor() {
 
         const colorMeasure = (w.config?.colorCondition?.enabled === true) ? binding.colorMeasure : undefined;
         // Combine report-level filters (from Settings) with the widget's own filters.
-        const reportLevelFilters = Array.isArray(settings?.reportFilters) ? settings.reportFilters : [];
+        // Drop any global rule whose `exclusions` list contains this widget —
+        // it was opted out via the global filter bar's edit-interactions UI.
+        const reportLevelFilters = (Array.isArray(settings?.reportFilters) ? settings.reportFilters : [])
+          .filter((r) => !Array.isArray(r?.exclusions) || !r.exclusions.includes(wId));
         const widgetOwnFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
         let widgetFilters = [...reportLevelFilters, ...widgetOwnFilters];
         const hasMainBinding = (allDims.length > 0 || meass.length > 0);
@@ -1110,17 +1143,20 @@ export default function Editor() {
       }
     };
     // `settingsFiltersKey` is intentionally NOT in the deps. Edits to
-    // `settings.reportFilters` come through the SettingsPanel, which has
-    // its own Save / Save & refresh buttons — Save commits the rules
-    // silently (next manual refresh picks them up), Save & refresh bumps
-    // `refreshCounter` to fire the fetch. Re-adding settingsFiltersKey
-    // would auto-fetch on every keystroke inside the panel.
+    // `settings.reportFilters` come through the ReportFilterBar, which calls
+    // `handleRefresh` directly on every commit — so reacting here would
+    // double-fire the fetch.
   }, [reportFilters, model, refreshCounter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [reportFilterBarOpen, setReportFilterBarOpen] = useState(false);
+  // Live count of visible chips in the filter bar — emitted by ReportFilterBar
+  // so the toolbar badge reflects unsaved removals/additions in real time.
+  // Falls back to persisted length until the bar has reported once.
+  const [liveReportFilterCount, setLiveReportFilterCount] = useState(null);
 
   // Multi-page support
   const [pages, setPages] = useState([{ id: 'page-1', name: 'Page 1' }]);
@@ -1256,6 +1292,12 @@ export default function Editor() {
         setReport(r);
         setTitle(r.title);
         setSettings(r.settings || {});
+        // Auto-reveal the filter bar on load if the report already has rules,
+        // so users don't lose sight of active filters. After this initial sync
+        // the bar is fully user-controlled (toolbar toggle / × dismiss).
+        if (Array.isArray(r.settings?.reportFilters) && r.settings.reportFilters.length > 0) {
+          setReportFilterBarOpen(true);
+        }
 
         // Load pages (backward compat: if no pages, create one from layout/widgets)
         const reportPages = r.pages || r.settings?.pages;
@@ -1277,12 +1319,28 @@ export default function Editor() {
         setCurrentPageIdx(0);
 
         // slicerSelections/reportFilters are auto-derived from widgets' config.selectedValues.
-        // Skip the resulting refetch — saved widget data already reflects these filters.
+        // Skip the resulting refetch — but only when the saved data is actually
+        // present. Reports saved before the data.values cap fix could have
+        // stripped widget.data; in that case we must let the effect fire so
+        // visuals repopulate.
         const hasSavedFilter = Object.values(firstPageWidgets).some((w) => {
           if (w?.type !== 'filter') return false;
           return Array.isArray(w.config?.selectedValues) && w.config.selectedValues.length > 0;
         });
-        if (hasSavedFilter) skipNextRefetch.current = true;
+        const hasUsableSavedData = Object.values(firstPageWidgets).every((w) => {
+          if (!w || w.type === 'text' || w.type === 'shape' || w.type === 'image') return true;
+          const d = w.data;
+          if (!d || typeof d !== 'object') return false;
+          return Array.isArray(d.values)
+            || Array.isArray(d.rows)
+            || Array.isArray(d.labels)
+            || Array.isArray(d.items)
+            || Array.isArray(d.points)
+            || Array.isArray(d.barSeries)
+            || Array.isArray(d.rawRows)
+            || typeof d.value !== 'undefined';
+        });
+        if (hasSavedFilter && hasUsableSavedData) skipNextRefetch.current = true;
 
         if (r.model_id) {
           const modelRes = await api.get(`/models/${r.model_id}`);
@@ -1530,7 +1588,8 @@ export default function Editor() {
     // data to a filtered table.
     const baseFilters = { ...(reportFilters || {}) };
     const targetFilters = filterForTarget(widgetId, baseFilters, widgets, crossHighlightRef.current);
-    const reportLevelFilters = Array.isArray(settings?.reportFilters) ? settings.reportFilters : [];
+    const reportLevelFilters = (Array.isArray(settings?.reportFilters) ? settings.reportFilters : [])
+      .filter((r) => !Array.isArray(r?.exclusions) || !r.exclusions.includes(widgetId));
     const widgetOwnFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
     const combinedWidgetFilters = [...reportLevelFilters, ...widgetOwnFilters];
 
@@ -1622,12 +1681,43 @@ export default function Editor() {
       const curPage = pages[currentPageIdx];
       pagesDataRef.current[curPage.id] = { layout, widgets };
 
+      // Bound the save payload: a high-cardinality slicer's `data.values`
+      // can balloon to MBs (limit: 1_000_000 on slicer queries). Cap it to
+      // 1000 entries here — FilterWidget windows at 200 with a "Show more"
+      // button anyway, so anything beyond that is unreachable from the UI.
+      // Other widget data (labels/rows/series) is already bounded by the
+      // per-widget `dataLimit` (default 1000) at query time, no need to
+      // touch it. Everything else (including `_*` cache fields) is left
+      // intact so reload still renders immediately.
+      const SLICER_VALUE_CAP = 1000;
+      const stripWidget = (w) => {
+        if (!w || typeof w !== 'object') return w;
+        if (
+          w.data
+          && typeof w.data === 'object'
+          && !Array.isArray(w.data)
+          && Array.isArray(w.data.values)
+          && w.data.values.length > SLICER_VALUE_CAP
+        ) {
+          return {
+            ...w,
+            data: { ...w.data, values: w.data.values.slice(0, SLICER_VALUE_CAP) },
+          };
+        }
+        return w;
+      };
+      const stripWidgets = (ws) => {
+        const out = {};
+        for (const [wId, w] of Object.entries(ws || {})) out[wId] = stripWidget(w);
+        return out;
+      };
+
       // Build pages array for save — slicer selections already live in widget.config.selectedValues
       const pagesForSave = pages.map((p) => ({
         id: p.id,
         name: p.name,
         layout: pagesDataRef.current[p.id]?.layout || [],
-        widgets: pagesDataRef.current[p.id]?.widgets || {},
+        widgets: stripWidgets(pagesDataRef.current[p.id]?.widgets || {}),
       }));
 
       // Also save layout/widgets at root for backward compat (first page)
@@ -1670,6 +1760,11 @@ export default function Editor() {
         canUndo={history.canUndo}
         canRedo={history.canRedo}
         onOpenSettings={() => setShowSettings(true)}
+        onOpenReportFilters={() => setReportFilterBarOpen((v) => !v)}
+        reportFilterCount={liveReportFilterCount != null
+          ? liveReportFilterCount
+          : (Array.isArray(settings?.reportFilters) ? settings.reportFilters.length : 0)}
+        reportFilterBarVisible={reportFilterBarOpen}
         reportId={id}
         onRefresh={handleRefresh}
         refreshing={refreshing}
@@ -1715,6 +1810,29 @@ export default function Editor() {
             widgets: pagesData[p.id]?.widgets || {},
           }));
           return buildSnapshot(title, settings, pagesForSnapshot) !== savedSnapshotRef.current;
+        }}
+      />
+      <ReportFilterBar
+        model={model}
+        rules={settings?.reportFilters || []}
+        onChange={(next) => setSettings({ ...settings, reportFilters: next })}
+        onRefresh={handleRefresh}
+        visible={reportFilterBarOpen}
+        onVisibilityChange={setReportFilterBarOpen}
+        onVisibleCountChange={setLiveReportFilterCount}
+        activeInteractionsRuleIdx={interactionsRuleIdx}
+        onEditRuleInteractions={(idx) => {
+          // Toggle off when re-clicked, else enter edit interactions mode with
+          // this rule as the source (deselects the widget so the badge shows
+          // on every visual).
+          if (idx == null) {
+            setInteractionsRuleIdx(null);
+            setEditInteractions(false);
+            return;
+          }
+          setSelectedWidget(null);
+          setInteractionsRuleIdx(idx);
+          setEditInteractions(true);
         }}
       />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -1773,6 +1891,9 @@ export default function Editor() {
               crossHighlight={crossHighlight}
               reportRef={canvasRef}
               editInteractions={editInteractions}
+              interactionsRule={interactionsRuleIdx != null
+                ? settings?.reportFilters?.[interactionsRuleIdx] || null
+                : null}
               onToggleCrossFilter={handleToggleCrossFilter}
               onCancelFetch={handleCancelFetch}
               onRefreshWidget={handleRefreshWidget}
@@ -1828,8 +1949,6 @@ export default function Editor() {
           settings={settings}
           onSettingsChange={setSettings}
           onClose={() => setShowSettings(false)}
-          model={model}
-          onRefresh={() => setRefreshCounter((c) => c + 1)}
         />
       )}
       {saveMsg && (

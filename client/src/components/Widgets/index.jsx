@@ -27,7 +27,7 @@ export const WIDGET_TYPES = {
   treemap: { component: TreeMapWidget, label: 'TreeMap', icon: TbChartTreemap, defaultSize: { w: 24, h: 16 } },
   scorecard: { component: ScorecardWidget, label: 'Scorecard', icon: TbHash, defaultSize: { w: 12, h: 8 } },
   gauge: { component: GaugeWidget, label: 'Gauge', icon: TbGauge, defaultSize: { w: 14, h: 12 }, hasSubTypes: true },
-  filter: { component: FilterWidget, label: 'Filter', icon: TbFilter, defaultSize: { w: 10, h: 16 } },
+  filter: { component: FilterWidget, label: 'Filter', icon: TbFilter, defaultSize: { w: 10, h: 16 }, hasSubTypes: true },
   text: { component: TextWidget, label: 'Text', icon: TbTypography, defaultSize: { w: 16, h: 6 } },
   shape: { component: ShapeWidget, label: 'Shape', icon: TbShape, defaultSize: { w: 200, h: 200 }, hidden: true },
   // Custom (workspace-uploaded) visuals share a single widget type; the

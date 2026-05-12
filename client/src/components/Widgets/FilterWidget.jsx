@@ -7,6 +7,8 @@ import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
  * Power BI-style Slicer widget.
  * Modes: list, dropdown, buttons, range, dateRange, dateBetween, dateRelative
  */
+const RENDER_BATCH = 200;
+
 export default memo(function FilterWidget({ data, config, onFilterChange, activeSelection }) {
   const [selected, setSelected] = useState(activeSelection || config?.selectedValues || []);
 
@@ -29,6 +31,10 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
   const [popupPos, setPopupPos] = useState({ top: 0, left: 0 });
   const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 200 });
   const relAppliedRef = useRef(false);
+  // Windowing — render at most renderLimit rows. "Show more" bumps it; we
+  // reset it whenever the dim or search changes so we don't keep an inflated
+  // window from a previous filter state.
+  const [renderLimit, setRenderLimit] = useState(RENDER_BATCH);
 
   // Reset transient UI state when the bound dimension changes (selected is synced via activeSelection effect)
   const prevDimRef = useRef(data?._dimName);
@@ -43,8 +49,13 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
       setDateFrom('');
       setDateTo('');
       relAppliedRef.current = false;
+      setRenderLimit(RENDER_BATCH);
     }
   }, [data?._dimName, config?.selectedValues, activeSelection]);
+
+  // Searching narrows the visible set — reset windowing so "Show more" reflects
+  // the new filtered universe.
+  useEffect(() => { setRenderLimit(RENDER_BATCH); }, [search]);
 
   // Update popup position when target changes
   useEffect(() => {
@@ -107,6 +118,23 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
     }
     return [...sel, ...rest];
   }, [filteredValues, isDate, selected]);
+
+  // Cap rendered rows so high-cardinality dimensions don't lock up the page.
+  // Selected values are sorted to the top by sortedValues, so they survive the
+  // slice. The "Show more" button extends the window in RENDER_BATCH-sized
+  // increments; full list is still searchable.
+  const visibleValues = sortedValues.length > renderLimit
+    ? sortedValues.slice(0, renderLimit)
+    : sortedValues;
+  const hiddenCount = sortedValues.length - visibleValues.length;
+  const showMore = () => setRenderLimit((n) => n + RENDER_BATCH);
+  const showMoreBtnStyle = {
+    width: '100%', padding: '4px 8px', fontSize: 11,
+    background: 'transparent', border: 'none',
+    borderTop: '1px solid var(--border-default)',
+    color: 'var(--accent-primary)', cursor: 'pointer',
+    textAlign: 'center',
+  };
 
   const handleToggle = (val) => {
     let next;
@@ -334,13 +362,18 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
                 <button onClick={handleSelectAll} style={linkBtn}>Select all</button>
               </div>
             )}
-            {sortedValues.map((val, i) => (
+            {visibleValues.map((val, i) => (
               <label key={i} style={{ ...listRowStyle, fontSize, color: isChecked(val) ? fontColor : 'var(--text-disabled)', padding: '4px 10px' }}>
                 <input type={multiSelect ? 'checkbox' : 'radio'} checked={isChecked(val)}
                   onChange={() => handleToggle(val)} style={{ marginRight: 6, accentColor: selectedColor }} />
                 {isDate ? formatDate(val) : String(val)}
               </label>
             ))}
+            {hiddenCount > 0 && (
+              <button type="button" onClick={showMore} style={showMoreBtnStyle}>
+                Show {Math.min(RENDER_BATCH, hiddenCount)} more ({hiddenCount} remaining)
+              </button>
+            )}
           </div>,
           document.body
         )}
@@ -362,7 +395,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
           flexDirection: orientation === 'horizontal' ? 'row' : 'column',
           alignContent: 'flex-start',
         }}>
-          {sortedValues.map((val, i) => {
+          {visibleValues.map((val, i) => {
             const active = isChecked(val);
             return (
               <button key={i} onClick={() => handleToggle(val)}
@@ -378,6 +411,11 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
               </button>
             );
           })}
+          {hiddenCount > 0 && (
+            <button type="button" onClick={showMore} style={{ ...showMoreBtnStyle, borderTop: 'none', marginTop: 4 }}>
+              Show {Math.min(RENDER_BATCH, hiddenCount)} more ({hiddenCount} remaining)
+            </button>
+          )}
         </div>
       </div>
     );
@@ -446,7 +484,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
         flexWrap: orientation === 'horizontal' ? 'wrap' : undefined,
         gap: orientation === 'horizontal' ? 4 : undefined,
       }}>
-        {sortedValues.map((val, i) => {
+        {visibleValues.map((val, i) => {
           const checked = isChecked(val);
           return (
             <label key={i} style={{
@@ -464,6 +502,11 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
             </label>
           );
         })}
+        {hiddenCount > 0 && (
+          <button type="button" onClick={showMore} style={showMoreBtnStyle}>
+            Show {Math.min(RENDER_BATCH, hiddenCount)} more ({hiddenCount} remaining)
+          </button>
+        )}
       </div>
     </div>
   );

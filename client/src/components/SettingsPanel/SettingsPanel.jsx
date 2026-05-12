@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { TbCheck } from 'react-icons/tb';
 import { useTheme } from '../../hooks/useTheme';
 import { parseIntOrNull } from '../../utils/input';
-import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
 
-export default function SettingsPanel({ settings, onSettingsChange, onClose, model, onRefresh }) {
+export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
   const { themes: availableThemes } = useTheme();
   const update = (key, value) => {
     onSettingsChange({ ...settings, [key]: value });
@@ -23,29 +22,6 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose, mod
       update('backgroundImage', ev.target.result);
     };
     reader.readAsDataURL(file);
-  };
-
-  // Local draft for the report-level filter rules. Edits stay in this state
-  // until the user explicitly clicks Save or Save & refresh — closing the
-  // panel without either button discards the draft (the user said so) so
-  // there's no risk of an accidental change leaking into the persisted
-  // settings. Re-syncs from `settings.reportFilters` on outside changes
-  // (slicer activity etc. doesn't touch this field today, but stay safe).
-  const persistedFilters = Array.isArray(settings?.reportFilters) ? settings.reportFilters : [];
-  const [draftFilters, setDraftFilters] = useState(persistedFilters);
-  const persistedFiltersKey = JSON.stringify(persistedFilters);
-  useEffect(() => {
-    setDraftFilters(Array.isArray(settings?.reportFilters) ? settings.reportFilters : []);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [persistedFiltersKey]);
-  const draftFiltersKey = JSON.stringify(draftFilters);
-  const filtersDirty = draftFiltersKey !== persistedFiltersKey;
-  const commitFilters = () => {
-    onSettingsChange({ ...settings, reportFilters: draftFilters });
-  };
-  const commitFiltersAndRefresh = () => {
-    onSettingsChange({ ...settings, reportFilters: draftFilters });
-    if (typeof onRefresh === 'function') onRefresh();
   };
 
   return (
@@ -87,69 +63,6 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose, mod
             })}
           </div>
         </Section>
-
-        {model && (() => {
-          const setRules = (next) => setDraftFilters(next);
-          const addField = (e) => {
-            const v = e.target.value;
-            if (!v) return;
-            const [kind, name] = v.split('::');
-            const isMeasure = kind === 'm';
-            setRules([...draftFilters, buildDefaultFilterRule(model, name, isMeasure)]);
-            e.target.value = '';
-          };
-          return (
-            <Section title="Report filters">
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.4 }}>
-                Applied to every widget on every page (in addition to slicers and per-widget filters).
-                Changes stay in this panel until you hit Save — closing without saving discards them.
-              </div>
-              <select onChange={addField} value=""
-                style={{ ...inputStyle, marginBottom: 8 }}>
-                <option value="">+ Add a filter on…</option>
-                {(model.dimensions || []).length > 0 && (
-                  <optgroup label="Dimensions">
-                    {model.dimensions.map((d) => (
-                      <option key={'d::' + d.name} value={'d::' + d.name}>{d.label || d.name}</option>
-                    ))}
-                  </optgroup>
-                )}
-                {(model.measures || []).length > 0 && (
-                  <optgroup label="Measures">
-                    {model.measures.map((m) => (
-                      <option key={'m::' + m.name} value={'m::' + m.name}>{m.label || m.name}</option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-              <FilterRulesEditor model={model} modelId={model.id} rules={draftFilters} onChange={setRules} />
-              <div style={{ display: 'flex', gap: 6, marginTop: 10, justifyContent: 'flex-end' }}>
-                <button
-                  type="button"
-                  onClick={commitFilters}
-                  disabled={!filtersDirty}
-                  title={filtersDirty
-                    ? 'Save the new filter rules without re-fetching the visuals — they will apply on the next refresh'
-                    : 'No unsaved changes'}
-                  style={{ ...filterBtn, opacity: filtersDirty ? 1 : 0.5, cursor: filtersDirty ? 'pointer' : 'default' }}
-                >
-                  Save
-                </button>
-                <button
-                  type="button"
-                  onClick={commitFiltersAndRefresh}
-                  disabled={!filtersDirty}
-                  title={filtersDirty
-                    ? 'Save the new filter rules and refresh every visual on the report'
-                    : 'No unsaved changes'}
-                  style={{ ...filterBtnPrimary, opacity: filtersDirty ? 1 : 0.5, cursor: filtersDirty ? 'pointer' : 'default' }}
-                >
-                  Save & refresh
-                </button>
-              </div>
-            </Section>
-          );
-        })()}
 
         <Section title="View Mode">
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -404,14 +317,3 @@ const presetBtn = {
   borderRadius: 4, background: 'var(--bg-panel)', cursor: 'pointer', color: 'var(--text-secondary)',
 };
 
-const filterBtn = {
-  fontSize: 12, padding: '6px 12px', border: '1px solid var(--border-default)',
-  borderRadius: 6, background: 'var(--bg-panel)', color: 'var(--text-secondary)',
-  fontWeight: 500,
-};
-
-const filterBtnPrimary = {
-  fontSize: 12, padding: '6px 12px', border: '1px solid var(--accent-primary)',
-  borderRadius: 6, background: 'var(--accent-primary)', color: '#fff',
-  fontWeight: 600,
-};

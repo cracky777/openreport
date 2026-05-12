@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB_TYPES, GAUGE_SUB_TYPES, OBJECT_SUB_TYPES } from '../Widgets';
-import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbTrash, TbDownload, TbHandClick } from 'react-icons/tb';
+import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbTrash, TbDownload, TbHandClick, TbFilter, TbToggleLeft, TbToggleRightFilled } from 'react-icons/tb';
 import { useCustomVisuals } from '../../hooks/useCustomVisuals';
 
 // Ordered groups for the widget toolbar
@@ -27,7 +27,7 @@ function WidgetTooltip({ text, show }) {
   );
 }
 
-export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions }) {
+export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions, onOpenReportFilters, reportFilterCount = 0, reportFilterBarVisible = false }) {
   const navigate = useNavigate();
   const [openMenu, setOpenMenu] = useState(null); // 'bar' | 'line' | null
   const [hoverKey, setHoverKey] = useState(null);
@@ -240,6 +240,16 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                   >
                     <Icon size={18} color={iconColor} />
                     {hasSubTypes && <span style={{ fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 }}>▼</span>}
+                    {type === 'filter' && reportFilterCount > 0 && (
+                      <span style={{
+                        position: 'absolute', top: -2, right: -2,
+                        minWidth: 14, height: 14, padding: '0 3px',
+                        borderRadius: '50%', background: 'var(--accent-primary)', color: '#fff',
+                        fontSize: 9, fontWeight: 700,
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        boxSizing: 'border-box',
+                      }}>{reportFilterCount}</span>
+                    )}
                   </button>
                   <WidgetTooltip text={`Add ${label}`} show={hoverKey === type} />
 
@@ -312,6 +322,34 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                           </button>
                         );
                       })}
+                    </div></div>
+                  )}
+                  {openMenu === type && type === 'filter' && (
+                    <div style={dropdownStyle}><div style={dropdownInner}>
+                      <button onClick={() => { onAddWidget('filter'); setOpenMenu(null); }} style={dropdownItem}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
+                        <TbFilter size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />Visual Filter
+                      </button>
+                      <button onClick={() => { onOpenReportFilters?.(); setOpenMenu(null); }} style={dropdownItem}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
+                        {reportFilterBarVisible
+                          ? <TbToggleRightFilled size={16} style={{ marginRight: 6, color: iconColor, flexShrink: 0 }} />
+                          : <TbToggleLeft size={16} style={{ marginRight: 6, color: 'var(--text-disabled)', flexShrink: 0 }} />}
+                        <span>Global filter</span>
+                        {reportFilterCount > 0 && (
+                          <span style={{
+                            marginLeft: 6, minWidth: 16, height: 16, padding: '0 4px',
+                            borderRadius: '50%', background: 'var(--accent-primary)', color: '#fff',
+                            fontSize: 9, fontWeight: 700,
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            boxSizing: 'border-box',
+                          }}>
+                            {reportFilterCount}
+                          </span>
+                        )}
+                      </button>
                     </div></div>
                   )}
                 </div>

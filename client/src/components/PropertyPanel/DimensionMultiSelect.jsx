@@ -131,7 +131,7 @@ export default function DimensionMultiSelect({ modelId, fieldName, selectedValue
       )}
 
       {open && createPortal(
-        <div ref={panelRef} style={{
+        <div ref={panelRef} data-no-outside-close="true" style={{
           ...dropdownStyle,
           top: coords.top, left: coords.left, width: coords.width,
         }}>
