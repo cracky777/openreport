@@ -675,8 +675,17 @@ export default function Editor() {
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random()}`;
         activeQueryIdsRef.current.add(mainQueryId);
+        // Per-widget aggregation overrides — e.g. the user flipped a
+        // model-defined SUM measure to AVG via the PropertyPanel. Stored
+        // on the widget binding. EVERY auxiliary query (main / total /
+        // color / n1 / comboLine / sqlOnly preview) needs to forward it,
+        // otherwise the server falls back to the model's default agg and
+        // the chart value silently diverges from the property panel.
+        const aggOverrides = binding.measureAggOverrides || {};
+        const aggOverridesPayload = Object.keys(aggOverrides).length > 0 ? aggOverrides : undefined;
         const mainQueryBody = {
           dimensionNames: allDims, measureNames: [...new Set(meass)],
+          measureAggOverrides: aggOverridesPayload,
           limit: w.config?.dataLimit || 1000, filters: mergedFilters,
           widgetFilters: sanitizeWidgetFilters(widgetFilters),
           queryId: mainQueryId,
@@ -701,6 +710,7 @@ export default function Editor() {
           ? api.post(`/models/${model.id}/query`, {
               dimensionNames: [],
               measureNames: [topNMeasure],
+              measureAggOverrides: aggOverridesPayload,
               limit: 1,
               filters: mergedFilters,
               // The top_n synthetic filter is dropped here — we want the
@@ -732,7 +742,9 @@ export default function Editor() {
         }
         const colorPromise = colorMeasure
           ? api.post(`/models/${model.id}/query`, {
-              dimensionNames: [], measureNames: [colorMeasure], limit: 1, filters: mergedFilters,
+              dimensionNames: [], measureNames: [colorMeasure],
+              measureAggOverrides: aggOverridesPayload,
+              limit: 1, filters: mergedFilters,
               // Drop the synthetic top_n filter for the color aggregate — it
               // doesn't apply when there's no GROUP BY.
               widgetFilters: sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]),
@@ -763,6 +775,7 @@ export default function Editor() {
           ? api.post(`/models/${model.id}/query`, {
               dimensionNames: allDims,
               measureNames: [...new Set(meass)],
+              measureAggOverrides: aggOverridesPayload,
               limit: 1,
               filters: n1Filters,
               widgetFilters: sanitizeWidgetFilters(n1WidgetFilters),
@@ -787,6 +800,7 @@ export default function Editor() {
           ? api.post(`/models/${model.id}/query`, {
               dimensionNames: dims,
               measureNames: [...new Set(clm)],
+              measureAggOverrides: aggOverridesPayload,
               limit: w.config?.dataLimit || 1000,
               filters: mergedFilters,
               widgetFilters: sanitizeWidgetFilters(widgetFilters),

@@ -410,10 +410,16 @@ export default function Viewer() {
         dimensionOverrides: report?.settings?.dimensionOverrides || {},
         measureOverrides: report?.settings?.measureOverrides || {},
       };
+      // Per-widget aggregation overrides (user flipped SUM→AVG etc.).
+      // Stored on the binding; every /query call needs to forward it
+      // or the server falls back to the model's default agg.
+      const aggOverrides = binding.measureAggOverrides || {};
+      const aggOverridesPayload = Object.keys(aggOverrides).length > 0 ? aggOverrides : undefined;
 
       const mainPromise = hasMainBinding
         ? api.post(`/models/${model.id}/query`, {
             dimensionNames: allDims, measureNames: meass,
+            measureAggOverrides: aggOverridesPayload,
             limit: queryLimit, filters: queryFilters,
             widgetFilters: sanitizeWidgetFilters(widgetFiltersWithTopN),
             distinct: isFilterWidget || undefined,
@@ -423,7 +429,9 @@ export default function Viewer() {
         : Promise.resolve({ data: { rows: [] } });
       const colorPromise = colorMeasure
         ? api.post(`/models/${model.id}/query`, {
-            dimensionNames: [], measureNames: [colorMeasure], limit: 1,
+            dimensionNames: [], measureNames: [colorMeasure],
+            measureAggOverrides: aggOverridesPayload,
+            limit: 1,
             filters: queryFilters,
             widgetFilters: sanitizeWidgetFilters(widgetFilters),
             reportId: id,
@@ -432,7 +440,9 @@ export default function Viewer() {
         : Promise.resolve(null);
       const totalPromise = topNApplies
         ? api.post(`/models/${model.id}/query`, {
-            dimensionNames: [], measureNames: [topNMeasure], limit: 1,
+            dimensionNames: [], measureNames: [topNMeasure],
+            measureAggOverrides: aggOverridesPayload,
+            limit: 1,
             filters: queryFilters,
             widgetFilters: sanitizeWidgetFilters(widgetFilters),
             reportId: id,
@@ -454,7 +464,9 @@ export default function Viewer() {
         : null;
       const n1Promise = shouldFetchN1
         ? api.post(`/models/${model.id}/query`, {
-            dimensionNames: allDims, measureNames: meass, limit: 1,
+            dimensionNames: allDims, measureNames: meass,
+            measureAggOverrides: aggOverridesPayload,
+            limit: 1,
             filters: n1Filters,
             widgetFilters: sanitizeWidgetFilters(n1WidgetFilters),
             reportId: id,
@@ -471,6 +483,7 @@ export default function Viewer() {
         ? api.post(`/models/${model.id}/query`, {
             dimensionNames: dims,
             measureNames: [...new Set(clm)],
+            measureAggOverrides: aggOverridesPayload,
             limit: w.config?.dataLimit || 1000,
             filters: queryFilters,
             widgetFilters: sanitizeWidgetFilters(widgetFilters),
