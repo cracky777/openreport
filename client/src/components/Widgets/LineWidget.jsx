@@ -1,6 +1,7 @@
 import { useRef, useEffect, memo, useMemo, useState, useCallback } from 'react';
 import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
+import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues } from '../../utils/axisSort';
@@ -13,8 +14,11 @@ const COLORS = [
   '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#5ab1ef',
 ];
 
-function buildDataLabel(params, content, abbrMode, fmt) {
-  const val = abbreviateNumber(params.value, abbrMode) ?? formatNumber(params.value, fmt);
+function buildDataLabel(params, content, abbrMode, fmt, isDuration) {
+  const numericValue = typeof params.value === 'number' ? params.value : Number(params.value);
+  const val = isDuration && Number.isFinite(numericValue)
+    ? formatDuration(numericValue)
+    : (abbreviateNumber(params.value, abbrMode) ?? formatNumber(params.value, fmt));
   if (content === 'name') return params.name || params.seriesName || '';
   if (content === 'nameValue') return `${params.name || params.seriesName || ''}: ${val}`;
   if (content === 'percent') return params.percent != null ? params.percent + '%' : val;
@@ -177,7 +181,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
           stack: isStacked ? 'total' : undefined,
           label: { ...labelOpts, formatter: (p) => {
             if (hideZeros && (p.value == null || p.value === 0)) return '';
-            return buildDataLabel(p, dataLabelContent, dataLabelAbbr, data._measureFormats?.[p.seriesName]);
+            return buildDataLabel(p, dataLabelContent, dataLabelAbbr, data._measureFormats?.[p.seriesName], isDurationCol(p.seriesName, data._durationColumns) || isDurationCol(data._measureLabel, data._durationColumns));
           }},
         });
       });
@@ -192,7 +196,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
         areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15 } : undefined,
         label: { ...labelOpts, formatter: (p) => {
           if (hideZeros && (p.value == null || p.value === 0)) return '';
-          return buildDataLabel(p, dataLabelContent, dataLabelAbbr, Object.values(data._measureFormats || {})[0]);
+          return buildDataLabel(p, dataLabelContent, dataLabelAbbr, Object.values(data._measureFormats || {})[0], isDurationCol(data._measureLabel, data._durationColumns));
         }},
       });
     }
@@ -215,7 +219,9 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
           params.forEach((p) => {
             if (hideZeros && (p.value === 0 || p.value == null)) return;
             const fmt = data._measureFormats?.[p.seriesName] || null;
-            result += `${p.marker} ${p.seriesName}: <b>${formatNumber(p.value, fmt)}</b><br/>`;
+            const isDur = isDurationCol(p.seriesName, data._durationColumns) || isDurationCol(data._measureLabel, data._durationColumns);
+            const v = isDur && typeof p.value === 'number' ? formatDuration(p.value) : formatNumber(p.value, fmt);
+            result += `${p.marker} ${p.seriesName}: <b>${v}</b><br/>`;
           });
           return result;
         },
@@ -240,6 +246,10 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
           color: config?.yAxisLabelColor || '#64748b',
           fontFamily: yAxisFontFamily,
           formatter: (val) => {
+            if (isDurationCol(data._measureLabel, data._durationColumns)
+                || (Array.isArray(data._durationColumns) && data._durationColumns.length > 0)) {
+              return formatDuration(val);
+            }
             const abbr = abbreviateNumber(val, valueAbbr);
             if (abbr != null) return abbr;
             const firstFmt = Object.values(data._measureFormats || {})[0];

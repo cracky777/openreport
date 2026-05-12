@@ -1,6 +1,7 @@
 import { useRef, useEffect, memo, useMemo, useState, useCallback } from 'react';
 import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
+import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues } from '../../utils/axisSort';
@@ -249,6 +250,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
             show: showDataLabels, position: 'top', fontSize: dataLabelFontSize, fontFamily: dataLabelFontFamily, color: dataLabelColor,
             formatter: (p) => {
               if (hideZeros && (p.value === 0 || p.value == null)) return '';
+              if (isDurationCol(p.seriesName, data._durationColumns) && typeof p.value === 'number') return formatDuration(p.value);
               return abbreviateNumber(p.value, valueAbbr) ?? formatNumber(p.value);
             },
           },
@@ -276,6 +278,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
           show: showDataLabels, position: 'top', fontSize: dataLabelFontSize, fontFamily: dataLabelFontFamily, color: dataLabelColor,
           formatter: (p) => {
             if (hideZeros && (p.value === 0 || p.value == null)) return '';
+            if (isDurationCol(p.seriesName, data._durationColumns) && typeof p.value === 'number') return formatDuration(p.value);
             return abbreviateNumber(p.value, valueAbbr) ?? formatNumber(p.value);
           },
         },
@@ -332,12 +335,19 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     const yNameCfg = yTitleVal ? { name: yTitleVal, nameLocation: 'center', nameGap: 40, nameTextStyle: { fontSize: yAxisFontSize + 1, color: yAxisColor, fontWeight: 500, fontFamily: yAxisFontFamily } } : {};
     const secYNameCfg = secYTitleVal ? { name: secYTitleVal, nameLocation: 'center', nameGap: 40, nameTextStyle: { fontSize: secYAxisFontSize + 1, color: secYAxisColor, fontWeight: 500, fontFamily: secYAxisFontFamily } } : {};
 
+    // Combo has two Y axes — primary holds the bars, secondary holds the
+    // lines. Check whether the corresponding measure-label group is an
+    // interval so each axis can switch independently to duration format.
+    const barLabelsArr = (data._barMeasureLabel || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const lineLabelsArr = (data._lineMeasureLabel || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const isBarAxisDur = barLabelsArr.some((l) => isDurationCol(l, data._durationColumns));
+    const isLineAxisDur = lineLabelsArr.some((l) => isDurationCol(l, data._durationColumns));
     const yAxes = [{
       type: 'value', show: showYAxis,
       max: leftMax,
       interval: yAxisInterval || undefined,
       ...yNameCfg,
-      axisLabel: { fontSize: yAxisFontSize, color: yAxisColor, fontFamily: yAxisFontFamily, formatter: (v) => abbreviateNumber(v, valueAbbr) ?? formatNumber(v) },
+      axisLabel: { fontSize: yAxisFontSize, color: yAxisColor, fontFamily: yAxisFontFamily, formatter: (v) => isBarAxisDur ? formatDuration(v) : (abbreviateNumber(v, valueAbbr) ?? formatNumber(v)) },
       splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth } },
     }];
     if (showSecondaryAxis) {
@@ -346,7 +356,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
         max: rightMax,
         interval: secondaryYAxisInterval || undefined,
         ...secYNameCfg,
-        axisLabel: { fontSize: secYAxisFontSize, color: secYAxisColor, fontFamily: secYAxisFontFamily, formatter: (v) => abbreviateNumber(v, valueAbbr) ?? formatNumber(v) },
+        axisLabel: { fontSize: secYAxisFontSize, color: secYAxisColor, fontFamily: secYAxisFontFamily, formatter: (v) => isLineAxisDur ? formatDuration(v) : (abbreviateNumber(v, valueAbbr) ?? formatNumber(v)) },
         splitLine: { show: false },
       });
     }
@@ -363,7 +373,10 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
           items.forEach((p) => {
             const val = Array.isArray(p.value) ? p.value[1] : p.value;
             if (hideZeros && (val === 0 || val == null)) return;
-            result += `${p.marker} ${p.seriesName}: <b>${formatNumber(val)}</b><br/>`;
+            const v = isDurationCol(p.seriesName, data._durationColumns) && typeof val === 'number'
+              ? formatDuration(val)
+              : formatNumber(val);
+            result += `${p.marker} ${p.seriesName}: <b>${v}</b><br/>`;
           });
           return result;
         },

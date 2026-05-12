@@ -1,6 +1,7 @@
 import { useRef, useEffect, memo, useMemo } from 'react';
 import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
+import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
 import { applyTopN } from '../../utils/topNGroup';
@@ -84,8 +85,11 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
       items = applyTopN(items, { enabled: topNEnabled, n: topN, label: othersLabel });
     }
 
+    const isDur = isDurationCol(data._measureLabel, data._durationColumns);
     const buildLabel = (params) => {
-      const val = abbreviateNumber(params.value, dataLabelAbbr) ?? formatNumber(params.value, fmt);
+      const val = isDur && typeof params.value === 'number'
+        ? formatDuration(params.value)
+        : (abbreviateNumber(params.value, dataLabelAbbr) ?? formatNumber(params.value, fmt));
       if (dataLabelContent === 'name') return params.name;
       if (dataLabelContent === 'value') return String(val);
       if (dataLabelContent === 'nameValue') return `${params.name}\n${val}`;
@@ -116,7 +120,7 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
         trigger: 'item',
         appendToBody: true,
         formatter: (params) => {
-          const v = formatNumber(params.value, fmt);
+          const v = isDur && typeof params.value === 'number' ? formatDuration(params.value) : formatNumber(params.value, fmt);
           const total = items.reduce((s, it) => s + (it.value || 0), 0) || 1;
           const pct = ((params.value / total) * 100).toFixed(1);
           return `${params.marker} ${params.name}: <b>${v}</b> (${pct}%)`;

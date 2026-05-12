@@ -656,8 +656,17 @@ export default function Viewer() {
           newData = { labels: rows.map((r) => String(r[keys[0]])), values: rows.map((r) => Number(r[keys[keys.length - 1]]) || 0) };
         }
         const mf = {};
-        meass.forEach((mn) => { const md = (model.measures || []).find((x) => x.name === mn); if (md?.format) mf[md.label || md.name] = md.format; });
+        // Mirror Editor: track interval columns for duration formatting in Table/PivotTable.
+        const durationCols = [];
+        meass.forEach((mn) => {
+          const md = (model.measures || []).find((x) => x.name === mn);
+          if (!md) return;
+          const colKey = md.label || md.name;
+          if (md.format) mf[colKey] = md.format;
+          if (String(md.dataType || '').toLowerCase() === 'interval') durationCols.push(colKey);
+        });
         newData._measureFormats = mf;
+        if (durationCols.length > 0) newData._durationColumns = durationCols;
         if (dims.length > 0) {
           newData._dimName = dims[0];
           const axisDim = (model.dimensions || []).find((x) => x.name === dims[0]);

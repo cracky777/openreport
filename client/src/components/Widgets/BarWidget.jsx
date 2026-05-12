@@ -1,6 +1,7 @@
 import { useRef, useEffect, memo, useMemo, useState, useCallback } from 'react';
 import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
+import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, sortDateSeries, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues } from '../../utils/axisSort';
@@ -75,9 +76,12 @@ const COLORS = [
   '#d87a80', '#8d98b3', '#e5cf0d', '#97b552', '#95706d',
 ];
 
-function buildDataLabel(params, content, abbrMode, fmt, hideZeros) {
+function buildDataLabel(params, content, abbrMode, fmt, hideZeros, isDuration) {
   if (hideZeros && (params.value === 0 || params.value == null)) return '';
-  const val = abbreviateNumber(params.value, abbrMode) ?? formatNumber(params.value, fmt);
+  const numericValue = typeof params.value === 'number' ? params.value : Number(params.value);
+  const val = isDuration && Number.isFinite(numericValue)
+    ? formatDuration(numericValue)
+    : (abbreviateNumber(params.value, abbrMode) ?? formatNumber(params.value, fmt));
   if (content === 'name') return params.name || params.seriesName || '';
   if (content === 'nameValue') return `${params.name || params.seriesName || ''}: ${val}`;
   if (content === 'percent') {
@@ -473,7 +477,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
               verticalAlign: Math.abs(dataLabelRotate) === 90 ? 'middle' : dataLabelPosition === 'top' ? 'bottom' : 'middle',
               backgroundColor: dataLabelBgOpacity > 0 ? hexToRgba(dataLabelBgColor, dataLabelBgOpacity) : 'transparent',
               padding: dataLabelBgOpacity > 0 ? [2, 4] : 0, borderRadius: 2,
-              formatter: (p) => buildDataLabel(p, dataLabelContent, dataLabelAbbr, data._measureFormats?.[p.seriesName], hideZeros) },
+              formatter: (p) => buildDataLabel(p, dataLabelContent, dataLabelAbbr, data._measureFormats?.[p.seriesName], hideZeros, isDurationCol(p.seriesName, data._durationColumns) || isDurationCol(data._measureLabel, data._durationColumns)) },
           });
         }
       }
@@ -491,7 +495,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
           verticalAlign: dataLabelPosition === 'top' ? 'bottom' : 'middle',
           backgroundColor: dataLabelBgOpacity > 0 ? hexToRgba(dataLabelBgColor, dataLabelBgOpacity) : 'transparent',
           padding: dataLabelBgOpacity > 0 ? [2, 4] : 0, borderRadius: 2,
-          formatter: (p) => buildDataLabel(p, dataLabelContent, dataLabelAbbr, Object.values(data._measureFormats || {})[0], hideZeros) },
+          formatter: (p) => buildDataLabel(p, dataLabelContent, dataLabelAbbr, Object.values(data._measureFormats || {})[0], hideZeros, isDurationCol(data._measureLabel, data._durationColumns)) },
       });
     }
 
@@ -503,13 +507,15 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
           const fmt = data._measureFormats?.[params.seriesName] || null;
           // For custom series, params.value is [categoryIndex, value] — extract the actual value
           const val = Array.isArray(params.value) ? params.value[1] : params.value;
+          const isDur = isDurationCol(params.seriesName, data._durationColumns) || isDurationCol(data._measureLabel, data._durationColumns);
+          const fmtVal = (v) => isDur && typeof v === 'number' ? formatDuration(v) : formatNumber(v, fmt);
           let result = `<b>${params.name}</b><br/>`;
-          result += `${params.marker} ${params.seriesName}: <b>${formatNumber(val, fmt)}</b>`;
+          result += `${params.marker} ${params.seriesName}: <b>${fmtVal(val)}</b>`;
           if (isStacked && hasSeries) {
             let total = 0;
             for (const sr of seriesData) total += sr.values[sortedIndices[params.dataIndex]] || 0;
             const pct = total > 0 ? Math.round((params.value / total) * 10000) / 100 : 0;
-            result += ` (${pct}%)<br/>Total: <b>${formatNumber(total, fmt)}</b>`;
+            result += ` (${pct}%)<br/>Total: <b>${fmtVal(total)}</b>`;
           }
           return result;
         },
@@ -538,6 +544,14 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
       axisLabel: {
         show: showLabels,
         formatter: (val) => {
+          // Bar/Line axes are shared across all measures plotted; if ANY of
+          // them is an interval, format the whole axis as duration so the
+          // ticks read consistently. Mixing 3600 with "1h" on the same
+          // axis would be jarring.
+          if (isDurationCol(data._measureLabel, data._durationColumns)
+              || (Array.isArray(data._durationColumns) && data._durationColumns.length > 0)) {
+            return formatDuration(val);
+          }
           const abbr = abbreviateNumber(val, valueAbbr);
           if (abbr != null) return abbr;
           const firstFmt = Object.values(data._measureFormats || {})[0];

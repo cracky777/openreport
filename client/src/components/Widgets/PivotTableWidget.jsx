@@ -1,6 +1,7 @@
 import { memo, useMemo, useState } from 'react';
 import { pivotData, flattenHeaderLevels, resolveCell } from '../../utils/pivotEngine';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
+import { formatDuration } from '../../utils/formatHuman';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 import {
   getGridConfig, getRowConfig, getTotalsConfig, getFreezeConfig, ROW_HEIGHTS,
@@ -138,6 +139,9 @@ export default memo(function PivotTableWidget({ data, config }) {
 
   const formatVal = (val, measure) => {
     if (val == null) return '';
+    // Interval-typed measures arrive as EPOCH seconds → format as duration.
+    const isDurationCol = Array.isArray(data?._durationColumns) && data._durationColumns.includes(measure);
+    if (isDurationCol && typeof val === 'number') return formatDuration(val);
     const mAbbr = getMeasureConfig(measure, 'valueAbbreviation', valueAbbr);
     const abbr = abbreviateNumber(val, mAbbr);
     if (abbr != null) return abbr;

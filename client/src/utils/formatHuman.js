@@ -18,6 +18,25 @@ export function formatDuration(seconds) {
   return Number.isInteger(h) ? `${h}h` : `${h.toFixed(1)}h`;
 }
 
+// Test whether a column (referenced by its display label) is a duration
+// column — i.e. the underlying measure has `dataType: 'interval'` so the
+// server emits its value as EPOCH seconds and widgets should render it
+// as "1h" / "30min" / "45s" rather than the raw number. Returns false
+// (no-op) when `durationCols` is missing/empty, so the helper is safe to
+// drop into existing formatters without an outer guard.
+export function isDurationCol(label, durationCols) {
+  return Array.isArray(durationCols) && durationCols.includes(label);
+}
+
+// Format `val` as a duration if its column is an interval, otherwise
+// invoke `fallback()` for the normal numeric formatting path. Designed
+// to slot into the one-liner formatter callbacks ECharts wants:
+//   formatter: (v) => formatMaybeDuration(v, measureName, durationCols, () => formatNumber(v, fmt))
+export function formatMaybeDuration(val, label, durationCols, fallback) {
+  if (isDurationCol(label, durationCols) && typeof val === 'number') return formatDuration(val);
+  return fallback();
+}
+
 export function formatBytes(bytes) {
   const n = Number(bytes) || 0;
   if (n < 1024) return `${n} B`;

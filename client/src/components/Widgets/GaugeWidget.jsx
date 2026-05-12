@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, memo, useMemo } from 'react';
 import * as echarts from 'echarts';
 import formatNumber from '../../utils/formatNumber';
+import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import { lerpColor } from '../../utils/tableConfigHelpers';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
@@ -58,10 +59,12 @@ export default memo(function GaugeWidget({ data, config, chartWidth, chartHeight
   const gaugeColor = gradientColor
     ?? (useOverColor ? (config?.gaugeOverColor || '#dc2626') : baseColor);
 
+  const isDur = isDurationCol(data._measureLabel, data._durationColumns);
   const displayValue = useMemo(() => {
     if (!hasData) return '';
+    if (isDur && !isNaN(value)) return formatDuration(value);
     return fmt && !isNaN(value) ? formatNumber(value, fmt) : value.toLocaleString();
-  }, [value, fmt, hasData]);
+  }, [value, fmt, hasData, isDur]);
 
   // Clamp progress to [0, 1]
   const progress = useMemo(() => {

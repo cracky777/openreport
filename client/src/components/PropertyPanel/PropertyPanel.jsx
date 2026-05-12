@@ -398,7 +398,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       return (
         <Section title="" bare>
           <DropZone label="Columns" accepts={['dimension', 'measure']} fields={tableFields} zoneName="columns"
-            onDrop={handleDrop('columns')} onRemove={handleRemove} onReorder={handleReorder('columns')} multiple fieldInfos={fieldInfos} dimensionNames={dimensionNames} />
+            onDrop={handleDrop('columns')} onRemove={handleRemove} onReorder={handleReorder('columns')} multiple fieldInfos={fieldInfos} dimensionNames={dimensionNames}
+            measureInfos={measureInfos} onAggChange={handleAggChange} />
         </Section>
       );
     }

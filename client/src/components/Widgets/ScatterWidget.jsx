@@ -1,6 +1,7 @@
 import { useRef, useEffect, memo, useMemo, useState, useCallback } from 'react';
 import * as echarts from 'echarts';
 import formatNumber from '../../utils/formatNumber';
+import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
@@ -150,12 +151,16 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
           const label = params.data._label;
           const xLabel = data._xLabel || 'X';
           const yLabel = data._yLabel || 'Y';
+          // Scatter has 3 axes (x, y, size) — each could be an interval.
+          const fmtAxis = (v, axisLabel) => isDurationCol(axisLabel, data._durationColumns) && typeof v === 'number'
+            ? formatDuration(v)
+            : formatNumber(v);
           let result = label ? `<b>${label}</b><br/>` : '';
           if (params.seriesName) result += `${params.marker} ${params.seriesName}<br/>`;
-          result += `${xLabel}: <b>${formatNumber(params.value[0])}</b><br/>`;
-          result += `${yLabel}: <b>${formatNumber(params.value[1])}</b>`;
+          result += `${xLabel}: <b>${fmtAxis(params.value[0], xLabel)}</b><br/>`;
+          result += `${yLabel}: <b>${fmtAxis(params.value[1], yLabel)}</b>`;
           if (params.data._size != null && data._sizeLabel) {
-            result += `<br/>${data._sizeLabel}: <b>${formatNumber(params.data._size)}</b>`;
+            result += `<br/>${data._sizeLabel}: <b>${fmtAxis(params.data._size, data._sizeLabel)}</b>`;
           }
           return result;
         },

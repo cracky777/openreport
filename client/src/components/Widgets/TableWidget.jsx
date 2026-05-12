@@ -1,5 +1,6 @@
 import { useRef, useCallback, useMemo, useState, memo } from 'react';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
+import { formatDuration } from '../../utils/formatHuman';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 import {
   getColumnHeaderStyle, getColumnValueStyle, getColumnDisplayName,
@@ -252,16 +253,25 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                     const isNum = !isNaN(numVal) && cell !== '' && cell != null;
                     const align = vs.alignment === 'auto' || !vs.alignment ? (isNum ? 'right' : 'left') : vs.alignment;
                     const isFrozenCol = freeze.freezeFirstColumn && ci === 0;
+                    // Interval-typed measures arrive as EPOCH seconds (the
+                    // server flattens INTERVAL values to a number) — format
+                    // them as a duration ("1h", "30min", "45s") rather than
+                    // showing the raw second count.
+                    const isDurationCol = Array.isArray(data?._durationColumns) && data._durationColumns.includes(col);
 
                     // Format
                     const nf = vs.numberFormat || {};
                     const fmt = data._measureFormats?.[col];
                     let display = cell;
                     if (isNum) {
-                      const abbr = abbreviateNumber(numVal, nf.abbreviation || 'none');
-                      if (abbr != null) display = abbr;
-                      else if (fmt) display = formatNumber(numVal, nf.decimals != null ? { ...fmt, decimals: nf.decimals } : fmt);
-                      else if (nf.decimals != null) display = numVal.toFixed(nf.decimals);
+                      if (isDurationCol) {
+                        display = formatDuration(numVal);
+                      } else {
+                        const abbr = abbreviateNumber(numVal, nf.abbreviation || 'none');
+                        if (abbr != null) display = abbr;
+                        else if (fmt) display = formatNumber(numVal, nf.decimals != null ? { ...fmt, decimals: nf.decimals } : fmt);
+                        else if (nf.decimals != null) display = numVal.toFixed(nf.decimals);
+                      }
                     }
 
                     // Conditional formatting
@@ -319,7 +329,10 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                   const fn = getColumnTotalFn(tc, col);
                   const val = computeTotal(sortedRows, ci, fn);
                   const fmt = data._measureFormats?.[col];
-                  const display = typeof val === 'number' ? (fmt ? formatNumber(val, fmt) : val.toLocaleString()) : val;
+                  const isDurationCol = Array.isArray(data?._durationColumns) && data._durationColumns.includes(col);
+                  const display = typeof val === 'number'
+                    ? (isDurationCol ? formatDuration(val) : (fmt ? formatNumber(val, fmt) : val.toLocaleString()))
+                    : val;
 
                   return (
                     <td key={ci} style={{

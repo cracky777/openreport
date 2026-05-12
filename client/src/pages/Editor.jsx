@@ -1003,8 +1003,20 @@ export default function Editor() {
             newData = { labels: rows.map((r) => String(r[keys[0]])), values: rows.map((r) => Number(r[keys[keys.length - 1]]) || 0) };
           }
           const mf = {};
-          meass.forEach((mn) => { const md = (effectiveModel.measures || []).find((x) => x.name === mn); if (md?.format) mf[md.label || md.name] = md.format; });
+          // Track interval-typed measure columns so widgets can format them
+          // as a human duration ("1h", "30min", "45s") rather than the raw
+          // EPOCH-seconds number the server returns. Keyed by display label
+          // (matches what shows up as the column name in the row payload).
+          const durationCols = [];
+          meass.forEach((mn) => {
+            const md = (effectiveModel.measures || []).find((x) => x.name === mn);
+            if (!md) return;
+            const colKey = md.label || md.name;
+            if (md.format) mf[colKey] = md.format;
+            if (String(md.dataType || '').toLowerCase() === 'interval') durationCols.push(colKey);
+          });
           newData._measureFormats = mf;
+          if (durationCols.length > 0) newData._durationColumns = durationCols;
           if (dims.length > 0) {
             newData._dimName = dims[0];
             const axisDim = (effectiveModel.dimensions || []).find((x) => x.name === dims[0]);

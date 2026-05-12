@@ -1,4 +1,5 @@
 import formatNumber from '../../utils/formatNumber';
+import { formatDuration } from '../../utils/formatHuman';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
 export default function ScorecardWidget({ data, config }) {
@@ -20,14 +21,18 @@ export default function ScorecardWidget({ data, config }) {
 
   const change = data?.change;
   const fmt = Object.values(data?._measureFormats || {})[0];
+  // Interval-typed measures arrive as EPOCH seconds — format as duration.
+  // The Editor/Viewer flags this via `_durationColumns` (non-empty list ↔
+  // the scorecard's measure is an interval).
+  const isDuration = Array.isArray(data?._durationColumns) && data._durationColumns.length > 0;
   const rawValue = typeof data.value === 'number'
     ? data.value
     : parseFloat(String(data.value).replace(',', '.').replace(/[^\d.-]/g, ''));
   const displayValue = !isNaN(rawValue)
-    ? (fmt ? formatNumber(rawValue, fmt) : rawValue.toLocaleString())
+    ? (isDuration ? formatDuration(rawValue) : (fmt ? formatNumber(rawValue, fmt) : rawValue.toLocaleString()))
     : String(data.value ?? '');
 
-  const fmtNum = (v) => (fmt ? formatNumber(v, fmt) : v.toLocaleString());
+  const fmtNum = (v) => (isDuration ? formatDuration(v) : (fmt ? formatNumber(v, fmt) : v.toLocaleString()));
 
   // ─── N-1 comparison lines ─────────────────────────────────────────
   // Each toggle that's on contributes a "line" with its own styling

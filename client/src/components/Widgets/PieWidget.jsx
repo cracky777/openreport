@@ -1,6 +1,7 @@
 import { useRef, useEffect, memo, useMemo, useState, useCallback } from 'react';
 import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
+import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
@@ -80,8 +81,13 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
       };
     }
 
+    // Pie's value comes from one measure (`_measureLabel`). If it's an
+    // interval the slice values are EPOCH seconds → render as duration.
+    const isDur = isDurationCol(data._measureLabel, data._durationColumns);
     const buildLabel = (params) => {
-      const val = abbreviateNumber(params.value, dataLabelAbbr) ?? formatNumber(params.value, fmt);
+      const val = isDur && typeof params.value === 'number'
+        ? formatDuration(params.value)
+        : (abbreviateNumber(params.value, dataLabelAbbr) ?? formatNumber(params.value, fmt));
       if (dataLabelContent === 'name') return params.name;
       if (dataLabelContent === 'nameValue') return `${params.name}: ${val}`;
       if (dataLabelContent === 'percent') return `${params.percent}%`;
@@ -120,7 +126,10 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
       tooltip: {
         trigger: 'item',
         appendToBody: true,
-        formatter: (params) => `${params.marker} ${params.name}: <b>${formatNumber(params.value, fmt)}</b> (${params.percent}%)`,
+        formatter: (params) => {
+          const v = isDur && typeof params.value === 'number' ? formatDuration(params.value) : formatNumber(params.value, fmt);
+          return `${params.marker} ${params.name}: <b>${v}</b> (${params.percent}%)`;
+        },
       },
       legend: { show: false },
       series: [{
