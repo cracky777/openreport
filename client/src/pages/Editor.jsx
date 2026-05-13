@@ -13,6 +13,7 @@ import { useHistory } from '../hooks/useHistory';
 import { useTheme } from '../hooks/useTheme';
 import api from '../utils/api';
 import { sanitizeWidgetFilters } from '../utils/widgetFilters';
+import { prepareGlobalRulesForWidget } from '../utils/reportFilterRules';
 import { parseFiltersFromUrl, syncFiltersToUrl } from '../utils/urlFilters';
 import { computeBindingKey } from '../utils/bindingKey';
 import { filterForTarget } from '../utils/crossFilter';
@@ -394,6 +395,160 @@ export default function Editor() {
     applyDrillMutation(widgetId, () => []);
   }, [applyDrillMutation]);
 
+  // Slicer search — when the user types into a FilterWidget's search box,
+  // we fire a fresh /query with a `contains` filter so they can find values
+  // beyond the cap-1000 initial fetch. Results land in `data._searchedValues`
+  // (the `_` prefix means it's stripped at save — purely transient state).
+  // `bypassCache: true` keeps the queryCache clean of throwaway searches.
+  const slicerSearchSeqRef = useRef({}); // wId → monotonic id, drops out-of-order results
+  const handleSlicerSearch = useCallback(async (widgetId, searchTerm) => {
+    const w = widgetsRef.current?.[widgetId];
+    if (!w || w.type !== 'filter') return;
+    const dim = w.dataBinding?.selectedDimensions?.[0];
+    if (!dim || !model?.id) return;
+    const term = (searchTerm || '').trim();
+
+    const mySeq = (slicerSearchSeqRef.current[widgetId] || 0) + 1;
+    slicerSearchSeqRef.current[widgetId] = mySeq;
+
+    // Clear search → drop _searchedValues; FilterWidget falls back to data.values
+    if (!term) {
+      history.setSilent((prev) => {
+        const cur = prev.widgets?.[widgetId];
+        if (!cur || !cur.data) return prev;
+        // No-op fast path: nothing to clear means no state churn.
+        if (cur.data._searchedValues === undefined && cur.data._isSearching === undefined) return prev;
+        const nextData = { ...cur.data };
+        delete nextData._searchedValues;
+        delete nextData._isSearching;
+        return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...cur, data: nextData } } };
+      });
+      return;
+    }
+
+    history.setSilent((prev) => {
+      const cur = prev.widgets?.[widgetId];
+      if (!cur) return prev;
+      return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...cur, data: { ...(cur.data || {}), _isSearching: true } } } };
+    });
+
+    try {
+      const reportExtras = {
+        extraDimensions: settings?.extraDimensions || [],
+        extraMeasures: settings?.extraMeasures || [],
+        dimensionOverrides: settings?.dimensionOverrides || {},
+        measureOverrides: settings?.measureOverrides || {},
+      };
+      // Include the report-level global filters (snowflake joins etc. are
+      // resolved by the server's bridge-table BFS). Without these the
+      // search would return distinct values that the rest of the report
+      // wouldn't actually display.
+      const reportLevelFilters = prepareGlobalRulesForWidget(settings?.reportFilters, widgetId);
+      const ownWidgetFilters = Array.isArray(w.dataBinding?.widgetFilters) ? w.dataBinding.widgetFilters : [];
+      const res = await api.post(`/models/${model.id}/query`, {
+        dimensionNames: [dim],
+        measureNames: [],
+        limit: 1000,
+        filters: {},
+        widgetFilters: [
+          ...reportLevelFilters,
+          ...ownWidgetFilters,
+          { field: dim, op: 'contains', value: term, isMeasure: false },
+        ],
+        distinct: true,
+        reportId: id,
+        bypassCache: true,
+        ...reportExtras,
+      });
+      // Stale-response guard — a slower earlier search must not overwrite a
+      // newer one that already landed.
+      if (slicerSearchSeqRef.current[widgetId] !== mySeq) return;
+      const rows = res.data?.rows || [];
+      const keys = rows.length > 0 ? Object.keys(rows[0]) : [];
+      const values = keys.length > 0
+        ? [...new Set(rows.map((r) => r[keys[0]]).filter((v) => v != null))]
+        : [];
+      history.setSilent((prev) => {
+        const cur = prev.widgets?.[widgetId];
+        if (!cur) return prev;
+        return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...cur, data: { ...(cur.data || {}), _searchedValues: values, _isSearching: false } } } };
+      });
+    } catch {
+      if (slicerSearchSeqRef.current[widgetId] !== mySeq) return;
+      history.setSilent((prev) => {
+        const cur = prev.widgets?.[widgetId];
+        if (!cur) return prev;
+        return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...cur, data: { ...(cur.data || {}), _isSearching: false } } } };
+      });
+    }
+  }, [model, id, settings, history]);
+
+  // Global Refresh extends to slicers too. Editor's main fetch effect
+  // skips `filter` widgets (their distinct values don't change when other
+  // slicers' selections change), so on a manual Refresh we have to fire a
+  // dedicated /query per slicer to pull a fresh list. `bypassCache: true`
+  // forces a hit to the source DB — that's the whole point of "Refresh".
+  const refreshSlicer = useCallback(async (widgetId) => {
+    const w = widgetsRef.current?.[widgetId];
+    if (!w || w.type !== 'filter') return;
+    const dim = w.dataBinding?.selectedDimensions?.[0];
+    if (!dim || !model?.id) return;
+    history.setSilent((prev) => {
+      const cur = prev.widgets?.[widgetId];
+      if (!cur) return prev;
+      return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...cur, _loading: true } } };
+    });
+    try {
+      const reportExtras = {
+        extraDimensions: settings?.extraDimensions || [],
+        extraMeasures: settings?.extraMeasures || [],
+        dimensionOverrides: settings?.dimensionOverrides || {},
+        measureOverrides: settings?.measureOverrides || {},
+      };
+      // Apply the report-level global filters so the slicer's distinct
+      // values reflect the same filter universe as the rest of the report
+      // (bridge tables are resolved server-side by the BFS in models.js).
+      const reportLevelFilters = prepareGlobalRulesForWidget(settings?.reportFilters, widgetId);
+      const ownWidgetFilters = Array.isArray(w.dataBinding?.widgetFilters) ? w.dataBinding.widgetFilters : [];
+      const res = await api.post(`/models/${model.id}/query`, {
+        dimensionNames: [dim],
+        measureNames: [],
+        limit: 1000,
+        filters: {},
+        widgetFilters: [...reportLevelFilters, ...ownWidgetFilters],
+        distinct: true,
+        reportId: id,
+        bypassCache: true,
+        ...reportExtras,
+      });
+      const rows = res.data?.rows || [];
+      const keys = rows.length > 0 ? Object.keys(rows[0]) : [];
+      const values = keys.length > 0
+        ? [...new Set(rows.map((r) => r[keys[0]]).filter((v) => v != null))]
+        : [];
+      const dimDef = (model.dimensions || []).find((x) => x.name === dim);
+      history.setSilent((prev) => {
+        const cur = prev.widgets?.[widgetId];
+        if (!cur) return prev;
+        const nextData = { ...(cur.data || {}) };
+        nextData.values = values;
+        nextData.label = dim;
+        nextData._isDate = dimDef?.type === 'date';
+        // Any stale search state from before the refresh is now wrong —
+        // drop it so the slicer falls back to its fresh data.values.
+        delete nextData._searchedValues;
+        delete nextData._isSearching;
+        return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...cur, _loading: false, data: nextData } } };
+      });
+    } catch {
+      history.setSilent((prev) => {
+        const cur = prev.widgets?.[widgetId];
+        if (!cur) return prev;
+        return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...cur, _loading: false } } };
+      });
+    }
+  }, [model, id, settings, history]);
+
   // Called by chart widgets when user clicks a data point
   const crossFilterSourceRef = useRef(null);
   const handleCrossFilter = useCallback((sourceWidgetId, dimensionName, value) => {
@@ -457,7 +612,16 @@ export default function Editor() {
     setRefreshing((r) => r ? r : true);
     refreshIsManualRef.current = true;
     setRefreshCounter((n) => n + 1);
-  }, []);
+    // Slicers don't go through the main fetch effect — kick them off
+    // manually so a global Refresh actually picks up new dim values from
+    // the source DB.
+    const ws = widgetsRef.current || {};
+    for (const [wId, w] of Object.entries(ws)) {
+      if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0]) {
+        refreshSlicer(wId);
+      }
+    }
+  }, [refreshSlicer]);
   // Per-widget refresh nonces — bumped by the canvas Refresh button to
   // request a fresh fetch of one specific widget without triggering the
   // global refresh loop.
@@ -659,11 +823,11 @@ export default function Editor() {
         const mergedFilters = { ...targetFilters, ...drillFilters };
 
         const colorMeasure = (w.config?.colorCondition?.enabled === true) ? binding.colorMeasure : undefined;
-        // Combine report-level filters (from Settings) with the widget's own filters.
-        // Drop any global rule whose `exclusions` list contains this widget —
-        // it was opted out via the global filter bar's edit-interactions UI.
-        const reportLevelFilters = (Array.isArray(settings?.reportFilters) ? settings.reportFilters : [])
-          .filter((r) => !Array.isArray(r?.exclusions) || !r.exclusions.includes(wId));
+        // Per-widget view of the report-level global filters. See
+        // prepareGlobalRulesForWidget for the dual responsibility (drop
+        // excluded rules + strip the editor-only `exclusions` field so it
+        // doesn't pollute the preAggCache shape key).
+        const reportLevelFilters = prepareGlobalRulesForWidget(settings?.reportFilters, wId);
         const widgetOwnFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
         let widgetFilters = [...reportLevelFilters, ...widgetOwnFilters];
         const hasMainBinding = (allDims.length > 0 || meass.length > 0);
@@ -1588,8 +1752,7 @@ export default function Editor() {
     // data to a filtered table.
     const baseFilters = { ...(reportFilters || {}) };
     const targetFilters = filterForTarget(widgetId, baseFilters, widgets, crossHighlightRef.current);
-    const reportLevelFilters = (Array.isArray(settings?.reportFilters) ? settings.reportFilters : [])
-      .filter((r) => !Array.isArray(r?.exclusions) || !r.exclusions.includes(widgetId));
+    const reportLevelFilters = prepareGlobalRulesForWidget(settings?.reportFilters, widgetId);
     const widgetOwnFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
     const combinedWidgetFilters = [...reportLevelFilters, ...widgetOwnFilters];
 
@@ -1886,6 +2049,7 @@ export default function Editor() {
               reportFilters={slicerSelections}
               onSlicerFilter={handleSlicerFilter}
               onCrossFilter={handleCrossFilter}
+              onSlicerSearch={handleSlicerSearch}
               onDrillUp={handleDrillUp}
               onDrillReset={handleDrillReset}
               crossHighlight={crossHighlight}

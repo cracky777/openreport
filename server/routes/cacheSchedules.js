@@ -123,6 +123,103 @@ router.get('/warming', requireAuth, (req, res) => {
   res.json({ reportIds: visible });
 });
 
+// Per-widget cache breakdown — admin / owner inspector. Each visual is
+// expanded through the same `planForReport` the warmer uses, so the
+// `dims + measures` shape we look up matches what the warmer stored. The
+// response also surfaces "orphan" entries (live in cache but no visual
+// claims them — happens after a binding edit before TTL or invalidation).
+router.get('/inspect/:reportId', requireAuth, (req, res) => {
+  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.reportId);
+  if (!report) return res.status(404).json({ error: 'Report not found' });
+  if (!canManageSchedule(report, req.user)) return res.status(403).json({ error: 'Forbidden' });
+
+  let widgets = {};
+  let settings = {};
+  try { widgets = JSON.parse(report.widgets || '{}'); } catch { /* ignore */ }
+  try { settings = JSON.parse(report.settings || '{}'); } catch { /* ignore */ }
+
+  const modelRow = db.prepare('SELECT id, dimensions, measures FROM models WHERE id = ?').get(report.model_id);
+  let modelDimensions = [];
+  let modelMeasures = [];
+  try { modelDimensions = JSON.parse(modelRow?.dimensions || '[]'); } catch { /* ignore */ }
+  try { modelMeasures = JSON.parse(modelRow?.measures || '[]'); } catch { /* ignore */ }
+  const allDimensions = [...modelDimensions, ...(settings.extraDimensions || [])];
+  const allMeasures = [...modelMeasures, ...(settings.extraMeasures || [])];
+  const measureLookup = (name) => allMeasures.find((mm) => mm.name === name) || null;
+
+  // Same expansion the warmer does, so the shape we compute per widget is
+  // byte-identical to what was stored.
+  const slicerDims = (function collect() {
+    const out = new Set();
+    for (const w of Object.values(widgets || {})) {
+      if (!w || !w.dataBinding) continue;
+      const b = w.dataBinding;
+      if (w.type === 'filter') { for (const d of (b.selectedDimensions || [])) out.add(d); continue; }
+      for (const d of (b.selectedDimensions || [])) out.add(d);
+      for (const d of (b.groupBy || [])) out.add(d);
+      for (const d of (b.columnDimensions || [])) out.add(d);
+    }
+    return [...out];
+  })();
+  const plan = cacheWarmer.planForReport(
+    { ...report, widgets, settings },
+    settings,
+    { slicerDims, measureLookup, allMeasures, dimensions: allDimensions },
+  );
+
+  const allEntries = preAggCache.inspectModel(report.model_id);
+  // Index entries by their fingerprint (dims + measures names, sorted) so
+  // we can match them to plan items deterministically. Using the dataset
+  // metadata avoids re-hashing the shape on this side.
+  const fingerprint = (dims, measures) => {
+    const dimsS = [...(dims || [])].sort().join('|');
+    const measS = [...(measures || [])].sort().join('|');
+    return `${dimsS}::${measS}`;
+  };
+  const claimed = new Set();
+  const byWidget = plan
+    .filter((item) => item.preAgg)
+    .map((item) => {
+      // The dataset stored under this entry includes ALL fired measures
+      // (visual + component refs for ratios). Match against that.
+      const wantedMeasures = new Set([...(item.uniqueMeas || []), ...(item.firedMeasureNames || [])]);
+      const match = allEntries.find((e) => {
+        if (claimed.has(e.keyHash)) return false;
+        if (!Array.isArray(e.dims) || e.dims.length !== item.expandedDims.length) return false;
+        const dimsMatch = item.expandedDims.every((d) => e.dims.includes(d));
+        if (!dimsMatch) return false;
+        // Every visual+fired measure should appear in the entry's measures list.
+        for (const m of wantedMeasures) if (!e.measures.includes(m)) return false;
+        return true;
+      });
+      if (match) claimed.add(match.keyHash);
+      const w = widgets[item.widgetId.replace(/#.*$/, '')];
+      return {
+        widgetId: item.widgetId,
+        widgetType: w?.type || null,
+        widgetTitle: w?.config?.title || null,
+        measures: item.uniqueMeas,
+        bytes: match?.bytes || 0,
+        rowCount: match?.rowCount || 0,
+        builtAt: match?.builtAt || null,
+        cached: !!match,
+      };
+    })
+    .sort((a, b) => b.bytes - a.bytes);
+
+  const orphans = allEntries.filter((e) => !claimed.has(e.keyHash));
+
+  const total = allEntries.reduce((acc, e) => acc + e.bytes, 0);
+  res.json({
+    preAggTotalBytes: total,
+    preAggTotalEntries: allEntries.length,
+    queryCacheTotalBytes: queryCache.bytesForModel(report.model_id),
+    queryCacheTotalEntries: queryCache.entriesForModel(report.model_id),
+    byWidget,
+    orphans,
+  });
+});
+
 // Cache footprint for a single report — sum of queryCache + preAggCache
 // entries indexed under the report's model. Surfaced on the report card
 // next to the Refresh button so the user can see what's hot.

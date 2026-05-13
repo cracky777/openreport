@@ -7,7 +7,7 @@ const { canAccessReport } = require('./reports');
 const { getQueryTimeoutMs } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
 const preAggCache = require('../utils/preAggCache');
-const { additiveTypeForMeasure } = require('../utils/measureType');
+const { additiveTypeForMeasure, decomposeMeasure } = require('../utils/measureType');
 const { quoteIdent, quoteTable, quoteCol, escapeLiteral, quoteLiteral, normalizeAggregation } = require('../utils/sqlDialect');
 
 // Hook for cloud edition to override the global query-timeout with a
@@ -1000,6 +1000,13 @@ router.post('/:id/query', async (req, res) => {
     // rows still get written back into the cache so subsequent requests
     // for the same shape become hot.
     bypassCache,
+    // When `true`, skip the trailing `queryCache.set` after a fresh SQL
+    // execution. The warmer sets this for plan items whose results will
+    // also be stored in `preAggCache` — avoiding storing the same data
+    // twice (raw row-of-objects in queryCache + columnar in preAgg).
+    // Caller-trusted: it's only honoured for SUCCESSFUL fresh runs;
+    // doesn't change cache LOOKUP behaviour.
+    skipCacheSet,
     // Report-scoped extensions: dims/measures defined ONLY in the calling
     // report (so other reports on the same model don't see them), plus
     // label/type overrides for model-level dims/measures. The model itself
@@ -1668,7 +1675,7 @@ router.post('/:id/query', async (req, res) => {
   // `FROM dim LEFT JOIN fact` — semantically OK, but `FROM fact LEFT JOIN dim`
   // is the canonical star-schema shape and what most analytics readers
   // expect.
-  const tableList = Array.from(tablesUsed);
+  let tableList = Array.from(tablesUsed);
   if (tableList.length > 1) {
     const factScore = {};
     for (const t of tableList) factScore[t] = 0;
@@ -1681,6 +1688,60 @@ router.post('/:id/query', async (req, res) => {
     // Stable sort: highest fact score first, original index as tie-breaker
     // so two equal-score tables keep their original relative order.
     tableList.sort((a, b) => (factScore[b] - factScore[a]) || (Array.from(tablesUsed).indexOf(a) - Array.from(tablesUsed).indexOf(b)));
+  }
+  // Snowflake bridging: when a referenced table has no direct join to the
+  // root (e.g. filter on `d_entite` while the query SELECTs from
+  // `f_appel_entrant_fin` and the only connection is via `d_destinataire`),
+  // we need to pull the intermediate table(s) into the FROM clause. Without
+  // this the greedy join loop below falls back to a comma-separated
+  // cross-join — Cartesian product, wrong results.
+  if (tableList.length > 1) {
+    const rootTable = tableList[0];
+    // Undirected adjacency over the full join graph.
+    const adj = new Map();
+    for (const j of allJoins || []) {
+      if (!j || !j.from_table || !j.to_table) continue;
+      if (!adj.has(j.from_table)) adj.set(j.from_table, new Set());
+      if (!adj.has(j.to_table)) adj.set(j.to_table, new Set());
+      adj.get(j.from_table).add(j.to_table);
+      adj.get(j.to_table).add(j.from_table);
+    }
+    // BFS from root to record the parent of every reachable table — gives
+    // us shortest path back to root by walking up the parent chain.
+    const parent = new Map();
+    parent.set(rootTable, null);
+    const queue = [rootTable];
+    while (queue.length > 0) {
+      const cur = queue.shift();
+      for (const next of adj.get(cur) || []) {
+        if (parent.has(next)) continue;
+        parent.set(next, cur);
+        queue.push(next);
+      }
+    }
+    // For every referenced table, walk the parent chain back to root and
+    // add the intermediate tables. Skip tables that aren't reachable at
+    // all (broken model — the greedy loop will fall back to cross-join,
+    // matching the old behaviour for that pathological case).
+    const expanded = new Set(tableList);
+    for (const t of tableList) {
+      if (t === rootTable || !parent.has(t)) continue;
+      let cur = parent.get(t);
+      while (cur !== null && cur !== rootTable) {
+        if (!expanded.has(cur)) expanded.add(cur);
+        cur = parent.get(cur);
+      }
+    }
+    if (expanded.size > tableList.length) {
+      // Re-sort with bridges included. The root stays first; bridge tables
+      // get fact-score 0 and slot in after the genuinely referenced tables.
+      tableList = Array.from(expanded);
+      tableList.sort((a, b) => {
+        if (a === rootTable) return -1;
+        if (b === rootTable) return 1;
+        return 0;
+      });
+    }
   }
   let fromClause = quoteTable(tableList[0], dbType);
   if (tableList.length > 1) {
@@ -1894,25 +1955,42 @@ router.post('/:id/query', async (req, res) => {
     // visual's intrinsic identity (dims/measures/widgetFilters/extras)
     // goes into the key — runtime slicer filters become an `inMemoryAgg`
     // pass over the cached rows.
-    const allMeasureTypes = (selectedMeasures || []).map(additiveTypeForMeasure);
-    const allAdditive = allMeasureTypes.length > 0 && allMeasureTypes.every((t) => t !== null);
+    // Eligibility: every requested measure must either be additive
+    // (sum/count/min/max) OR decomposable into additive components (ratio
+    // of two additive measures, AVG via SUM+COUNT). The warmer applies the
+    // same predicate, so a hit here implies the dataset has the metadata
+    // the aggregate function needs to recompose at the new grain.
+    const allMeasureSpecs = (selectedMeasures || []).map((m) => decomposeMeasure(m, allMeasures));
+    const allAdditive = allMeasureSpecs.length > 0 && allMeasureSpecs.every((s) => s !== null);
     // A widget-level measure filter compiles to HAVING at the visual's
     // baseDims granularity. The pre-agg dataset is grouped at a finer
     // grain (baseDims + slicerDims), so re-applying that HAVING after
     // the in-memory re-group would still let through rows whose finer-
     // grain SUM is below the threshold — and dropping them at warm
     // time discards regions whose total IS above it. Either way the
-    // result is wrong. Skip pre-agg whenever a measure filter is set.
-    const hasMeasureFilter = Array.isArray(widgetFilters)
-      && widgetFilters.some((f) => f && f.isMeasure);
-    if (allAdditive && !hasMeasureFilter) {
+    // result is wrong. Skip pre-agg whenever a REAL measure filter is set.
+    //
+    // EXCEPT top_n / bottom_n — these are synthetic measure filters added
+    // by the client for Top N–enabled visuals (bar/pie/treemap). They map
+    // to ORDER BY + LIMIT, which is fully reversible in-memory: we look up
+    // the preAgg WITHOUT them (so the shape matches what the warmer stored
+    // — the warmer doesn't replicate runtime topN state), then sort + slice
+    // the aggregated rows here. Drill levels on a topN visual become cache
+    // hits this way.
+    const isSyntheticTopN = (f) => f && (f.op === 'top_n' || f.op === 'bottom_n');
+    const hasRealMeasureFilter = Array.isArray(widgetFilters)
+      && widgetFilters.some((f) => f && f.isMeasure && !isSyntheticTopN(f));
+    if (allAdditive && !hasRealMeasureFilter) {
+      const widgetFiltersForShape = Array.isArray(widgetFilters)
+        ? widgetFilters.filter((f) => !isSyntheticTopN(f))
+        : widgetFilters;
       const preAggOpts = {
         datasourceId: datasource.id,
         modelId: model.id,
         shape: preAggCache.stableShape({
           dims: dimensionNames,
           measures: measureNames,
-          widgetFilters,
+          widgetFilters: widgetFiltersForShape,
           reportExtras: { extraDimensions, extraMeasures, dimensionOverrides, measureOverrides },
         }),
         rlsContext: rlsContextForCache,
@@ -1923,10 +2001,27 @@ router.post('/:id/query', async (req, res) => {
         filters: filters || {},
       });
       if (preAggHit) {
+        let rows = preAggHit.rows;
+        // Apply top_n / bottom_n after the in-memory aggregation. Resolves
+        // the measure name to its row alias (SQL aliases by `label || name`).
+        const topNFilter = Array.isArray(widgetFilters) ? widgetFilters.find(isSyntheticTopN) : null;
+        const topNValue = topNFilter ? Math.max(1, Math.floor(topNFilter.value || 0)) : 0;
+        if (topNFilter && topNFilter.field && topNValue > 0 && rows.length > topNValue) {
+          const measDef = (selectedMeasures || []).find((mm) => mm && mm.name === topNFilter.field);
+          const measKey = measDef ? (measDef.label || measDef.name) : topNFilter.field;
+          const direction = topNFilter.op === 'top_n' ? 'desc' : 'asc';
+          rows = [...rows].sort((a, b) => {
+            const va = Number(a[measKey]);
+            const vb = Number(b[measKey]);
+            const naA = Number.isFinite(va) ? va : 0;
+            const naB = Number.isFinite(vb) ? vb : 0;
+            return direction === 'desc' ? naB - naA : naA - naB;
+          }).slice(0, topNValue);
+        }
         return res.json({
-          rows: preAggHit.rows,
-          rowCount: preAggHit.rows.length,
-          maxReached: preAggHit.rows.length >= MAX_ROWS,
+          rows,
+          rowCount: rows.length,
+          maxReached: rows.length >= MAX_ROWS,
           sql,
           _cache: { hit: true, preAgg: true, builtAt: preAggHit.builtAt },
           _rls: {
@@ -2047,11 +2142,16 @@ router.post('/:id/query', async (req, res) => {
     // Store in cache so the next identical request hits warm. We skip
     // empty / very-large payloads in stats but still cache them — an
     // empty result is still a meaningful answer to the user.
-    queryCache.set(cacheOpts, {
-      rows,
-      builtAt: new Date().toISOString(),
-      queryDurationMs: Date.now() - startedAt,
-    });
+    // `skipCacheSet` is the warmer's hint that the same dataset is also
+    // landing in preAggCache (columnar, ~7× smaller). Honour it to avoid
+    // the duplication.
+    if (!skipCacheSet) {
+      queryCache.set(cacheOpts, {
+        rows,
+        builtAt: new Date().toISOString(),
+        queryDurationMs: Date.now() - startedAt,
+      });
+    }
     res.json({
       rows, rowCount: rows.length, maxReached: rows.length >= MAX_ROWS, sql,
       _cache: { hit: false },

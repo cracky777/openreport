@@ -46,6 +46,19 @@ export default function Dashboard() {
   const [showCreate, setShowCreate] = useState(false);
   const [showCreateWs, setShowCreateWs] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
+  // Per-report cache breakdown modal — fetched lazily on click. Keyed by
+  // reportId so it survives navigations and the cache stays warm if the
+  // user re-opens.
+  const [cacheInspect, setCacheInspect] = useState({ reportId: null, data: null, loading: false, error: null });
+  const openCacheInspect = useCallback(async (reportId, reportTitle) => {
+    setCacheInspect({ reportId, reportTitle, data: null, loading: true, error: null });
+    try {
+      const res = await api.get(`/cache-schedules/inspect/${reportId}`);
+      setCacheInspect({ reportId, reportTitle, data: res.data, loading: false, error: null });
+    } catch (err) {
+      setCacheInspect({ reportId, reportTitle, data: null, loading: false, error: err.response?.data?.error || err.message });
+    }
+  }, []);
   const [newTitle, setNewTitle] = useState('');
   const [newModelId, setNewModelId] = useState('');
   const [createMode, setCreateMode] = useState(null); // null | 'model' | 'file' | 'connection'
@@ -1490,9 +1503,20 @@ export default function Dashboard() {
                   </div>
                   {/* Cache footprint for this report. Populated lazily —
                       only after the user clicks Refresh at least once,
-                      so the report list itself loads fast. */}
+                      so the report list itself loads fast. Click → opens
+                      the per-widget breakdown modal. */}
                   {cardCacheStats[report.id] && (
-                    <div style={{ padding: '0 20px 12px', fontSize: 11, color: 'var(--text-disabled)' }}>
+                    <div
+                      onClick={(e) => { e.stopPropagation(); openCacheInspect(report.id, report.title); }}
+                      style={{
+                        padding: '0 20px 12px', fontSize: 11,
+                        color: 'var(--text-disabled)',
+                        cursor: 'pointer', textDecoration: 'underline',
+                        textDecorationColor: 'var(--border-default)',
+                        textDecorationStyle: 'dotted',
+                      }}
+                      title="Click to see the per-widget breakdown"
+                    >
                       Cache: {formatBytes(cardCacheStats[report.id].totalBytes)} in RAM
                     </div>
                   )}
@@ -1633,9 +1657,153 @@ export default function Dashboard() {
           {scheduleToast.message}
         </div>
       )}
+
+      {/* Per-report cache breakdown — opened by clicking the "Cache: …" line
+          on a report card. Pure read-only inspector backed by the
+          /cache-schedules/inspect/:reportId endpoint, which runs the same
+          planForReport the warmer does and matches stored cache entries
+          back to their owning visual. */}
+      {cacheInspect.reportId && (
+        <CacheInspectorModal
+          reportId={cacheInspect.reportId}
+          reportTitle={cacheInspect.reportTitle}
+          data={cacheInspect.data}
+          loading={cacheInspect.loading}
+          error={cacheInspect.error}
+          onClose={() => setCacheInspect({ reportId: null, data: null, loading: false, error: null })}
+          formatBytes={formatBytes}
+        />
+      )}
     </div>
   );
 }
+
+function CacheInspectorModal({ reportId, reportTitle, data, loading, error, onClose, formatBytes }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 1000,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: 'var(--bg-panel)', borderRadius: 8, padding: 20,
+          width: 'min(900px, 92vw)', maxHeight: '85vh', overflow: 'auto',
+          boxShadow: '0 16px 48px rgba(0,0,0,0.2)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>
+            Cache breakdown — <span style={{ color: 'var(--text-secondary)' }}>{reportTitle || reportId.slice(0, 8)}</span>
+          </h3>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--text-muted)' }}>×</button>
+        </div>
+
+        {loading && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>}
+        {error && <div style={{ color: 'var(--state-danger)', fontSize: 13 }}>{error}</div>}
+
+        {data && (
+          <>
+            <div style={{ display: 'flex', gap: 24, marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)' }}>
+              <div>
+                <strong>preAgg</strong>: {formatBytes(data.preAggTotalBytes)} · {data.preAggTotalEntries} entries
+              </div>
+              <div>
+                <strong>queryCache</strong>: {formatBytes(data.queryCacheTotalBytes)} · {data.queryCacheTotalEntries} entries
+              </div>
+              {data.orphans?.length > 0 && (
+                <div style={{ color: 'var(--state-warning)' }}>
+                  ⚠ {data.orphans.length} orphan entries ({formatBytes(data.orphans.reduce((a, e) => a + e.bytes, 0))})
+                </div>
+              )}
+            </div>
+
+            {data.byWidget?.length > 0 ? (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-default)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                    <th style={cellStyle}>Widget</th>
+                    <th style={cellStyle}>Type</th>
+                    <th style={cellStyle}>Measures</th>
+                    <th style={{ ...cellStyle, textAlign: 'right' }}>Size</th>
+                    <th style={{ ...cellStyle, textAlign: 'right' }}>Rows</th>
+                    <th style={{ ...cellStyle, textAlign: 'right' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.byWidget.map((w) => (
+                    <tr key={w.widgetId} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                      <td style={cellStyle}>
+                        <span style={{ fontFamily: 'monospace', color: 'var(--text-disabled)' }}>
+                          {w.widgetTitle || w.widgetId}
+                        </span>
+                      </td>
+                      <td style={cellStyle}>{w.widgetType || '?'}</td>
+                      <td style={{ ...cellStyle, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {w.measures.join(', ')}
+                      </td>
+                      <td style={{ ...cellStyle, textAlign: 'right', fontWeight: w.bytes > 100 * 1024 ? 600 : 400 }}>
+                        {w.cached ? formatBytes(w.bytes) : '—'}
+                      </td>
+                      <td style={{ ...cellStyle, textAlign: 'right' }}>{w.cached ? w.rowCount : '—'}</td>
+                      <td style={{ ...cellStyle, textAlign: 'right' }}>
+                        {w.cached
+                          ? <span style={{ color: 'var(--state-success)' }}>✓ cached</span>
+                          : <span style={{ color: 'var(--text-disabled)' }}>not warmed</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>No preAgg-eligible widgets on this report.</div>
+            )}
+
+            {data.orphans?.length > 0 && (
+              <details style={{ marginTop: 18 }}>
+                <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>
+                  Orphan entries ({data.orphans.length}) — bindings that changed or widgets that were deleted
+                </summary>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, marginTop: 8 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border-default)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                      <th style={cellStyle}>Hash</th>
+                      <th style={cellStyle}>Dims</th>
+                      <th style={cellStyle}>Measures</th>
+                      <th style={{ ...cellStyle, textAlign: 'right' }}>Size</th>
+                      <th style={{ ...cellStyle, textAlign: 'right' }}>Rows</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.orphans.map((o) => (
+                      <tr key={o.keyHash}>
+                        <td style={{ ...cellStyle, fontFamily: 'monospace' }}>{o.keyHash}</td>
+                        <td style={{ ...cellStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {o.dims.join(', ')}
+                        </td>
+                        <td style={{ ...cellStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {o.measures.join(', ')}
+                        </td>
+                        <td style={{ ...cellStyle, textAlign: 'right' }}>{formatBytes(o.bytes)}</td>
+                        <td style={{ ...cellStyle, textAlign: 'right' }}>{o.rowCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </details>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const cellStyle = { padding: '8px 10px', verticalAlign: 'top' };
 
 // ----------------------------------------------------------------------------
 // Schedule modal — kept inline because it's specific to the Dashboard page

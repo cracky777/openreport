@@ -9,7 +9,7 @@ import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
  */
 const RENDER_BATCH = 200;
 
-export default memo(function FilterWidget({ data, config, onFilterChange, activeSelection }) {
+export default memo(function FilterWidget({ data, config, onFilterChange, activeSelection, onSearchValues }) {
   const [selected, setSelected] = useState(activeSelection || config?.selectedValues || []);
 
   // Sync selection when activeSelection changes (e.g. page switch)
@@ -57,6 +57,34 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
   // the new filtered universe.
   useEffect(() => { setRenderLimit(RENDER_BATCH); }, [search]);
 
+  // Debounced server-side search. Tells the parent (Editor/Viewer) to fire a
+  // /query with a `contains` filter so values beyond the cap-1000 initial
+  // fetch surface in the slicer. The client-side filter below (filteredValues
+  // memo) keeps working in parallel for snappy local feedback during the
+  // debounce window.
+  //
+  // `onSearchValues` is captured through a ref so the effect deps only
+  // track `search`. ReportCanvas re-creates this callback on every render
+  // (inline arrow); without the ref we'd re-schedule the timeout on every
+  // parent re-render and the cleared-search no-op would cycle 300ms after
+  // every parent update — a render loop that hammered React's scheduler.
+  const onSearchValuesRef = useRef(onSearchValues);
+  onSearchValuesRef.current = onSearchValues;
+  const searchDebounceRef = useRef(null);
+  // Skip the initial mount: an empty `search` triggers handleSlicerSearch's
+  // clear path, which is a no-op the first time but still allocates a new
+  // React tree node. Wait for the user to actually type something.
+  const searchHasChangedRef = useRef(false);
+  useEffect(() => {
+    if (!searchHasChangedRef.current) { searchHasChangedRef.current = true; return; }
+    if (!onSearchValuesRef.current) return;
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      onSearchValuesRef.current?.(search);
+    }, 300);
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+  }, [search]);
+
   // Update popup position when target changes
   useEffect(() => {
     const el = calendarTarget === 'from' ? fromRef.current : calendarTarget === 'to' ? toRef.current : null;
@@ -79,7 +107,14 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
     return () => document.removeEventListener('mousedown', handleClick);
   }, [dropdownOpen]);
 
-  const values = data?.values || [];
+  // When the user types in the search box, the parent fires a server-side
+  // /query with a `contains` filter and stuffs the result into
+  // `data._searchedValues`. Until that lands (or when the search is empty)
+  // we fall back to the cap-1000 initial list at `data.values`.
+  const values = (search && Array.isArray(data?._searchedValues))
+    ? data._searchedValues
+    : (data?.values || []);
+  const isSearchingServer = !!data?._isSearching;
   const isDate = data?._isDate || false;
   const label = data?.label || config?.title || 'Filter';
   const multiSelect = config?.multiSelect ?? true;

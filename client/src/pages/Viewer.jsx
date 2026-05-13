@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import ReportCanvas from '../components/Canvas/ReportCanvas';
 import api from '../utils/api';
 import { sanitizeWidgetFilters } from '../utils/widgetFilters';
+import { prepareGlobalRulesForWidget } from '../utils/reportFilterRules';
 import { parseFiltersFromUrl, syncFiltersToUrl, parsePrintFiltersFromUrl } from '../utils/urlFilters';
 import { filterForTarget } from '../utils/crossFilter';
 import { shiftFiltersForN1, shiftWidgetFiltersForN1, hasShiftableFilterForN1 } from '../utils/comparePeriod';
@@ -137,6 +138,77 @@ export default function Viewer() {
   }, [id]);
 
   // Slicer filter
+  // Slicer search — same contract as Editor.handleSlicerSearch. Lets the
+  // viewer (read-only) user search beyond the cap-1000 initial fetch.
+  // Results land in `data._searchedValues`; bypassCache stays clean.
+  const slicerSearchSeqRef = useRef({});
+  const handleSlicerSearch = useCallback(async (widgetId, searchTerm) => {
+    const w = widgetsRef.current?.[widgetId];
+    if (!w || w.type !== 'filter') return;
+    const dim = w.dataBinding?.selectedDimensions?.[0];
+    if (!dim || !model?.id) return;
+    const term = (searchTerm || '').trim();
+    const mySeq = (slicerSearchSeqRef.current[widgetId] || 0) + 1;
+    slicerSearchSeqRef.current[widgetId] = mySeq;
+
+    if (!term) {
+      setWidgets((prev) => {
+        const cur = prev[widgetId];
+        if (!cur || !cur.data) return prev;
+        if (cur.data._searchedValues === undefined && cur.data._isSearching === undefined) return prev;
+        const nextData = { ...cur.data };
+        delete nextData._searchedValues;
+        delete nextData._isSearching;
+        return { ...prev, [widgetId]: { ...cur, data: nextData } };
+      });
+      return;
+    }
+
+    setWidgets((prev) => {
+      const cur = prev[widgetId];
+      if (!cur) return prev;
+      return { ...prev, [widgetId]: { ...cur, data: { ...(cur.data || {}), _isSearching: true } } };
+    });
+
+    try {
+      const reportExtras = {
+        extraDimensions: report?.settings?.extraDimensions || [],
+        extraMeasures: report?.settings?.extraMeasures || [],
+        dimensionOverrides: report?.settings?.dimensionOverrides || {},
+        measureOverrides: report?.settings?.measureOverrides || {},
+      };
+      const res = await api.post(`/models/${model.id}/query`, {
+        dimensionNames: [dim],
+        measureNames: [],
+        limit: 1000,
+        filters: {},
+        widgetFilters: [{ field: dim, op: 'contains', value: term, isMeasure: false }],
+        distinct: true,
+        reportId: id,
+        bypassCache: true,
+        ...reportExtras,
+      });
+      if (slicerSearchSeqRef.current[widgetId] !== mySeq) return;
+      const rows = res.data?.rows || [];
+      const keys = rows.length > 0 ? Object.keys(rows[0]) : [];
+      const values = keys.length > 0
+        ? [...new Set(rows.map((r) => r[keys[0]]).filter((v) => v != null))]
+        : [];
+      setWidgets((prev) => {
+        const cur = prev[widgetId];
+        if (!cur) return prev;
+        return { ...prev, [widgetId]: { ...cur, data: { ...(cur.data || {}), _searchedValues: values, _isSearching: false } } };
+      });
+    } catch {
+      if (slicerSearchSeqRef.current[widgetId] !== mySeq) return;
+      setWidgets((prev) => {
+        const cur = prev[widgetId];
+        if (!cur) return prev;
+        return { ...prev, [widgetId]: { ...cur, data: { ...(cur.data || {}), _isSearching: false } } };
+      });
+    }
+  }, [model, id, report?.settings]);
+
   const handleSlicerFilter = useCallback((widgetId, dimensionName, selectedValues) => {
     setSlicerSelections((prev) => {
       const next = { ...prev };
@@ -376,13 +448,16 @@ export default function Viewer() {
       // be filtered by reportFilters (so the slicer doesn't filter itself), but RLS still applies.
       const isFilterWidget = w.type === 'filter';
       const queryFilters = isFilterWidget ? {} : mergedFilters;
-      const queryLimit = isFilterWidget ? 1000000 : (w.config?.dataLimit || 1000);
+      // Slicer fetch is capped — same reasoning as DataPanel. Beyond the
+      // cap the user searches server-side via handleSlicerSearch which
+      // fires a fresh /query with a `contains` filter.
+      const queryLimit = isFilterWidget ? 1000 : (w.config?.dataLimit || 1000);
 
-      // Drop any global rule whose `exclusions` list contains this widget —
-      // it was opted out via the global filter bar's edit-interactions UI in
-      // the editor.
-      const reportLevelFilters = (Array.isArray(report?.settings?.reportFilters) ? report.settings.reportFilters : [])
-        .filter((r) => !Array.isArray(r?.exclusions) || !r.exclusions.includes(wId));
+      // Per-widget view of the report-level global filters. See
+      // prepareGlobalRulesForWidget for the dual responsibility (drop
+      // excluded rules + strip the editor-only `exclusions` field so it
+      // doesn't pollute the preAggCache shape key).
+      const reportLevelFilters = prepareGlobalRulesForWidget(report?.settings?.reportFilters, wId);
       const widgetOwnFilters = Array.isArray(w.dataBinding?.widgetFilters) ? w.dataBinding.widgetFilters : [];
       const widgetFilters = [...reportLevelFilters, ...widgetOwnFilters];
       const colorMeasure = (w.config?.colorCondition?.enabled === true) ? w.dataBinding?.colorMeasure : undefined;
@@ -839,6 +914,7 @@ export default function Viewer() {
           settings={report.settings}
           reportFilters={slicerSelections}
           onSlicerFilter={handleSlicerFilter}
+          onSlicerSearch={handleSlicerSearch}
           onCrossFilter={handleCrossFilter}
           onDrillUp={handleDrillUp}
           onDrillReset={handleDrillReset}

@@ -209,6 +209,36 @@ function entriesForModel(modelId) {
   return n;
 }
 
+// Per-entry breakdown for the cache UI / admin inspector. Surfaces enough
+// dataset metadata (dims + measure names + row count) for the caller to
+// match an entry back to its widget without exposing the raw rows. Sorted
+// largest first so the heaviest entries float to the top.
+function inspectModel(modelId) {
+  if (!modelId) return [];
+  const s = indexByModel.get(modelId);
+  if (!s) return [];
+  const out = [];
+  for (const key of s) {
+    const v = cache.get(key);
+    if (!v) continue;
+    const ds = v.dataset || {};
+    // Support both legacy row-objects (`ds.rows`) and the new columnar
+    // (`ds.rowCount` set by toColumnarDataset).
+    let rowCount = 0;
+    if (typeof ds.rowCount === 'number') rowCount = ds.rowCount;
+    else if (Array.isArray(ds.rows)) rowCount = ds.rows.length;
+    out.push({
+      keyHash: String(key).slice(0, 12),
+      bytes: entryBytes(v),
+      builtAt: v.builtAt || null,
+      dims: Array.isArray(ds.dims) ? ds.dims : [],
+      measures: ds.measures ? Object.keys(ds.measures) : [],
+      rowCount,
+    });
+  }
+  return out.sort((a, b) => b.bytes - a.bytes);
+}
+
 function bytesForOrg(orgId) {
   if (!orgId) return 0;
   const s = indexByOrg.get(orgId);
@@ -259,6 +289,7 @@ module.exports = {
   stats,
   totalBytes,
   bytesForModel,
+  inspectModel,
   bytesForOrg,
   entriesForModel,
   latestBuiltAtForModel,

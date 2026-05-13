@@ -178,6 +178,29 @@ function entriesForModel(modelId) {
   return n;
 }
 
+// Per-entry breakdown. queryCache keys are SHA256(SQL+RLS) so we can't
+// recover the originating widget from the key alone — we surface bytes +
+// row count + builtAt and leave the caller to correlate via the cache
+// inspector route (which uses planForReport to expected-shape match).
+function inspectModel(modelId) {
+  if (!modelId) return [];
+  const set = indexByModel.get(modelId);
+  if (!set) return [];
+  const out = [];
+  for (const key of set) {
+    const v = cache.get(key);
+    if (!v) continue;
+    out.push({
+      keyHash: String(key).slice(0, 12),
+      bytes: entryBytes(v),
+      builtAt: v.builtAt || null,
+      rowCount: Array.isArray(v.rows) ? v.rows.length : 0,
+      queryDurationMs: v.queryDurationMs || null,
+    });
+  }
+  return out.sort((a, b) => b.bytes - a.bytes);
+}
+
 function bytesForOrg(orgId) {
   if (!orgId) return 0;
   const set = indexByOrg.get(orgId);
@@ -232,6 +255,7 @@ module.exports = {
   stats,
   totalBytes,
   bytesForModel,
+  inspectModel,
   bytesForOrg,
   entriesForModel,
   latestBuiltAtForModel,

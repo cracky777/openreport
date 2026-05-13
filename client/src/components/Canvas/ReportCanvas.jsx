@@ -22,7 +22,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget }) {
   const nodeRef = useRef(null);
   const [showSql, setShowSql] = useState(false);
   const WidgetType = WIDGET_TYPES[widget.type];
@@ -134,6 +134,9 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
               const dimName = widget.dataBinding?.selectedDimensions?.[0];
               if (dimName) onSlicerFilter(item.i, dimName, vals);
             } : undefined}
+            onSearchValues={widget.type === 'filter' && onSlicerSearch
+              ? (term) => onSlicerSearch(item.i, term)
+              : undefined}
             activeSelection={widget.type === 'filter' && reportFilters ? reportFilters[widget.dataBinding?.selectedDimensions?.[0]] : undefined}
             onDataClick={onCrossFilter ? (dimName, value) => onCrossFilter(item.i, dimName, value) : undefined}
             highlightValue={crossHighlight?.widgetId === item.i ? crossHighlight.value : null}
@@ -341,6 +344,7 @@ export default function ReportCanvas({
   onWidgetUpdate,
   reportFilters,
   onSlicerFilter,
+  onSlicerSearch,
   onCrossFilter,
   onDrillUp,
   onDrillReset,
@@ -540,6 +544,7 @@ export default function ReportCanvas({
               onLoadMore={onLoadMore}
               onWidgetUpdate={onWidgetUpdate}
               onSlicerFilter={onSlicerFilter}
+              onSlicerSearch={onSlicerSearch}
               onCrossFilter={onCrossFilter}
               onDrillUp={onDrillUp}
               onDrillReset={onDrillReset}

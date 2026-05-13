@@ -4,6 +4,7 @@ import api from '../../utils/api';
 import SqlExpressionInput from '../SqlExpressionInput/SqlExpressionInput';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
 import { sanitizeWidgetFilters } from '../../utils/widgetFilters';
+import { prepareGlobalRulesForWidget } from '../../utils/reportFilterRules';
 import { computeBindingKey } from '../../utils/bindingKey';
 import { shiftFiltersForN1, shiftWidgetFiltersForN1, hasShiftableFilterForN1 } from '../../utils/comparePeriod';
 
@@ -146,10 +147,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   // DataPanel-triggered refetches (binding edits, drag-drop) silently drop
   // the report-wide filters until something else nudges Editor.jsx into
   // refetching.
-  // Drop any global rule whose `exclusions` list contains this widget — it
-  // was opted out via the global filter bar's edit-interactions UI.
-  const reportLevelFilters = (Array.isArray(settings?.reportFilters) ? settings.reportFilters : [])
-    .filter((r) => !Array.isArray(r?.exclusions) || !r.exclusions.includes(widgetId));
+  // Per-widget view of the report-level global filters. See
+  // prepareGlobalRulesForWidget for the dual responsibility (drop excluded
+  // rules + strip the editor-only `exclusions` field so it doesn't pollute
+  // the preAggCache shape key).
+  const reportLevelFilters = prepareGlobalRulesForWidget(settings?.reportFilters, widgetId);
   const ownWidgetFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
   const widgetFilters = [...reportLevelFilters, ...ownWidgetFilters];
   const aggOverrides = binding.measureAggOverrides || {};
@@ -330,7 +332,12 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               dimensionNames: allDims,
               measureNames: uniqueMeass,
               measureAggOverrides: Object.keys(aggOverrides).length > 0 ? aggOverrides : undefined,
-              limit: isFilterWidget ? 1000000 : (capturedWidget.config?.dataLimit || 1000),
+              // Slicer fetch is capped to a small set (1000) so the queryCache
+              // entry stays tiny — beyond that the slicer is unusable from
+              // the UI (FilterWidget windows 200 with Show more), and the
+              // user can search for any value beyond the cap via the
+              // server-side search query path (handleSlicerSearch).
+              limit: isFilterWidget ? 1000 : (capturedWidget.config?.dataLimit || 1000),
               filters: mergedFiltersLocal,
               widgetFilters: sanitizeWidgetFilters(widgetFiltersWithTopN),
               distinct: isFilterWidget || undefined,
