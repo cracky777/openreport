@@ -226,7 +226,13 @@ function planForReport(report, settings, opts = {}) {
       widgetFilters,
       reportExtras,
       body: {
-        dimensionNames: expandedDims,
+        // preAgg items fire at the fine grain (baseDims + slicerDims) so
+        // the cached dataset can re-aggregate any drill / cross-filter
+        // shape in-memory. Non-preAgg items fire at the VISUAL grain
+        // (baseDims only) so the SQL matches what the runtime visual
+        // will actually request — otherwise queryCache stores rows the
+        // runtime never reads.
+        dimensionNames: preAgg ? expandedDims : baseDims,
         // Fire components when we're going to recompose later; visual
         // measures otherwise. The warmer also writes the visual measure
         // SQL into the queryCache via this same query, but only the
