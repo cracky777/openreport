@@ -436,8 +436,19 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
   // into six ~20s queries that don't trip the nginx 5min wall.
   // `WARM_CHUNK_SIZE=0` (or invalid) disables chunking — one big SQL.
   const chunkSize = Math.max(0, Number(process.env.WARM_CHUNK_SIZE ?? 10));
+  // Per-bucket processing was sequential; for a report with 10
+  // coalesced buckets that walked the wall-clock past the nginx 5min
+  // proxy timeout. Process buckets in PARALLEL with a worker pool —
+  // each bucket still chunks its own grouping sets sequentially (to
+  // avoid blowing up the DB pool), but multiple buckets run at once.
+  // `WARM_CONCURRENCY=1` reverts to the legacy sequential behaviour.
+  const concurrency = Math.max(1, Number(process.env.WARM_CONCURRENCY ?? 4));
 
-  for (const item of plan) {
+  // Per-bucket result accumulator. Each worker pushes its outcome here;
+  // the totals (ok/failed/stored/errors) are folded once at the end so
+  // the response shape stays unchanged.
+  const results = [];
+  const processBucket = async (item) => {
     try {
       const allSets = Array.isArray(item.body.groupingSets) ? item.body.groupingSets : [];
       const chunks = (chunkSize > 0 && allSets.length > chunkSize)
@@ -454,6 +465,7 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
       // grouping sets are disjoint), so concatenation is correct.
       const allRows = [];
       let rlsContext = null;
+      const localErrors = [];
       let chunkFailed = false;
       for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
         const chunkBody = chunks.length > 1
@@ -468,10 +480,9 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
           body: JSON.stringify(chunkBody),
         });
         if (!r.ok) {
-          failed++;
           const text = await r.text().catch(() => '');
           const chunkLabel = chunks.length > 1 ? ` chunk ${cIdx + 1}/${chunks.length}` : '';
-          errors.push(`${item.bucketKey}${chunkLabel} → ${r.status}: ${text.slice(0, 200)}`);
+          localErrors.push(`${item.bucketKey}${chunkLabel} → ${r.status}: ${text.slice(0, 200)}`);
           chunkFailed = true;
           break;
         }
@@ -485,11 +496,7 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
           };
         }
       }
-      if (chunkFailed) continue;
-      ok++;
-      // SQL aliases dims/measures by `label || name`. Build the alias
-      // map so the displayCache lookup can resolve a runtime dim name
-      // back to the cached row key.
+      if (chunkFailed) return { ok: 0, failed: 1, stored: 0, errors: localErrors };
       const dimLookup = (name) => allDimensions.find((d) => d.name === name) || null;
       const rowKeys = {};
       for (const dimName of item.allDims) {
@@ -497,14 +504,12 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
         const alias = d ? (d.label || d.name) : dimName;
         if (alias !== dimName) rowKeys[dimName] = alias;
       }
-      // Build the columnar dataset ONCE per bucket from the merged
-      // rows. Every spec in the bucket references the same dataset
-      // (Phase 4-v2 dedup) so 1× RAM regardless of widget count.
       const sharedDataset = displayCache.buildSharedDataset({
         dims: item.allDims,
         rowKeys,
         rows: allRows,
       });
+      let bucketStored = 0;
       for (const spec of item.specs) {
         const status = displayCache.set(
           {
@@ -522,16 +527,45 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
           sharedDataset
         );
         if (status && status.stored) {
-          stored++;
+          bucketStored++;
         } else {
           const reason = (status && status.reason) || 'unknown';
-          errors.push(`${item.bucketKey}#${spec.wId} displayCache.set skipped: ${reason} (rows=${allRows.length})`);
+          localErrors.push(`${item.bucketKey}#${spec.wId} displayCache.set skipped: ${reason} (rows=${allRows.length})`);
         }
       }
+      return { ok: 1, failed: 0, stored: bucketStored, errors: localErrors };
     } catch (err) {
-      failed++;
-      errors.push(`${item.bucketKey} → ${err.message}`);
+      return { ok: 0, failed: 1, stored: 0, errors: [`${item.bucketKey} → ${err.message}`] };
     }
+  };
+
+  // Worker pool — process up to `concurrency` buckets in parallel. Each
+  // worker pulls the next unprocessed plan item, awaits its full
+  // chunk-sequential flow, then grabs the next. Order doesn't matter:
+  // buckets are independent (their cache keys differ) so race-free.
+  let cursor = 0;
+  const runOneWorker = async () => {
+    while (true) {
+      const myIdx = cursor++;
+      if (myIdx >= plan.length) return;
+      const r = await processBucket(plan[myIdx]);
+      results[myIdx] = r;
+    }
+  };
+  const workers = Array.from(
+    { length: Math.min(concurrency, plan.length) },
+    () => runOneWorker(),
+  );
+  await Promise.all(workers);
+
+  // Fold the per-bucket outcomes into the totals the response shape
+  // already exposes.
+  for (const r of results) {
+    if (!r) continue;
+    ok += r.ok;
+    failed += r.failed;
+    stored += r.stored;
+    if (Array.isArray(r.errors)) for (const e of r.errors) errors.push(e);
   }
   return {
     fired: plan.length,
