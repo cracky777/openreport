@@ -160,6 +160,12 @@ function planForReport(report, settings, opts = {}) {
         firedSet.add(spec.denRef);
         continue;
       }
+      if (spec.type === 'expression') {
+        // Fire each ${ref} as a named measure so the dataset stores its
+        // additive sub-totals; the evaluator runs over those at output.
+        for (const r of spec.refs) firedSet.add(r.name);
+        continue;
+      }
       // AVG decomposition requires synthetic SUM+COUNT measures that the
       // /query gate doesn't accept under an internal warm token (see
       // 0065796 extras gating). Skip preAgg for this visual.
@@ -283,6 +289,10 @@ function planForReport(report, settings, opts = {}) {
         if (spec.type === 'ratio') {
           lineFiredSet.add(spec.numRef);
           lineFiredSet.add(spec.denRef);
+          continue;
+        }
+        if (spec.type === 'expression') {
+          for (const r of spec.refs) lineFiredSet.add(r.name);
           continue;
         }
         lineDecomposable = false; break;
@@ -501,9 +511,31 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
                 numKey: numAlias,
                 denKey: denAlias,
                 hasGuard: spec.hasGuard,
+                // Optional multiplier captured by detectRatio (1 = no scale).
+                scale: spec.scale || 1,
               };
               // Map the visual measure's name → its display alias so the
               // aggregate output row uses the right column key.
+              const visualM = measureLookup(visualName);
+              const visualAlias = aliasFor(visualM) || visualName;
+              if (visualAlias !== visualName) rowKeys[visualName] = visualAlias;
+              continue;
+            }
+            if (spec.type === 'expression') {
+              // Map each ref → its SQL alias so the aggregator can read
+              // the right column without re-doing the alias resolution
+              // at every cell lookup.
+              const refKeys = {};
+              for (const r of spec.refs) {
+                const refM = measureLookup(r.name);
+                refKeys[r.name] = aliasFor(refM) || r.name;
+              }
+              measuresMeta[visualName] = {
+                type: 'expression',
+                refs: spec.refs,
+                refKeys,
+                rawExpression: spec.rawExpression,
+              };
               const visualM = measureLookup(visualName);
               const visualAlias = aliasFor(visualM) || visualName;
               if (visualAlias !== visualName) rowKeys[visualName] = visualAlias;

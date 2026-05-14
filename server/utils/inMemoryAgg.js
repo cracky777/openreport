@@ -33,6 +33,8 @@
  * Returns a fresh array of rows; the input dataset is not mutated.
  */
 
+const { compileExpression } = require('./measureType');
+
 // Resolve a dim/measure NAME into the actual key under which it lives in
 // the dataset rows. SQL aliases columns by `label || name` (see the
 // route's selectParts), so when the user renamed a measure the cache
@@ -227,6 +229,13 @@ function aggregate({ dataset, request }) {
         const def = measures[m];
         if (def.type === 'ratio') bucket.measures[m] = { num: null, den: null };
         else if (def.type === 'avg') bucket.measures[m] = { sum: null, count: null };
+        else if (def.type === 'expression') {
+          // One slot per ref — each is an additive sub-accumulator that
+          // mimics its declared innerType (sum/count/min/max).
+          const slots = {};
+          for (const r of (def.refs || [])) slots[r.name] = null;
+          bucket.measures[m] = slots;
+        }
         else bucket.measures[m] = null;
       }
       groups.set(k, bucket);
@@ -256,6 +265,35 @@ function aggregate({ dataset, request }) {
         if (cv != null) {
           const n = typeof cv === 'number' ? cv : Number(cv);
           if (Number.isFinite(n)) bucket.measures[m].count = addToAccum(bucket.measures[m].count, n);
+        }
+        continue;
+      }
+      if (def.type === 'expression') {
+        // Each ref is fired by SQL under an alias stored in def.refKeys.
+        // Accumulate per ref using its declared innerType — sums/counts
+        // add, mins/maxes take the running min/max.
+        const slots = bucket.measures[m];
+        const refKeys = def.refKeys || {};
+        for (const r of (def.refs || [])) {
+          const key = refKeys[r.name] || r.name;
+          const rv = cellAt(dataset, rowIdx, key);
+          if (rv == null) continue;
+          const n = typeof rv === 'number' ? rv : Number(rv);
+          if (!Number.isFinite(n)) continue;
+          const cur = slots[r.name];
+          switch (r.innerType) {
+            case 'sum':
+            case 'count':
+              slots[r.name] = addToAccum(cur, n);
+              break;
+            case 'min':
+              slots[r.name] = cur == null ? n : Math.min(cur, n);
+              break;
+            case 'max':
+              slots[r.name] = cur == null ? n : Math.max(cur, n);
+              break;
+            // Unknown innerType — ignored (canServe should've rejected).
+          }
         }
         continue;
       }
@@ -298,12 +336,18 @@ function aggregate({ dataset, request }) {
         const { num, den } = bucket.measures[m];
         const n = num == null ? 0 : num;
         const d = den == null ? 0 : den;
+        // Optional `* <number>` multiplier captured by detectRatio (e.g.
+        // `${a} / ${b} * 100` for a percentage). Defaults to 1 so legacy
+        // entries without the field still divide cleanly.
+        const scale = typeof def.scale === 'number' && def.scale !== 0 ? def.scale : 1;
         // hasGuard mirrors the original SQL's div-by-zero handling
         // (`CASE WHEN den = 0 THEN 1 ELSE den` or NULLIF). Without a
         // guard we return null when the denominator is zero — matches
         // a SQL fresh path that would produce NULL via NULLIF or error.
-        if (def.hasGuard) flat[alias] = d === 0 ? n : n / d;
-        else flat[alias] = d === 0 ? null : n / d;
+        let raw;
+        if (def.hasGuard) raw = d === 0 ? n : n / d;
+        else raw = d === 0 ? null : n / d;
+        flat[alias] = raw == null ? null : raw * scale;
         continue;
       }
       if (def.type === 'avg') {
@@ -311,6 +355,25 @@ function aggregate({ dataset, request }) {
         const s = sum == null ? 0 : sum;
         const c = count == null ? 0 : count;
         flat[alias] = c === 0 ? null : s / c;
+        continue;
+      }
+      if (def.type === 'expression') {
+        const fn = compileExpression(def.rawExpression);
+        if (!fn) { flat[alias] = null; continue; }
+        // Coerce null sub-accumulators to 0 so an expression like
+        // `${a} + ${b}` doesn't propagate NaN when one side never had a
+        // row. The transpiled JS uses bare arithmetic — null * 100 ===
+        // 0 but null + 5 === 5 in JS (because null coerces to 0), so the
+        // result IS already well-defined; we coerce explicitly to make
+        // the contract obvious and uniform across operators.
+        const _v = {};
+        for (const r of (def.refs || [])) {
+          const v = bucket.measures[m][r.name];
+          _v[r.name] = v == null ? 0 : v;
+        }
+        let result;
+        try { result = fn(_v); } catch { result = null; }
+        flat[alias] = (typeof result === 'number' && Number.isFinite(result)) ? result : null;
         continue;
       }
       flat[alias] = bucket.measures[m];
@@ -343,6 +406,18 @@ function canServe({ dataset, request }) {
     }
     if (def.type === 'avg') {
       if (!def.sumKey || !def.countKey) return false;
+      continue;
+    }
+    if (def.type === 'expression') {
+      // Must have at least one ref, every ref must declare a supported
+      // additive innerType, and the raw expression string must be there
+      // so the runtime can compile (and cache) the evaluator.
+      if (!Array.isArray(def.refs) || def.refs.length === 0) return false;
+      for (const r of def.refs) {
+        if (!r || !r.name) return false;
+        if (!['sum', 'count', 'min', 'max'].includes(r.innerType)) return false;
+      }
+      if (typeof def.rawExpression !== 'string' || def.rawExpression.length === 0) return false;
       continue;
     }
     if (!['sum', 'count', 'min', 'max'].includes(def.type)) return false;
