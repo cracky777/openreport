@@ -429,29 +429,64 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
       console.log(`[warm] bucket "${item.bucketKey.slice(0, 60)}" widgets=[${wIds}] widgetFilters=${wf.slice(0, 200)}`);
     }
   }
+  // Chunk size for the GROUPING SETS split — a bucket with > N sets
+  // gets fired as multiple smaller POSTs whose result rows are merged
+  // before storing. Each PG query scans the filtered table once per
+  // grouping set, so splitting 60 sets into 6×10 turns one ~120s query
+  // into six ~20s queries that don't trip the nginx 5min wall.
+  // `WARM_CHUNK_SIZE=0` (or invalid) disables chunking — one big SQL.
+  const chunkSize = Math.max(0, Number(process.env.WARM_CHUNK_SIZE ?? 10));
+
   for (const item of plan) {
     try {
-      const r = await fetch(`${base}/api/models/${item.modelId}/query`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          [internalToken.HEADER]: token,
-        },
-        body: JSON.stringify(item.body),
-      });
-      if (!r.ok) {
-        failed++;
-        const text = await r.text().catch(() => '');
-        errors.push(`${item.bucketKey} → ${r.status}: ${text.slice(0, 200)}`);
-        continue;
+      const allSets = Array.isArray(item.body.groupingSets) ? item.body.groupingSets : [];
+      const chunks = (chunkSize > 0 && allSets.length > chunkSize)
+        ? Array.from(
+            { length: Math.ceil(allSets.length / chunkSize) },
+            (_, i) => allSets.slice(i * chunkSize, (i + 1) * chunkSize),
+          )
+        : [allSets];
+      if (process.env.WARM_LOG !== '0' && chunks.length > 1) {
+        console.log(`[warm] bucket "${item.bucketKey.slice(0, 60)}" → ${chunks.length} chunks (${allSets.length} sets / ${chunkSize})`);
       }
+      // Accumulate rows from every chunk before storing — the rows
+      // across chunks are at non-overlapping grains (each chunk's
+      // grouping sets are disjoint), so concatenation is correct.
+      const allRows = [];
+      let rlsContext = null;
+      let chunkFailed = false;
+      for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
+        const chunkBody = chunks.length > 1
+          ? { ...item.body, groupingSets: chunks[cIdx] }
+          : item.body;
+        const r = await fetch(`${base}/api/models/${item.modelId}/query`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            [internalToken.HEADER]: token,
+          },
+          body: JSON.stringify(chunkBody),
+        });
+        if (!r.ok) {
+          failed++;
+          const text = await r.text().catch(() => '');
+          const chunkLabel = chunks.length > 1 ? ` chunk ${cIdx + 1}/${chunks.length}` : '';
+          errors.push(`${item.bucketKey}${chunkLabel} → ${r.status}: ${text.slice(0, 200)}`);
+          chunkFailed = true;
+          break;
+        }
+        const payload = await r.json();
+        const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+        for (const row of rows) allRows.push(row);
+        if (!rlsContext) {
+          rlsContext = {
+            bypass: payload?._rls?.bypass || null,
+            allowed: payload?._rls?.allowedKeys || null,
+          };
+        }
+      }
+      if (chunkFailed) continue;
       ok++;
-      const payload = await r.json();
-      const rows = Array.isArray(payload?.rows) ? payload.rows : [];
-      const rlsContext = {
-        bypass: payload?._rls?.bypass || null,
-        allowed: payload?._rls?.allowedKeys || null,
-      };
       // SQL aliases dims/measures by `label || name`. Build the alias
       // map so the displayCache lookup can resolve a runtime dim name
       // back to the cached row key.
@@ -462,20 +497,13 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
         const alias = d ? (d.label || d.name) : dimName;
         if (alias !== dimName) rowKeys[dimName] = alias;
       }
-      // Demux: write ONE cache entry per widget in the bucket, each
-      // keyed by THIS widget's identity. The rows are shared across
-      // entries — they reference the same in-memory arrays so we don't
-      // duplicate RAM. Each entry differs only in its `shape` key.
-      // Build the columnar dataset ONCE per bucket — every spec in this
-      // bucket points at the SAME `rowsByGrain` object in RAM. For a
-      // bucket with N coalesced widgets we now use roughly 1× the
-      // memory of the SQL response instead of N× (one columnar copy
-      // per spec). Reported bytes are de-duped in the inspect endpoint
-      // via `_bucketId`.
+      // Build the columnar dataset ONCE per bucket from the merged
+      // rows. Every spec in the bucket references the same dataset
+      // (Phase 4-v2 dedup) so 1× RAM regardless of widget count.
       const sharedDataset = displayCache.buildSharedDataset({
         dims: item.allDims,
         rowKeys,
-        rows,
+        rows: allRows,
       });
       for (const spec of item.specs) {
         const status = displayCache.set(
@@ -487,24 +515,17 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
               widgetFilters: spec.widgetFilters,
               reportExtras: item.reportExtras,
             }),
-            rlsContext,
+            rlsContext: rlsContext || { bypass: null, allowed: null },
             orgId: row.organization_id || null,
-            // Tag the entry with the spec's widget identity so the
-            // inspect endpoint can list it under the right widget row
-            // without having to re-hash the spec on its side.
             widgetId: spec.wId,
           },
           sharedDataset
         );
-        // displayCache.set returns `{ stored, reason }` — surface
-        // skipped writes in the warm result so a "cache disabled" /
-        // "ttl=0" / "org quota exceeded" config bug doesn't look like
-        // a silent success with an empty cache.
         if (status && status.stored) {
           stored++;
         } else {
           const reason = (status && status.reason) || 'unknown';
-          errors.push(`${item.bucketKey}#${spec.wId} displayCache.set skipped: ${reason} (rows=${rows.length})`);
+          errors.push(`${item.bucketKey}#${spec.wId} displayCache.set skipped: ${reason} (rows=${allRows.length})`);
         }
       }
     } catch (err) {
