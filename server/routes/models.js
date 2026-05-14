@@ -2215,7 +2215,15 @@ router.post('/:id/query', async (req, res) => {
     // cancellable variant, register the cancel callback so a sibling
     // /cancel-query call can abort the in-flight DB query. Otherwise fall
     // back to the legacy non-cancellable path.
-    const timeoutMs = resolveQueryTimeoutMs(req);
+    //
+    // Warmer requests fire GROUP BY GROUPING SETS with potentially
+    // dozens of grains in one SQL — PG evaluates each set independently
+    // so the wall clock is roughly N × single-set time. The user-facing
+    // default is fine for runtime drills (single grain) but too tight
+    // for the coalesced warm SQL. Bump to 10 min for warmer requests;
+    // runtime queries keep the configured timeout.
+    const baseTimeoutMs = resolveQueryTimeoutMs(req);
+    const timeoutMs = isWarmerRequest ? Math.max(baseTimeoutMs, 10 * 60 * 1000) : baseTimeoutMs;
     let rawRows;
     const startedAt = Date.now();
     if (typeof conn.queryCancellable === 'function') {
