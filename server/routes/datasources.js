@@ -116,6 +116,7 @@ router.put('/:id', requireAuth, (req, res) => {
   // — every cached row tied to this datasource is now potentially wrong.
   queryCache.invalidateDatasource(req.params.id);
   preAggCache.invalidateDatasource(req.params.id);
+  require('../utils/displayCache').invalidateDatasource(req.params.id);
 
   const updated = db.prepare(
     'SELECT id, name, db_type, host, port, db_name, db_user, created_at FROM datasources WHERE id = ? AND user_id = ?'

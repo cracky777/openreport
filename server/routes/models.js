@@ -6,8 +6,8 @@ const { createConnection } = require('../utils/dbConnector');
 const { canAccessReport } = require('./reports');
 const { getQueryTimeoutMs } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
-const preAggCache = require('../utils/preAggCache');
-const { additiveTypeForMeasure, decomposeMeasure } = require('../utils/measureType');
+const preAggCache = require('../utils/preAggCache'); // legacy — kept for invalidation hooks only
+const displayCache = require('../utils/displayCache');
 const { quoteIdent, quoteTable, quoteCol, escapeLiteral, quoteLiteral, normalizeAggregation } = require('../utils/sqlDialect');
 
 // Hook for cloud edition to override the global query-timeout with a
@@ -227,6 +227,40 @@ function getOverrideType(table, column, columnTypes) {
 // 'DD/MM/YYYY' values is parsed before the part is extracted).
 //
 // Returns null when the dim has no datePart. Used by both the SELECT
+// Build a dialect-appropriate SQL expression that returns the GROUPING_ID
+// bitmask for a row: bit (n-1-i) is 1 when args[i] is aggregated (not part
+// of the current grouping set's grain) and 0 when it's grouped. The
+// high-bit-first convention matches `displayCache.grainBitmask` so the
+// cache layer can match a row to a request's grain by integer equality.
+//   - Postgres / MySQL 8.0+ : GROUPING(a, b, …)
+//   - MS SQL / Azure SQL    : GROUPING_ID(a, b, …)
+//   - DuckDB                : GROUPING_ID(a, b, …)
+//   - BigQuery              : sum of GROUPING(arg) * weight, since BQ's
+//                             GROUPING() takes a single arg and returns
+//                             0/1 — we synthesise the bitmask manually.
+// MySQL < 8.0 has no GROUPING SETS at all; warm pipelines must skip this
+// path for those datasources (the connector layer surfaces a warning).
+function buildGroupingIdSql(dbType, args) {
+  if (!Array.isArray(args) || args.length === 0) return '0';
+  switch (dbType) {
+    case 'azure':
+    case 'mssql':
+    case 'duckdb':
+      return `GROUPING_ID(${args.join(', ')})`;
+    case 'bigquery': {
+      const n = args.length;
+      const terms = args.map((a, i) => `GROUPING(${a}) * ${1 << (n - 1 - i)}`);
+      return `(${terms.join(' + ')})`;
+    }
+    case 'postgres':
+    case 'mysql':
+    default:
+      // PG & MySQL 8.0+ accept multi-arg GROUPING() with the same
+      // high-bit-first bitmask semantics as GROUPING_ID.
+      return `GROUPING(${args.join(', ')})`;
+  }
+}
+
 // projection and the WHERE / HAVING filter generation, so drill-down on
 // a year column actually filters by the YEAR(...) expression rather than
 // the raw timestamp string.
@@ -544,6 +578,7 @@ router.put('/:id', requireAuth, (req, res) => {
   // index is keyed by modelId.
   queryCache.invalidateModel(req.params.id);
   preAggCache.invalidateModel(req.params.id);
+  displayCache.invalidateModel(req.params.id);
 
   const updated = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
   res.json({
@@ -1016,6 +1051,13 @@ router.post('/:id/query', async (req, res) => {
     // smuggle a custom-SQL measure into a /query they don't own) and by
     // cloud to resolve workspace-scoped timeouts.
     reportId,
+    // Phase 4: opt-in `GROUP BY GROUPING SETS (...)` mode. Array of
+    // arrays of DIMENSION NAMES (not SQL expressions). When set, the SQL
+    // builder emits a single query covering every grain in the list, plus
+    // a `GROUPING_ID(...) AS "_grain"` column so the cache layer can
+    // identify which row belongs to which grain. Empty / missing → the
+    // legacy GROUP BY <every dim> path is used unchanged.
+    groupingSets,
   } = req.body;
 
   // Gate `extraMeasures` / `extraDimensions` / overrides: these can carry
@@ -1401,21 +1443,47 @@ router.post('/:id/query', async (req, res) => {
     }
   }
 
+  // Track each dim's GROUP BY expression by its logical name. The
+  // GROUPING SETS path (Phase 4) needs to look these up by name — the
+  // body's `groupingSets` field lists dim names, not SQL expressions,
+  // because the warmer doesn't know about per-dialect quoting.
+  const dimExprByName = Object.create(null);
   selectedDimensions.forEach((d) => {
+    let expr;
     if (d.datePart) {
       // Date part derived column — delegate to the dialect-aware helper so
       // the SELECT and the WHERE/HAVING paths stay consistent (they all need
       // the same EXTRACT/YEAR(...) expression for drill-down to work).
-      const expr = buildDatePartExpr(d, dbType, columnTypes);
-      selectParts.push(`${expr} AS ${quoteIdent(d.label || d.name, dbType)}`);
-      groupByParts.push(expr);
-      tablesUsed.add(d.table);
+      expr = buildDatePartExpr(d, dbType, columnTypes);
     } else {
-      selectParts.push(`${quoteCol(d.table, d.column, dbType)} AS ${quoteIdent(d.label || d.name, dbType)}`);
-      groupByParts.push(quoteCol(d.table, d.column, dbType));
-      tablesUsed.add(d.table);
+      expr = quoteCol(d.table, d.column, dbType);
     }
+    selectParts.push(`${expr} AS ${quoteIdent(d.label || d.name, dbType)}`);
+    groupByParts.push(expr);
+    tablesUsed.add(d.table);
+    dimExprByName[d.name] = expr;
   });
+
+  // GROUPING SETS mode: validate the requested sets reference only dims
+  // we just SELECTed. If any name is unknown, fall back to standard
+  // GROUP BY rather than emitting a half-built grouping sets clause.
+  const groupingSetsValid = Array.isArray(groupingSets)
+    && groupingSets.length > 0
+    && groupingSets.every((set) => Array.isArray(set) && set.every((n) => dimExprByName[n]));
+  if (groupingSetsValid) {
+    // Inject GROUPING_ID(<every dim in dimExprByName>) AS "_grain" so
+    // the cache layer can tell at lookup time which grain each row
+    // belongs to. Args MUST be in the SAME order as `selectedDimensions`
+    // — the bitmask semantics depend on argument position (high bit =
+    // first arg). The cache stores `dataset.dims = [d.name…]` in the
+    // same order and computes the expected bitmask the same way.
+    const groupingArgs = selectedDimensions
+      .map((d) => dimExprByName[d.name])
+      .filter(Boolean);
+    if (groupingArgs.length > 0) {
+      selectParts.push(`${buildGroupingIdSql(dbType, groupingArgs)} AS ${quoteIdent('_grain', dbType)}`);
+    }
+  }
 
   // Helper used by filtered measures to convert a single FilterRule into a
   // SQL fragment. Mirrors the WHERE-loop above but returns the clause
@@ -1879,7 +1947,17 @@ router.post('/:id/query', async (req, res) => {
     sql += ` WHERE ${whereParts.map((w) => w.sql).join(' AND ')}`;
   }
 
-  if (groupByParts.length > 0 && selectedMeasures.length > 0) {
+  if (groupingSetsValid && selectedMeasures.length > 0) {
+    // GROUPING SETS mode (Phase 4) — emit one row set per grain. The
+    // sets list comes straight from the caller (typically the warmer),
+    // which is responsible for covering every grain a runtime query
+    // might ask for. We map each dim name to its already-resolved SQL
+    // expression so dialect quoting/date-part rewrites stay consistent.
+    const setsSql = groupingSets
+      .map((set) => `(${set.map((n) => dimExprByName[n]).filter(Boolean).join(', ')})`)
+      .join(', ');
+    sql += ` GROUP BY GROUPING SETS (${setsSql})`;
+  } else if (groupByParts.length > 0 && selectedMeasures.length > 0) {
     sql += ` GROUP BY ${groupByParts.join(', ')}`;
   }
 
@@ -1949,106 +2027,79 @@ router.post('/:id/query', async (req, res) => {
     rlsContext: rlsContextForCache,
   };
   if (!bypassCache) {
-    // Try the pre-aggregated cache FIRST — it covers every filter combo
-    // for the same visual shape, so it's a far broader win than the
-    // SQL-keyed cache below (which needs an exact SQL match). Only the
-    // visual's intrinsic identity (dims/measures/widgetFilters/extras)
-    // goes into the key — runtime slicer filters become an `inMemoryAgg`
-    // pass over the cached rows.
-    // Eligibility: every requested measure must either be additive
-    // (sum/count/min/max) OR decomposable into additive components (ratio
-    // of two additive measures, AVG via SUM+COUNT). The warmer applies the
-    // same predicate, so a hit here implies the dataset has the metadata
-    // the aggregate function needs to recompose at the new grain.
-    const allMeasureSpecs = (selectedMeasures || []).map((m) => decomposeMeasure(m, allMeasures));
-    const allAdditive = allMeasureSpecs.length > 0 && allMeasureSpecs.every((s) => s !== null);
-    // A widget-level measure filter compiles to HAVING at the visual's
-    // baseDims granularity. The pre-agg dataset is grouped at a finer
-    // grain (baseDims + slicerDims), so re-applying that HAVING after
-    // the in-memory re-group would still let through rows whose finer-
-    // grain SUM is below the threshold — and dropping them at warm
-    // time discards regions whose total IS above it. Either way the
-    // result is wrong. Skip pre-agg whenever a REAL measure filter is set.
+    // Display-grain cache (Phase 4) — covers every drill level and
+    // cross-filter dim combination the warmer covered via GROUPING SETS.
+    // Each cached row carries `_grain` (= SQL's GROUPING_ID bitmask) so
+    // we can pick the rows at the exact display grain the widget wants,
+    // then filter by the runtime filter values. NO aggregation — every
+    // cached row IS the displayed value at its grain.
     //
-    // EXCEPT top_n / bottom_n — these are synthetic measure filters added
-    // by the client for Top N–enabled visuals (bar/pie/treemap). They map
-    // to ORDER BY + LIMIT, which is fully reversible in-memory: we look up
-    // the preAgg WITHOUT them (so the shape matches what the warmer stored
-    // — the warmer doesn't replicate runtime topN state), then sort + slice
-    // the aggregated rows here. Drill levels on a topN visual become cache
-    // hits this way.
+    // top_n / bottom_n are synthetic measure filters added by the client
+    // for Top-N visuals. They map to ORDER BY + LIMIT — easy to apply
+    // post-cache.
     const isSyntheticTopN = (f) => f && (f.op === 'top_n' || f.op === 'bottom_n');
-    const hasRealMeasureFilter = Array.isArray(widgetFilters)
-      && widgetFilters.some((f) => f && f.isMeasure && !isSyntheticTopN(f));
-    if (allAdditive && !hasRealMeasureFilter) {
-      const widgetFiltersForShape = Array.isArray(widgetFilters)
-        ? widgetFilters.filter((f) => !isSyntheticTopN(f))
-        : widgetFilters;
-      const preAggOpts = {
-        datasourceId: datasource.id,
-        modelId: model.id,
-        shape: preAggCache.stableShape({
-          dims: dimensionNames,
-          measures: measureNames,
-          widgetFilters: widgetFiltersForShape,
-          reportExtras: { extraDimensions, extraMeasures, dimensionOverrides, measureOverrides },
-        }),
-        rlsContext: rlsContextForCache,
-      };
-      const preAggResult = preAggCache.tryServeWithReason(preAggOpts, {
-        dims: dimensionNames || [],
-        measures: measureNames || [],
-        filters: filters || {},
+    const widgetFiltersForShape = Array.isArray(widgetFilters)
+      ? widgetFilters.filter((f) => !isSyntheticTopN(f))
+      : widgetFilters;
+    const displayOpts = {
+      datasourceId: datasource.id,
+      modelId: model.id,
+      shape: displayCache.stableShape({
+        measures: measureNames,
+        widgetFilters: widgetFiltersForShape,
+        reportExtras: { extraDimensions, extraMeasures, dimensionOverrides, measureOverrides },
+      }),
+      rlsContext: rlsContextForCache,
+    };
+    const displayResult = displayCache.tryServeWithReason(displayOpts, {
+      dims: dimensionNames || [],
+      measures: measureNames || [],
+      filters: filters || {},
+    });
+    const displayHit = displayResult.hit
+      ? { rows: displayResult.rows, builtAt: displayResult.builtAt }
+      : null;
+    // Stash the miss reason so the queryCache / DB fallbacks can surface
+    // it in `_cache.preAggReason` for the network panel.
+    if (!displayResult.hit) {
+      req._preAggMissReason = displayResult.reason;
+      req._preAggMissDetails = displayResult.details;
+    }
+    if (displayHit) {
+      let rows = displayHit.rows;
+      // Apply top_n / bottom_n after the cache filter. Resolves the
+      // measure name to its row alias (SQL aliases by `label || name`).
+      const topNFilter = Array.isArray(widgetFilters) ? widgetFilters.find(isSyntheticTopN) : null;
+      const topNValue = topNFilter ? Math.max(1, Math.floor(topNFilter.value || 0)) : 0;
+      if (topNFilter && topNFilter.field && topNValue > 0 && rows.length > topNValue) {
+        const measDef = (selectedMeasures || []).find((mm) => mm && mm.name === topNFilter.field);
+        const measKey = measDef ? (measDef.label || measDef.name) : topNFilter.field;
+        const direction = topNFilter.op === 'top_n' ? 'desc' : 'asc';
+        rows = [...rows].sort((a, b) => {
+          const va = Number(a[measKey]);
+          const vb = Number(b[measKey]);
+          const naA = Number.isFinite(va) ? va : 0;
+          const naB = Number.isFinite(vb) ? vb : 0;
+          return direction === 'desc' ? naB - naA : naA - naB;
+        }).slice(0, topNValue);
+      }
+      return res.json({
+        rows,
+        rowCount: rows.length,
+        maxReached: rows.length >= MAX_ROWS,
+        sql,
+        _cache: { hit: true, preAgg: true, builtAt: displayHit.builtAt },
+        _rls: {
+          configured: !!(rls && rls.enabled),
+          applies: !!rlsApplies,
+          bypass: rlsContextForCache.bypass,
+          table: rls?.table || null,
+          primaryKey: rls?.primaryKey || null,
+          ruleCount: rls?.rules ? Object.keys(rls.rules).length : 0,
+          userEmail: req.isAuthenticated() ? req.user.email : null,
+          allowedKeys: allowedRlsKeys,
+        },
       });
-      const preAggHit = preAggResult.hit
-        ? { rows: preAggResult.rows, builtAt: preAggResult.builtAt }
-        : null;
-      // Stash the miss reason on `req` so the queryCache / DB branches
-      // below can attach it to `_cache.preAggReason` — surfaces WHY the
-      // pre-agg didn't serve in the network panel without needing logs.
-      // `req` is the only object whose scope reliably reaches both the
-      // queryCache branch (still inside `if (!bypassCache)`) and the DB
-      // fallback branch (outside it).
-      if (!preAggResult.hit) {
-        req._preAggMissReason = preAggResult.reason;
-        req._preAggMissDetails = preAggResult.details;
-      }
-      if (preAggHit) {
-        let rows = preAggHit.rows;
-        // Apply top_n / bottom_n after the in-memory aggregation. Resolves
-        // the measure name to its row alias (SQL aliases by `label || name`).
-        const topNFilter = Array.isArray(widgetFilters) ? widgetFilters.find(isSyntheticTopN) : null;
-        const topNValue = topNFilter ? Math.max(1, Math.floor(topNFilter.value || 0)) : 0;
-        if (topNFilter && topNFilter.field && topNValue > 0 && rows.length > topNValue) {
-          const measDef = (selectedMeasures || []).find((mm) => mm && mm.name === topNFilter.field);
-          const measKey = measDef ? (measDef.label || measDef.name) : topNFilter.field;
-          const direction = topNFilter.op === 'top_n' ? 'desc' : 'asc';
-          rows = [...rows].sort((a, b) => {
-            const va = Number(a[measKey]);
-            const vb = Number(b[measKey]);
-            const naA = Number.isFinite(va) ? va : 0;
-            const naB = Number.isFinite(vb) ? vb : 0;
-            return direction === 'desc' ? naB - naA : naA - naB;
-          }).slice(0, topNValue);
-        }
-        return res.json({
-          rows,
-          rowCount: rows.length,
-          maxReached: rows.length >= MAX_ROWS,
-          sql,
-          _cache: { hit: true, preAgg: true, builtAt: preAggHit.builtAt },
-          _rls: {
-            configured: !!(rls && rls.enabled),
-            applies: !!rlsApplies,
-            bypass: rlsContextForCache.bypass,
-            table: rls?.table || null,
-            primaryKey: rls?.primaryKey || null,
-            ruleCount: rls?.rules ? Object.keys(rls.rules).length : 0,
-            userEmail: req.isAuthenticated() ? req.user.email : null,
-            allowedKeys: allowedRlsKeys,
-          },
-        });
-      }
     }
 
     // Fall back to the regular SQL-keyed cache.

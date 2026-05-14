@@ -1,22 +1,45 @@
 /**
- * Proactive cache warming for OSS.
+ * Proactive cache warming (Phase 4: display-grain coalesced GROUPING SETS).
  *
- * Same idea as the cloud variant (cloud/cacheWarmer.js): walk the report's
- * widgets, fire a query per visual to populate queryCache, and for visuals
- * with additive measures fire an EXPANDED query (slicer dims added to the
- * GROUP BY) so the result lands in preAggCache and serves any filter
- * combination from memory.
+ * For each report we want to issue **as few SQL queries as possible** —
+ * ideally one per report. The path here:
  *
- * Authenticated via the same in-process JWT pattern: sign a short-lived
- * scope=cache_warm token for the schedule's owner, plant it as a header
- * on the localhost call, let `internalToken.middleware` promote the
- * request. No HTTP cookies, no session fixation surface.
+ *   1. Walk all widgets on the report and bucket them by their effective
+ *      `widgetFilters` JSON (= same WHERE clause). All widgets that
+ *      share a bucket can be served by a single coalesced SQL:
+ *        SELECT <union of every widget's dims AND measures>,
+ *               GROUPING_ID(<union of dims>) AS _grain
+ *        FROM   <model>
+ *        WHERE  <bucket's widgetFilters>
+ *        GROUP BY GROUPING SETS (
+ *          <union of every widget's grouping sets>
+ *        )
+ *
+ *   2. Widgets that resist coalescing (= widgets with a measure-level
+ *      filter / HAVING clause) get their own SQL. Same shape, just a
+ *      single-widget bucket.
+ *
+ *   3. The response is stored once per bucket in `displayCache` under a
+ *      key keyed on the bucket's widgetFilters identity. At runtime each
+ *      widget hits the bucket entry shared by its filter neighbours,
+ *      filters rows by `_grain` matching its current display grain, and
+ *      projects only its own measures.
+ *
+ * Trade-off:
+ *   - One SQL per bucket → typically 1–3 SQL per report (most widgets
+ *     share the global filter bar's widgetFilters, so they coalesce).
+ *   - Each row carries every coalesced widget's measure columns, which
+ *     means slightly fatter rows but a much smaller number of DB calls.
+ *   - No runtime aggregation: every cached row is at the SQL-computed
+ *     display grain. Works for AVG, ratios, COUNT(DISTINCT), MEDIAN,
+ *     arbitrary custom — anything the DB can compute.
+ *
+ * MySQL < 8.0 can't run GROUPING SETS at all; the connector layer
+ * surfaces a warning and warm skips those datasources entirely.
  */
 
 const internalToken = require('./internalToken');
-const preAggCache = require('./preAggCache');
-const { toColumnarDataset } = require('./inMemoryAgg');
-const { additiveTypeForMeasure, decomposeMeasure } = require('./measureType');
+const displayCache = require('./displayCache');
 const { sanitizeWidgetFilters } = require('./widgetFilters');
 const { prepareGlobalRulesForWidget } = require('./reportFilterRules');
 const { shiftWidgetFiltersForN1, hasShiftableFilterForN1 } = require('./comparePeriod');
@@ -28,51 +51,16 @@ function appBase() {
   return `http://127.0.0.1:${port}`;
 }
 
-// Walk the report's widgets and pull every dimension a runtime filter
-// could land on. Those are the dims we add to GROUP BY at warm time so
-// the pre-agg can serve any filter combination from cache, including
-// drill-down clicks and cross-filter from other widgets.
-//
-// Sources:
-//   1. Filter (slicer) widgets — their `selectedDimensions` are direct
-//      user-controlled filters.
-//   2. Other visuals' axis / group-by / column dims (and drill
-//      hierarchies, which live in `selectedDimensions`) — clicking a
-//      bar / segment cross-filters every other widget on that dim.
-//
-// Yes, this can grow the cardinality fast on a wide report. The
-// trade-off is that EVERY click-through becomes a cache hit, which is
-// the whole point of the pre-agg path. If a deployment ever needs a
-// cap we can expose a per-report setting; the default bias is towards
-// instant interactions.
-function collectFilterableDims(widgets) {
-  const out = new Set();
-  for (const w of Object.values(widgets || {})) {
-    if (!w || !w.dataBinding) continue;
-    const b = w.dataBinding;
-    if (w.type === 'filter') {
-      for (const d of (b.selectedDimensions || [])) out.add(d);
-      continue;
-    }
-    for (const d of (b.selectedDimensions || [])) out.add(d);
-    for (const d of (b.groupBy || [])) out.add(d);
-    for (const d of (b.columnDimensions || [])) out.add(d);
-  }
-  return [...out];
-}
-
-// Per-widget slicer-dim collection that respects each source's
-// `crossFilterExclusions`. A widget marked as excluded from a slicer (or
-// from a chart used as cross-filter source) will never receive that
-// source's dim at runtime — so the warmer shouldn't grow this widget's
-// pre-agg dataset by that dim either. Without this, the dataset cardi-
-// nality blows up unnecessarily (and quickly hits the `dataLimit` cap)
-// for widgets with many disabled interactions.
-function slicerDimsForWidget(widgets, targetWId) {
+// Per-widget cross-filter dim collection — respects each source's
+// `crossFilterExclusions`. A widget marked as excluded from a slicer
+// (or from a chart used as a cross-filter source) will never receive
+// that source's dim at runtime, so the warmer must not add it to this
+// widget's grouping sets either.
+function crossFilterDimsForWidget(widgets, targetWId) {
   const out = new Set();
   for (const [sourceWId, w] of Object.entries(widgets || {})) {
     if (!w || !w.dataBinding) continue;
-    if (sourceWId === targetWId) continue; // a widget's own dims come from baseDims
+    if (sourceWId === targetWId) continue;
     const exclusions = Array.isArray(w.config?.crossFilterExclusions)
       ? w.config.crossFilterExclusions
       : [];
@@ -89,33 +77,80 @@ function slicerDimsForWidget(widgets, targetWId) {
   return [...out];
 }
 
-// Build the per-widget plan. For visuals whose measures are all additive
-// AND the report has at least one slicer, fire an expanded query (dims +
-// slicerDims in GROUP BY) and tag it `preAgg: true` so the warmer stores
-// the result in preAggCache. Other visuals fall back to a baseline warm
-// of just the SQL-keyed cache.
+// Power set of a list. For a k-dim list this yields 2^k subsets,
+// including the empty one. Used to enumerate cross-filter dim
+// combinations — option Y in the design: full subset coverage so
+// multi-source cross-filter scenarios still cache-hit at runtime.
+function powerSet(arr) {
+  const result = [[]];
+  for (const item of arr) {
+    const len = result.length;
+    for (let i = 0; i < len; i++) {
+      result.push([...result[i], item]);
+    }
+  }
+  return result;
+}
+
+// Build a widget's grouping sets. "Base grains" = drill-hierarchy
+// prefixes for drillable widgets, or just baseDims for non-drillable
+// ones. Each base grain is crossed with every subset of the widget's
+// cross-filter dims so any combination the user reaches at runtime
+// (single drill, single cross-filter, multi-cross-filter) lands in
+// `_grain`-tagged rows.
+function groupingSetsForWidget(w, baseDims, crossFilterDims) {
+  const b = w.dataBinding || {};
+  const dims = b.selectedDimensions || [];
+  const grpBy = b.groupBy || [];
+  const colDims = b.columnDimensions || [];
+
+  const DRILLABLE = ['bar', 'line', 'combo', 'pie', 'treemap'];
+  const isDrillable = DRILLABLE.includes(w.type) && dims.length > 1;
+  const baseGrains = isDrillable
+    ? dims.map((_, i) => {
+        // Drill level i = first i+1 dims of the hierarchy, plus the
+        // static groupBy / columnDimensions that stay displayed at
+        // every drill level.
+        const prefix = dims.slice(0, i + 1);
+        return [...new Set([...prefix, ...grpBy, ...colDims])];
+      })
+    : (baseDims.length > 0 ? [baseDims] : []);
+
+  const xfSubsets = powerSet(crossFilterDims);
+  const sets = [];
+  const seen = new Set();
+  for (const grain of baseGrains) {
+    for (const xf of xfSubsets) {
+      const combined = [...new Set([...grain, ...xf])];
+      if (combined.length === 0) continue;
+      const key = combined.slice().sort().join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      sets.push(combined);
+    }
+  }
+  return sets;
+}
+
+// Stable identity of a widget filter set, used as the bucket key.
+// Two widgets with byte-identical `widgetFilters` can share a SQL.
+function bucketKey(widgetFilters) {
+  return JSON.stringify(widgetFilters || []);
+}
+
+// Build the report's warm plan: one item per bucket of widgets sharing
+// `widgetFilters`. Each item drives a single SQL and yields one cache
+// entry per widget in the bucket (demuxed by `_grain` + projected to
+// each widget's own measures).
 function planForReport(report, settings, opts = {}) {
   const widgets = report.widgets || {};
-  // `opts.slicerDims` (the global, all-widgets slicer dim set) is kept
-  // only for the warmReport return payload (telemetry). For the actual
-  // dataset shape we use `slicerDimsForWidget(widgets, wId)` per visual
-  // so a widget excluded from a slicer's cross-filter doesn't get its
-  // pre-agg bloated with that dim's cardinality.
-  // Returns the full measure object so additiveTypeForMeasure can also
-  // promote trivial custom expressions (`COUNT(col)`, `SUM(col)`, …).
-  const measureLookup = opts.measureLookup || (() => null);
-  // Full list of measure objects (model + report extras). Needed by
-  // decomposeMeasure to resolve `${ref}` chains in ratio expressions.
-  const allMeasures = opts.allMeasures || [];
-  // Optional list of dim defs — used by the N-1 shifter to detect
-  // year-like and full-date columns when generating the comparison
-  // variant of a scorecard's plan.
   const dimensionsForN1 = opts.dimensions || [];
-  // Report-level filter rules (settings.reportFilters). Per-widget views
-  // are computed inside the loop via `prepareGlobalRulesForWidget` so the
-  // body the warmer POSTs (and therefore the preAggCache shape key) stays
-  // byte-identical to what the client builds at runtime.
-  const out = [];
+
+  // First pass: build per-widget specs (dims, measures, grouping sets,
+  // effective widgetFilters). Skip widgets that don't query at all
+  // (filter/text/shape) and widgets with measure-level filters (we'll
+  // fire those individually, they don't coalesce safely with peers).
+  const widgetSpecs = [];
   for (const [wId, w] of Object.entries(widgets)) {
     if (!w || !w.dataBinding) continue;
     if (w.type === 'filter' || w.type === 'text' || w.type === 'shape') continue;
@@ -134,243 +169,145 @@ function planForReport(report, settings, opts = {}) {
     const baseDims = [...new Set([...dims, ...grpBy, ...colDims])];
     const uniqueMeas = [...new Set(meass)];
     if (baseDims.length === 0 && uniqueMeas.length === 0) continue;
-    // Phase 3 decomposition — each visual measure is either a simple
-    // additive (sum/count/min/max), or a composite that recomposes from
-    // additive components (ratio of two additive measures, or AVG).
-    //   - 'simple'  → fire as-is at warm; aggregate sums per its inner type.
-    //   - 'ratio'   → fire the `numRef` + `denRef` named measures instead;
-    //                 the dataset stores them, aggregate divides at output.
-    //   - 'avg'     → would need synthetic SUM+COUNT injection; not yet
-    //                 wired through the /query gate, so AVG falls through
-    //                 to the SQL-keyed cache for now.
-    const decompositionSpecs = uniqueMeas.map((name) => decomposeMeasure(measureLookup(name), allMeasures));
-    // Build the firing list: which measure names to actually request from
-    // the route. Components for ratio measures are named refs that exist
-    // in the model / report extras. Visual measures themselves are NOT
-    // fired when they're composite (they'd just duplicate the same data
-    // through SQL twice).
-    const firedSet = new Set();
-    let allDecomposable = uniqueMeas.length > 0;
-    for (let i = 0; i < uniqueMeas.length; i++) {
-      const spec = decompositionSpecs[i];
-      if (!spec) { allDecomposable = false; break; }
-      if (spec.type === 'simple') { firedSet.add(uniqueMeas[i]); continue; }
-      if (spec.type === 'ratio') {
-        firedSet.add(spec.numRef);
-        firedSet.add(spec.denRef);
-        continue;
-      }
-      if (spec.type === 'expression') {
-        // Fire each ${ref} as a named measure so the dataset stores its
-        // additive sub-totals; the evaluator runs over those at output.
-        for (const r of spec.refs) firedSet.add(r.name);
-        continue;
-      }
-      // AVG decomposition requires synthetic SUM+COUNT measures that the
-      // /query gate doesn't accept under an internal warm token (see
-      // 0065796 extras gating). Skip preAgg for this visual.
-      allDecomposable = false; break;
-    }
-    const firedMeasureNames = [...firedSet];
-    // Per-widget slicer dims: only dims from sources that ARE allowed to
-    // cross-filter this widget at runtime. Slicers whose
-    // `crossFilterExclusions` lists this wId are dropped — the runtime
-    // would never push their dim into baseFilters for this widget, so
-    // there's no point bloating the pre-agg dataset with it.
-    const slicerDimsForThisWidget = slicerDimsForWidget(widgets, wId);
-    const preAggExtraDims = slicerDimsForThisWidget.filter((d) => !baseDims.includes(d));
-    const expandedDims = [...baseDims, ...preAggExtraDims];
-    // A measure-level filter (HAVING) targets the SUM at the visual's
-    // baseDims granularity. Adding slicerDims to GROUP BY for pre-agg
-    // would push that HAVING down to a finer granularity and silently
-    // drop rows whose finer-grain SUM is below the threshold even when
-    // their baseDims-level SUM is well above. Disable pre-agg whenever
-    // a measure filter is present — the visual still warms via the
-    // SQL-keyed cache.
-    const widgetOwnFiltersRaw = Array.isArray(b.widgetFilters) ? b.widgetFilters : [];
-    const hasMeasureFilter = widgetOwnFiltersRaw.some((f) => f && f.isMeasure);
-    // Pre-agg is useful as soon as the dataset has at least one dim —
-    // even when the visual's own hierarchy already covers everything we
-    // could want to filter on. A drillable chart with baseDims=[month,
-    // week, status] needs no slicer expansion but still benefits from
-    // having its full grouped result cached: every drill level / cross-
-    // filter resolves to a subset of those dims and is served via
-    // inMemoryAgg without a DB round-trip.
-    const preAgg = allDecomposable && expandedDims.length > 0 && !hasMeasureFilter;
-    // Same composition Editor.jsx does for the runtime body — report-level
-    // filters (per-widget view, with this widget's exclusions honoured and
-    // the `exclusions` field stripped) first, then the widget's own.
-    // Sanitised through the same helper the client uses so the resulting
-    // array (and therefore the preAggCache shape key) is byte-identical
-    // between warm and runtime.
+    const crossFilterDims = crossFilterDimsForWidget(widgets, wId);
+    const sets = groupingSetsForWidget(w, baseDims, crossFilterDims);
+    if (sets.length === 0) continue;
+
     const reportLevelFilters = prepareGlobalRulesForWidget(settings?.reportFilters, wId);
     const widgetOwnFilters = Array.isArray(b.widgetFilters) ? b.widgetFilters : [];
     const widgetFilters = sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]);
-    const reportExtras = {
-      extraDimensions: settings?.extraDimensions || [],
-      extraMeasures: settings?.extraMeasures || [],
-      dimensionOverrides: settings?.dimensionOverrides || {},
-      measureOverrides: settings?.measureOverrides || {},
-    };
-    const baseItem = {
-      widgetId: wId,
+
+    // Measure-level filters compile to HAVING, which doesn't compose
+    // cleanly across coalesced widgets (each widget has its own measure
+    // identity). Tag the spec so the planner fires this widget alone.
+    const standalone = widgetOwnFilters.some((f) => f && f.isMeasure);
+
+    widgetSpecs.push({
+      wId, w, uniqueMeas, baseDims, sets, widgetFilters, standalone,
+    });
+  }
+
+  if (widgetSpecs.length === 0) return [];
+
+  // Second pass: bucket by widgetFilters. Standalone widgets live in
+  // their own single-widget bucket regardless of widgetFilters match.
+  const buckets = new Map();
+  for (const spec of widgetSpecs) {
+    const key = spec.standalone ? `standalone:${spec.wId}` : bucketKey(spec.widgetFilters);
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = {
+        bucketKey: key,
+        widgetFilters: spec.widgetFilters,
+        specs: [],
+      };
+      buckets.set(key, bucket);
+    }
+    bucket.specs.push(spec);
+  }
+
+  const reportExtras = {
+    extraDimensions: settings?.extraDimensions || [],
+    extraMeasures: settings?.extraMeasures || [],
+    dimensionOverrides: settings?.dimensionOverrides || {},
+    measureOverrides: settings?.measureOverrides || {},
+  };
+
+  // Third pass: materialise each bucket into a coalesced plan item.
+  const out = [];
+  for (const bucket of buckets.values()) {
+    const allDims = [];
+    const allMeas = [];
+    const seenDim = new Set();
+    const seenMeas = new Set();
+    const allSets = [];
+    const seenSet = new Set();
+    for (const spec of bucket.specs) {
+      for (const d of spec.baseDims) if (!seenDim.has(d)) { seenDim.add(d); allDims.push(d); }
+      for (const s of spec.sets) {
+        for (const d of s) if (!seenDim.has(d)) { seenDim.add(d); allDims.push(d); }
+        const k = s.slice().sort().join('|');
+        if (!seenSet.has(k)) { seenSet.add(k); allSets.push(s); }
+      }
+      for (const m of spec.uniqueMeas) if (!seenMeas.has(m)) { seenMeas.add(m); allMeas.push(m); }
+    }
+    out.push({
+      bucketKey: bucket.bucketKey,
       modelId: report.model_id,
-      preAgg,
-      baseDims,
-      expandedDims,
-      // What the runtime visual will request — used for the cache shape
-      // key so warm and runtime lookups match.
-      uniqueMeas,
-      // What we actually fire at warm time. For widgets with only simple
-      // measures this is the same as uniqueMeas; for ratio measures it's
-      // the underlying num/den components.
-      firedMeasureNames,
-      // Spec per visual measure, so the cache writer can wire each
-      // visual's metadata in `dataset.measures` (simple type, or composite
-      // with component row keys).
-      decompositionSpecs: preAgg ? decompositionSpecs : null,
-      widgetFilters,
+      widgetFilters: bucket.widgetFilters,
       reportExtras,
+      // Ordered dim list — both SQL's GROUPING_ID args and the cache's
+      // grain bitmask use this exact order. Don't sort or reorder.
+      allDims,
+      // The widgets this bucket serves (with their own measure / grouping
+      // set / shape) — used at demux time to populate per-widget cache
+      // entries.
+      specs: bucket.specs,
       body: {
-        // preAgg items fire at the fine grain (baseDims + slicerDims) so
-        // the cached dataset can re-aggregate any drill / cross-filter
-        // shape in-memory. Non-preAgg items fire at the VISUAL grain
-        // (baseDims only) so the SQL matches what the runtime visual
-        // will actually request — otherwise queryCache stores rows the
-        // runtime never reads.
-        dimensionNames: preAgg ? expandedDims : baseDims,
-        // Fire components when we're going to recompose later; visual
-        // measures otherwise. The warmer also writes the visual measure
-        // SQL into the queryCache via this same query, but only the
-        // preAgg path serves drill / cross-filter from cache.
-        measureNames: preAgg ? firedMeasureNames : uniqueMeas,
-        measureAggOverrides: b.measureAggOverrides || undefined,
-        // Warm fires at the fine grain (baseDims + slicerDims) — much
-        // higher cardinality than what the visual will actually display.
-        // The widget's `dataLimit` is for the runtime display; for warm
-        // we want enough rows to cover every drill / cross-filter
-        // combination. 10000 gives roomy coverage without bloating RAM
-        // (typical row ~80B → ~800KB per widget worst-case).
-        limit: 10000,
+        dimensionNames: allDims,
+        measureNames: allMeas,
+        groupingSets: allSets,
+        // Coalesced widgets share their widgetFilters (= the bucket key).
+        // Standalone widgets carry their own here.
+        widgetFilters: bucket.widgetFilters,
+        // Generous safety cap for the GROUPING SETS result. Row count
+        // is bounded by the cartesian product of grain dim cardinality
+        // summed across all grouping sets.
+        limit: 100000,
         filters: {},
-        widgetFilters,
         reportId: report.id,
         bypassCache: true,
-        // When we're going to store the result in preAggCache (columnar,
-        // compact), skip the parallel queryCache.set — the same data
-        // would otherwise live twice in RAM (raw rows-of-objects + dict-
-        // encoded columnar). The route still serves preAgg → queryCache
-        // → DB at runtime; if preAgg ever misses for this shape, the
-        // fallback is a fresh DB hit (which then DOES cache normally).
-        skipCacheSet: preAgg,
+        // The coalesced result lands in displayCache; skip the SQL-
+        // keyed queryCache write to avoid double storage.
+        skipCacheSet: true,
         extraDimensions: reportExtras.extraDimensions,
         extraMeasures: reportExtras.extraMeasures,
         dimensionOverrides: reportExtras.dimensionOverrides,
         measureOverrides: reportExtras.measureOverrides,
       },
-    };
-    out.push(baseItem);
-    // Combo + groupBy + line measures variant — Editor.jsx fires a dedicated
-    // `comboLine` /query that re-aggregates the line measures at the AXIS-
-    // ONLY granularity (drops the groupBy from dimensionNames). The main
-    // query's preAgg entry can't serve this because its shape key is the
-    // UNION of bar + line measures; the comboLine query has only the line
-    // subset and would always shape-miss. Warm a sibling entry under the
-    // line-measures-only shape so the comboLine call hits.
-    if (w.type === 'combo' && grpBy.length > 0 && clm.length > 0) {
-      const lineMeass = [...new Set(clm)];
-      const lineSpecs = lineMeass.map((name) => decomposeMeasure(measureLookup(name), allMeasures));
-      const lineFiredSet = new Set();
-      let lineDecomposable = lineMeass.length > 0;
-      for (let i = 0; i < lineMeass.length; i++) {
-        const spec = lineSpecs[i];
-        if (!spec) { lineDecomposable = false; break; }
-        if (spec.type === 'simple') { lineFiredSet.add(lineMeass[i]); continue; }
-        if (spec.type === 'ratio') {
-          lineFiredSet.add(spec.numRef);
-          lineFiredSet.add(spec.denRef);
-          continue;
-        }
-        if (spec.type === 'expression') {
-          for (const r of spec.refs) lineFiredSet.add(r.name);
-          continue;
-        }
-        lineDecomposable = false; break;
-      }
-      const lineFiredMeasureNames = [...lineFiredSet];
-      // Drill hierarchy without groupBy — mirrors Editor's `dimensionNames: dims`.
-      const lineBaseDims = [...new Set(dims)];
-      const lineExpandedDims = [...lineBaseDims, ...slicerDimsForThisWidget.filter((d) => !lineBaseDims.includes(d))];
-      const linePreAgg = lineDecomposable && lineExpandedDims.length > 0 && !hasMeasureFilter;
-      if (linePreAgg) {
-        out.push({
-          widgetId: `${wId}#comboLine`,
-          modelId: report.model_id,
-          preAgg: true,
-          baseDims: lineBaseDims,
-          expandedDims: lineExpandedDims,
-          uniqueMeas: lineMeass,
-          firedMeasureNames: lineFiredMeasureNames,
-          decompositionSpecs: lineSpecs,
-          widgetFilters,
-          reportExtras,
-          body: {
-            dimensionNames: lineExpandedDims,
-            measureNames: lineFiredMeasureNames,
-            measureAggOverrides: b.measureAggOverrides || undefined,
-            // Warm fires at the fine grain (baseDims + slicerDims) — much
-        // higher cardinality than what the visual will actually display.
-        // The widget's `dataLimit` is for the runtime display; for warm
-        // we want enough rows to cover every drill / cross-filter
-        // combination. 10000 gives roomy coverage without bloating RAM
-        // (typical row ~80B → ~800KB per widget worst-case).
-        limit: 10000,
-            filters: {},
-            widgetFilters,
-            reportId: report.id,
-            bypassCache: true,
-            // Mirror baseItem: this sibling lands in preAggCache too, so
-            // don't double-store in queryCache.
-            skipCacheSet: true,
-            extraDimensions: reportExtras.extraDimensions,
-            extraMeasures: reportExtras.extraMeasures,
-            dimensionOverrides: reportExtras.dimensionOverrides,
-            measureOverrides: reportExtras.measureOverrides,
-          },
-        });
-      }
-    }
-    // Scorecard N-1 comparison — Editor.jsx fires a sibling /query with
-    // year-shifted widgetFilters when `compareDateDim` is set and at
-    // least one filter targets a year-like or full-date dim. To make
-    // those queries cache-hit too, fire the shifted variant here as
-    // well so the pre-agg dataset for that variant exists.
-    if (w.type === 'scorecard' && b.compareDateDim) {
-      const shiftedWidgetFilters = sanitizeWidgetFilters(
-        shiftWidgetFiltersForN1(widgetFilters, dimensionsForN1)
-      );
-      // No-op when nothing actually shifted (e.g. compareDateDim set
-      // but no year filter on the visual yet).
-      const sameAsMain = JSON.stringify(shiftedWidgetFilters) === JSON.stringify(widgetFilters);
-      if (!sameAsMain && hasShiftableFilterForN1({}, widgetFilters, dimensionsForN1)) {
-        out.push({
-          ...baseItem,
-          widgetId: `${wId}#n1`,
-          widgetFilters: shiftedWidgetFilters,
-          body: {
-            ...baseItem.body,
-            widgetFilters: shiftedWidgetFilters,
-          },
-        });
-      }
-    }
+    });
   }
+
+  // Scorecard N-1 siblings — handled as their own standalone bucket
+  // because the shifted widgetFilters won't match the original bucket
+  // anyway.
+  for (const spec of widgetSpecs) {
+    if (spec.w.type !== 'scorecard') continue;
+    const b = spec.w.dataBinding || {};
+    if (!b.compareDateDim) continue;
+    const shiftedWidgetFilters = sanitizeWidgetFilters(
+      shiftWidgetFiltersForN1(spec.widgetFilters, dimensionsForN1)
+    );
+    if (JSON.stringify(shiftedWidgetFilters) === JSON.stringify(spec.widgetFilters)) continue;
+    if (!hasShiftableFilterForN1({}, spec.widgetFilters, dimensionsForN1)) continue;
+    out.push({
+      bucketKey: `n1:${spec.wId}`,
+      modelId: report.model_id,
+      widgetFilters: shiftedWidgetFilters,
+      reportExtras,
+      allDims: [...spec.baseDims, ...new Set(spec.sets.flat())].filter((d, i, a) => a.indexOf(d) === i),
+      specs: [{ ...spec, widgetFilters: shiftedWidgetFilters, n1: true }],
+      body: {
+        dimensionNames: [...spec.baseDims, ...new Set(spec.sets.flat())].filter((d, i, a) => a.indexOf(d) === i),
+        measureNames: spec.uniqueMeas,
+        groupingSets: spec.sets,
+        widgetFilters: shiftedWidgetFilters,
+        limit: 100000,
+        filters: {},
+        reportId: report.id,
+        bypassCache: true,
+        skipCacheSet: true,
+        extraDimensions: reportExtras.extraDimensions,
+        extraMeasures: reportExtras.extraMeasures,
+        dimensionOverrides: reportExtras.dimensionOverrides,
+        measureOverrides: reportExtras.measureOverrides,
+      },
+    });
+  }
+
   return out;
 }
 
-// Set of reportIds whose warm pass is currently in flight. Survives the
-// HTTP round-trip so a UI that polls (or reloads after F5) can show the
-// spinner on the right cards. Cleared in `warmReport`'s finally block.
 const _warmingReports = new Set();
 function isWarming(reportId) { return _warmingReports.has(String(reportId)); }
 function warmingReportIds() { return [..._warmingReports]; }
@@ -386,10 +323,6 @@ async function warmReport({ scheduleId, reportId, userId }) {
 }
 
 async function _warmReportInner({ scheduleId, reportId, userId }) {
-  // SELECT * so the optional cloud-only `organization_id` column is
-  // surfaced when present. Falls back to undefined in OSS where the
-  // column doesn't exist; the warmer then stamps no org context on the
-  // internal token and the OSS routes don't care either way.
   const row = db.prepare('SELECT * FROM reports WHERE id = ?').get(reportId);
   if (!row) return { skipped: true, reason: 'report-missing' };
 
@@ -403,37 +336,20 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
     'SELECT id, datasource_id, dimensions, measures FROM models WHERE id = ?'
   ).get(report.model_id);
   let modelDimensions = [];
-  let modelMeasures = [];
   try { modelDimensions = JSON.parse(modelRow?.dimensions || '[]'); } catch { /* malformed */ }
-  try { modelMeasures = JSON.parse(modelRow?.measures || '[]'); } catch { /* malformed */ }
   const reportExtraDimensions = settings?.extraDimensions || [];
-  const reportExtraMeasures = settings?.extraMeasures || [];
   const allDimensions = [...modelDimensions, ...reportExtraDimensions];
-  const allMeasures = [...modelMeasures, ...reportExtraMeasures];
-  const dimensionLookup = (name) => allDimensions.find((d) => d.name === name) || null;
-  const measureLookup = (name) => allMeasures.find((mm) => mm.name === name) || null;
 
-  const slicerDims = collectFilterableDims(widgets);
-  const plan = planForReport(report, settings, {
-    slicerDims, measureLookup,
-    // Pool used by decomposeMeasure to resolve `${ref}` chains in ratio
-    // measure expressions back to their additive components.
-    allMeasures,
-    // Year-shift detection in the N-1 plan needs dim-type metadata.
-    dimensions: allDimensions,
-  });
+  const plan = planForReport(report, settings, { dimensions: allDimensions });
   if (plan.length === 0) {
     return { fired: 0, ok: 0, failed: 0, warmed: 0, reason: 'no-widgets' };
   }
 
-  // Stamp the report's org on the token (cloud-only; harmless in OSS).
-  // Lets the cloud activeOrg middleware preserve the right tenant when
-  // the warmer's localhost fetch hits /api/models/:id/query.
   const token = internalToken.sign({ userId, organizationId: row.organization_id || null });
   const base = appBase();
   let ok = 0;
   let failed = 0;
-  let preAggsStored = 0;
+  let stored = 0;
   const errors = [];
   for (const item of plan) {
     try {
@@ -448,137 +364,56 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
       if (!r.ok) {
         failed++;
         const text = await r.text().catch(() => '');
-        errors.push(`${item.widgetId} → ${r.status}: ${text.slice(0, 120)}`);
+        errors.push(`${item.bucketKey} → ${r.status}: ${text.slice(0, 200)}`);
         continue;
       }
       ok++;
-      if (item.preAgg) {
-        try {
-          const payload = await r.json();
-          const rows = Array.isArray(payload?.rows) ? payload.rows : [];
-          const rlsContext = {
-            bypass: payload?._rls?.bypass || null,
-            allowed: payload?._rls?.allowedKeys || null,
-          };
-          // SQL aliases columns by `label || name` (see the route's
-          // selectParts). The dataset stores rows as-is and gives the
-          // aggregator a `rowKeys: { name → alias }` map so it can look
-          // up the right column without us having to rewrite every row.
-          const aliasFor = (m) => (m && (m.label || m.name)) || null;
-          const rowKeys = {};
-          for (const dimName of item.expandedDims) {
-            const d = dimensionLookup(dimName);
-            const alias = d ? (d.label || d.name) : dimName;
-            if (alias !== dimName) rowKeys[dimName] = alias;
+      const payload = await r.json();
+      const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+      const rlsContext = {
+        bypass: payload?._rls?.bypass || null,
+        allowed: payload?._rls?.allowedKeys || null,
+      };
+      // SQL aliases dims/measures by `label || name`. Build the alias
+      // map so the displayCache lookup can resolve a runtime dim name
+      // back to the cached row key.
+      const dimLookup = (name) => allDimensions.find((d) => d.name === name) || null;
+      const rowKeys = {};
+      for (const dimName of item.allDims) {
+        const d = dimLookup(dimName);
+        const alias = d ? (d.label || d.name) : dimName;
+        if (alias !== dimName) rowKeys[dimName] = alias;
+      }
+      // Demux: write ONE cache entry per widget in the bucket, each
+      // keyed by THIS widget's identity. The rows are shared across
+      // entries — they reference the same in-memory arrays so we don't
+      // duplicate RAM. Each entry differs only in its `shape` key.
+      for (const spec of item.specs) {
+        displayCache.set(
+          {
+            datasourceId: modelRow?.datasource_id,
+            modelId: item.modelId,
+            shape: displayCache.stableShape({
+              measures: spec.uniqueMeas,
+              widgetFilters: spec.widgetFilters,
+              reportExtras: item.reportExtras,
+            }),
+            rlsContext,
+            orgId: row.organization_id || null,
+          },
+          {
+            // Ordered dim list — same as the SQL emitted. Grain
+            // bitmask semantics depend on argument position.
+            dims: item.allDims,
+            rowKeys,
+            rows,
           }
-          // Map each fired component measure name → its SQL alias (the
-          // row's column key). Visual measures that are themselves simple
-          // are in this set; ratio components are too. Composite visual
-          // measures (ratio) get their alias mapped separately below for
-          // the output row key.
-          for (const measName of item.firedMeasureNames) {
-            const m = measureLookup(measName);
-            const alias = aliasFor(m) || measName;
-            if (alias !== measName) rowKeys[measName] = alias;
-          }
-          // Build dataset.measures with the metadata aggregate needs to
-          // recompose at lookup time. Visual measures land here under
-          // their canonical name; their components (for ratios) point at
-          // the row columns we just stored.
-          const measuresMeta = {};
-          // Each fired component is itself a simple additive measure.
-          for (const compName of item.firedMeasureNames) {
-            const compM = measureLookup(compName);
-            const compType = additiveTypeForMeasure(compM);
-            if (compType) measuresMeta[compName] = { type: compType };
-          }
-          // Each visual measure's recomposition spec — only added when
-          // it isn't already there (simple visual measures share their
-          // entry with their fired component).
-          for (let i = 0; i < item.uniqueMeas.length; i++) {
-            const visualName = item.uniqueMeas[i];
-            const spec = item.decompositionSpecs[i];
-            if (!spec) continue;
-            if (spec.type === 'simple') {
-              if (!measuresMeta[visualName]) measuresMeta[visualName] = { type: spec.innerType };
-              continue;
-            }
-            if (spec.type === 'ratio') {
-              const numAlias = aliasFor(measureLookup(spec.numRef)) || spec.numRef;
-              const denAlias = aliasFor(measureLookup(spec.denRef)) || spec.denRef;
-              measuresMeta[visualName] = {
-                type: 'ratio',
-                numKey: numAlias,
-                denKey: denAlias,
-                hasGuard: spec.hasGuard,
-                // Optional multiplier captured by detectRatio (1 = no scale).
-                scale: spec.scale || 1,
-              };
-              // Map the visual measure's name → its display alias so the
-              // aggregate output row uses the right column key.
-              const visualM = measureLookup(visualName);
-              const visualAlias = aliasFor(visualM) || visualName;
-              if (visualAlias !== visualName) rowKeys[visualName] = visualAlias;
-              continue;
-            }
-            if (spec.type === 'expression') {
-              // Map each ref → its SQL alias so the aggregator can read
-              // the right column without re-doing the alias resolution
-              // at every cell lookup.
-              const refKeys = {};
-              for (const r of spec.refs) {
-                const refM = measureLookup(r.name);
-                refKeys[r.name] = aliasFor(refM) || r.name;
-              }
-              measuresMeta[visualName] = {
-                type: 'expression',
-                refs: spec.refs,
-                refKeys,
-                rawExpression: spec.rawExpression,
-              };
-              const visualM = measureLookup(visualName);
-              const visualAlias = aliasFor(visualM) || visualName;
-              if (visualAlias !== visualName) rowKeys[visualName] = visualAlias;
-            }
-          }
-          preAggCache.set(
-            {
-              datasourceId: modelRow?.datasource_id,
-              modelId: item.modelId,
-              shape: preAggCache.stableShape({
-                dims: item.baseDims,
-                // Shape key MUST be the visual measure names (what the
-                // runtime requests) — not the fired components — so warm
-                // and runtime lookups produce the same hash.
-                measures: item.uniqueMeas,
-                widgetFilters: item.widgetFilters,
-                reportExtras: item.reportExtras,
-              }),
-              rlsContext,
-              // Tag with the report's org so the cloud's RAM quota
-              // resolver can gate the write. Undefined in OSS — no-op.
-              orgId: row.organization_id || null,
-            },
-            // Columnar conversion: drops repeated property keys, dict-
-            // encodes low-cardinality string columns. Reduces JSON size
-            // and V8 heap pressure without changing aggregate semantics.
-            toColumnarDataset({
-              dims: item.expandedDims,
-              measures: measuresMeta,
-              rowKeys,
-              rows,
-            })
-          );
-          preAggsStored++;
-        } catch (e) {
-          // Pre-agg storage failure is non-fatal — the SQL-keyed cache
-          // entry was still written by the route.
-          errors.push(`${item.widgetId} preAgg → ${e.message}`);
-        }
+        );
+        stored++;
       }
     } catch (err) {
       failed++;
-      errors.push(`${item.widgetId} → ${err.message}`);
+      errors.push(`${item.bucketKey} → ${err.message}`);
     }
   }
   return {
@@ -586,10 +421,17 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
     ok,
     failed,
     warmed: ok,
-    preAggsStored,
-    slicerDims,
+    stored,
     errors: errors.length > 0 ? errors.slice(0, 5) : undefined,
   };
 }
 
-module.exports = { warmReport, planForReport, isWarming, warmingReportIds };
+module.exports = {
+  warmReport,
+  planForReport,
+  isWarming,
+  warmingReportIds,
+  crossFilterDimsForWidget,
+  groupingSetsForWidget,
+  powerSet,
+};
