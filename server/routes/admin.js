@@ -127,7 +127,20 @@ router.get('/settings', requireAdmin, (req, res) => {
     queryCacheTtlMaxMs: QUERY_CACHE_TTL_MAX_MS,
     queryCacheTtlDefaultMs: QUERY_CACHE_TTL_DEFAULT_MS,
     queryCacheStats: queryCache.stats(),
-    preAggCacheStats: preAggCache.stats(),
+    preAggCacheStats: (() => {
+      // Phase 4: roll up legacy preAggCache + new displayCache stats into
+      // one "RAM cache" number for the UI. preAggCache should be empty
+      // post-migration but we sum it in case any old entries linger
+      // until next invalidation.
+      const dc = require('../utils/displayCache').stats();
+      const pa = preAggCache.stats();
+      return {
+        enabled: pa.enabled || dc.enabled,
+        ttlMs: dc.ttlMs || pa.ttlMs,
+        size: (pa.size || 0) + (dc.size || 0),
+        bytes: (pa.bytes || 0) + (dc.bytes || 0),
+      };
+    })(),
     storage: {
       uploadedFileCount,
       uploadedBytes: totalUploadedBytes,
@@ -165,7 +178,8 @@ router.put('/settings/query-cache', requireAdmin, (req, res) => {
 router.post('/settings/query-cache/flush', requireAdmin, (req, res) => {
   const evicted = queryCache.flush();
   const evictedPreAgg = preAggCache.flush();
-  res.json({ evicted, evictedPreAgg });
+  const evictedDisplay = require('../utils/displayCache').flush();
+  res.json({ evicted, evictedPreAgg, evictedDisplay });
 });
 
 module.exports = router;

@@ -18,33 +18,68 @@
  * break the pre-agg cache for half the visuals.
  */
 
-// Bare word for a column ref, with optional schema/table prefix and
-// optional double / single quotes. Matches:
-//   col, "col", schema.table."col", `col`, 'col', etc.
-// Whitespace allowed around dots.
-const COL_REF = '[\\w."\\\'`\\s]+';
-
-const TRIVIAL_PATTERNS = [
-  // COUNT(*) and COUNT(col) — the latter rejected if it's COUNT(DISTINCT …)
-  { type: 'count', re: new RegExp(`^\\s*COUNT\\s*\\(\\s*\\*\\s*\\)\\s*$`, 'i') },
-  { type: 'count', re: new RegExp(`^\\s*COUNT\\s*\\(\\s*${COL_REF}\\s*\\)\\s*$`, 'i') },
-  { type: 'sum', re: new RegExp(`^\\s*SUM\\s*\\(\\s*${COL_REF}\\s*\\)\\s*$`, 'i') },
-  { type: 'min', re: new RegExp(`^\\s*MIN\\s*\\(\\s*${COL_REF}\\s*\\)\\s*$`, 'i') },
-  { type: 'max', re: new RegExp(`^\\s*MAX\\s*\\(\\s*${COL_REF}\\s*\\)\\s*$`, 'i') },
-];
-
+// Generic additive-aggregation detector for `aggregation: 'custom'`
+// measures. The mathematical contract:
+//
+//   SUM(<row-level x>), MIN(<x>), MAX(<x>) over a group are ALWAYS
+//   re-aggregatable across finer splits — sum-of-sums = sum, min-of-mins
+//   = min, max-of-maxes = max. The body `<x>` can be any pure row-level
+//   expression: a bare column, an arithmetic expression, a CASE WHEN …,
+//   etc. The aggregator never sees the body — it only sums/min/max the
+//   per-row resulting numbers.
+//
+//   COUNT(<x>) is additive too — it counts non-null values, and
+//   count(A ∪ B) = count(A) + count(B). Only COUNT(DISTINCT …) breaks
+//   the rule (distinct counts don't combine).
+//
+// What we REJECT:
+//   - DISTINCT anywhere inside a COUNT argument
+//   - Anything that ISN'T a single top-level aggregation, e.g.
+//     `SUM(x) + 5` (the +5 on the aggregate result poisons additivity)
+//   - Nested aggregations like `SUM(COUNT(x))` (invalid SQL anyway, but
+//     defend so a typo doesn't sneak through)
+//   - CAST(<non-additive> AS …) — we peel leading CAST(<…> AS T) and
+//     keep parsing, since CAST AS NUMERIC/INTEGER/etc. is identity on
+//     numeric aggregates.
 function inferAdditiveTypeFromExpression(expr) {
   if (!expr || typeof expr !== 'string') return null;
-  const s = expr.trim();
+  let s = expr.trim();
   if (!s) return null;
-  // DISTINCT inside a COUNT (or anywhere) breaks additivity — reject
-  // before pattern-matching so `COUNT(DISTINCT user_id)` doesn't fall
-  // through to the COUNT(col) regex with `DISTINCT user_id` as the col.
-  if (/\bDISTINCT\b/i.test(s)) return null;
-  for (const { type, re } of TRIVIAL_PATTERNS) {
-    if (re.test(s)) return type;
+  // Peel leading CAST(<expr> AS <type>) wrappers iteratively. CAST is
+  // identity on numeric aggregates, so the additivity of the inner
+  // expression carries through. Stop as soon as we hit something that
+  // isn't a CAST.
+  let safety = 8; // bail if someone nests CASTs absurdly deep
+  while (safety-- > 0 && /^CAST\s*\(/i.test(s)) {
+    const openIdx = s.indexOf('(');
+    if (openIdx < 0) break;
+    const closeIdx = matchingClose(s, openIdx);
+    if (closeIdx < 0 || closeIdx !== s.length - 1) break; // CAST not at top
+    const inner = s.slice(openIdx + 1, closeIdx);
+    const m = inner.match(/^([\s\S]+)\s+AS\s+[A-Za-z0-9_(),\s]+$/i);
+    if (!m) break;
+    s = m[1].trim();
   }
-  return null;
+  // Top-level aggregation match: `<FN>(<…>)` with `<FN>` ∈ {SUM, COUNT,
+  // MIN, MAX} and nothing trailing after the close paren.
+  const head = s.match(/^(SUM|COUNT|MIN|MAX)\s*\(/i);
+  if (!head) return null;
+  const type = head[1].toLowerCase();
+  const openIdx = head[0].length - 1;
+  const closeIdx = matchingClose(s, openIdx);
+  if (closeIdx < 0 || closeIdx !== s.length - 1) return null;
+  const inner = s.slice(openIdx + 1, closeIdx);
+  // COUNT(DISTINCT …) is non-additive — finer-grain distincts can
+  // overlap and double-counting them at the coarser grain is wrong.
+  if (type === 'count' && /\bDISTINCT\b/i.test(inner)) return null;
+  // Nested aggregations: defend against pathological/typo inputs. SQL
+  // engines reject these anyway (outside of subqueries/windows we don't
+  // support here), so if one slips through it's safer to fall back to
+  // the SQL-keyed cache than to claim additivity we can't prove.
+  if (/\b(?:SUM|COUNT|AVG|MIN|MAX|MEDIAN|PERCENTILE|STDDEV|VAR(?:IANCE|_POP|_SAMP)?|ARRAY_AGG|STRING_AGG|GROUP_CONCAT)\s*\(/i.test(inner)) {
+    return null;
+  }
+  return type;
 }
 
 function additiveTypeForAggregation(agg) {

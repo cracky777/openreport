@@ -114,7 +114,15 @@ function groupingSetsForWidget(w, baseDims, crossFilterDims) {
         const prefix = dims.slice(0, i + 1);
         return [...new Set([...prefix, ...grpBy, ...colDims])];
       })
-    : (baseDims.length > 0 ? [baseDims] : []);
+    // Scorecards and other widgets with measures but no display dims
+    // need the EMPTY base grain — they display a single aggregate
+    // ("grand total" in SQL terms). Without this entry the warmer's
+    // grouping sets list ends up empty for them and the widget gets
+    // skipped, so every runtime query falls through to the DB. SQL
+    // emits `GROUP BY GROUPING SETS ((), (year), …)` and the empty
+    // tuple `()` is the row whose measures are aggregated over the
+    // entire (RLS-filtered) result set.
+    : (baseDims.length > 0 ? [baseDims] : [[]]);
 
   const xfSubsets = powerSet(crossFilterDims);
   const sets = [];
@@ -122,7 +130,13 @@ function groupingSetsForWidget(w, baseDims, crossFilterDims) {
   for (const grain of baseGrains) {
     for (const xf of xfSubsets) {
       const combined = [...new Set([...grain, ...xf])];
-      if (combined.length === 0) continue;
+      // Empty combined = the SQL "grand total" set `()` — only emit
+      // it for widgets that genuinely render a grand total (scorecards
+      // and other no-dim widgets, signalled by baseDims.length === 0).
+      // For dim-bearing widgets, an empty grouping set never matches
+      // any runtime query so we'd just be paying for a useless extra
+      // aggregate per warm SQL.
+      if (combined.length === 0 && baseDims.length > 0) continue;
       const key = combined.slice().sort().join('|');
       if (seen.has(key)) continue;
       seen.add(key);
@@ -153,7 +167,11 @@ function planForReport(report, settings, opts = {}) {
   const widgetSpecs = [];
   for (const [wId, w] of Object.entries(widgets)) {
     if (!w || !w.dataBinding) continue;
-    if (w.type === 'filter' || w.type === 'text' || w.type === 'shape') continue;
+    // text/shape widgets never fetch — skip. Filter widgets DO fetch
+    // (distinct values, possibly cross-filtered) so they must be warmed
+    // too; without them every cross-filter click triggers a fresh
+    // DISTINCT query at the DB.
+    if (w.type === 'text' || w.type === 'shape') continue;
     const b = w.dataBinding;
     const dims = b.selectedDimensions || [];
     const sm = b.scatterMeasures || {};
@@ -185,6 +203,48 @@ function planForReport(report, settings, opts = {}) {
     widgetSpecs.push({
       wId, w, uniqueMeas, baseDims, sets, widgetFilters, standalone,
     });
+
+    // Combo widgets with both groupBy AND line measures fire a SECOND
+    // runtime query at axis-only grain (drops the groupBy from the
+    // dimensionNames), with the line measure subset only. The /query
+    // route hashes the cache key by `measures + widgetFilters + extras`
+    // so this second query has a DIFFERENT shape — it would miss the
+    // main spec's entry. Add a sibling spec under the same widgetFilters
+    // bucket so the comboLine variant lands in the cache too. Both
+    // specs share the SAME SQL roundtrip (their grouping sets union
+    // into a single coalesced query).
+    if (w.type === 'combo' && grpBy.length > 0 && Array.isArray(clm) && clm.length > 0) {
+      const lineMeas = [...new Set(clm)];
+      const lineBaseDims = [...new Set(dims)];
+      const isDrillLine = dims.length > 1;
+      const lineBaseGrains = isDrillLine
+        ? dims.map((_, i) => dims.slice(0, i + 1))
+        : (lineBaseDims.length > 0 ? [lineBaseDims] : []);
+      const xfSubsetsLine = powerSet(crossFilterDims);
+      const lineSets = [];
+      const lineSeen = new Set();
+      for (const grain of lineBaseGrains) {
+        for (const xf of xfSubsetsLine) {
+          const combined = [...new Set([...grain, ...xf])];
+          if (combined.length === 0) continue;
+          const key = combined.slice().sort().join('|');
+          if (lineSeen.has(key)) continue;
+          lineSeen.add(key);
+          lineSets.push(combined);
+        }
+      }
+      if (lineSets.length > 0) {
+        widgetSpecs.push({
+          wId: `${wId}#comboLine`,
+          w,
+          uniqueMeas: lineMeas,
+          baseDims: lineBaseDims,
+          sets: lineSets,
+          widgetFilters,
+          standalone,
+        });
+      }
+    }
   }
 
   if (widgetSpecs.length === 0) return [];
@@ -286,7 +346,13 @@ function planForReport(report, settings, opts = {}) {
       widgetFilters: shiftedWidgetFilters,
       reportExtras,
       allDims: [...spec.baseDims, ...new Set(spec.sets.flat())].filter((d, i, a) => a.indexOf(d) === i),
-      specs: [{ ...spec, widgetFilters: shiftedWidgetFilters, n1: true }],
+      // Suffix the wId with `#n1` so the displayCache entry is tagged
+      // distinctly from the main scorecard's entry (same numeric ID but
+      // different widgetFilters → different cache key). Without the
+      // suffix the inspect endpoint's `entryByWidgetId` map collides:
+      // one entry surfaces twice (once per spec lookup), the other
+      // appears as an orphan of identical size.
+      specs: [{ ...spec, wId: `${spec.wId}#n1`, widgetFilters: shiftedWidgetFilters, n1: true }],
       body: {
         dimensionNames: [...spec.baseDims, ...new Set(spec.sets.flat())].filter((d, i, a) => a.indexOf(d) === i),
         measureNames: spec.uniqueMeas,
@@ -388,8 +454,19 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
       // keyed by THIS widget's identity. The rows are shared across
       // entries — they reference the same in-memory arrays so we don't
       // duplicate RAM. Each entry differs only in its `shape` key.
+      // Build the columnar dataset ONCE per bucket — every spec in this
+      // bucket points at the SAME `rowsByGrain` object in RAM. For a
+      // bucket with N coalesced widgets we now use roughly 1× the
+      // memory of the SQL response instead of N× (one columnar copy
+      // per spec). Reported bytes are de-duped in the inspect endpoint
+      // via `_bucketId`.
+      const sharedDataset = displayCache.buildSharedDataset({
+        dims: item.allDims,
+        rowKeys,
+        rows,
+      });
       for (const spec of item.specs) {
-        displayCache.set(
+        const status = displayCache.set(
           {
             datasourceId: modelRow?.datasource_id,
             modelId: item.modelId,
@@ -400,16 +477,23 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
             }),
             rlsContext,
             orgId: row.organization_id || null,
+            // Tag the entry with the spec's widget identity so the
+            // inspect endpoint can list it under the right widget row
+            // without having to re-hash the spec on its side.
+            widgetId: spec.wId,
           },
-          {
-            // Ordered dim list — same as the SQL emitted. Grain
-            // bitmask semantics depend on argument position.
-            dims: item.allDims,
-            rowKeys,
-            rows,
-          }
+          sharedDataset
         );
-        stored++;
+        // displayCache.set returns `{ stored, reason }` — surface
+        // skipped writes in the warm result so a "cache disabled" /
+        // "ttl=0" / "org quota exceeded" config bug doesn't look like
+        // a silent success with an empty cache.
+        if (status && status.stored) {
+          stored++;
+        } else {
+          const reason = (status && status.reason) || 'unknown';
+          errors.push(`${item.bucketKey}#${spec.wId} displayCache.set skipped: ${reason} (rows=${rows.length})`);
+        }
       }
     } catch (err) {
       failed++;

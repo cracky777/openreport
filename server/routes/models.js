@@ -1016,12 +1016,33 @@ router.post('/cancel-query', (req, res) => {
 // Accessible if the user has access to any report linked to this model
 // (owner, global admin, public report, or workspace member).
 router.post('/:id/query', async (req, res) => {
+  // Temporary diagnostic — surfaces server-side timing breakdown so we
+  // can localise where the 5s perceived latency on cross-filter clicks
+  // is actually being spent. The id ties log lines from the same
+  // request together; the marks are emitted as we hit each phase.
+  // Remove once cross-filter perf is back under 500ms.
+  const __qid = `q${Math.random().toString(36).slice(2, 8)}`;
+  const __t0 = Date.now();
+  const __mark = (label) => {
+    if (process.env.QUERY_TIMING !== '0') {
+      console.log(`[${__qid}] +${Date.now() - __t0}ms ${label}`);
+    }
+  };
+
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
   if (!model || !canAccessModel(model, req.user)) return res.status(404).json({ error: 'Model not found' });
 
   const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
   if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
   const dbType = datasource.db_type;
+  // Body summary — tells us which client path fired this request (slicer
+  // search / refreshSlicer / main fetch effect / sqlOnly preview).
+  // Includes a fingerprint of the filters that helps spot duplicate paths.
+  const __body = req.body || {};
+  const __wfilterPreview = Array.isArray(__body.widgetFilters)
+    ? __body.widgetFilters.slice(0, 3).map((f) => `${f?.field}/${f?.op}`).join(',')
+    : '';
+  __mark(`model+datasource loaded [dims=${(__body.dimensionNames || []).length} measures=${(__body.measureNames || []).length} wfilters=${(__body.widgetFilters || []).length}(${__wfilterPreview}) bypass=${!!__body.bypassCache} sqlOnly=${!!__body.sqlOnly} distinct=${!!__body.distinct} reportId=${__body.reportId || '∅'}]`);
 
   let {
     dimensionNames, measureNames, limit, offset, filters, widgetFilters,
@@ -1306,6 +1327,120 @@ router.post('/:id/query', async (req, res) => {
     const email = req.isAuthenticated() ? req.user.email : '';
     allowedRlsKeys = getAllowedRlsKeys(rls, email);
   }
+  __mark('extras gating + rls resolved');
+
+  // ── Early displayCache short-circuit ──────────────────────────────────
+  // The displayCache key depends ONLY on (datasource, model, measures,
+  // widgetFilters, extras, RLS context) — none of which need the built
+  // SQL. Checking the cache HERE skips the expensive SQL assembly
+  // (custom expression expansion, snowflake bridge BFS, RLS injection,
+  // GROUPING SETS emission, etc.) on every cache hit. On a hot path
+  // with many widgets re-fetching after a cross-filter click, this is
+  // the difference between "200ms × N widgets" and "5ms × N widgets".
+  //
+  // Bypass cases: `bypassCache: true` (user-initiated refresh) and
+  // `sqlOnly: true` (the SQL preview endpoint) both still need the SQL
+  // build path — for those we just skip the early lookup.
+  const earlyRlsContextForCache = {
+    bypass: isOwner ? 'owner' : (isAdmin ? 'admin' : null),
+    allowed: allowedRlsKeys,
+  };
+  // Filter widgets pass `measureNames: []` — they're still cacheable
+  // (the warmer stores their dim distinct-values under the same shape
+  // key). `sqlOnly` is the SQL-preview endpoint that needs the assembled
+  // SQL not data — skip the cache for that one. `bypassCache` legacy
+  // meaning was "skip queryCache + force DB" — with Phase 4 we honour
+  // the spirit (queryCache miss + fresh DB) but STILL try displayCache:
+  // the display-grain cache is the warmer's authoritative output and a
+  // user's accidental bypass (committing a filter bar value, etc.)
+  // shouldn't drop them into a multi-second DB query when the warmed
+  // data covers the request.
+  // The warmer's POSTs always carry `groupingSets` in the body — that's
+  // its signature. Those requests MUST execute against the DB (their
+  // whole point is to refresh the cache); if we let them hit
+  // displayCache they'd serve back yesterday's cached rows and the
+  // warm would silently become a no-op. Skip the early-path for them.
+  const isWarmerRequest = Array.isArray(req.body && req.body.groupingSets) && req.body.groupingSets.length > 0;
+  if (sqlOnly || isWarmerRequest) {
+    __mark(`SKIP early lookup (sqlOnly=${!!sqlOnly}, warmer=${!!isWarmerRequest})`);
+  }
+  if (!sqlOnly && !isWarmerRequest) {
+    const isSyntheticTopN = (f) => f && (f.op === 'top_n' || f.op === 'bottom_n');
+    // CRITICAL: the warmer stores entries under
+    // `sanitizeWidgetFilters([...])` so the runtime MUST sanitize too,
+    // otherwise the shape SHA differs and we miss on every widget that
+    // happens to have an empty/half-filled rule (the runtime client
+    // sends rules verbatim — sanitize is server-side). Without this the
+    // route falls through to DB even when the cache is fully populated.
+    const { sanitizeWidgetFilters } = require('../utils/widgetFilters');
+    const widgetFiltersForShape = sanitizeWidgetFilters(
+      Array.isArray(widgetFilters)
+        ? widgetFilters.filter((f) => !isSyntheticTopN(f))
+        : widgetFilters
+    );
+    const displayOpts = {
+      datasourceId: datasource.id,
+      modelId: model.id,
+      shape: displayCache.stableShape({
+        measures: measureNames,
+        widgetFilters: widgetFiltersForShape,
+        reportExtras: { extraDimensions, extraMeasures, dimensionOverrides, measureOverrides },
+      }),
+      rlsContext: earlyRlsContextForCache,
+    };
+    const __tCacheStart = Date.now();
+    const displayResult = displayCache.tryServeWithReason(displayOpts, {
+      dims: dimensionNames || [],
+      measures: measureNames || [],
+      filters: filters || {},
+    });
+    __mark(`displayCache.tryServeWithReason ${displayResult.hit ? 'HIT' : 'MISS:' + displayResult.reason} (${Date.now() - __tCacheStart}ms, ${displayResult.rows?.length ?? 0} rows)`);
+    if (displayResult.hit) {
+      let rows = displayResult.rows;
+      // Apply top_n / bottom_n in memory (same logic as the post-SQL
+      // path). Resolves the measure name to its row alias.
+      const topNFilter = Array.isArray(widgetFilters) ? widgetFilters.find(isSyntheticTopN) : null;
+      const topNValue = topNFilter ? Math.max(1, Math.floor(topNFilter.value || 0)) : 0;
+      if (topNFilter && topNFilter.field && topNValue > 0 && rows.length > topNValue) {
+        const measDef = allMeasures.find((mm) => mm && mm.name === topNFilter.field);
+        const measKey = measDef ? (measDef.label || measDef.name) : topNFilter.field;
+        const direction = topNFilter.op === 'top_n' ? 'desc' : 'asc';
+        rows = [...rows].sort((a, b) => {
+          const va = Number(a[measKey]);
+          const vb = Number(b[measKey]);
+          const naA = Number.isFinite(va) ? va : 0;
+          const naB = Number.isFinite(vb) ? vb : 0;
+          return direction === 'desc' ? naB - naA : naA - naB;
+        }).slice(0, topNValue);
+      }
+      __mark(`fast-path return (${rows.length} rows)`);
+      return res.json({
+        rows,
+        rowCount: rows.length,
+        maxReached: rows.length >= 1000000,
+        // No SQL on the early-hit path — building it is the work we
+        // just skipped. Clients that wanted to see the SQL can pass
+        // `sqlOnly: true` to force the SQL preview path instead.
+        sql: null,
+        _cache: { hit: true, preAgg: true, builtAt: displayResult.builtAt, fastPath: true, serverMs: Date.now() - __t0 },
+        _rls: {
+          configured: !!(rls && rls.enabled),
+          applies: !!rlsApplies,
+          bypass: earlyRlsContextForCache.bypass,
+          table: rls?.table || null,
+          primaryKey: rls?.primaryKey || null,
+          ruleCount: rls?.rules ? Object.keys(rls.rules).length : 0,
+          userEmail: req.isAuthenticated() ? req.user.email : null,
+          allowedKeys: allowedRlsKeys,
+        },
+      });
+    }
+    // Stash the miss reason so the SQL-keyed fallback / DB-hit branches
+    // surface it in `_cache.preAggReason` for the network panel.
+    req._preAggMissReason = displayResult.reason;
+    req._preAggMissDetails = displayResult.details;
+  }
+  // ──────────────────────────────────────────────────────────────────────
 
   // Detect missing references and report them explicitly instead of silently dropping
   const missingDims = (dimensionNames || []).filter((name) => !allDimensions.find((d) => d.name === name));
@@ -1940,19 +2075,28 @@ router.post('/:id/query', async (req, res) => {
     }
   }
 
-  const useDistinct = distinct || (selectedDimensions.length > 0 && selectedMeasures.length === 0);
+  __mark('SQL parts assembled (selectParts, whereParts, joins, etc.)');
+  // GROUPING SETS produces one row per (set × dim-value tuple) with the
+  // `_grain` bitmask column distinguishing them — DISTINCT here would
+  // collapse rows from different grains that happen to share visible
+  // dim values, so the runtime lookup couldn't tell them apart. Skip
+  // DISTINCT whenever we're in grouping-sets mode.
+  const useDistinct = !groupingSetsValid && (distinct || (selectedDimensions.length > 0 && selectedMeasures.length === 0));
   let sql = `SELECT ${useDistinct ? 'DISTINCT ' : ''}${selectParts.join(', ')} FROM ${fromClause}`;
 
   if (whereParts.length > 0) {
     sql += ` WHERE ${whereParts.map((w) => w.sql).join(' AND ')}`;
   }
 
-  if (groupingSetsValid && selectedMeasures.length > 0) {
+  if (groupingSetsValid) {
     // GROUPING SETS mode (Phase 4) — emit one row set per grain. The
     // sets list comes straight from the caller (typically the warmer),
     // which is responsible for covering every grain a runtime query
     // might ask for. We map each dim name to its already-resolved SQL
     // expression so dialect quoting/date-part rewrites stay consistent.
+    // Works for both measure-bearing widgets and dim-only filter widgets
+    // (the dim columns alone are enough to make the SQL aggregate-free
+    // GROUP BY valid).
     const setsSql = groupingSets
       .map((set) => `(${set.map((n) => dimExprByName[n]).filter(Boolean).join(', ')})`)
       .join(', ');
@@ -2027,83 +2171,12 @@ router.post('/:id/query', async (req, res) => {
     rlsContext: rlsContextForCache,
   };
   if (!bypassCache) {
-    // Display-grain cache (Phase 4) — covers every drill level and
-    // cross-filter dim combination the warmer covered via GROUPING SETS.
-    // Each cached row carries `_grain` (= SQL's GROUPING_ID bitmask) so
-    // we can pick the rows at the exact display grain the widget wants,
-    // then filter by the runtime filter values. NO aggregation — every
-    // cached row IS the displayed value at its grain.
-    //
-    // top_n / bottom_n are synthetic measure filters added by the client
-    // for Top-N visuals. They map to ORDER BY + LIMIT — easy to apply
-    // post-cache.
-    const isSyntheticTopN = (f) => f && (f.op === 'top_n' || f.op === 'bottom_n');
-    const widgetFiltersForShape = Array.isArray(widgetFilters)
-      ? widgetFilters.filter((f) => !isSyntheticTopN(f))
-      : widgetFilters;
-    const displayOpts = {
-      datasourceId: datasource.id,
-      modelId: model.id,
-      shape: displayCache.stableShape({
-        measures: measureNames,
-        widgetFilters: widgetFiltersForShape,
-        reportExtras: { extraDimensions, extraMeasures, dimensionOverrides, measureOverrides },
-      }),
-      rlsContext: rlsContextForCache,
-    };
-    const displayResult = displayCache.tryServeWithReason(displayOpts, {
-      dims: dimensionNames || [],
-      measures: measureNames || [],
-      filters: filters || {},
-    });
-    const displayHit = displayResult.hit
-      ? { rows: displayResult.rows, builtAt: displayResult.builtAt }
-      : null;
-    // Stash the miss reason so the queryCache / DB fallbacks can surface
-    // it in `_cache.preAggReason` for the network panel.
-    if (!displayResult.hit) {
-      req._preAggMissReason = displayResult.reason;
-      req._preAggMissDetails = displayResult.details;
-    }
-    if (displayHit) {
-      let rows = displayHit.rows;
-      // Apply top_n / bottom_n after the cache filter. Resolves the
-      // measure name to its row alias (SQL aliases by `label || name`).
-      const topNFilter = Array.isArray(widgetFilters) ? widgetFilters.find(isSyntheticTopN) : null;
-      const topNValue = topNFilter ? Math.max(1, Math.floor(topNFilter.value || 0)) : 0;
-      if (topNFilter && topNFilter.field && topNValue > 0 && rows.length > topNValue) {
-        const measDef = (selectedMeasures || []).find((mm) => mm && mm.name === topNFilter.field);
-        const measKey = measDef ? (measDef.label || measDef.name) : topNFilter.field;
-        const direction = topNFilter.op === 'top_n' ? 'desc' : 'asc';
-        rows = [...rows].sort((a, b) => {
-          const va = Number(a[measKey]);
-          const vb = Number(b[measKey]);
-          const naA = Number.isFinite(va) ? va : 0;
-          const naB = Number.isFinite(vb) ? vb : 0;
-          return direction === 'desc' ? naB - naA : naA - naB;
-        }).slice(0, topNValue);
-      }
-      return res.json({
-        rows,
-        rowCount: rows.length,
-        maxReached: rows.length >= MAX_ROWS,
-        sql,
-        _cache: { hit: true, preAgg: true, builtAt: displayHit.builtAt },
-        _rls: {
-          configured: !!(rls && rls.enabled),
-          applies: !!rlsApplies,
-          bypass: rlsContextForCache.bypass,
-          table: rls?.table || null,
-          primaryKey: rls?.primaryKey || null,
-          ruleCount: rls?.rules ? Object.keys(rls.rules).length : 0,
-          userEmail: req.isAuthenticated() ? req.user.email : null,
-          allowedKeys: allowedRlsKeys,
-        },
-      });
-    }
-
-    // Fall back to the regular SQL-keyed cache.
+    // displayCache was already checked at the top of the handler — if it
+    // hit we returned early before SQL build. Reaching here means we're
+    // on the miss path; fall straight through to the SQL-keyed
+    // queryCache, then the DB.
     const cached = queryCache.get(cacheOpts);
+    __mark(`queryCache.get ${cached ? 'HIT' : 'MISS'}`);
     if (cached) {
       return res.json({
         rows: cached.rows,
@@ -2136,6 +2209,7 @@ router.post('/:id/query', async (req, res) => {
   let conn;
   let registeredQueryId = null;
   try {
+    __mark('DB phase start (createConnection + execute)');
     conn = createConnection(datasource);
     // When the client supplies a queryId AND the connector exposes a
     // cancellable variant, register the cancel callback so a sibling
@@ -2224,6 +2298,7 @@ router.post('/:id/query', async (req, res) => {
         queryDurationMs: Date.now() - startedAt,
       });
     }
+    __mark(`DB done (${rows.length} rows, queryMs=${Date.now() - startedAt})`);
     res.json({
       rows, rowCount: rows.length, maxReached: rows.length >= MAX_ROWS, sql,
       _cache: {

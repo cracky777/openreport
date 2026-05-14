@@ -1708,13 +1708,19 @@ function CacheInspectorModal({ reportId, reportTitle, data, loading, error, onCl
 
         {data && (
           <>
-            <div style={{ display: 'flex', gap: 24, marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)' }}>
+            <div style={{ display: 'flex', gap: 24, marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
               <div>
                 <strong>preAgg</strong>: {formatBytes(data.preAggTotalBytes)} · {data.preAggTotalEntries} entries
               </div>
               <div>
                 <strong>queryCache</strong>: {formatBytes(data.queryCacheTotalBytes)} · {data.queryCacheTotalEntries} entries
               </div>
+              {data.buckets?.length > 0 && (
+                <div title="Each bucket is one coalesced SQL response shared in RAM by all widgets with the same widgetFilters. The number of shared widgets is shown in the cohesion column.">
+                  <strong>{data.buckets.length}</strong> bucket{data.buckets.length > 1 ? 's' : ''}
+                  {' · '}{data.buckets.reduce((s, b) => s + b.widgetCount, 0)} widgets coalesced
+                </div>
+              )}
               {data.orphans?.length > 0 && (
                 <div style={{ color: 'var(--state-warning)' }}>
                   ⚠ {data.orphans.length} orphan entries ({formatBytes(data.orphans.reduce((a, e) => a + e.bytes, 0))})
@@ -1723,31 +1729,78 @@ function CacheInspectorModal({ reportId, reportTitle, data, loading, error, onCl
             </div>
 
             {data.byWidget?.length > 0 ? (
+              (() => {
+                // Map each bucketId to a small palette colour so widgets
+                // sharing a coalesced SQL response line up visually in
+                // the table. The colours wrap if there are more buckets
+                // than entries in the palette — collision is fine, it
+                // just means two distinct buckets get the same dot.
+                const BUCKET_PALETTE = ['#5b9bff', '#9b5bff', '#ff6b9b', '#ffb45b', '#5bd6b8', '#d65bb8', '#7bb56b', '#b87b5b'];
+                const bucketColor = new Map();
+                let nextColor = 0;
+                for (const b of (data.buckets || [])) {
+                  if (b.bucketId && !bucketColor.has(b.bucketId)) {
+                    bucketColor.set(b.bucketId, BUCKET_PALETTE[nextColor++ % BUCKET_PALETTE.length]);
+                  }
+                }
+                return (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-default)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                    <th style={cellStyle} title="Each colour groups widgets that share the same coalesced SQL response in RAM (= the same bucket).">Bucket</th>
                     <th style={cellStyle}>Widget</th>
                     <th style={cellStyle}>Type</th>
                     <th style={cellStyle}>Measures</th>
-                    <th style={{ ...cellStyle, textAlign: 'right' }}>Size</th>
+                    <th style={{ ...cellStyle, textAlign: 'right' }} title="Number of display grains (drill levels × cross-filter dim subsets) warmed for this widget">Grains</th>
+                    <th style={{ ...cellStyle, textAlign: 'right' }} title="This widget's share of the bucket's RAM (= bucket size / number of widgets sharing it)">Size (share)</th>
+                    <th style={{ ...cellStyle, textAlign: 'right' }} title="The full RAM footprint of this widget's bucket — shared across the widgets with the same coloured dot">Bucket total</th>
                     <th style={{ ...cellStyle, textAlign: 'right' }}>Rows</th>
                     <th style={{ ...cellStyle, textAlign: 'right' }}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.byWidget.map((w) => (
+                  {data.byWidget.map((w) => {
+                    const colour = w.bucketId ? bucketColor.get(w.bucketId) : null;
+                    return (
                     <tr key={w.widgetId} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                       <td style={cellStyle}>
+                        {colour ? (
+                          <span title={w.sharedAcrossN > 1 ? `Shared with ${w.sharedAcrossN - 1} other widget${w.sharedAcrossN > 2 ? 's' : ''}` : 'Solo bucket (no coalescing)'} style={{
+                            display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
+                            background: colour, verticalAlign: 'middle',
+                          }} />
+                        ) : (
+                          <span style={{ color: 'var(--text-disabled)' }}>—</span>
+                        )}
+                        {w.sharedAcrossN > 1 && (
+                          <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-muted)' }}>×{w.sharedAcrossN}</span>
+                        )}
+                      </td>
+                      <td style={cellStyle}>
                         <span style={{ fontFamily: 'monospace', color: 'var(--text-disabled)' }}>
-                          {w.widgetTitle || w.widgetId}
+                          {w.widgetTitle || w.widgetId.replace(/#.*$/, '')}
                         </span>
+                        {w.variant && (
+                          <span style={{
+                            marginLeft: 8, fontSize: 10, padding: '2px 6px',
+                            borderRadius: 3, background: 'var(--bg-accent-soft)',
+                            color: 'var(--text-accent)', textTransform: 'uppercase',
+                            letterSpacing: 0.5,
+                          }}>{w.variant}</span>
+                        )}
                       </td>
                       <td style={cellStyle}>{w.widgetType || '?'}</td>
-                      <td style={{ ...cellStyle, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {w.measures.join(', ')}
+                      <td style={{ ...cellStyle, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          title={(w.measures || []).join(', ')}>
+                        {(w.measures || []).join(', ') || <span style={{ color: 'var(--text-disabled)' }}>—</span>}
                       </td>
+                      <td style={{ ...cellStyle, textAlign: 'right' }}>{w.grainCount || '—'}</td>
                       <td style={{ ...cellStyle, textAlign: 'right', fontWeight: w.bytes > 100 * 1024 ? 600 : 400 }}>
                         {w.cached ? formatBytes(w.bytes) : '—'}
+                      </td>
+                      <td style={{ ...cellStyle, textAlign: 'right', color: w.sharedAcrossN > 1 ? 'var(--text-secondary)' : 'inherit' }}
+                          title={w.sharedAcrossN > 1 ? 'This bucket is shared by multiple widgets — actual RAM used once, not per widget.' : null}>
+                        {w.cached ? formatBytes(w.bucketSize) : '—'}
                       </td>
                       <td style={{ ...cellStyle, textAlign: 'right' }}>{w.cached ? w.rowCount : '—'}</td>
                       <td style={{ ...cellStyle, textAlign: 'right' }}>
@@ -1756,11 +1809,14 @@ function CacheInspectorModal({ reportId, reportTitle, data, loading, error, onCl
                           : <span style={{ color: 'var(--text-disabled)' }}>not warmed</span>}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
+                );
+              })()
             ) : (
-              <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>No preAgg-eligible widgets on this report.</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>No cacheable widgets on this report.</div>
             )}
 
             {data.orphans?.length > 0 && (
@@ -1773,7 +1829,7 @@ function CacheInspectorModal({ reportId, reportTitle, data, loading, error, onCl
                     <tr style={{ borderBottom: '1px solid var(--border-default)', textAlign: 'left', color: 'var(--text-muted)' }}>
                       <th style={cellStyle}>Hash</th>
                       <th style={cellStyle}>Dims</th>
-                      <th style={cellStyle}>Measures</th>
+                      <th style={{ ...cellStyle, textAlign: 'right' }}>Grains</th>
                       <th style={{ ...cellStyle, textAlign: 'right' }}>Size</th>
                       <th style={{ ...cellStyle, textAlign: 'right' }}>Rows</th>
                     </tr>
@@ -1782,12 +1838,10 @@ function CacheInspectorModal({ reportId, reportTitle, data, loading, error, onCl
                     {data.orphans.map((o) => (
                       <tr key={o.keyHash}>
                         <td style={{ ...cellStyle, fontFamily: 'monospace' }}>{o.keyHash}</td>
-                        <td style={{ ...cellStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {o.dims.join(', ')}
+                        <td style={{ ...cellStyle, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {(o.dims || []).join(', ')}
                         </td>
-                        <td style={{ ...cellStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {o.measures.join(', ')}
-                        </td>
+                        <td style={{ ...cellStyle, textAlign: 'right' }}>{(o.grains || []).length}</td>
                         <td style={{ ...cellStyle, textAlign: 'right' }}>{formatBytes(o.bytes)}</td>
                         <td style={{ ...cellStyle, textAlign: 'right' }}>{o.rowCount}</td>
                       </tr>

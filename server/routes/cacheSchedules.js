@@ -147,69 +147,158 @@ router.get('/inspect/:reportId', requireAuth, (req, res) => {
   const allMeasures = [...modelMeasures, ...(settings.extraMeasures || [])];
   const measureLookup = (name) => allMeasures.find((mm) => mm.name === name) || null;
 
-  // Same expansion the warmer does, so the shape we compute per widget is
-  // byte-identical to what was stored.
-  const slicerDims = (function collect() {
-    const out = new Set();
-    for (const w of Object.values(widgets || {})) {
-      if (!w || !w.dataBinding) continue;
-      const b = w.dataBinding;
-      if (w.type === 'filter') { for (const d of (b.selectedDimensions || [])) out.add(d); continue; }
-      for (const d of (b.selectedDimensions || [])) out.add(d);
-      for (const d of (b.groupBy || [])) out.add(d);
-      for (const d of (b.columnDimensions || [])) out.add(d);
-    }
-    return [...out];
-  })();
+  // Phase 4: re-plan the report through the new GROUPING SETS warmer.
+  // Each plan item now coalesces N widgets sharing widgetFilters; we
+  // expand back to per-widget rows for the UI by walking each item's
+  // `specs` list. For each spec we compute the exact cache key the
+  // warmer would have used and match it against the live displayCache
+  // entries.
+  const displayCache = require('../utils/displayCache');
+  const modelMetaRow = db.prepare('SELECT id, datasource_id, user_id FROM models WHERE id = ?')
+    .get(report.model_id);
+  const datasourceId = modelMetaRow ? modelMetaRow.datasource_id : null;
+
   const plan = cacheWarmer.planForReport(
     { ...report, widgets, settings },
     settings,
-    { slicerDims, measureLookup, allMeasures, dimensions: allDimensions },
+    { dimensions: allDimensions },
   );
 
-  const allEntries = preAggCache.inspectModel(report.model_id);
-  // Index entries by their fingerprint (dims + measures names, sorted) so
-  // we can match them to plan items deterministically. Using the dataset
-  // metadata avoids re-hashing the shape on this side.
-  const fingerprint = (dims, measures) => {
-    const dimsS = [...(dims || [])].sort().join('|');
-    const measS = [...(measures || [])].sort().join('|');
-    return `${dimsS}::${measS}`;
+  const allEntries = displayCache.inspectModel(report.model_id);
+  // Match each plan spec to its cache entry by computing the SHA-256 of
+  // its shape and slicing to the same 12 chars `inspectModel` reports.
+  // The bypass label MUST match exactly what /query computed when the
+  // warmer fired — the route applies "owner wins over admin", so a user
+  // who happens to be BOTH owner of the model AND a global admin gets
+  // `bypass: 'owner'`. Earlier this matched on role first and reported
+  // every entry as orphaned for those users.
+  const reportExtras = {
+    extraDimensions: settings.extraDimensions || [],
+    extraMeasures: settings.extraMeasures || [],
+    dimensionOverrides: settings.dimensionOverrides || {},
+    measureOverrides: settings.measureOverrides || {},
   };
+  // Match by widgetId — robust against RLS context drift, widgetFilters
+  // sanitization differences, or any other subtle hash-input change
+  // between warm-time and inspect-time. The warmer tags each entry with
+  // its spec's `widgetId` (incl. the `#comboLine` / `#n1` suffixes), so
+  // the lookup is a string equality on a well-known label.
+  const entryByWidgetId = new Map();
+  // Phase 4-v2: multiple cache entries from coalesced widgets share a
+  // single columnar dataset in RAM (different keys → same rowsByGrain
+  // reference, tagged via `_bucketId`). `entryBytes` walks each entry
+  // independently, so the raw sum double-counts shared bytes. Group by
+  // bucketId here to report honest sizes.
+  const sharedBucketCount = new Map();
+  for (const e of allEntries) {
+    if (e.widgetId) entryByWidgetId.set(e.widgetId, e);
+    if (e.bucketId) {
+      sharedBucketCount.set(e.bucketId, (sharedBucketCount.get(e.bucketId) || 0) + 1);
+    }
+  }
+  // Honest bytes per entry = raw bytes / number of entries sharing that
+  // bucket (= the actual RAM proportional to this widget).
+  const sharedBytesFor = (e) => {
+    if (!e || !e.bucketId) return e?.bytes || 0;
+    const n = sharedBucketCount.get(e.bucketId) || 1;
+    return Math.round((e.bytes || 0) / n);
+  };
+
+  // Combo widgets fire 2 specs (`#comboLine` sibling at axis-only grain)
+  // and scorecards with compareDateDim fire 2 specs (`#n1` sibling with
+  // year-shifted filters). Surface the variant in the UI rather than
+  // stripping it — without this, the same widget appears twice with no
+  // way to tell which row is which.
+  const variantLabelFor = (wId) => {
+    if (!wId) return '';
+    if (wId.includes('#comboLine')) return 'line';
+    if (wId.includes('#n1')) return 'N-1';
+    return '';
+  };
+
   const claimed = new Set();
-  const byWidget = plan
-    .filter((item) => item.preAgg)
-    .map((item) => {
-      // The dataset stored under this entry includes ALL fired measures
-      // (visual + component refs for ratios). Match against that.
-      const wantedMeasures = new Set([...(item.uniqueMeas || []), ...(item.firedMeasureNames || [])]);
-      const match = allEntries.find((e) => {
-        if (claimed.has(e.keyHash)) return false;
-        if (!Array.isArray(e.dims) || e.dims.length !== item.expandedDims.length) return false;
-        const dimsMatch = item.expandedDims.every((d) => e.dims.includes(d));
-        if (!dimsMatch) return false;
-        // Every visual+fired measure should appear in the entry's measures list.
-        for (const m of wantedMeasures) if (!e.measures.includes(m)) return false;
-        return true;
-      });
+  const byWidget = [];
+  for (const item of plan) {
+    for (const spec of (item.specs || [])) {
+      // Primary lookup: by `widgetId` tagged on the entry at warm time.
+      // This is robust against any input-encoding drift between warm
+      // and inspect (RLS context, widgetFilters serialization order,
+      // etc.). Entries warmed before this tagging was added fall back
+      // to the absent state — re-warm to populate the tag.
+      const match = entryByWidgetId.get(spec.wId) || null;
       if (match) claimed.add(match.keyHash);
-      const w = widgets[item.widgetId.replace(/#.*$/, '')];
-      return {
-        widgetId: item.widgetId,
+      const cleanWId = String(spec.wId || '').replace(/#.*$/, '');
+      const w = widgets[cleanWId];
+      byWidget.push({
+        widgetId: spec.wId,
         widgetType: w?.type || null,
         widgetTitle: w?.config?.title || null,
-        measures: item.uniqueMeas,
-        bytes: match?.bytes || 0,
+        // Surfaced in the UI as "<title> · <variant>" when set —
+        // disambiguates the two combo specs and the two scorecard specs.
+        variant: variantLabelFor(spec.wId),
+        measures: spec.uniqueMeas,
+        // Grain count gives a sense of the coverage breadth (drill
+        // levels × cross-filter subsets the warmer fired for this spec).
+        grainCount: match?.grains?.length || (spec.sets ? spec.sets.length : 0),
+        // Honest per-widget bytes — divided across the N widgets sharing
+        // the bucket's columnar dataset. Sum across rows gives the real
+        // total RAM the report consumes, not N× the actual usage.
+        bytes: sharedBytesFor(match),
+        // Surface bucket membership so the UI can group / colour-code
+        // widgets that share a coalesced SQL response. `bucketSize` is
+        // the FULL columnar bytes for the bucket (= the actual RAM
+        // footprint, not a per-widget share); `sharedAcrossN` is how
+        // many widgets reference it.
+        bucketId: match?.bucketId || null,
+        bucketSize: match?.bytes || 0,
+        sharedAcrossN: match?.bucketId ? (sharedBucketCount.get(match.bucketId) || 1) : 1,
         rowCount: match?.rowCount || 0,
         builtAt: match?.builtAt || null,
         cached: !!match,
-      };
-    })
-    .sort((a, b) => b.bytes - a.bytes);
+      });
+    }
+  }
+  byWidget.sort((a, b) => b.bytes - a.bytes);
 
-  const orphans = allEntries.filter((e) => !claimed.has(e.keyHash));
+  const orphans = allEntries.filter((e) => !claimed.has(e.keyHash))
+    .map((e) => ({ ...e, bytes: sharedBytesFor(e) }));
 
-  const total = allEntries.reduce((acc, e) => acc + e.bytes, 0);
+  // Total bytes = sum unique bucket bytes (count each shared dataset
+  // ONCE) + bytes from any tag-less entries (which fall back to their
+  // own bytes since they're not shared).
+  const seenBuckets = new Set();
+  let total = 0;
+  for (const e of allEntries) {
+    if (e.bucketId) {
+      if (seenBuckets.has(e.bucketId)) continue;
+      seenBuckets.add(e.bucketId);
+      total += e.bytes || 0;
+    } else {
+      total += e.bytes || 0;
+    }
+  }
+  // Per-bucket summary — surfaces the cohesion the v2 dedup produces:
+  // each bucket represents ONE coalesced SQL response shared by N
+  // widgets. The UI uses this to colour-code rows and to show "X
+  // buckets share Y widgets" at the top of the modal.
+  const bucketSummary = [];
+  const bucketSeen = new Set();
+  for (const e of allEntries) {
+    if (!e.bucketId || bucketSeen.has(e.bucketId)) continue;
+    bucketSeen.add(e.bucketId);
+    const widgetsInBucket = allEntries
+      .filter((x) => x.bucketId === e.bucketId)
+      .map((x) => x.widgetId)
+      .filter(Boolean);
+    bucketSummary.push({
+      bucketId: e.bucketId,
+      bytes: e.bytes || 0,
+      rowCount: e.rowCount || 0,
+      widgetCount: widgetsInBucket.length,
+      widgetIds: widgetsInBucket,
+    });
+  }
+  bucketSummary.sort((a, b) => b.bytes - a.bytes);
   res.json({
     preAggTotalBytes: total,
     preAggTotalEntries: allEntries.length,
@@ -217,31 +306,41 @@ router.get('/inspect/:reportId', requireAuth, (req, res) => {
     queryCacheTotalEntries: queryCache.entriesForModel(report.model_id),
     byWidget,
     orphans,
+    buckets: bucketSummary,
   });
 });
 
-// Cache footprint for a single report — sum of queryCache + preAggCache
-// entries indexed under the report's model. Surfaced on the report card
-// next to the Refresh button so the user can see what's hot.
+// Cache footprint for a single report — sum of queryCache +
+// displayCache (Phase 4) entries indexed under the report's model.
+// Legacy preAggCache is included for compatibility but should always
+// be empty since the warmer now writes to displayCache.
 router.get('/size/:reportId', requireAuth, (req, res) => {
   const r = db.prepare('SELECT id, user_id, model_id FROM reports WHERE id = ?').get(req.params.reportId);
   if (!r) return res.status(404).json({ error: 'Report not found' });
   if (!canManageSchedule(r, req.user)) return res.status(403).json({ error: 'Forbidden' });
   const modelId = r.model_id;
+  const displayCache = require('../utils/displayCache');
   const queryEntries = queryCache.entriesForModel(modelId);
   const queryBytes = queryCache.bytesForModel(modelId);
   const preAggEntries = preAggCache.entriesForModel(modelId);
   const preAggBytes = preAggCache.bytesForModel(modelId);
+  const displayEntries = displayCache.entriesForModel(modelId);
+  const displayBytes = displayCache.bytesForModel(modelId);
   const queryBuiltAt = queryCache.latestBuiltAtForModel(modelId);
   const preAggBuiltAt = preAggCache.latestBuiltAtForModel(modelId);
-  // Surface the most recent build time across both caches — that's the
-  // "Data update" the user sees on the card.
-  const builtAt = [queryBuiltAt, preAggBuiltAt].filter(Boolean).sort().pop() || null;
+  const displayBuiltAt = displayCache.latestBuiltAtForModel(modelId);
+  const builtAt = [queryBuiltAt, preAggBuiltAt, displayBuiltAt].filter(Boolean).sort().pop() || null;
+  // The card shows ONE row for "RAM cache" so we lump preAgg + display
+  // together as `preAggBytes` for back-compat with the existing UI. The
+  // discrete counts are exposed too in case a future UI version wants
+  // to split them.
   res.json({
     queryEntries, queryBytes,
-    preAggEntries, preAggBytes,
-    totalEntries: queryEntries + preAggEntries,
-    totalBytes: queryBytes + preAggBytes,
+    preAggEntries: preAggEntries + displayEntries,
+    preAggBytes: preAggBytes + displayBytes,
+    displayEntries, displayBytes,
+    totalEntries: queryEntries + preAggEntries + displayEntries,
+    totalBytes: queryBytes + preAggBytes + displayBytes,
     builtAt,
   });
 });
