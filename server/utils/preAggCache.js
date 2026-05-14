@@ -121,6 +121,41 @@ function tryServe(opts, request) {
   return { rows, builtAt: entry.builtAt, fromPreAgg: true };
 }
 
+// Same as tryServe, but on miss returns a diagnostic explaining WHY the
+// lookup didn't serve. Used by the route to populate `_cache.preAggReason`
+// in /query responses so the browser network panel surfaces cache health
+// without needing server logs. Never throws — returns the reason as a
+// short string the caller can attach to its response.
+function tryServeWithReason(opts, request) {
+  if (!isQueryCacheEnabled()) return { hit: false, reason: 'cache-disabled' };
+  const key = buildKey(opts);
+  const entry = cache.get(key);
+  if (!entry) return { hit: false, reason: 'no-entry' };
+  const dataset = entry.dataset;
+  const reqDims = Array.isArray(request.dims) ? request.dims : [];
+  const reqMeasures = Array.isArray(request.measures) ? request.measures : [];
+  const filters = request.filters || {};
+  const datasetDims = Array.isArray(dataset.dims) ? dataset.dims : [];
+  const missingDims = reqDims.filter((d) => !datasetDims.includes(d));
+  if (missingDims.length > 0) {
+    return { hit: false, reason: 'missing-dims', details: { missingDims, datasetDims } };
+  }
+  const filterDimsMissing = Object.keys(filters).filter((d) => !datasetDims.includes(d));
+  if (filterDimsMissing.length > 0) {
+    return { hit: false, reason: 'missing-filter-dims', details: { filterDimsMissing, datasetDims } };
+  }
+  const datasetMeasures = dataset.measures || {};
+  const missingMeasures = reqMeasures.filter((m) => !datasetMeasures[m]);
+  if (missingMeasures.length > 0) {
+    return { hit: false, reason: 'missing-measures', details: { missingMeasures, datasetMeasures: Object.keys(datasetMeasures) } };
+  }
+  if (!canServe({ dataset, request })) {
+    return { hit: false, reason: 'cant-serve', details: { datasetDims, datasetMeasures: Object.keys(datasetMeasures) } };
+  }
+  const rows = aggregate({ dataset, request });
+  return { hit: true, rows, builtAt: entry.builtAt };
+}
+
 // Store a pre-agg dataset. `dataset` follows the inMemoryAgg shape:
 // `{ dims: [...], measures: { alias: { type } }, rows: [...] }`.
 function set(opts, dataset) {
@@ -282,6 +317,7 @@ module.exports = {
   buildKey,
   stableShape,
   tryServe,
+  tryServeWithReason,
   set,
   invalidateModel,
   invalidateDatasource,

@@ -1995,11 +1995,24 @@ router.post('/:id/query', async (req, res) => {
         }),
         rlsContext: rlsContextForCache,
       };
-      const preAggHit = preAggCache.tryServe(preAggOpts, {
+      const preAggResult = preAggCache.tryServeWithReason(preAggOpts, {
         dims: dimensionNames || [],
         measures: measureNames || [],
         filters: filters || {},
       });
+      const preAggHit = preAggResult.hit
+        ? { rows: preAggResult.rows, builtAt: preAggResult.builtAt }
+        : null;
+      // Stash the miss reason on `req` so the queryCache / DB branches
+      // below can attach it to `_cache.preAggReason` — surfaces WHY the
+      // pre-agg didn't serve in the network panel without needing logs.
+      // `req` is the only object whose scope reliably reaches both the
+      // queryCache branch (still inside `if (!bypassCache)`) and the DB
+      // fallback branch (outside it).
+      if (!preAggResult.hit) {
+        req._preAggMissReason = preAggResult.reason;
+        req._preAggMissDetails = preAggResult.details;
+      }
       if (preAggHit) {
         let rows = preAggHit.rows;
         // Apply top_n / bottom_n after the in-memory aggregation. Resolves
@@ -2046,7 +2059,15 @@ router.post('/:id/query', async (req, res) => {
         rowCount: cached.rows.length,
         maxReached: cached.rows.length >= MAX_ROWS,
         sql,
-        _cache: { hit: true, builtAt: cached.builtAt },
+        _cache: {
+          hit: true,
+          builtAt: cached.builtAt,
+          // Surface the preAgg miss reason here too — explains why we
+          // landed on the SQL-keyed cache instead of the broader preAgg
+          // path (which would survive filter changes).
+          preAggReason: req._preAggMissReason || undefined,
+          preAggDetails: req._preAggMissDetails || undefined,
+        },
         _rls: {
           configured: !!(rls && rls.enabled),
           applies: !!rlsApplies,
@@ -2154,7 +2175,13 @@ router.post('/:id/query', async (req, res) => {
     }
     res.json({
       rows, rowCount: rows.length, maxReached: rows.length >= MAX_ROWS, sql,
-      _cache: { hit: false },
+      _cache: {
+        hit: false,
+        // Same preAgg reason as the queryCache branch — DB hits are the
+        // most useful case to diagnose because it means BOTH caches missed.
+        preAggReason: req._preAggMissReason || undefined,
+        preAggDetails: req._preAggMissDetails || undefined,
+      },
       _rls: {
         configured: !!(rls && rls.enabled),
         applies: !!rlsApplies,
