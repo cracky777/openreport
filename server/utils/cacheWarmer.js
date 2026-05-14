@@ -417,6 +417,18 @@ async function _warmReportInner({ scheduleId, reportId, userId }) {
   let failed = 0;
   let stored = 0;
   const errors = [];
+  // Temporary diagnostic — surfaces each bucket's effective
+  // widgetFilters before firing so a "no WHERE clause" surprise on a
+  // bucket the user expected to be filtered is visible at warm time.
+  // Remove once the global-filter-bar regression is sorted out.
+  if (process.env.WARM_LOG !== '0') {
+    console.log(`[warm] report=${reportId} buckets=${plan.length}`);
+    for (const item of plan) {
+      const wIds = (item.specs || []).map((s) => s.wId).join(',');
+      const wf = JSON.stringify(item.widgetFilters || []);
+      console.log(`[warm] bucket "${item.bucketKey.slice(0, 60)}" widgets=[${wIds}] widgetFilters=${wf.slice(0, 200)}`);
+    }
+  }
   for (const item of plan) {
     try {
       const r = await fetch(`${base}/api/models/${item.modelId}/query`, {

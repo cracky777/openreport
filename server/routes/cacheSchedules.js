@@ -281,8 +281,21 @@ router.get('/inspect/:reportId', requireAuth, (req, res) => {
   // each bucket represents ONE coalesced SQL response shared by N
   // widgets. The UI uses this to colour-code rows and to show "X
   // buckets share Y widgets" at the top of the modal.
+  //
+  // We attach the bucket's effective widgetFilters too — surfaces
+  // "this bucket scans the whole table" (empty filters) vs "this bucket
+  // is filtered by [...]" so the user can spot widgets that fell
+  // through the global filter bar without realising it.
   const bucketSummary = [];
   const bucketSeen = new Set();
+  // Index plan items by the wIds they cover, so we can look up the
+  // bucket's widgetFilters when we know a widgetId in it.
+  const planItemByWidgetId = new Map();
+  for (const item of plan) {
+    for (const spec of (item.specs || [])) {
+      planItemByWidgetId.set(spec.wId, item);
+    }
+  }
   for (const e of allEntries) {
     if (!e.bucketId || bucketSeen.has(e.bucketId)) continue;
     bucketSeen.add(e.bucketId);
@@ -290,12 +303,18 @@ router.get('/inspect/:reportId', requireAuth, (req, res) => {
       .filter((x) => x.bucketId === e.bucketId)
       .map((x) => x.widgetId)
       .filter(Boolean);
+    // Look up the bucket's plan item via any of its widgets — they all
+    // share the same `widgetFilters` (that's how the bucket was formed).
+    const bucketPlanItem = widgetsInBucket
+      .map((id) => planItemByWidgetId.get(id))
+      .find(Boolean);
     bucketSummary.push({
       bucketId: e.bucketId,
       bytes: e.bytes || 0,
       rowCount: e.rowCount || 0,
       widgetCount: widgetsInBucket.length,
       widgetIds: widgetsInBucket,
+      widgetFilters: bucketPlanItem ? bucketPlanItem.widgetFilters : [],
     });
   }
   bucketSummary.sort((a, b) => b.bytes - a.bytes);
