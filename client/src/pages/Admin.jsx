@@ -168,7 +168,9 @@ export default function Admin() {
             <StorageUsageRow
               uploadedFileCount={settings.storage?.uploadedFileCount ?? 0}
               uploadedBytes={settings.storage?.uploadedBytes ?? 0}
-              cacheBytes={(settings.queryCacheStats?.bytes ?? 0) + (settings.preAggCacheStats?.bytes ?? 0)}
+              ramBytes={settings.queryCacheStats?.bytes ?? 0}
+              rollupBytes={settings.rollupStorage?.bytes ?? 0}
+              rollupCount={settings.rollupStorage?.rollups ?? 0}
             />
             <QueryTimeoutControl
               valueMs={settings.queryTimeoutMs}
@@ -347,38 +349,34 @@ function QueryTimeoutControl({ valueMs, minMs, maxMs, defaultMs, onSave, saving 
   );
 }
 
-// Compact 2-stat row: uploaded source files (disk) + cache (RAM). Both
-// are instance-wide totals so the admin sees at a glance how heavy the
-// install is. No quota or limit — OSS doesn't ship with billing plans.
-function StorageUsageRow({ uploadedFileCount, uploadedBytes, cacheBytes }) {
+// Compact 3-stat row: uploaded source files (disk) + query cache (RAM)
+// + rollup storage (local disk). Instance-wide totals so the admin sees
+// at a glance how heavy the install is. No quota — OSS has no billing.
+function StorageUsageRow({ uploadedFileCount, uploadedBytes, ramBytes, rollupBytes, rollupCount }) {
   const cell = {
     flex: 1, padding: '10px 12px',
     background: 'var(--bg-subtle)', borderRadius: 6,
     border: '1px solid var(--border-default)',
   };
+  const label = { fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 };
+  const value = { fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginTop: 4 };
+  const sub = { fontSize: 11, color: 'var(--text-disabled)', marginTop: 2 };
   return (
     <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
       <div style={cell}>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-          Uploaded files
-        </div>
-        <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginTop: 4 }}>
-          {formatBytes(uploadedBytes)}
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--text-disabled)', marginTop: 2 }}>
-          {uploadedFileCount} file{uploadedFileCount === 1 ? '' : 's'} on disk
-        </div>
+        <div style={label}>Uploaded files</div>
+        <div style={value}>{formatBytes(uploadedBytes)}</div>
+        <div style={sub}>{uploadedFileCount} file{uploadedFileCount === 1 ? '' : 's'} on disk</div>
       </div>
       <div style={cell}>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-          Cache in RAM
-        </div>
-        <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginTop: 4 }}>
-          {formatBytes(cacheBytes)}
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--text-disabled)', marginTop: 2 }}>
-          query results + pre-aggregations
-        </div>
+        <div style={label}>Rollup storage</div>
+        <div style={value}>{formatBytes(rollupBytes)}</div>
+        <div style={sub}>{rollupCount} rollup{rollupCount === 1 ? '' : 's'} on local disk</div>
+      </div>
+      <div style={cell}>
+        <div style={label}>Query cache</div>
+        <div style={value}>{formatBytes(ramBytes)}</div>
+        <div style={sub}>SQL result cache in RAM</div>
       </div>
     </div>
   );
@@ -395,9 +393,7 @@ function QueryCacheControl({ enabled, ttlMs, minMs, maxMs, stats, preAggStats, l
   useEffect(() => { setSeconds(Math.round(ttlMs / 1000)); }, [ttlMs]);
   const dirty = seconds !== Math.round(ttlMs / 1000);
   const sqlEntries = stats?.size ?? 0;
-  const preAggEntries = preAggStats?.size ?? 0;
-  const totalEntries = sqlEntries + preAggEntries;
-  const totalBytes = (stats?.bytes ?? 0) + (preAggStats?.bytes ?? 0);
+  const rollupCount = preAggStats?.size ?? 0;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -405,7 +401,8 @@ function QueryCacheControl({ enabled, ttlMs, minMs, maxMs, stats, preAggStats, l
           Query result cache
         </label>
         <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>
-          {totalEntries} entries · {formatBytes(totalBytes)} in RAM{preAggEntries > 0 ? ` (${preAggEntries} pre-agg)` : ''}
+          {sqlEntries} entries · {formatBytes(stats?.bytes ?? 0)} in RAM
+          {rollupCount > 0 ? ` · ${rollupCount} rollup${rollupCount === 1 ? '' : 's'} on local disk` : ''}
         </span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

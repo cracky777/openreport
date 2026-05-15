@@ -4,16 +4,21 @@
  * On boot: load every enabled schedule and register a cron job for it.
  * On create/update/delete: hot-reload by stop+register.
  *
- * Each tick fires `cacheWarmer.warmReport(...)` and persists the result
- * via `cacheSchedules.recordRun`. We intentionally do NOT use a queue —
- * the warmer is fast enough (a handful of HTTP calls back to localhost)
- * that overlapping cron ticks aren't a real concern in OSS, where
- * there's only one server process.
+ * Each tick fires `rollupBuilder.buildRollupsForModel(...)` — the schedule
+ * is report-scoped but rollups are model-scoped, so a tick rebuilds every
+ * rollup the model needs across all of its reports. Multiple schedules on
+ * the same model are redundant but harmless (idempotent rebuild).
+ *
+ * Persisted result via `cacheSchedules.recordRun`. We intentionally do
+ * NOT use a queue — even on a slow source DB the builder is one
+ * sequential pass over a handful of grains, and overlapping cron ticks
+ * aren't a real concern in OSS where there's only one server process.
  */
 
 const cron = require('node-cron');
 const cacheSchedules = require('./cacheSchedules');
-const cacheWarmer = require('./cacheWarmer');
+const rollupBuilder = require('./rollupBuilder');
+const db = require('../db');
 
 // scheduleId → { task, cronExpr } so we can stop/replace on hot-reload.
 const _jobs = new Map();
@@ -48,15 +53,21 @@ async function runOne(scheduleId) {
   if (!sched) return { skipped: true, reason: 'not-found' };
   if (!sched.enabled) return { skipped: true, reason: 'disabled' };
   try {
-    const r = await cacheWarmer.warmReport({
-      scheduleId: sched.id,
-      reportId: sched.report_id,
-      userId: sched.user_id,
+    const report = db.prepare('SELECT model_id FROM reports WHERE id = ?').get(sched.report_id);
+    if (!report || !report.model_id) {
+      cacheSchedules.recordRun(sched.id, 'error', 'Report has no model');
+      return { error: 'no-model' };
+    }
+    const r = await rollupBuilder.buildRollupsForModel({
+      modelId: report.model_id,
+      internalUserId: sched.user_id,
+      orgId: null,
+      log: process.env.ROLLUP_LOG !== '0',
     });
-    const status = r.failed > 0 && r.ok === 0 ? 'error' : 'ok';
-    const note = r.errors
+    const status = (r.errors && r.errors.length > 0 && r.built === 0) ? 'error' : 'ok';
+    const note = (r.errors && r.errors.length > 0)
       ? r.errors.join(' | ').slice(0, 500)
-      : `Warmed ${r.warmed}/${r.fired} widget(s)${r.preAggsStored ? `, ${r.preAggsStored} pre-agg` : ''}`;
+      : `Built ${r.built}/${r.fired} rollup(s)`;
     cacheSchedules.recordRun(sched.id, status, note);
     return { ok: status === 'ok', ...r };
   } catch (err) {
@@ -71,38 +82,12 @@ function bootRegisterAll() {
   const all = cacheSchedules.listAllEnabled();
   for (const s of all) register(s);
   if (all.length > 0) console.log(`[cacheScheduler] registered ${all.length} cache schedule(s)`);
-  // Container restarts wipe the in-memory queryCache + preAggCache; without
-  // any backing store (no Cube Store / Redis), every report would serve
-  // cold for as long as the schedule's interval — up to 24 h with our
-  // default cron presets. Fire one warm pass per schedule right after the
-  // server is listening to rebuild the cache immediately on boot.
-  //
-  // REMOVE THIS BLOCK when a persistent cache backend (Cube Store / Redis)
-  // is wired up — at that point the cache survives restarts and the boot
-  // warm is wasted DB load.
-  if (all.length > 0) kickWarmOnBoot(all);
-}
-
-// Fire a one-shot warm for every active schedule, sequentially so we
-// don't overload the source DBs at startup. Non-blocking: returns
-// immediately and logs progress. Errors per schedule are absorbed by
-// `runOne` so a single bad schedule can't poison the rest.
-function kickWarmOnBoot(schedules) {
-  (async () => {
-    console.log(`[cacheScheduler] warming ${schedules.length} schedule(s) on boot…`);
-    let ok = 0;
-    let failed = 0;
-    for (const s of schedules) {
-      try {
-        const r = await runOne(s.id);
-        if (r && r.error) failed++;
-        else ok++;
-      } catch {
-        failed++;
-      }
-    }
-    console.log(`[cacheScheduler] boot warm complete: ${ok} ok, ${failed} failed`);
-  })().catch((err) => console.error('[cacheScheduler] boot warm crashed:', err));
+  // No boot warm. Rollup tables persist in DuckDB (or the source DB)
+  // across container restarts — there's nothing to rebuild on startup.
+  // Each schedule's cron tick refreshes its model's rollups on its
+  // normal cadence; the runtime /query planner falls through to direct
+  // fact queries on a miss, so a stale rollup degrades to baseline
+  // (slow) rather than failing.
 }
 
 module.exports = { register, unregister, runOne, bootRegisterAll };

@@ -4,7 +4,7 @@ const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const { createConnection } = require('../utils/dbConnector');
 const queryCache = require('../utils/queryCache');
-const preAggCache = require('../utils/preAggCache');
+const rollupBuilder = require('../utils/rollupBuilder');
 
 const router = express.Router();
 
@@ -113,10 +113,13 @@ router.put('/:id', requireAuth, (req, res) => {
   );
 
   // Connection params (host / db / credentials / type) may have changed
-  // — every cached row tied to this datasource is now potentially wrong.
+  // — every cached row + materialised rollup tied to this datasource is
+  // now potentially wrong. queryCache invalidation is synchronous; the
+  // rollup drop is fire-and-forget (the planner falls through to a live
+  // fact query if it races a half-dropped rollup).
   queryCache.invalidateDatasource(req.params.id);
-  preAggCache.invalidateDatasource(req.params.id);
-  require('../utils/displayCache').invalidateDatasource(req.params.id);
+  rollupBuilder.dropAllRollupsForDatasource({ datasourceId: req.params.id, orgId: req.organizationId || null })
+    .catch((err) => console.warn('[rollup] invalidate on datasource update failed:', err.message));
 
   const updated = db.prepare(
     'SELECT id, name, db_type, host, port, db_name, db_user, created_at FROM datasources WHERE id = ? AND user_id = ?'

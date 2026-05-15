@@ -19,6 +19,7 @@ const customVisualRoutes = require('./routes/customVisuals');
 const fileUploadRoutes = require('./routes/fileUpload');
 const imageUploadRoutes = require('./routes/imageUpload');
 const cacheScheduleRoutes = require('./routes/cacheSchedules');
+const rollupRoutes = require('./routes/rollups');
 const internalToken = require('./utils/internalToken');
 const cacheScheduler = require('./utils/cacheScheduler');
 
@@ -117,6 +118,7 @@ app.use('/api/datasources', datasourceRoutes);
 app.use('/api/models', modelRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/cache-schedules', cacheScheduleRoutes);
+app.use('/api/rollups', rollupRoutes);
 // Custom visuals share the /api/workspaces prefix — mount BEFORE workspaces so
 // /:wsId/visuals/... is matched here instead of falling through to a 404 in the
 // workspaces router.

@@ -114,6 +114,11 @@ function createConnection(datasource) {
     return {
       query: async (sql) => { const result = await pool.query(sql); return result.rows; },
       queryCancellable,
+      // executeDDL bypasses the SELECT-only gate enforced at the HTTP layer
+      // (routes/datasources.js). Reserved for in-process callers — currently
+      // the rollup builder, which materialises pre-aggregated tables inside
+      // the source DB when the datasource opts into storage_mode = 'source'.
+      executeDDL: async (sql) => { await pool.query(sql); },
       testConnection: async () => { const client = await pool.connect(); client.release(); return true; },
       getTables: async () => {
         const result = await pool.query(`
@@ -195,6 +200,7 @@ function createConnection(datasource) {
     return {
       query: async (sql) => { const [rows] = await getPool().query(sql); return rows; },
       queryCancellable,
+      executeDDL: async (sql) => { await getPool().query(sql); },
       testConnection: async () => { const conn = await getPool().getConnection(); conn.release(); return true; },
       getTables: async () => { const [rows] = await getPool().query('SHOW TABLES'); return rows.map((r) => Object.values(r)[0]); },
       getColumns: async (tableName) => {
@@ -262,6 +268,7 @@ function createConnection(datasource) {
     return {
       query: async (q) => { const pool = await getPool(); const result = await pool.request().query(q); return result.recordset; },
       queryCancellable,
+      executeDDL: async (q) => { const pool = await getPool(); await pool.request().query(q); },
       testConnection: async () => { await getPool(); return true; },
       getTables: async () => {
         const pool = await getPool();
@@ -324,6 +331,10 @@ function createConnection(datasource) {
     return {
       query: async (q) => { const [rows] = await bigquery.query({ query: q, location: extra.location || 'US' }); return rows; },
       queryCancellable,
+      // BigQuery `CREATE TABLE AS SELECT` is supported but slow and billed per
+      // bytes-scanned. Source-mode rollups on BQ are intentionally allowed for
+      // power users who accept the cost; the duckdb default avoids it.
+      executeDDL: async (q) => { await bigquery.query({ query: q, location: extra.location || 'US' }); },
       testConnection: async () => { await bigquery.query({ query: 'SELECT 1' }); return true; },
       getTables: async () => {
         const [tables] = await bigquery.dataset(dataset).getTables();
@@ -397,6 +408,7 @@ function createConnection(datasource) {
     return {
       query: async (q) => { const db = await getDb(); return convertValues(await db.all(q)); },
       queryCancellable,
+      executeDDL: async (q) => { const db = await getDb(); await db.run(q); },
       testConnection: async () => { const db = await getDb(); await db.all('SELECT 1'); return true; },
       getTables: async () => {
         const db = await getDb();

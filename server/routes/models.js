@@ -6,8 +6,7 @@ const { createConnection } = require('../utils/dbConnector');
 const { canAccessReport } = require('./reports');
 const { getQueryTimeoutMs } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
-const preAggCache = require('../utils/preAggCache'); // legacy — kept for invalidation hooks only
-const displayCache = require('../utils/displayCache');
+const rollupBuilder = require('../utils/rollupBuilder');
 const { quoteIdent, quoteTable, quoteCol, escapeLiteral, quoteLiteral, normalizeAggregation } = require('../utils/sqlDialect');
 
 // Hook for cloud edition to override the global query-timeout with a
@@ -227,40 +226,6 @@ function getOverrideType(table, column, columnTypes) {
 // 'DD/MM/YYYY' values is parsed before the part is extracted).
 //
 // Returns null when the dim has no datePart. Used by both the SELECT
-// Build a dialect-appropriate SQL expression that returns the GROUPING_ID
-// bitmask for a row: bit (n-1-i) is 1 when args[i] is aggregated (not part
-// of the current grouping set's grain) and 0 when it's grouped. The
-// high-bit-first convention matches `displayCache.grainBitmask` so the
-// cache layer can match a row to a request's grain by integer equality.
-//   - Postgres / MySQL 8.0+ : GROUPING(a, b, …)
-//   - MS SQL / Azure SQL    : GROUPING_ID(a, b, …)
-//   - DuckDB                : GROUPING_ID(a, b, …)
-//   - BigQuery              : sum of GROUPING(arg) * weight, since BQ's
-//                             GROUPING() takes a single arg and returns
-//                             0/1 — we synthesise the bitmask manually.
-// MySQL < 8.0 has no GROUPING SETS at all; warm pipelines must skip this
-// path for those datasources (the connector layer surfaces a warning).
-function buildGroupingIdSql(dbType, args) {
-  if (!Array.isArray(args) || args.length === 0) return '0';
-  switch (dbType) {
-    case 'azure':
-    case 'mssql':
-    case 'duckdb':
-      return `GROUPING_ID(${args.join(', ')})`;
-    case 'bigquery': {
-      const n = args.length;
-      const terms = args.map((a, i) => `GROUPING(${a}) * ${1 << (n - 1 - i)}`);
-      return `(${terms.join(' + ')})`;
-    }
-    case 'postgres':
-    case 'mysql':
-    default:
-      // PG & MySQL 8.0+ accept multi-arg GROUPING() with the same
-      // high-bit-first bitmask semantics as GROUPING_ID.
-      return `GROUPING(${args.join(', ')})`;
-  }
-}
-
 // projection and the WHERE / HAVING filter generation, so drill-down on
 // a year column actually filters by the YEAR(...) expression rather than
 // the raw timestamp string.
@@ -577,8 +542,12 @@ router.put('/:id', requireAuth, (req, res) => {
   // so the next visual refresh hits the DB and rebuilds. Cheap because the
   // index is keyed by modelId.
   queryCache.invalidateModel(req.params.id);
-  preAggCache.invalidateModel(req.params.id);
-  displayCache.invalidateModel(req.params.id);
+  // Schema change invalidates every materialised rollup for this model.
+  // Fire-and-forget: the manifest DELETE + DuckDB DROP run in the
+  // background; if a query races the drop, the planner's duckdb-error
+  // path just falls through to a live fact query for that one request.
+  rollupBuilder.dropAllRollups({ modelId: req.params.id, orgId: req.organizationId || null })
+    .catch((err) => console.warn('[rollup] invalidate on model update failed:', err.message));
 
   const updated = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
   res.json({
@@ -1056,13 +1025,6 @@ router.post('/:id/query', async (req, res) => {
     // rows still get written back into the cache so subsequent requests
     // for the same shape become hot.
     bypassCache,
-    // When `true`, skip the trailing `queryCache.set` after a fresh SQL
-    // execution. The warmer sets this for plan items whose results will
-    // also be stored in `preAggCache` — avoiding storing the same data
-    // twice (raw row-of-objects in queryCache + columnar in preAgg).
-    // Caller-trusted: it's only honoured for SUCCESSFUL fresh runs;
-    // doesn't change cache LOOKUP behaviour.
-    skipCacheSet,
     // Report-scoped extensions: dims/measures defined ONLY in the calling
     // report (so other reports on the same model don't see them), plus
     // label/type overrides for model-level dims/measures. The model itself
@@ -1072,13 +1034,6 @@ router.post('/:id/query', async (req, res) => {
     // smuggle a custom-SQL measure into a /query they don't own) and by
     // cloud to resolve workspace-scoped timeouts.
     reportId,
-    // Phase 4: opt-in `GROUP BY GROUPING SETS (...)` mode. Array of
-    // arrays of DIMENSION NAMES (not SQL expressions). When set, the SQL
-    // builder emits a single query covering every grain in the list, plus
-    // a `GROUPING_ID(...) AS "_grain"` column so the cache layer can
-    // identify which row belongs to which grain. Empty / missing → the
-    // legacy GROUP BY <every dim> path is used unchanged.
-    groupingSets,
   } = req.body;
 
   // Gate `extraMeasures` / `extraDimensions` / overrides: these can carry
@@ -1329,104 +1284,58 @@ router.post('/:id/query', async (req, res) => {
   }
   __mark('extras gating + rls resolved');
 
-  // ── Early displayCache short-circuit ──────────────────────────────────
-  // The displayCache key depends ONLY on (datasource, model, measures,
-  // widgetFilters, extras, RLS context) — none of which need the built
-  // SQL. Checking the cache HERE skips the expensive SQL assembly
-  // (custom expression expansion, snowflake bridge BFS, RLS injection,
-  // GROUPING SETS emission, etc.) on every cache hit. On a hot path
-  // with many widgets re-fetching after a cross-filter click, this is
-  // the difference between "200ms × N widgets" and "5ms × N widgets".
+  // ── Aggregate-aware rollup planner ────────────────────────────────────
+  // Before assembling (and running) the fact-table SQL, see if a
+  // materialised rollup covers this request. The rollup table IS the
+  // persistent cache — no separate in-RAM grain cache layer.
   //
-  // Bypass cases: `bypassCache: true` (user-initiated refresh) and
-  // `sqlOnly: true` (the SQL preview endpoint) both still need the SQL
-  // build path — for those we just skip the early lookup.
-  const earlyRlsContextForCache = {
-    bypass: isOwner ? 'owner' : (isAdmin ? 'admin' : null),
-    allowed: allowedRlsKeys,
-  };
-  // Filter widgets pass `measureNames: []` — they're still cacheable
-  // (the warmer stores their dim distinct-values under the same shape
-  // key). `sqlOnly` is the SQL-preview endpoint that needs the assembled
-  // SQL not data — skip the cache for that one. `bypassCache` legacy
-  // meaning was "skip queryCache + force DB" — with Phase 4 we honour
-  // the spirit (queryCache miss + fresh DB) but STILL try displayCache:
-  // the display-grain cache is the warmer's authoritative output and a
-  // user's accidental bypass (committing a filter bar value, etc.)
-  // shouldn't drop them into a multi-second DB query when the warmed
-  // data covers the request.
-  // The warmer's POSTs always carry `groupingSets` in the body — that's
-  // its signature. Those requests MUST execute against the DB (their
-  // whole point is to refresh the cache); if we let them hit
-  // displayCache they'd serve back yesterday's cached rows and the
-  // warm would silently become a no-op. Skip the early-path for them.
-  const isWarmerRequest = Array.isArray(req.body && req.body.groupingSets) && req.body.groupingSets.length > 0;
-  if (sqlOnly || isWarmerRequest) {
-    __mark(`SKIP early lookup (sqlOnly=${!!sqlOnly}, warmer=${!!isWarmerRequest})`);
-  }
-  if (!sqlOnly && !isWarmerRequest) {
-    const isSyntheticTopN = (f) => f && (f.op === 'top_n' || f.op === 'bottom_n');
-    // CRITICAL: the warmer stores entries under
-    // `sanitizeWidgetFilters([...])` so the runtime MUST sanitize too,
-    // otherwise the shape SHA differs and we miss on every widget that
-    // happens to have an empty/half-filled rule (the runtime client
-    // sends rules verbatim — sanitize is server-side). Without this the
-    // route falls through to DB even when the cache is fully populated.
-    const { sanitizeWidgetFilters } = require('../utils/widgetFilters');
-    const widgetFiltersForShape = sanitizeWidgetFilters(
-      Array.isArray(widgetFilters)
-        ? widgetFilters.filter((f) => !isSyntheticTopN(f))
-        : widgetFilters
-    );
-    const displayOpts = {
-      datasourceId: datasource.id,
-      modelId: model.id,
-      shape: displayCache.stableShape({
-        measures: measureNames,
-        widgetFilters: widgetFiltersForShape,
-        reportExtras: { extraDimensions, extraMeasures, dimensionOverrides, measureOverrides },
-      }),
-      rlsContext: earlyRlsContextForCache,
-    };
-    const __tCacheStart = Date.now();
-    const displayResult = displayCache.tryServeWithReason(displayOpts, {
-      dims: dimensionNames || [],
-      measures: measureNames || [],
-      filters: filters || {},
-    });
-    __mark(`displayCache.tryServeWithReason ${displayResult.hit ? 'HIT' : 'MISS:' + displayResult.reason} (${Date.now() - __tCacheStart}ms, ${displayResult.rows?.length ?? 0} rows)`);
-    if (displayResult.hit) {
-      let rows = displayResult.rows;
-      // Apply top_n / bottom_n in memory (same logic as the post-SQL
-      // path). Resolves the measure name to its row alias.
-      const topNFilter = Array.isArray(widgetFilters) ? widgetFilters.find(isSyntheticTopN) : null;
-      const topNValue = topNFilter ? Math.max(1, Math.floor(topNFilter.value || 0)) : 0;
-      if (topNFilter && topNFilter.field && topNValue > 0 && rows.length > topNValue) {
-        const measDef = allMeasures.find((mm) => mm && mm.name === topNFilter.field);
-        const measKey = measDef ? (measDef.label || measDef.name) : topNFilter.field;
-        const direction = topNFilter.op === 'top_n' ? 'desc' : 'asc';
-        rows = [...rows].sort((a, b) => {
-          const va = Number(a[measKey]);
-          const vb = Number(b[measKey]);
-          const naA = Number.isFinite(va) ? va : 0;
-          const naB = Number.isFinite(vb) ? vb : 0;
-          return direction === 'desc' ? naB - naA : naA - naB;
-        }).slice(0, topNValue);
-      }
-      __mark(`fast-path return (${rows.length} rows)`);
+  // Skip the planner for:
+  //   - `sqlOnly`: the SQL-preview endpoint wants the fact SQL, not data.
+  //   - `_rollupBuilder`: the builder's own /query calls MUST hit the
+  //     source fact table — that's how the rollup gets populated. Serving
+  //     them from a rollup would build a rollup from itself.
+  const isRollupBuilderRequest = !!(req.body && req.body._rollupBuilder);
+  if (sqlOnly || isRollupBuilderRequest) {
+    __mark(`SKIP rollup planner (sqlOnly=${!!sqlOnly}, builder=${isRollupBuilderRequest})`);
+  } else {
+    const rollupPlanner = require('../utils/rollupPlanner');
+    const __tRollup = Date.now();
+    let rollupResult;
+    try {
+      rollupResult = await rollupPlanner.tryServeFromRollup({
+        model,
+        modelId: model.id,
+        orgId: req.organizationId || null,
+        reportId,
+        dimensionNames: dimensionNames || [],
+        measureNames: measureNames || [],
+        filters: filters || {},
+        widgetFilters: Array.isArray(widgetFilters) ? widgetFilters : [],
+        allDimensions,
+        allMeasures,
+        limit,
+        rlsApplies: !!rlsApplies,
+      });
+    } catch (err) {
+      rollupResult = { hit: false, reason: `planner-error:${err.message}` };
+    }
+    __mark(`rollupPlanner ${rollupResult.hit ? 'HIT ' + rollupResult.match : 'MISS:' + rollupResult.reason} (${Date.now() - __tRollup}ms, ${rollupResult.rows?.length ?? 0} rows)`);
+    if (rollupResult.hit) {
       return res.json({
-        rows,
-        rowCount: rows.length,
-        maxReached: rows.length >= 1000000,
-        // No SQL on the early-hit path — building it is the work we
-        // just skipped. Clients that wanted to see the SQL can pass
-        // `sqlOnly: true` to force the SQL preview path instead.
-        sql: null,
-        _cache: { hit: true, preAgg: true, builtAt: displayResult.builtAt, fastPath: true, serverMs: Date.now() - __t0 },
+        rows: rollupResult.rows,
+        rowCount: rollupResult.rows.length,
+        maxReached: rollupResult.rows.length >= 1000000,
+        sql: rollupResult.sql || null,
+        _cache: {
+          hit: true,
+          fromRollup: rollupResult.tableName,
+          rollupMatch: rollupResult.match,
+          serverMs: Date.now() - __t0,
+        },
         _rls: {
           configured: !!(rls && rls.enabled),
           applies: !!rlsApplies,
-          bypass: earlyRlsContextForCache.bypass,
+          bypass: isOwner ? 'owner' : (isAdmin ? 'admin' : null),
           table: rls?.table || null,
           primaryKey: rls?.primaryKey || null,
           ruleCount: rls?.rules ? Object.keys(rls.rules).length : 0,
@@ -1435,10 +1344,7 @@ router.post('/:id/query', async (req, res) => {
         },
       });
     }
-    // Stash the miss reason so the SQL-keyed fallback / DB-hit branches
-    // surface it in `_cache.preAggReason` for the network panel.
-    req._preAggMissReason = displayResult.reason;
-    req._preAggMissDetails = displayResult.details;
+    req._preAggMissReason = rollupResult.reason;
   }
   // ──────────────────────────────────────────────────────────────────────
 
@@ -1578,11 +1484,6 @@ router.post('/:id/query', async (req, res) => {
     }
   }
 
-  // Track each dim's GROUP BY expression by its logical name. The
-  // GROUPING SETS path (Phase 4) needs to look these up by name — the
-  // body's `groupingSets` field lists dim names, not SQL expressions,
-  // because the warmer doesn't know about per-dialect quoting.
-  const dimExprByName = Object.create(null);
   selectedDimensions.forEach((d) => {
     let expr;
     if (d.datePart) {
@@ -1596,29 +1497,7 @@ router.post('/:id/query', async (req, res) => {
     selectParts.push(`${expr} AS ${quoteIdent(d.label || d.name, dbType)}`);
     groupByParts.push(expr);
     tablesUsed.add(d.table);
-    dimExprByName[d.name] = expr;
   });
-
-  // GROUPING SETS mode: validate the requested sets reference only dims
-  // we just SELECTed. If any name is unknown, fall back to standard
-  // GROUP BY rather than emitting a half-built grouping sets clause.
-  const groupingSetsValid = Array.isArray(groupingSets)
-    && groupingSets.length > 0
-    && groupingSets.every((set) => Array.isArray(set) && set.every((n) => dimExprByName[n]));
-  if (groupingSetsValid) {
-    // Inject GROUPING_ID(<every dim in dimExprByName>) AS "_grain" so
-    // the cache layer can tell at lookup time which grain each row
-    // belongs to. Args MUST be in the SAME order as `selectedDimensions`
-    // — the bitmask semantics depend on argument position (high bit =
-    // first arg). The cache stores `dataset.dims = [d.name…]` in the
-    // same order and computes the expected bitmask the same way.
-    const groupingArgs = selectedDimensions
-      .map((d) => dimExprByName[d.name])
-      .filter(Boolean);
-    if (groupingArgs.length > 0) {
-      selectParts.push(`${buildGroupingIdSql(dbType, groupingArgs)} AS ${quoteIdent('_grain', dbType)}`);
-    }
-  }
 
   // Helper used by filtered measures to convert a single FilterRule into a
   // SQL fragment. Mirrors the WHERE-loop above but returns the clause
@@ -2076,32 +1955,14 @@ router.post('/:id/query', async (req, res) => {
   }
 
   __mark('SQL parts assembled (selectParts, whereParts, joins, etc.)');
-  // GROUPING SETS produces one row per (set × dim-value tuple) with the
-  // `_grain` bitmask column distinguishing them — DISTINCT here would
-  // collapse rows from different grains that happen to share visible
-  // dim values, so the runtime lookup couldn't tell them apart. Skip
-  // DISTINCT whenever we're in grouping-sets mode.
-  const useDistinct = !groupingSetsValid && (distinct || (selectedDimensions.length > 0 && selectedMeasures.length === 0));
+  const useDistinct = distinct || (selectedDimensions.length > 0 && selectedMeasures.length === 0);
   let sql = `SELECT ${useDistinct ? 'DISTINCT ' : ''}${selectParts.join(', ')} FROM ${fromClause}`;
 
   if (whereParts.length > 0) {
     sql += ` WHERE ${whereParts.map((w) => w.sql).join(' AND ')}`;
   }
 
-  if (groupingSetsValid) {
-    // GROUPING SETS mode (Phase 4) — emit one row set per grain. The
-    // sets list comes straight from the caller (typically the warmer),
-    // which is responsible for covering every grain a runtime query
-    // might ask for. We map each dim name to its already-resolved SQL
-    // expression so dialect quoting/date-part rewrites stay consistent.
-    // Works for both measure-bearing widgets and dim-only filter widgets
-    // (the dim columns alone are enough to make the SQL aggregate-free
-    // GROUP BY valid).
-    const setsSql = groupingSets
-      .map((set) => `(${set.map((n) => dimExprByName[n]).filter(Boolean).join(', ')})`)
-      .join(', ');
-    sql += ` GROUP BY GROUPING SETS (${setsSql})`;
-  } else if (groupByParts.length > 0 && selectedMeasures.length > 0) {
+  if (groupByParts.length > 0 && selectedMeasures.length > 0) {
     sql += ` GROUP BY ${groupByParts.join(', ')}`;
   }
 
@@ -2171,10 +2032,9 @@ router.post('/:id/query', async (req, res) => {
     rlsContext: rlsContextForCache,
   };
   if (!bypassCache) {
-    // displayCache was already checked at the top of the handler — if it
-    // hit we returned early before SQL build. Reaching here means we're
-    // on the miss path; fall straight through to the SQL-keyed
-    // queryCache, then the DB.
+    // The rollup planner was already checked at the top of the handler —
+    // a hit returned early before SQL build. Reaching here means rollup
+    // miss; fall through to the SQL-keyed queryCache, then the DB.
     const cached = queryCache.get(cacheOpts);
     __mark(`queryCache.get ${cached ? 'HIT' : 'MISS'}`);
     if (cached) {
@@ -2216,14 +2076,13 @@ router.post('/:id/query', async (req, res) => {
     // /cancel-query call can abort the in-flight DB query. Otherwise fall
     // back to the legacy non-cancellable path.
     //
-    // Warmer requests fire GROUP BY GROUPING SETS with potentially
-    // dozens of grains in one SQL — PG evaluates each set independently
-    // so the wall clock is roughly N × single-set time. The user-facing
-    // default is fine for runtime drills (single grain) but too tight
-    // for the coalesced warm SQL. Bump to 10 min for warmer requests;
-    // runtime queries keep the configured timeout.
+    // Rollup-builder requests run a full unfiltered aggregation over the
+    // source fact table (one grain per call) to materialise a rollup —
+    // that can be far slower than a runtime drill. The user-facing
+    // default is fine for runtime queries but too tight for the build
+    // pass; bump to 10 min for builder requests.
     const baseTimeoutMs = resolveQueryTimeoutMs(req);
-    const timeoutMs = isWarmerRequest ? Math.max(baseTimeoutMs, 10 * 60 * 1000) : baseTimeoutMs;
+    const timeoutMs = isRollupBuilderRequest ? Math.max(baseTimeoutMs, 10 * 60 * 1000) : baseTimeoutMs;
     let rawRows;
     const startedAt = Date.now();
     if (typeof conn.queryCancellable === 'function') {
@@ -2296,10 +2155,10 @@ router.post('/:id/query', async (req, res) => {
     // Store in cache so the next identical request hits warm. We skip
     // empty / very-large payloads in stats but still cache them — an
     // empty result is still a meaningful answer to the user.
-    // `skipCacheSet` is the warmer's hint that the same dataset is also
-    // landing in preAggCache (columnar, ~7× smaller). Honour it to avoid
-    // the duplication.
-    if (!skipCacheSet) {
+    // Rollup-builder requests pull a full unfiltered aggregation that
+    // lands in the rollup table anyway; don't also bloat the in-RAM
+    // queryCache with that one-off payload.
+    if (!isRollupBuilderRequest) {
       queryCache.set(cacheOpts, {
         rows,
         builtAt: new Date().toISOString(),

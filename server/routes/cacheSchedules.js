@@ -19,9 +19,16 @@ const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const cacheSchedules = require('../utils/cacheSchedules');
 const cacheScheduler = require('../utils/cacheScheduler');
-const cacheWarmer = require('../utils/cacheWarmer');
+const fs = require('fs');
 const queryCache = require('../utils/queryCache');
-const preAggCache = require('../utils/preAggCache');
+const rollupBuilder = require('../utils/rollupBuilder');
+const rollupDuckDB = require('../utils/rollupDuckDB');
+
+// Real on-disk size of the embedded rollup store (shared by every model
+// on the instance — it's the file, not a per-report figure).
+function rollupDiskBytes() {
+  try { return fs.statSync(rollupDuckDB.ROLLUP_DB_PATH).size; } catch { return 0; }
+}
 
 const router = express.Router();
 
@@ -106,281 +113,117 @@ router.post('/:id/run', requireAuth, async (req, res) => {
   res.json({ result });
 });
 
-// Reports whose warm is currently in flight. Used by the Dashboard to
-// keep the spinner on the right cards after an F5 — the in-memory Set
-// in `cacheWarmer` is the source of truth, this endpoint just exposes
-// it filtered to reports the caller is allowed to see (avoids leaking
-// org-internal IDs across tenants — same gate as report listing).
+// Reports whose rollup rebuild is currently in flight. Used by the
+// Dashboard to keep the spinner on the right cards after an F5. Rollups
+// are model-scoped; we translate the building model ids back to the
+// caller-visible reports attached to them.
 router.get('/warming', requireAuth, (req, res) => {
-  const ids = cacheWarmer.warmingReportIds();
-  if (ids.length === 0) return res.json({ reportIds: [] });
-  // Only surface reports the caller can read (owner OR org-shared etc.).
-  // Cheap pass: load each report and filter through canManageSchedule.
-  const visible = ids.filter((rid) => {
-    const r = db.prepare('SELECT id, user_id FROM reports WHERE id = ?').get(rid);
-    return r && canManageSchedule(r, req.user);
-  });
+  const modelIds = rollupBuilder.buildingModelIds();
+  if (modelIds.length === 0) return res.json({ reportIds: [] });
+  const placeholders = modelIds.map(() => '?').join(', ');
+  const reports = db.prepare(
+    `SELECT id, user_id FROM reports WHERE model_id IN (${placeholders})`
+  ).all(...modelIds);
+  const visible = reports
+    .filter((r) => canManageSchedule(r, req.user))
+    .map((r) => r.id);
   res.json({ reportIds: visible });
 });
 
-// Per-widget cache breakdown — admin / owner inspector. Each visual is
-// expanded through the same `planForReport` the warmer uses, so the
-// `dims + measures` shape we look up matches what the warmer stored. The
-// response also surfaces "orphan" entries (live in cache but no visual
-// claims them — happens after a binding edit before TTL or invalidation).
+// Rollup inspector — admin / owner view of the materialised rollup
+// tables backing this report's model. One row per rollup (grain ×
+// baked-global-filter). Rollup-native shape (no buckets / orphans /
+// RAM concepts — those died with the GROUPING SETS warmer).
 router.get('/inspect/:reportId', requireAuth, (req, res) => {
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.reportId);
   if (!report) return res.status(404).json({ error: 'Report not found' });
   if (!canManageSchedule(report, req.user)) return res.status(403).json({ error: 'Forbidden' });
 
-  let widgets = {};
-  let settings = {};
-  try { widgets = JSON.parse(report.widgets || '{}'); } catch { /* ignore */ }
-  try { settings = JSON.parse(report.settings || '{}'); } catch { /* ignore */ }
+  const manifest = rollupBuilder.getManifest({
+    modelId: report.model_id,
+    orgId: req.organizationId || null,
+  });
 
-  const modelRow = db.prepare('SELECT id, dimensions, measures FROM models WHERE id = ?').get(report.model_id);
-  let modelDimensions = [];
-  let modelMeasures = [];
-  try { modelDimensions = JSON.parse(modelRow?.dimensions || '[]'); } catch { /* ignore */ }
-  try { modelMeasures = JSON.parse(modelRow?.measures || '[]'); } catch { /* ignore */ }
-  const allDimensions = [...modelDimensions, ...(settings.extraDimensions || [])];
-  const allMeasures = [...modelMeasures, ...(settings.extraMeasures || [])];
-  const measureLookup = (name) => allMeasures.find((mm) => mm.name === name) || null;
+  const diskBytes = rollupDiskBytes();
+  const base = manifest.map((r) => ({
+    grainHash: r.grainHash,
+    grainDims: r.grainDims || [],
+    grainCount: (r.grainDims || []).length,
+    measures: r.measureNames || [],
+    baseFilters: (r.baseFilters || []).map((f) => ({
+      field: f.field, op: f.op, values: f.values || [],
+    })),
+    storageMode: r.storageMode || 'duckdb',
+    rowCount: r.rowCount || 0,
+    builtAt: r.builtAt || null,
+    _est: r.bytes || 0, // per-grain build-time estimate (weight only)
+  }));
+  // Distribute the REAL on-disk volume across grains proportionally to
+  // their build-time estimate, so the Size column sums to the actual
+  // rollups.duckdb file size shown to the user.
+  const sumEst = base.reduce((s, r) => s + r._est, 0);
+  const rollups = base
+    .map((r) => ({
+      ...r,
+      bytes: sumEst > 0
+        ? Math.round(diskBytes * (r._est / sumEst))
+        : (base.length ? Math.round(diskBytes / base.length) : 0),
+    }))
+    .map(({ _est, ...r }) => r)
+    .sort((a, b) => b.bytes - a.bytes);
 
-  // Phase 4: re-plan the report through the new GROUPING SETS warmer.
-  // Each plan item now coalesces N widgets sharing widgetFilters; we
-  // expand back to per-widget rows for the UI by walking each item's
-  // `specs` list. For each spec we compute the exact cache key the
-  // warmer would have used and match it against the live displayCache
-  // entries.
-  const displayCache = require('../utils/displayCache');
-  const modelMetaRow = db.prepare('SELECT id, datasource_id, user_id FROM models WHERE id = ?')
-    .get(report.model_id);
-  const datasourceId = modelMetaRow ? modelMetaRow.datasource_id : null;
-
-  const plan = cacheWarmer.planForReport(
-    { ...report, widgets, settings },
-    settings,
-    { dimensions: allDimensions },
-  );
-
-  const allEntries = displayCache.inspectModel(report.model_id);
-  // Match each plan spec to its cache entry by computing the SHA-256 of
-  // its shape and slicing to the same 12 chars `inspectModel` reports.
-  // The bypass label MUST match exactly what /query computed when the
-  // warmer fired — the route applies "owner wins over admin", so a user
-  // who happens to be BOTH owner of the model AND a global admin gets
-  // `bypass: 'owner'`. Earlier this matched on role first and reported
-  // every entry as orphaned for those users.
-  const reportExtras = {
-    extraDimensions: settings.extraDimensions || [],
-    extraMeasures: settings.extraMeasures || [],
-    dimensionOverrides: settings.dimensionOverrides || {},
-    measureOverrides: settings.measureOverrides || {},
-  };
-  // Match by widgetId — robust against RLS context drift, widgetFilters
-  // sanitization differences, or any other subtle hash-input change
-  // between warm-time and inspect-time. The warmer tags each entry with
-  // its spec's `widgetId` (incl. the `#comboLine` / `#n1` suffixes), so
-  // the lookup is a string equality on a well-known label.
-  const entryByWidgetId = new Map();
-  // Phase 4-v2: multiple cache entries from coalesced widgets share a
-  // single columnar dataset in RAM (different keys → same rowsByGrain
-  // reference, tagged via `_bucketId`). `entryBytes` walks each entry
-  // independently, so the raw sum double-counts shared bytes. Group by
-  // bucketId here to report honest sizes.
-  const sharedBucketCount = new Map();
-  for (const e of allEntries) {
-    if (e.widgetId) entryByWidgetId.set(e.widgetId, e);
-    if (e.bucketId) {
-      sharedBucketCount.set(e.bucketId, (sharedBucketCount.get(e.bucketId) || 0) + 1);
-    }
-  }
-  // Honest bytes per entry = raw bytes / number of entries sharing that
-  // bucket (= the actual RAM proportional to this widget).
-  const sharedBytesFor = (e) => {
-    if (!e || !e.bucketId) return e?.bytes || 0;
-    const n = sharedBucketCount.get(e.bucketId) || 1;
-    return Math.round((e.bytes || 0) / n);
-  };
-
-  // Combo widgets fire 2 specs (`#comboLine` sibling at axis-only grain)
-  // and scorecards with compareDateDim fire 2 specs (`#n1` sibling with
-  // year-shifted filters). Surface the variant in the UI rather than
-  // stripping it — without this, the same widget appears twice with no
-  // way to tell which row is which.
-  const variantLabelFor = (wId) => {
-    if (!wId) return '';
-    if (wId.includes('#comboLine')) return 'line';
-    if (wId.includes('#n1')) return 'N-1';
-    return '';
-  };
-
-  const claimed = new Set();
-  const byWidget = [];
-  for (const item of plan) {
-    for (const spec of (item.specs || [])) {
-      // Primary lookup: by `widgetId` tagged on the entry at warm time.
-      // This is robust against any input-encoding drift between warm
-      // and inspect (RLS context, widgetFilters serialization order,
-      // etc.). Entries warmed before this tagging was added fall back
-      // to the absent state — re-warm to populate the tag.
-      const match = entryByWidgetId.get(spec.wId) || null;
-      if (match) claimed.add(match.keyHash);
-      const cleanWId = String(spec.wId || '').replace(/#.*$/, '');
-      const w = widgets[cleanWId];
-      byWidget.push({
-        widgetId: spec.wId,
-        widgetType: w?.type || null,
-        widgetTitle: w?.config?.title || null,
-        // Surfaced in the UI as "<title> · <variant>" when set —
-        // disambiguates the two combo specs and the two scorecard specs.
-        variant: variantLabelFor(spec.wId),
-        measures: spec.uniqueMeas,
-        // Grain count gives a sense of the coverage breadth (drill
-        // levels × cross-filter subsets the warmer fired for this spec).
-        grainCount: match?.grains?.length || (spec.sets ? spec.sets.length : 0),
-        // Honest per-widget bytes — divided across the N widgets sharing
-        // the bucket's columnar dataset. Sum across rows gives the real
-        // total RAM the report consumes, not N× the actual usage.
-        bytes: sharedBytesFor(match),
-        // Surface bucket membership so the UI can group / colour-code
-        // widgets that share a coalesced SQL response. `bucketSize` is
-        // the FULL columnar bytes for the bucket (= the actual RAM
-        // footprint, not a per-widget share); `sharedAcrossN` is how
-        // many widgets reference it.
-        bucketId: match?.bucketId || null,
-        bucketSize: match?.bytes || 0,
-        sharedAcrossN: match?.bucketId ? (sharedBucketCount.get(match.bucketId) || 1) : 1,
-        rowCount: match?.rowCount || 0,
-        builtAt: match?.builtAt || null,
-        cached: !!match,
-      });
-    }
-  }
-  byWidget.sort((a, b) => b.bytes - a.bytes);
-
-  const orphans = allEntries.filter((e) => !claimed.has(e.keyHash))
-    .map((e) => ({ ...e, bytes: sharedBytesFor(e) }));
-
-  // Total bytes = sum unique bucket bytes (count each shared dataset
-  // ONCE) + bytes from any tag-less entries (which fall back to their
-  // own bytes since they're not shared).
-  const seenBuckets = new Set();
-  let total = 0;
-  for (const e of allEntries) {
-    if (e.bucketId) {
-      if (seenBuckets.has(e.bucketId)) continue;
-      seenBuckets.add(e.bucketId);
-      total += e.bytes || 0;
-    } else {
-      total += e.bytes || 0;
-    }
-  }
-  // Per-bucket summary — surfaces the cohesion the v2 dedup produces:
-  // each bucket represents ONE coalesced SQL response shared by N
-  // widgets. The UI uses this to colour-code rows and to show "X
-  // buckets share Y widgets" at the top of the modal.
-  //
-  // We attach the bucket's effective widgetFilters too — surfaces
-  // "this bucket scans the whole table" (empty filters) vs "this bucket
-  // is filtered by [...]" so the user can spot widgets that fell
-  // through the global filter bar without realising it.
-  const bucketSummary = [];
-  const bucketSeen = new Set();
-  // Index plan items by the wIds they cover, so we can look up the
-  // bucket's widgetFilters when we know a widgetId in it.
-  const planItemByWidgetId = new Map();
-  for (const item of plan) {
-    for (const spec of (item.specs || [])) {
-      planItemByWidgetId.set(spec.wId, item);
-    }
-  }
-  for (const e of allEntries) {
-    if (!e.bucketId || bucketSeen.has(e.bucketId)) continue;
-    bucketSeen.add(e.bucketId);
-    const widgetsInBucket = allEntries
-      .filter((x) => x.bucketId === e.bucketId)
-      .map((x) => x.widgetId)
-      .filter(Boolean);
-    // Look up the bucket's plan item via any of its widgets — they all
-    // share the same `widgetFilters` (that's how the bucket was formed).
-    const bucketPlanItem = widgetsInBucket
-      .map((id) => planItemByWidgetId.get(id))
-      .find(Boolean);
-    bucketSummary.push({
-      bucketId: e.bucketId,
-      bytes: e.bytes || 0,
-      rowCount: e.rowCount || 0,
-      widgetCount: widgetsInBucket.length,
-      widgetIds: widgetsInBucket,
-      widgetFilters: bucketPlanItem ? bucketPlanItem.widgetFilters : [],
-    });
-  }
-  bucketSummary.sort((a, b) => b.bytes - a.bytes);
   res.json({
-    preAggTotalBytes: total,
-    preAggTotalEntries: allEntries.length,
-    queryCacheTotalBytes: queryCache.bytesForModel(report.model_id),
-    queryCacheTotalEntries: queryCache.entriesForModel(report.model_id),
-    byWidget,
-    orphans,
-    buckets: bucketSummary,
+    storageMode: rollups[0]?.storageMode || 'duckdb',
+    diskBytes,
+    rollupCount: rollups.length,
+    totalBytes: diskBytes,
+    totalRows: rollups.reduce((s, r) => s + r.rowCount, 0),
+    rollups,
   });
 });
 
-// Cache footprint for a single report — sum of queryCache +
-// displayCache (Phase 4) entries indexed under the report's model.
-// Legacy preAggCache is included for compatibility but should always
-// be empty since the warmer now writes to displayCache.
+// Compact per-report footprint for the card line: rollup count + total
+// rows for the report's model, plus the in-RAM query-cache layer.
 router.get('/size/:reportId', requireAuth, (req, res) => {
   const r = db.prepare('SELECT id, user_id, model_id FROM reports WHERE id = ?').get(req.params.reportId);
   if (!r) return res.status(404).json({ error: 'Report not found' });
   if (!canManageSchedule(r, req.user)) return res.status(403).json({ error: 'Forbidden' });
   const modelId = r.model_id;
-  const displayCache = require('../utils/displayCache');
-  const queryEntries = queryCache.entriesForModel(modelId);
-  const queryBytes = queryCache.bytesForModel(modelId);
-  const preAggEntries = preAggCache.entriesForModel(modelId);
-  const preAggBytes = preAggCache.bytesForModel(modelId);
-  const displayEntries = displayCache.entriesForModel(modelId);
-  const displayBytes = displayCache.bytesForModel(modelId);
+  const manifest = rollupBuilder.getManifest({ modelId, orgId: req.organizationId || null });
+  const rollupBuiltAt = manifest.map((x) => x.builtAt).filter(Boolean).sort().pop() || null;
   const queryBuiltAt = queryCache.latestBuiltAtForModel(modelId);
-  const preAggBuiltAt = preAggCache.latestBuiltAtForModel(modelId);
-  const displayBuiltAt = displayCache.latestBuiltAtForModel(modelId);
-  const builtAt = [queryBuiltAt, preAggBuiltAt, displayBuiltAt].filter(Boolean).sort().pop() || null;
-  // The card shows ONE row for "RAM cache" so we lump preAgg + display
-  // together as `preAggBytes` for back-compat with the existing UI. The
-  // discrete counts are exposed too in case a future UI version wants
-  // to split them.
   res.json({
-    queryEntries, queryBytes,
-    preAggEntries: preAggEntries + displayEntries,
-    preAggBytes: preAggBytes + displayBytes,
-    displayEntries, displayBytes,
-    totalEntries: queryEntries + preAggEntries + displayEntries,
-    totalBytes: queryBytes + preAggBytes + displayBytes,
-    builtAt,
+    rollupCount: manifest.length,
+    totalBytes: manifest.reduce((s, x) => s + (x.bytes || 0), 0),
+    totalRows: manifest.reduce((s, x) => s + (x.rowCount || 0), 0),
+    diskBytes: rollupDiskBytes(),
+    queryEntries: queryCache.entriesForModel(modelId),
+    queryBytes: queryCache.bytesForModel(modelId),
+    builtAt: [queryBuiltAt, rollupBuiltAt].filter(Boolean).sort().pop() || null,
   });
 });
 
-// One-shot warm pass for a report — independent of any schedule. Used by
-// the "Warm now" button so a user can refresh the cache on demand even
-// before they've configured a recurring schedule. Fires under the
-// caller's identity so RLS-restricted users can warm the slice they
-// can actually see.
+// On-demand rebuild for a report's model — independent of any schedule.
+// Backs the "Warm now" / Refresh button. Rollups are model-scoped, so
+// this rebuilds every rollup the model needs across all of its reports.
 router.post('/run-now/:reportId', requireAuth, async (req, res) => {
   const report = loadReportOrFail(req.params.reportId, res);
   if (!report) return;
   if (!canManageSchedule(report, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  const full = db.prepare('SELECT model_id FROM reports WHERE id = ?').get(report.id);
+  if (!full || !full.model_id) return res.status(400).json({ error: 'Report has no model' });
   try {
-    const result = await cacheWarmer.warmReport({
-      scheduleId: null,
-      reportId: report.id,
-      userId: req.user.id,
+    const result = await rollupBuilder.buildRollupsForModel({
+      modelId: full.model_id,
+      internalUserId: req.user.id,
+      orgId: req.organizationId || null,
+      log: process.env.ROLLUP_LOG !== '0',
     });
     res.json({ result });
   } catch (err) {
+    if (err.code === 'ROLLUP_STORAGE_UNSUPPORTED') {
+      return res.status(501).json({ error: err.message });
+    }
     res.status(500).json({ error: err.message });
   }
 });

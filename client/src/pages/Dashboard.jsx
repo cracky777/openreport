@@ -1515,9 +1515,11 @@ export default function Dashboard() {
                         textDecorationColor: 'var(--border-default)',
                         textDecorationStyle: 'dotted',
                       }}
-                      title="Click to see the per-widget breakdown"
+                      title="Click to see the rollup storage breakdown"
                     >
-                      Cache: {formatBytes(cardCacheStats[report.id].totalBytes)} in RAM
+                      {cardCacheStats[report.id].rollupCount > 0
+                        ? `${formatBytes(cardCacheStats[report.id].diskBytes || 0)} · ${(cardCacheStats[report.id].totalRows || 0).toLocaleString()} rows`
+                        : 'No rollups — Refresh to build'}
                     </div>
                   )}
                 </div>
@@ -1708,147 +1710,68 @@ function CacheInspectorModal({ reportId, reportTitle, data, loading, error, onCl
 
         {data && (
           <>
-            <div style={{ display: 'flex', gap: 24, marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 24, marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{
+                fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5,
+                padding: '3px 8px', borderRadius: 4,
+                background: 'var(--bg-accent-soft)', color: 'var(--text-accent)',
+              }}>
+                {data.storageMode === 'source' ? 'Source DB' : 'Local disk (DuckDB)'}
+              </span>
               <div>
-                <strong>preAgg</strong>: {formatBytes(data.preAggTotalBytes)} · {data.preAggTotalEntries} entries
+                <strong>Rollup storage</strong>: {formatBytes(data.diskBytes)} on disk
+                {' · '}{data.rollupCount} rollup{data.rollupCount === 1 ? '' : 's'}
+                {' · '}{(data.totalRows || 0).toLocaleString()} rows
               </div>
-              <div>
-                <strong>queryCache</strong>: {formatBytes(data.queryCacheTotalBytes)} · {data.queryCacheTotalEntries} entries
-              </div>
-              {data.buckets?.length > 0 && (
-                <div title="Each bucket is one coalesced SQL response shared in RAM by all widgets with the same widgetFilters. The number of shared widgets is shown in the cohesion column.">
-                  <strong>{data.buckets.length}</strong> bucket{data.buckets.length > 1 ? 's' : ''}
-                  {' · '}{data.buckets.reduce((s, b) => s + b.widgetCount, 0)} widgets coalesced
-                </div>
-              )}
-              {data.orphans?.length > 0 && (
-                <div style={{ color: 'var(--state-warning)' }}>
-                  ⚠ {data.orphans.length} orphan entries ({formatBytes(data.orphans.reduce((a, e) => a + e.bytes, 0))})
-                </div>
-              )}
             </div>
 
-            {data.byWidget?.length > 0 ? (
-              (() => {
-                // Map each bucketId to a small palette colour so widgets
-                // sharing a coalesced SQL response line up visually in
-                // the table. The colours wrap if there are more buckets
-                // than entries in the palette — collision is fine, it
-                // just means two distinct buckets get the same dot.
-                const BUCKET_PALETTE = ['#5b9bff', '#9b5bff', '#ff6b9b', '#ffb45b', '#5bd6b8', '#d65bb8', '#7bb56b', '#b87b5b'];
-                const bucketColor = new Map();
-                let nextColor = 0;
-                for (const b of (data.buckets || [])) {
-                  if (b.bucketId && !bucketColor.has(b.bucketId)) {
-                    bucketColor.set(b.bucketId, BUCKET_PALETTE[nextColor++ % BUCKET_PALETTE.length]);
-                  }
-                }
-                return (
+            {data.rollups?.length > 0 ? (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-default)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                    <th style={cellStyle} title="Each colour groups widgets that share the same coalesced SQL response in RAM (= the same bucket).">Bucket</th>
-                    <th style={cellStyle}>Widget</th>
-                    <th style={cellStyle}>Type</th>
-                    <th style={cellStyle}>Measures</th>
-                    <th style={{ ...cellStyle, textAlign: 'right' }} title="Number of display grains (drill levels × cross-filter dim subsets) warmed for this widget">Grains</th>
-                    <th style={{ ...cellStyle, textAlign: 'right' }} title="This widget's share of the bucket's RAM (= bucket size / number of widgets sharing it)">Size (share)</th>
-                    <th style={{ ...cellStyle, textAlign: 'right' }} title="The full RAM footprint of this widget's bucket — shared across the widgets with the same coloured dot">Bucket total</th>
+                    <th style={cellStyle} title="The dimensions this rollup is grouped by (display + drill + cross-filter + widget-own filter dims).">Dimensions (grain)</th>
+                    <th style={{ ...cellStyle, textAlign: 'right' }}>#&nbsp;dims</th>
+                    <th style={cellStyle} title="Measures recomposable from this rollup's stored additive components.">Measures</th>
+                    <th style={cellStyle} title="The report's global filter bar values baked into this rollup at build time.">Global filter (baked)</th>
                     <th style={{ ...cellStyle, textAlign: 'right' }}>Rows</th>
-                    <th style={{ ...cellStyle, textAlign: 'right' }}>Status</th>
+                    <th style={{ ...cellStyle, textAlign: 'right' }} title="Estimated on-disk volume of this grain (row count × estimated row width).">Size</th>
+                    <th style={{ ...cellStyle, textAlign: 'right' }}>Built</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.byWidget.map((w) => {
-                    const colour = w.bucketId ? bucketColor.get(w.bucketId) : null;
+                  {data.rollups.map((r) => {
+                    const dims = (r.grainDims || []).join(' × ') || '(grand total)';
+                    const meas = (r.measures || []).join(', ');
+                    const bf = (r.baseFilters || []);
+                    const bfLabel = bf.length === 0
+                      ? '—'
+                      : bf.map((f) => `${f.field} (${(f.values || []).length})`).join(', ');
+                    const built = r.builtAt ? new Date(r.builtAt).toLocaleString() : '—';
                     return (
-                    <tr key={w.widgetId} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                      <td style={cellStyle}>
-                        {colour ? (
-                          <span title={w.sharedAcrossN > 1 ? `Shared with ${w.sharedAcrossN - 1} other widget${w.sharedAcrossN > 2 ? 's' : ''}` : 'Solo bucket (no coalescing)'} style={{
-                            display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
-                            background: colour, verticalAlign: 'middle',
-                          }} />
-                        ) : (
-                          <span style={{ color: 'var(--text-disabled)' }}>—</span>
-                        )}
-                        {w.sharedAcrossN > 1 && (
-                          <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-muted)' }}>×{w.sharedAcrossN}</span>
-                        )}
-                      </td>
-                      <td style={cellStyle}>
-                        <span style={{ fontFamily: 'monospace', color: 'var(--text-disabled)' }}>
-                          {w.widgetTitle || w.widgetId.replace(/#.*$/, '')}
-                        </span>
-                        {w.variant && (
-                          <span style={{
-                            marginLeft: 8, fontSize: 10, padding: '2px 6px',
-                            borderRadius: 3, background: 'var(--bg-accent-soft)',
-                            color: 'var(--text-accent)', textTransform: 'uppercase',
-                            letterSpacing: 0.5,
-                          }}>{w.variant}</span>
-                        )}
-                      </td>
-                      <td style={cellStyle}>{w.widgetType || '?'}</td>
-                      <td style={{ ...cellStyle, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                          title={(w.measures || []).join(', ')}>
-                        {(w.measures || []).join(', ') || <span style={{ color: 'var(--text-disabled)' }}>—</span>}
-                      </td>
-                      <td style={{ ...cellStyle, textAlign: 'right' }}>{w.grainCount || '—'}</td>
-                      <td style={{ ...cellStyle, textAlign: 'right', fontWeight: w.bytes > 100 * 1024 ? 600 : 400 }}>
-                        {w.cached ? formatBytes(w.bytes) : '—'}
-                      </td>
-                      <td style={{ ...cellStyle, textAlign: 'right', color: w.sharedAcrossN > 1 ? 'var(--text-secondary)' : 'inherit' }}
-                          title={w.sharedAcrossN > 1 ? 'This bucket is shared by multiple widgets — actual RAM used once, not per widget.' : null}>
-                        {w.cached ? formatBytes(w.bucketSize) : '—'}
-                      </td>
-                      <td style={{ ...cellStyle, textAlign: 'right' }}>{w.cached ? w.rowCount : '—'}</td>
-                      <td style={{ ...cellStyle, textAlign: 'right' }}>
-                        {w.cached
-                          ? <span style={{ color: 'var(--state-success)' }}>✓ cached</span>
-                          : <span style={{ color: 'var(--text-disabled)' }}>not warmed</span>}
-                      </td>
-                    </tr>
+                      <tr key={r.grainHash} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                        <td style={{ ...cellStyle, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }} title={dims}>
+                          {dims}
+                        </td>
+                        <td style={{ ...cellStyle, textAlign: 'right' }}>{r.grainCount}</td>
+                        <td style={{ ...cellStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={meas}>
+                          {(r.measures || []).length} <span style={{ color: 'var(--text-disabled)' }}>({meas || '—'})</span>
+                        </td>
+                        <td style={{ ...cellStyle, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: bf.length ? 'inherit' : 'var(--text-disabled)' }}
+                            title={bf.length ? bf.map((f) => `${f.field} ${f.op} [${(f.values || []).join(', ')}]`).join('\n') : 'No global filter baked'}>
+                          {bfLabel}
+                        </td>
+                        <td style={{ ...cellStyle, textAlign: 'right' }}>{(r.rowCount || 0).toLocaleString()}</td>
+                        <td style={{ ...cellStyle, textAlign: 'right', fontWeight: r.bytes > 1024 * 1024 ? 600 : 400 }}>{formatBytes(r.bytes || 0)}</td>
+                        <td style={{ ...cellStyle, textAlign: 'right', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{built}</td>
+                      </tr>
                     );
                   })}
                 </tbody>
               </table>
-                );
-              })()
             ) : (
-              <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>No cacheable widgets on this report.</div>
-            )}
-
-            {data.orphans?.length > 0 && (
-              <details style={{ marginTop: 18 }}>
-                <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>
-                  Orphan entries ({data.orphans.length}) — bindings that changed or widgets that were deleted
-                </summary>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, marginTop: 8 }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border-default)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                      <th style={cellStyle}>Hash</th>
-                      <th style={cellStyle}>Dims</th>
-                      <th style={{ ...cellStyle, textAlign: 'right' }}>Grains</th>
-                      <th style={{ ...cellStyle, textAlign: 'right' }}>Size</th>
-                      <th style={{ ...cellStyle, textAlign: 'right' }}>Rows</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.orphans.map((o) => (
-                      <tr key={o.keyHash}>
-                        <td style={{ ...cellStyle, fontFamily: 'monospace' }}>{o.keyHash}</td>
-                        <td style={{ ...cellStyle, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {(o.dims || []).join(', ')}
-                        </td>
-                        <td style={{ ...cellStyle, textAlign: 'right' }}>{(o.grains || []).length}</td>
-                        <td style={{ ...cellStyle, textAlign: 'right' }}>{formatBytes(o.bytes)}</td>
-                        <td style={{ ...cellStyle, textAlign: 'right' }}>{o.rowCount}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </details>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                No rollups built yet for this report's model — click Refresh to build them.
+              </div>
             )}
           </>
         )}

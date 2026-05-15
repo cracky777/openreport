@@ -19,7 +19,6 @@ const {
   setQueryCacheTtlMs,
 } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
-const preAggCache = require('../utils/preAggCache');
 
 const router = express.Router();
 
@@ -127,19 +126,36 @@ router.get('/settings', requireAdmin, (req, res) => {
     queryCacheTtlMaxMs: QUERY_CACHE_TTL_MAX_MS,
     queryCacheTtlDefaultMs: QUERY_CACHE_TTL_DEFAULT_MS,
     queryCacheStats: queryCache.stats(),
+    // Persisted rollup tables replaced the in-RAM pre-agg cache. This is
+    // LOCAL DISK storage (the embedded rollups.duckdb file), not RAM.
+    // `bytes` is the real on-disk file size; `rollups`/`rows` are the
+    // manifest totals across every model.
+    rollupStorage: (() => {
+      let rollups = 0;
+      let rows = 0;
+      try {
+        const r = db.prepare('SELECT COUNT(*) AS c, COALESCE(SUM(row_count),0) AS rws FROM rollups').get();
+        rollups = r.c || 0;
+        rows = r.rws || 0;
+      } catch { /* table missing on a fresh DB pre-migration */ }
+      let bytes = 0;
+      try {
+        bytes = require('fs').statSync(require('../utils/rollupDuckDB').ROLLUP_DB_PATH).size;
+      } catch { /* file not created yet (no rollups built) */ }
+      return { mode: 'duckdb-local', rollups, rows, bytes };
+    })(),
+    // Back-compat: QueryCacheControl still reads preAggStats.size for the
+    // rollup entry count. Bytes = real disk size of the rollup store.
     preAggCacheStats: (() => {
-      // Phase 4: roll up legacy preAggCache + new displayCache stats into
-      // one "RAM cache" number for the UI. preAggCache should be empty
-      // post-migration but we sum it in case any old entries linger
-      // until next invalidation.
-      const dc = require('../utils/displayCache').stats();
-      const pa = preAggCache.stats();
-      return {
-        enabled: pa.enabled || dc.enabled,
-        ttlMs: dc.ttlMs || pa.ttlMs,
-        size: (pa.size || 0) + (dc.size || 0),
-        bytes: (pa.bytes || 0) + (dc.bytes || 0),
-      };
+      let rollups = 0;
+      try {
+        rollups = db.prepare('SELECT COUNT(*) AS c FROM rollups').get().c || 0;
+      } catch { /* pre-migration */ }
+      let bytes = 0;
+      try {
+        bytes = require('fs').statSync(require('../utils/rollupDuckDB').ROLLUP_DB_PATH).size;
+      } catch { /* not built yet */ }
+      return { enabled: true, ttlMs: 0, size: rollups, bytes };
     })(),
     storage: {
       uploadedFileCount,
@@ -176,10 +192,12 @@ router.put('/settings/query-cache', requireAdmin, (req, res) => {
 // an out-of-band schema change on a source DB the admin couldn't surface
 // through the model-save invalidation hook.
 router.post('/settings/query-cache/flush', requireAdmin, (req, res) => {
+  // Only the in-RAM SHA-keyed queryCache is flushable here. Rollup
+  // tables are a persistent store rebuilt on schedule (or via the
+  // per-model "Run now") — flushing them on an admin click would just
+  // make every report cold with no automatic rebuild.
   const evicted = queryCache.flush();
-  const evictedPreAgg = preAggCache.flush();
-  const evictedDisplay = require('../utils/displayCache').flush();
-  res.json({ evicted, evictedPreAgg, evictedDisplay });
+  res.json({ evicted, evictedPreAgg: 0, evictedDisplay: 0 });
 });
 
 module.exports = router;

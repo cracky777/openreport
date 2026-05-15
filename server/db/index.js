@@ -79,6 +79,57 @@ db.exec(`CREATE TABLE IF NOT EXISTS custom_visuals (
   FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE CASCADE
 )`);
 
+// Rollup cache manifest — registry of pre-aggregated tables materialised per
+// (model, grain, baked-global-filter). Replaces the GROUPING SETS warmer.
+// Physical tables live in either an embedded DuckDB (default) or the model's
+// source DB (opt-in via `datasources.rollup_storage`). organization_id is
+// always null in OSS; cloud uses it for tenant isolation on shared DBs.
+//
+// `base_filters` = normalized JSON of the report's global-filter-bar rules
+// baked into this rollup at build time (the slice the rollup represents).
+// `base_filter_hash` participates in the uniqueness + physical table name so
+// two widgets at the same grain but different global-filter selections /
+// exclusion sets get distinct rollups.
+//
+// Migration: the (model, grain) → (model, grain, base_filter) key change can't
+// be ALTERed onto SQLite's auto-unique-index, so an old-schema table (created
+// before base_filter_hash existed) is dropped and recreated. Rollups are a
+// rebuildable cache — no data loss of record. Orphaned physical DuckDB tables
+// are harmless (disk only) and get overwritten on the next build.
+{
+  const rollupCols = db.prepare("PRAGMA table_info(rollups)").all();
+  const hasBaseFilter = rollupCols.some((c) => c.name === 'base_filter_hash');
+  if (rollupCols.length > 0 && !hasBaseFilter) {
+    db.exec('DROP TABLE rollups');
+  }
+}
+db.exec(`CREATE TABLE IF NOT EXISTS rollups (
+  id               TEXT PRIMARY KEY,
+  model_id         TEXT NOT NULL,
+  organization_id  TEXT,
+  storage_mode     TEXT NOT NULL,
+  grain_hash       TEXT NOT NULL,
+  grain_dims       TEXT NOT NULL,
+  measures         TEXT NOT NULL,
+  base_filters     TEXT NOT NULL DEFAULT '[]',
+  base_filter_hash TEXT NOT NULL DEFAULT '0',
+  table_name       TEXT NOT NULL,
+  built_at         TEXT,
+  row_count        INTEGER,
+  bytes            INTEGER,
+  UNIQUE(model_id, grain_hash, base_filter_hash, organization_id),
+  FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_rollups_model ON rollups (model_id)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_rollups_org ON rollups (organization_id) WHERE organization_id IS NOT NULL");
+
+// Per-datasource rollup storage choice. 'duckdb' (default) writes rollup tables
+// to an embedded DuckDB file owned by the app — no DDL against the user's DB.
+// 'source' opts into materialising rollup tables INSIDE the source DB itself
+// (Looker PDT pattern), which requires the configured user to hold write
+// privileges on that database.
+try { db.exec("ALTER TABLE datasources ADD COLUMN rollup_storage TEXT NOT NULL DEFAULT 'duckdb'"); } catch { /* already exists */ }
+
 // Promote first user to admin if no admin exists
 const adminCount = db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'admin'").get();
 if (adminCount.c === 0) {

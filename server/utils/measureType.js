@@ -542,6 +542,119 @@ function collectComponentsForVisual(specs) {
   return { baseMeasureNames: [...baseNames], syntheticMeasures: synthetic };
 }
 
+// ─── Rollup component planning + runtime recompose ──────────────────────
+// Used by the rollup builder (what additive component columns to
+// materialise) and the rollup planner (how to recombine them at any
+// grain). This is the same math the deleted inMemoryAgg did, sourced
+// from a DuckDB GROUP BY instead of an in-RAM columnar dataset.
+
+// SQL re-aggregation function for an additive component at a coarser
+// grain. sum & count both fold with SUM (count-of-counts = total count);
+// min/max fold with themselves.
+function sqlAggForAdditive(t) {
+  if (t === 'min') return 'MIN';
+  if (t === 'max') return 'MAX';
+  return 'SUM'; // sum, count
+}
+
+// Stable alias base for an AVG measure's SUM/COUNT components. MUST match
+// collectComponentsForVisual's scheme so build-time aliases and
+// runtime-recompose lookups line up.
+function avgAliasBase(spec) {
+  return `_avg_${spec.table || ''}_${spec.column}`.replace(/[^A-Za-z0-9_]/g, '_');
+}
+
+// Given the measure DEFs a rollup must serve + the full measure pool,
+// returns everything the builder and planner need:
+//   outputs:       [{ name, label, spec, supported }]
+//   fireNames:     measure names to request from /query by name
+//   extraMeasures: synthetic AVG components to pass as extraMeasures
+//   atoms:         [{ col, agg }] physical component columns + re-agg fn
+function componentPlanForMeasures(outputDefs, allMeasures) {
+  const outputs = [];
+  const fireNames = new Set();
+  const extraByAlias = new Map();
+  const atomByCol = new Map(); // col -> agg ('sum'|'min'|'max')
+
+  for (const m of outputDefs) {
+    if (!m || !m.name) continue;
+    const label = m.label || m.name;
+    const spec = decomposeMeasure(m, allMeasures);
+    if (!spec) {
+      outputs.push({ name: m.name, label, spec: null, supported: false });
+      continue;
+    }
+    let supported = true;
+    if (spec.type === 'simple') {
+      fireNames.add(m.name);
+      atomByCol.set(m.name, sqlAggForAdditive(spec.innerType));
+    } else {
+      if (spec.type === 'expression' && !compileExpression(spec.rawExpression)) {
+        supported = false;
+      }
+      const { baseMeasureNames, syntheticMeasures } = collectComponentsForVisual([spec]);
+      for (const b of baseMeasureNames) {
+        fireNames.add(b);
+        const bd = allMeasures.find((x) => x && x.name === b);
+        atomByCol.set(b, sqlAggForAdditive(additiveTypeForMeasure(bd)));
+      }
+      for (const s of syntheticMeasures) {
+        extraByAlias.set(s.alias, {
+          name: s.alias, aggregation: s.kind, column: s.column, table: s.table,
+        });
+        atomByCol.set(s.alias, 'SUM');
+      }
+    }
+    outputs.push({ name: m.name, label, spec, supported });
+  }
+
+  return {
+    outputs,
+    fireNames: [...fireNames],
+    extraMeasures: [...extraByAlias.values()],
+    atoms: [...atomByCol.entries()].map(([col, agg]) => ({ col, agg })),
+  };
+}
+
+// Recombine one decomposed measure for a single output row. `getAtom`
+// returns the already-grain-aggregated numeric value of a component
+// column. `refName` is the measure name whose column holds a `simple`
+// value (only used for the simple/leaf case).
+function recomposeMeasure(spec, refName, getAtom) {
+  if (!spec) return null;
+  if (spec.type === 'simple') {
+    const v = getAtom(refName);
+    return (v === undefined) ? null : v;
+  }
+  if (spec.type === 'avg') {
+    const base = avgAliasBase(spec);
+    const s = getAtom(`${base}_sum`);
+    const c = getAtom(`${base}_count`);
+    return c ? (s / c) : null;
+  }
+  if (spec.type === 'ratio') {
+    const n = recomposeMeasure(spec.numSpec, spec.numRef, getAtom);
+    const d = recomposeMeasure(spec.denSpec, spec.denRef, getAtom);
+    if (n == null || d == null || d === 0) return null;
+    let v = n / d;
+    if (spec.scale && spec.scale !== 1) v *= spec.scale;
+    return Number.isFinite(v) ? v : null;
+  }
+  if (spec.type === 'expression') {
+    const fn = compileExpression(spec.rawExpression);
+    if (!fn) return null;
+    const _v = {};
+    for (const r of spec.refs) {
+      const a = getAtom(r.name);
+      _v[r.name] = (a === undefined) ? null : a;
+    }
+    let v;
+    try { v = fn(_v); } catch { return null; }
+    return (typeof v === 'number' && Number.isFinite(v)) ? v : (v == null ? null : v);
+  }
+  return null;
+}
+
 module.exports = {
   additiveTypeForMeasure,
   additiveTypeForAggregation,
@@ -549,8 +662,10 @@ module.exports = {
   decomposeMeasure,
   detectRatio,
   collectComponentsForVisual,
-  // Exposed so inMemoryAgg.aggregate can compile (and cache) the JS
-  // evaluator for each `type: 'expression'` measure at output time.
+  componentPlanForMeasures,
+  recomposeMeasure,
+  sqlAggForAdditive,
+  avgAliasBase,
   compileExpression,
   extractRefs,
 };
