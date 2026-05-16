@@ -170,6 +170,11 @@ export default function Editor() {
   const [interactionsRuleIdx, setInteractionsRuleIdx] = useState(null);
   const [clipboard, setClipboard] = useState(null);
   const [reportFilters, setReportFilters] = useState({});
+  // Live mirror so callbacks (refreshSlicer / slicer search) can read the
+  // currently-applied filter selections without re-creating on every
+  // change. Same pattern as widgetsRef / crossHighlightRef below.
+  const reportFiltersRef = useRef(reportFilters);
+  reportFiltersRef.current = reportFilters;
   const urlFiltersAppliedRef = useRef(false);
   // Once the model is loaded, seed `settings.reportFilters` from the URL
   // `?f_<col>=…` params. URL rules win over saved rules for the same field
@@ -445,11 +450,17 @@ export default function Editor() {
       // wouldn't actually display.
       const reportLevelFilters = prepareGlobalRulesForWidget(settings?.reportFilters, widgetId);
       const ownWidgetFilters = Array.isArray(w.dataBinding?.widgetFilters) ? w.dataBinding.widgetFilters : [];
+      // Same applied-filter universe as the main slicer list (see
+      // refreshSlicer): a searched list must stay constrained by the
+      // other active filters (e.g. global client). Drop this slicer's
+      // own dim.
+      const appliedFilters = { ...(reportFiltersRef.current || {}) };
+      delete appliedFilters[dim];
       const res = await api.post(`/models/${model.id}/query`, {
         dimensionNames: [dim],
         measureNames: [],
         limit: 1000,
-        filters: {},
+        filters: appliedFilters,
         widgetFilters: [
           ...reportLevelFilters,
           ...ownWidgetFilters,
@@ -510,11 +521,21 @@ export default function Editor() {
       // (bridge tables are resolved server-side by the BFS in models.js).
       const reportLevelFilters = prepareGlobalRulesForWidget(settings?.reportFilters, widgetId);
       const ownWidgetFilters = Array.isArray(w.dataBinding?.widgetFilters) ? w.dataBinding.widgetFilters : [];
+      // The slicer's value list MUST reflect the same applied selections
+      // as the rest of the report: a global/other-slicer filter on a
+      // related dim (e.g. client) must narrow this slicer (e.g.
+      // destinataire) — the server bridges related dims through the fact.
+      // Regular widgets do this via the `filters` map; slicers used to
+      // send `{}`, so they never narrowed. Drop THIS slicer's own dim so
+      // it still shows its full universe for that dim, constrained only
+      // by the OTHER active filters.
+      const appliedFilters = { ...(reportFiltersRef.current || {}) };
+      delete appliedFilters[dim];
       const res = await api.post(`/models/${model.id}/query`, {
         dimensionNames: [dim],
         measureNames: [],
         limit: 1000,
-        filters: {},
+        filters: appliedFilters,
         widgetFilters: [...reportLevelFilters, ...ownWidgetFilters],
         distinct: true,
         reportId: id,

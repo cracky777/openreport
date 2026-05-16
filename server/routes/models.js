@@ -2024,6 +2024,19 @@ router.post('/:id/query', async (req, res) => {
     console.log(`[rollup] build-sql dims=[${(dimensionNames || []).join(',')}] :: ${sql}`);
   }
 
+  // Opt-in: dump the exact SQL of LIVE (non-builder) queries — set
+  // QUERY_SQL_LOG=1. Tagged with dims/measures/distinct so a slicer's
+  // distinct-values query (meas=0 distinct=true) is greppable in the
+  // Docker logs without hunting the browser Network tab.
+  if (!isRollupBuilderRequest && process.env.QUERY_SQL_LOG === '1') {
+    console.log(
+      `[query-sql] report=${reportId || '∅'} ` +
+      `dims=[${(dimensionNames || []).join(',')}] ` +
+      `meas=${(measureNames || []).length} distinct=${!!distinct} ` +
+      `wf=${Array.isArray(widgetFilters) ? widgetFilters.length : 0} :: ${sql}`
+    );
+  }
+
   // Cache key includes the user-RLS context so a viewer with restricted
   // row access never reads a cached payload built for an unrestricted
   // owner. RLS bypass (owner / admin) gets a stable marker so admins
