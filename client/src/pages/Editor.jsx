@@ -643,6 +643,39 @@ export default function Editor() {
       }
     }
   }, [refreshSlicer]);
+
+  // Filter widgets are skipped by the main fetch effect, so without this
+  // a change to the global filter (or a sibling slicer) never narrows a
+  // slicer on a RELATED dim — e.g. picking a client must shrink the
+  // destinataire slicer (server bridges the two through the fact).
+  // refreshSlicer already excludes the slicer's OWN dim, so it keeps its
+  // full universe for that dim but is constrained by the others. Skips
+  // the initial mount (slicers already hold their saved/restored values
+  // for the initial filter state) and debounces rapid filter clicks.
+  // No loop: refreshSlicer writes widget.data, never reportFilters/
+  // settings.reportFilters (this effect's deps).
+  const slicerCascadeTimerRef = useRef(null);
+  const slicerCascadeSigRef = useRef(null);
+  useEffect(() => {
+    const sig = JSON.stringify({
+      r: reportFilters || {},
+      s: Array.isArray(settings?.reportFilters) ? settings.reportFilters : [],
+    });
+    if (slicerCascadeSigRef.current === null) { slicerCascadeSigRef.current = sig; return; }
+    if (slicerCascadeSigRef.current === sig) return;
+    slicerCascadeSigRef.current = sig;
+    if (slicerCascadeTimerRef.current) clearTimeout(slicerCascadeTimerRef.current);
+    slicerCascadeTimerRef.current = setTimeout(() => {
+      const ws = widgetsRef.current || {};
+      for (const [wId, w] of Object.entries(ws)) {
+        if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0]) {
+          refreshSlicer(wId);
+        }
+      }
+    }, 350);
+    return () => { if (slicerCascadeTimerRef.current) clearTimeout(slicerCascadeTimerRef.current); };
+  }, [reportFilters, settings?.reportFilters, refreshSlicer]);
+
   // Per-widget refresh nonces — bumped by the canvas Refresh button to
   // request a fresh fetch of one specific widget without triggering the
   // global refresh loop.
