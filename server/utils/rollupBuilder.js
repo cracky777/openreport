@@ -648,6 +648,18 @@ async function buildRollup({
     .filter(Boolean);
   const plan = componentPlanForMeasures(outputDefs, allMeasureDefs);
 
+  // No materialisable component columns for this fact group — every
+  // measure is override-tainted / non-decomposable. Firing /query with
+  // zero measures would leave it no fact to anchor the join graph, so it
+  // would comma-cross-join the bare dimension tables (cartesian). Skip
+  // cleanly: no rollup for this (grain, fact); the planner MISSes those
+  // measures → live query, which is the correct path for them anyway.
+  // (AVG-only groups have empty fireNames but non-empty atoms via the
+  // synthetic sum/count components — `atoms` is the precise signal.)
+  if (plan.atoms.length === 0) {
+    return { skipped: true, reason: 'no-materialisable-measures' };
+  }
+
   const rows = await fetchRollupRows({
     modelId, grain,
     fireNames: plan.fireNames,
@@ -776,6 +788,7 @@ async function _buildRollupsForModelInner({ modelId, internalUserId, orgId, log 
   const gen = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
   let built = 0;
+  let skipped = 0;
   const errors = [];
   const builtIds = new Set();
   for (const item of plan) {
@@ -794,14 +807,19 @@ async function _buildRollupsForModelInner({ modelId, internalUserId, orgId, log 
         factTable: item.factTable,
         gen,
       });
-      built++;
-      builtIds.add(r.id);
-      if (log) console.log(`[rollup] built ${r.tableName} fact=${item.factTable} rows=${r.rowCount} bytes=${r.bytes}`);
+      if (r && r.skipped) {
+        skipped++;
+        if (log) console.log(`[rollup] skip grain=[${item.grain.join(',')}] fact=${item.factTable} (${r.reason})`);
+      } else {
+        built++;
+        builtIds.add(r.id);
+        if (log) console.log(`[rollup] built ${r.tableName} fact=${item.factTable} rows=${r.rowCount} bytes=${r.bytes}`);
+      }
     } catch (err) {
       errors.push(`grain=[${item.grain.join(',')}] fact=${item.factTable} → ${err.message}`);
       if (log) console.warn(`[rollup] FAILED grain=[${item.grain.join(',')}] fact=${item.factTable} ${err.message}`);
     }
-    _progress.set(modelId, { done: built + errors.length, total: plan.length });
+    _progress.set(modelId, { done: built + skipped + errors.length, total: plan.length });
   }
 
   // Fold this gen file's WAL into its .duckdb. The connection stays open
