@@ -50,6 +50,25 @@ there are grain dims, `CROSS JOIN` for a multi-fact scorecard, single
 subquery for one fact. A measure whose `factsForMeasure` ≠ exactly one
 fact (cross-fact ratio/expression, or unresolvable) → `MISS:cross-fact`.
 
+**Conformed-grain restriction (mandatory)**: a fact's rollup grain is
+clipped to the dimensions **conformed to that fact** — i.e. joined to it
+in the model graph, directly or via a dim→dim (snowflake) chain, **never
+reachable only through another fact**. `factConformedDimTables(joins)`
+BFS-walks the join graph from each fact, never traversing a second fact,
+to get its conformed dim-table set; `dimTableOf` maps each grain dim to
+its table (`_date.*` extras → the model's date table). The consolidated
+union grain is filtered per fact before a plan item is emitted.
+Rationale — **this is not optional**: forcing a non-conformed dim into a
+fact's build query gives `/query` no join path, so it comma-cross-joins
+the bare tables → cartesian → the source query times out (observed: a
+600s ×N timeout on `f_appel_entrant_agg` grouped by `d_destinataire`, a
+dim that only joins `f_appel_entrant_fin`). Dropping the dim is correct:
+a widget mixing that fact's measure with a non-conformed dim is
+inherently a cartesian on the source too, so it legitimately MISSes →
+live query (its pre-existing broken behaviour, not a rollup regression).
+An empty post-filter grain is fine — a valid grand-total rollup. Unknown
+/ unplaceable dims are kept (never silently drop a dim we can't map).
+
 **Fact resolution** (`measureType.factsForMeasure`): a measure's fact is
 `measure.table`, or — for a custom-SQL measure with no `${ref}` and an
 empty `.table` — parsed from the `"schema"."fact"."col"` references in
@@ -302,6 +321,15 @@ Owner/admin (no RLS) is served normally.
    `measureNames = that fact's decomposed fire-names`, `widgetFilters =
    baked global rules`, `reportId` + extras, `_rollupBuilder: true`
    (skips the planner, gets a 10-min timeout, bypasses queryCache).
+4a. **Skip a fact group with no materialisable atoms.** If
+   `componentPlanForMeasures` yields zero atom columns (every measure of
+   the group is override-tainted §6a or non-decomposable §6), the build
+   is **skipped — no `/query` fired**. Rationale: a measureless `/query`
+   has no fact to anchor the join graph, so it comma-cross-joins the bare
+   dimension tables (cartesian on the source). Skipped → no rollup for
+   that (grain, fact); the planner MISSes those measures → live query
+   (the correct path for them anyway). AVG-only groups have empty
+   `fireNames` but non-empty synthetic atoms → NOT skipped.
 5. **Blue-green at FILE level**: each build run gets one `gen` token; all
    its rollup tables are written into a brand-new
    `..._m<modelHash>_g<gen>.duckdb` file while the previous gen file
@@ -436,6 +464,11 @@ Logged as `[qXXXX] rollupPlanner MISS:<reason>`.
   A partially-failed multi-fact build can leave a widget's facts split
   across gens → `MISS:mixed-gen` until the next clean build.
 - Cross-filter grain over-generation for drillable sources (§3 note).
+- A widget that mixes a fact's measure with a dim NOT conformed to that
+  fact is not rollup-servable (the conformed-grain restriction drops the
+  dim from that fact's grain) → MISS → live query. That live query is
+  itself a cartesian on the source (no join path) — a pre-existing
+  modelling issue, surfaced not caused by the rollup layer.
 - `storage_mode='source'` not implemented.
 
 ---

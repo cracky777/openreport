@@ -274,6 +274,69 @@ function reportExtras(settings) {
 // Cross-fact measures (a ratio/expression whose refs span facts) and
 // measures with no resolvable fact table are NOT rolled up in v1 — the
 // planner falls through to the live query for requests using them.
+
+// Per-fact CONFORMED dimension tables, from the model join graph. A
+// fact's rollup grain MUST be restricted to dims actually joined to that
+// fact (directly, or via dim→dim snowflake hops) — never reachable only
+// THROUGH another fact. Forcing a non-conformed dim into a fact's build
+// query makes `/query` find no join path and comma-cross-join the bare
+// tables → cartesian → the source query times out (observed: 600s ×N on
+// `f_appel_entrant_agg` grouped by `d_destinataire`, a dim of
+// `f_appel_entrant_fin` only). Returns { facts:Set, conformed:Map<fact,
+// Set<dimTable>> }. Joins are dim(1)→fact(*); the `*` end is the fact.
+function factConformedDimTables(joins) {
+  const list = Array.isArray(joins) ? joins : [];
+  const adj = new Map();
+  const link = (a, b) => {
+    if (!adj.has(a)) adj.set(a, new Set());
+    if (!adj.has(b)) adj.set(b, new Set());
+    adj.get(a).add(b); adj.get(b).add(a);
+  };
+  // A FACT is the "many" endpoint of a join AND is never a `from_table`
+  // (nothing is parented BY a fact). This distinguishes a real fact from
+  // a snowflake CHILD dim, which is also a `*` side (`d_entite(1) →
+  // d_destinataire(*)`) but additionally parents the fact
+  // (`d_destinataire(1) → f_fin(*)`) so it appears as a from_table.
+  const fromTables = new Set();
+  const manyTables = new Set();
+  for (const j of list) {
+    if (!j || !j.from_table || !j.to_table) continue;
+    link(j.from_table, j.to_table);
+    fromTables.add(j.from_table);
+    const c = j.cardinality || {};
+    if (c.to === '*' || (!c.from && !c.to)) manyTables.add(j.to_table); // dim→fact
+    if (c.from === '*') manyTables.add(j.from_table);                    // reverse-declared
+  }
+  const facts = new Set([...manyTables].filter((t) => !fromTables.has(t)));
+  const conformed = new Map();
+  for (const f of facts) {
+    const dims = new Set();
+    const visited = new Set([f]);
+    const queue = [f];
+    while (queue.length) {
+      const cur = queue.shift();
+      for (const nb of adj.get(cur) || []) {
+        if (visited.has(nb) || facts.has(nb)) continue; // never via another fact
+        visited.add(nb);
+        dims.add(nb);          // dim conformed to f (from f or a dim chain)
+        queue.push(nb);        // keep walking dim→dim (snowflake)
+      }
+    }
+    conformed.set(f, dims);
+  }
+  return { facts, conformed };
+}
+
+// Table a grain dim name belongs to: a model/extra dim → its `.table`;
+// a `_date.*` date-part extra → the model's date dimension table; else
+// null (unknown → keep, never silently drop a dim we can't place).
+function dimTableOf(name, dimsByName, dateTable) {
+  const d = dimsByName.get(name);
+  if (d && d.table) return d.table;
+  if (typeof name === 'string' && name.startsWith('_date.')) return dateTable || null;
+  return null;
+}
+
 function planRollupsForModel(modelId) {
   const reports = db.prepare(
     'SELECT id, widgets, settings FROM reports WHERE model_id = ?'
@@ -283,6 +346,24 @@ function planRollupsForModel(modelId) {
   const seen = new Set(); // `${hash}::${baseFilterHash}::${factTable}` dedupe
   const allMeasures = new Set();
 
+  // Model-level join graph → conformed dims per fact. Each fact's rollup
+  // grain is restricted to dims joined to THAT fact, so a build query
+  // never cross-joins a non-conformed dim (the 600s-timeout cause).
+  let modelRowDims = [];
+  let modelJoins = [];
+  let dateColumn = '';
+  try {
+    const mr = db.prepare('SELECT dimensions, joins, date_column FROM models WHERE id = ?').get(modelId);
+    if (mr) {
+      try { modelRowDims = JSON.parse(mr.dimensions || '[]'); } catch { /* malformed */ }
+      try { modelJoins = JSON.parse(mr.joins || '[]'); } catch { /* malformed */ }
+      dateColumn = mr.date_column || '';
+    }
+  } catch { /* model row missing */ }
+  const { conformed: factConformed } = factConformedDimTables(modelJoins);
+  // `_date.*` date-part extras live on the model's date table.
+  const dateTable = dateColumn ? dateColumn.split('.').slice(0, -1).join('.') : '';
+
   for (const r of reports) {
     let widgets = {};
     let settings = {};
@@ -291,14 +372,12 @@ function planRollupsForModel(modelId) {
     const extras = reportExtras(settings);
     const reportFilters = Array.isArray(settings.reportFilters) ? settings.reportFilters : [];
     const { defs: measureDefs, byName: measureByName } = loadMeasureDefs(modelId, extras);
-    // Model + report dimension defs — comparePeriod needs them to detect
-    // which baked filter is on a year-like / full-date dim (for N-1).
-    let modelDims = [];
-    try {
-      const mr = db.prepare('SELECT dimensions FROM models WHERE id = ?').get(modelId);
-      modelDims = JSON.parse((mr && mr.dimensions) || '[]');
-    } catch { /* malformed */ }
-    modelDims = [...modelDims, ...(extras.extraDimensions || [])];
+    // Model + report dimension defs — comparePeriod needs them (N-1
+    // detection) and dimTableOf needs them (conformed-grain filtering).
+    const modelDims = [...modelRowDims, ...(extras.extraDimensions || [])];
+    const dimsByName = new Map(
+      modelDims.filter((d) => d && d.name).map((d) => [d.name, d])
+    );
 
     // Every measure this report's widgets reference.
     const reportMeasures = new Set();
@@ -366,9 +445,24 @@ function planRollupsForModel(modelId) {
     }
 
     for (const [baseFilterHash, slot] of byFilter) {
-      const grain = [...slot.dims].sort();
-      const hash = grainHashOf(grain);
+      const unionDims = [...slot.dims];
       for (const [factTable, factMeasures] of factGroups) {
+        // Restrict the consolidated grain to dims CONFORMED to this fact
+        // (joined to it directly or via a dim→dim chain — never only
+        // through another fact). A non-conformed dim has no join path
+        // from this fact, so /query would comma-cross-join it → cartesian
+        // → source-query timeout. Unknown-table dims are kept (never
+        // silently drop a dim we can't place). An empty result is fine —
+        // it's a valid grand-total rollup for that fact.
+        const allow = factConformed.get(factTable);
+        const grain = (allow
+          ? unionDims.filter((dn) => {
+              const t = dimTableOf(dn, dimsByName, dateTable);
+              return t == null || t === factTable || allow.has(t);
+            })
+          : unionDims.slice()
+        ).sort();
+        const hash = grainHashOf(grain);
         const key = `${hash}::${baseFilterHash}::${factTable}`;
         if (seen.has(key)) continue;
         seen.add(key);

@@ -2017,6 +2017,13 @@ router.post('/:id/query', async (req, res) => {
     return res.json({ sql, rows: [], rowCount: 0, sqlOnly: true });
   }
 
+  // Opt-in: dump the exact SQL the rollup builder runs against the source
+  // DB (off by default — set ROLLUP_SQL_LOG=1). Pairs with the
+  // `queryMs=` timing line so a slow build can be traced to its query.
+  if (isRollupBuilderRequest && process.env.ROLLUP_SQL_LOG === '1') {
+    console.log(`[rollup] build-sql dims=[${(dimensionNames || []).join(',')}] :: ${sql}`);
+  }
+
   // Cache key includes the user-RLS context so a viewer with restricted
   // row access never reads a cached payload built for an unrestricted
   // owner. RLS bypass (owner / admin) gets a stable marker so admins
