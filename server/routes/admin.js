@@ -127,9 +127,9 @@ router.get('/settings', requireAdmin, (req, res) => {
     queryCacheTtlDefaultMs: QUERY_CACHE_TTL_DEFAULT_MS,
     queryCacheStats: queryCache.stats(),
     // Persisted rollup tables replaced the in-RAM pre-agg cache. This is
-    // LOCAL DISK storage (the embedded rollups.duckdb file), not RAM.
-    // `bytes` is the real on-disk file size; `rollups`/`rows` are the
-    // manifest totals across every model.
+    // LOCAL DISK storage (one embedded DuckDB file per model), not RAM.
+    // `bytes` is the summed on-disk size of every model store; `rollups`/
+    // `rows` are the manifest totals across every model.
     rollupStorage: (() => {
       let rollups = 0;
       let rows = 0;
@@ -140,7 +140,7 @@ router.get('/settings', requireAdmin, (req, res) => {
       } catch { /* table missing on a fresh DB pre-migration */ }
       let bytes = 0;
       try {
-        bytes = require('fs').statSync(require('../utils/rollupDuckDB').ROLLUP_DB_PATH).size;
+        bytes = require('../utils/rollupDuckDB').totalStoreBytes();
       } catch { /* file not created yet (no rollups built) */ }
       return { mode: 'duckdb-local', rollups, rows, bytes };
     })(),
@@ -153,7 +153,7 @@ router.get('/settings', requireAdmin, (req, res) => {
       } catch { /* pre-migration */ }
       let bytes = 0;
       try {
-        bytes = require('fs').statSync(require('../utils/rollupDuckDB').ROLLUP_DB_PATH).size;
+        bytes = require('../utils/rollupDuckDB').totalStoreBytes();
       } catch { /* not built yet */ }
       return { enabled: true, ttlMs: 0, size: rollups, bytes };
     })(),

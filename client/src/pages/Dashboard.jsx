@@ -602,6 +602,10 @@ export default function Dashboard() {
   // refreshed at least once, to avoid flooding the API on report list
   // load.
   const [cardWarmingIds, setCardWarmingIds] = useState(() => new Set());
+  // reportId → { done, total } while a refresh is building, so the card
+  // shows a real "N of M rollups" bar (indeterminate until the first
+  // poll returns counts).
+  const [cardWarmingProgress, setCardWarmingProgress] = useState({});
   const [cardCacheStats, setCardCacheStats] = useState({});
   const fetchCardCacheStats = useCallback(async (reportId) => {
     try {
@@ -681,6 +685,7 @@ export default function Dashboard() {
         const res = await api.get('/cache-schedules/warming');
         if (cancelled) return;
         const serverIds = new Set(res.data?.reportIds || []);
+        setCardWarmingProgress(res.data?.progress || {});
         // Find reports we WERE showing as warming that the server says
         // finished — refresh their cache stats so the size line updates
         // without the user clicking Refresh again.
@@ -1503,25 +1508,54 @@ export default function Dashboard() {
                   </div>
                   {/* Cache footprint for this report. Populated lazily —
                       only after the user clicks Refresh at least once,
-                      so the report list itself loads fast. Click → opens
-                      the per-widget breakdown modal. */}
-                  {cardCacheStats[report.id] && (
-                    <div
-                      onClick={(e) => { e.stopPropagation(); openCacheInspect(report.id, report.title); }}
-                      style={{
-                        padding: '0 20px 12px', fontSize: 11,
-                        color: 'var(--text-disabled)',
-                        cursor: 'pointer', textDecoration: 'underline',
-                        textDecorationColor: 'var(--border-default)',
-                        textDecorationStyle: 'dotted',
-                      }}
-                      title="Click to see the rollup storage breakdown"
-                    >
-                      {cardCacheStats[report.id].rollupCount > 0
-                        ? `${formatBytes(cardCacheStats[report.id].diskBytes || 0)} · ${(cardCacheStats[report.id].totalRows || 0).toLocaleString()} rows`
-                        : 'No rollups — Refresh to build'}
-                    </div>
-                  )}
+                      so the report list itself loads fast. While a
+                      refresh is in flight the size · rows line is
+                      replaced by an indeterminate progress bar, then
+                      restored once the warm finishes. Click → opens the
+                      per-widget breakdown modal. */}
+                  {(() => {
+                    const warming = cardWarmingIds.has(report.id);
+                    if (!cardCacheStats[report.id] && !warming) return null;
+                    if (warming) {
+                      const prog = cardWarmingProgress[report.id];
+                      const hasCount = prog && prog.total > 0;
+                      const pct = hasCount
+                        ? Math.min(100, Math.round((prog.done / prog.total) * 100))
+                        : 0;
+                      return (
+                        <div style={{ padding: '0 20px 12px' }}>
+                          <div
+                            style={{ fontSize: 11, color: 'var(--text-accent)', marginBottom: 5 }}
+                          >
+                            Refreshing data…{hasCount ? ` ${prog.done} / ${prog.total}` : ''}
+                          </div>
+                          <div
+                            className={`rollup-progress ${hasCount ? 'determinate' : 'indeterminate'}`}
+                            aria-label="Refreshing data"
+                          >
+                            <span style={hasCount ? { width: `${pct}%` } : undefined} />
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div
+                        onClick={(e) => { e.stopPropagation(); openCacheInspect(report.id, report.title); }}
+                        style={{
+                          padding: '0 20px 12px', fontSize: 11,
+                          color: 'var(--text-disabled)',
+                          cursor: 'pointer', textDecoration: 'underline',
+                          textDecorationColor: 'var(--border-default)',
+                          textDecorationStyle: 'dotted',
+                        }}
+                        title="Click to see the rollup storage breakdown"
+                      >
+                        {cardCacheStats[report.id].rollupCount > 0
+                          ? `${formatBytes(cardCacheStats[report.id].diskBytes || 0)} · ${(cardCacheStats[report.id].totalRows || 0).toLocaleString()} rows`
+                          : 'No rollups — Refresh to build'}
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
             </div>
@@ -1740,23 +1774,29 @@ function CacheInspectorModal({ reportId, reportTitle, data, loading, error, onCl
                 </thead>
                 <tbody>
                   {data.rollups.map((r) => {
-                    const dims = (r.grainDims || []).join(' × ') || '(grand total)';
-                    const meas = (r.measures || []).join(', ');
+                    // Identifiers are fully qualified (schema.table.column)
+                    // and blow out the table width — show only the last
+                    // segment; the full path stays in the cell `title`.
+                    const shortName = (s) => String(s).split('.').pop();
+                    const dimsFull = (r.grainDims || []).join(' × ') || '(grand total)';
+                    const dimsShort = (r.grainDims || []).map(shortName).join(' × ') || '(grand total)';
+                    const measFull = (r.measures || []).join(', ');
+                    const measShort = (r.measures || []).map(shortName).join(', ');
                     const bf = (r.baseFilters || []);
                     const bfLabel = bf.length === 0
                       ? '—'
-                      : bf.map((f) => `${f.field} (${(f.values || []).length})`).join(', ');
+                      : bf.map((f) => `${shortName(f.field)} (${(f.values || []).length})`).join(', ');
                     const built = r.builtAt ? new Date(r.builtAt).toLocaleString() : '—';
                     return (
                       <tr key={r.grainHash} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                        <td style={{ ...cellStyle, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }} title={dims}>
-                          {dims}
+                        <td style={{ ...cellStyle, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }} title={dimsFull}>
+                          {dimsShort}
                         </td>
                         <td style={{ ...cellStyle, textAlign: 'right' }}>{r.grainCount}</td>
-                        <td style={{ ...cellStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={meas}>
-                          {(r.measures || []).length} <span style={{ color: 'var(--text-disabled)' }}>({meas || '—'})</span>
+                        <td style={{ ...cellStyle, maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={measFull}>
+                          {(r.measures || []).length} <span style={{ color: 'var(--text-disabled)' }}>({measShort || '—'})</span>
                         </td>
-                        <td style={{ ...cellStyle, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: bf.length ? 'inherit' : 'var(--text-disabled)' }}
+                        <td style={{ ...cellStyle, maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: bf.length ? 'inherit' : 'var(--text-disabled)' }}
                             title={bf.length ? bf.map((f) => `${f.field} ${f.op} [${(f.values || []).join(', ')}]`).join('\n') : 'No global filter baked'}>
                           {bfLabel}
                         </td>

@@ -23,7 +23,8 @@ const db = require('../db');
 const internalToken = require('./internalToken');
 const rollupDuckDB = require('./rollupDuckDB');
 const { prepareGlobalRulesForWidget } = require('./reportFilterRules');
-const { componentPlanForMeasures } = require('./measureType');
+const { shiftWidgetFiltersForN1 } = require('./comparePeriod');
+const { componentPlanForMeasures, factsForMeasure } = require('./measureType');
 
 const MAX_ROLLUP_ROWS = Number(process.env.ROLLUP_MAX_ROWS || 1_000_000);
 
@@ -34,8 +35,24 @@ function buildingModelIds() {
   return [..._building];
 }
 
+// Per-model build progress for the dashboard bar: modelId →
+// { done, total }. `done` counts processed plan items (built OR failed)
+// so the bar always reaches 100%. Set/cleared by the orchestrator.
+const _progress = new Map();
+function buildProgress() {
+  const out = {};
+  for (const [k, v] of _progress) out[k] = { ...v };
+  return out;
+}
+
+// The builder calls the app's own /query route over loopback. A server
+// calling ITSELF must use the in-container loopback, NOT a public URL —
+// a public INTERNAL_APP_URL (https, behind nginx/Cloudflare) makes the
+// self-call leave the container and fail with a generic "fetch failed"
+// (TLS/DNS/redirect). Default to 127.0.0.1:PORT; allow an explicit
+// ROLLUP_INTERNAL_URL escape hatch for split-container deployments.
 function appBase() {
-  if (process.env.INTERNAL_APP_URL) return process.env.INTERNAL_APP_URL.replace(/\/+$/, '');
+  if (process.env.ROLLUP_INTERNAL_URL) return process.env.ROLLUP_INTERNAL_URL.replace(/\/+$/, '');
   const port = process.env.PORT || '3001';
   return `http://127.0.0.1:${port}`;
 }
@@ -86,12 +103,21 @@ function baseFilterHashOf(rules) {
 // different global-filter selections gets two distinct tables. All
 // tables share the `or_rollup_` prefix so they're easy to spot in a
 // shared DB and never collide with user tables.
-function rollupTableName({ modelId, grainHash, baseFilterHash, orgId }) {
+//
+// `gen` is a per-build-run token. It makes each rebuild write to a NEW
+// physical table while the previous one keeps serving (blue-green): the
+// manifest row only flips to the new name AFTER the new table is fully
+// built, and the old (now-unreferenced) table is dropped by the post-
+// build sweep. A failed build never touches the live table → no cache
+// loss on a transient source error.
+function rollupTableName({ modelId, grainHash, baseFilterHash, factTable, orgId, gen }) {
   const parts = ['or_rollup'];
   if (orgId) parts.push(shortHash(orgId));
   parts.push(shortHash(modelId));
   parts.push(grainHash.slice(0, 8));
   parts.push((baseFilterHash || '0').slice(0, 8));
+  parts.push(shortHash(factTable || '_'));
+  if (gen) parts.push(`g${gen}`);
   return parts.join('_');
 }
 
@@ -225,22 +251,36 @@ function reportExtras(settings) {
   };
 }
 
-// Plan is per-(report, grain, baked-global-filter). Each widget's grain
-// (display + drill + cross-filter + widget-own fixed-filter dims — NOT
-// the global filter bar) is materialised under the slice defined by that
-// widget's effective global-filter rules (`prepareGlobalRulesForWidget`,
-// which already drops the widget's exclusions). Two widgets at the same
-// grain but different global-filter selections / exclusion sets produce
-// two plan items with distinct physical tables (the base_filter_hash
-// segment). Two reports on the same model that collide on
-// (grain, base_filter) overwrite — last build wins (v1 limitation).
+// Plan is per-(report, baked-global-filter, FACT TABLE). Global filter
+// VALUES are baked (small rollups: one slice per selection). The grain
+// per baked filter = union of every widget's grains under it. The
+// runtime planner re-aggregates that base grain down to each widget's
+// coarser grain via `findBestRollup`'s superset match + GROUP BY
+// (additive atoms; non-additive measures recomposed from their additive
+// components, so coarsening stays correct). N-1 / period-comparison
+// widgets get an extra baked rollup at the year-shifted slice so the
+// YoY query HITs with a correct value (see the byFilter loop). Changing
+// the global bar to an unbaked selection → MISS → live query until the
+// next rebuild bakes that slice (accepted tradeoff).
+//
+// A constellation model has several fact tables sharing conformed
+// dimensions. Aggregating measures from >1 fact in a single query fans
+// out into a cartesian product (f1 × f2 × f3 on the shared dim) — so we
+// partition the report's measures BY FACT and materialise one base
+// rollup per fact. Each build query then joins exactly ONE fact (+
+// conformed dims) → no fan-out. The runtime planner FULL OUTER JOINs the
+// per-fact rollups on the grain dims.
+//
+// Cross-fact measures (a ratio/expression whose refs span facts) and
+// measures with no resolvable fact table are NOT rolled up in v1 — the
+// planner falls through to the live query for requests using them.
 function planRollupsForModel(modelId) {
   const reports = db.prepare(
     'SELECT id, widgets, settings FROM reports WHERE model_id = ?'
   ).all(modelId);
 
   const plan = [];
-  const seen = new Set();        // `${hash}::${baseFilterHash}` dedupe
+  const seen = new Set(); // `${hash}::${baseFilterHash}::${factTable}` dedupe
   const allMeasures = new Set();
 
   for (const r of reports) {
@@ -250,10 +290,17 @@ function planRollupsForModel(modelId) {
     try { settings = JSON.parse(r.settings || '{}'); } catch { /* malformed */ }
     const extras = reportExtras(settings);
     const reportFilters = Array.isArray(settings.reportFilters) ? settings.reportFilters : [];
+    const { defs: measureDefs, byName: measureByName } = loadMeasureDefs(modelId, extras);
+    // Model + report dimension defs — comparePeriod needs them to detect
+    // which baked filter is on a year-like / full-date dim (for N-1).
+    let modelDims = [];
+    try {
+      const mr = db.prepare('SELECT dimensions FROM models WHERE id = ?').get(modelId);
+      modelDims = JSON.parse((mr && mr.dimensions) || '[]');
+    } catch { /* malformed */ }
+    modelDims = [...modelDims, ...(extras.extraDimensions || [])];
 
-    // Every measure this report's widgets reference — resolvable under
-    // this report's extras context. Each of the report's rollups carries
-    // the full set so any drill level can be served from one table.
+    // Every measure this report's widgets reference.
     const reportMeasures = new Set();
     for (const w of Object.values(widgets)) {
       if (!w || !w.dataBinding) continue;
@@ -263,23 +310,72 @@ function planRollupsForModel(modelId) {
         allMeasures.add(m);
       }
     }
-    const measures = [...reportMeasures];
+    // Partition the report's measures by their fact table. Single-fact
+    // measures group under that fact; 0- or multi-fact measures are
+    // dropped from rollups (fallback to live query at runtime).
+    const factGroups = new Map(); // factTable -> [measure names]
+    for (const mn of reportMeasures) {
+      const def = measureByName.get(mn);
+      if (!def) continue;
+      const facts = factsForMeasure(def, measureDefs);
+      if (facts.length !== 1) continue; // cross-fact / unresolved → not rolled up
+      const f = facts[0];
+      if (!factGroups.has(f)) factGroups.set(f, []);
+      factGroups.get(f).push(mn);
+    }
+    if (factGroups.size === 0) continue;
 
+    // Global filter VALUES are baked (keeps rollups small — one slice per
+    // selection). Per widget: its effective global rule set (per-widget
+    // exclusions already applied) is baked; the grain excludes global
+    // dims. The consolidated grain per baked-filter = union of every
+    // widget's grains under that filter.
+    //
+    // N-1 / period comparison: a YoY widget fires a SECOND runtime query
+    // with the year-like / full-date filter shifted -1
+    // (comparePeriod.shiftWidgetFiltersForN1). That shifted globalPart
+    // hashes differently, so we ALSO bake the shifted slice — otherwise
+    // the N-1 query MISSes, and for an override / filter-ignoring measure
+    // a MISS→live still returns a value, but a baked rollup that lacks the
+    // shifted period would yield a WRONG number. One extra rollup per
+    // baked filter that carries a shiftable filter.
+    const byFilter = new Map(); // baseFilterHash -> { baseFilters, dims:Set }
+    const slotFor = (baseFilters) => {
+      const bfh = baseFilterHashOf(baseFilters);
+      let slot = byFilter.get(bfh);
+      if (!slot) { slot = { baseFilters, dims: new Set() }; byFilter.set(bfh, slot); }
+      return slot;
+    };
+    const onlyRules = (arr) => (Array.isArray(arr) ? arr : []).filter(
+      (rule) => rule && !rule.isMeasure && typeof rule.field === 'string' && rule.field && rule.op
+    );
     for (const [wId, w] of Object.entries(widgets)) {
       if (!w || !w.dataBinding) continue;
       if (w.type === 'text' || w.type === 'shape') continue;
-      // Effective global filter for THIS widget — the same set the
-      // client merges into its widgetFilters at runtime (exclusions
-      // already applied). Baked into the rollup; NOT in the grain.
-      const baseFilters = prepareGlobalRulesForWidget(reportFilters, wId)
-        .filter((rule) => rule && !rule.isMeasure && typeof rule.field === 'string' && rule.field && rule.op);
-      const baseFilterHash = baseFilterHashOf(baseFilters);
-      for (const grain of grainsForWidget(w, wId, widgets)) {
-        const hash = grainHashOf(grain);
-        const key = `${hash}::${baseFilterHash}`;
+      const baseFilters = onlyRules(prepareGlobalRulesForWidget(reportFilters, wId));
+      const grains = grainsForWidget(w, wId, widgets);
+      const slot = slotFor(baseFilters);
+      for (const grain of grains) for (const d of grain) slot.dims.add(d);
+      // Bake the N-1 (year shifted -1) slice too, if this widget's baked
+      // filter has a year-like / full-date rule.
+      const shifted = onlyRules(shiftWidgetFiltersForN1(baseFilters, modelDims));
+      if (baseFilterHashOf(shifted) !== baseFilterHashOf(baseFilters)) {
+        const n1 = slotFor(shifted);
+        for (const grain of grains) for (const d of grain) n1.dims.add(d);
+      }
+    }
+
+    for (const [baseFilterHash, slot] of byFilter) {
+      const grain = [...slot.dims].sort();
+      const hash = grainHashOf(grain);
+      for (const [factTable, factMeasures] of factGroups) {
+        const key = `${hash}::${baseFilterHash}::${factTable}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        plan.push({ grain, hash, measures, reportId: r.id, extras, baseFilters, baseFilterHash });
+        plan.push({
+          grain, hash, measures: factMeasures, factTable,
+          reportId: r.id, extras, baseFilters: slot.baseFilters, baseFilterHash,
+        });
       }
     }
   }
@@ -292,53 +388,98 @@ function planRollupsForModel(modelId) {
 
 // ─── Build a single rollup ────────────────────────────────────────────────
 
-async function fetchRollupRows({
-  modelId, grain, fireNames, syntheticExtras, internalUserId, orgId, reportId, extras, baseFilters,
+// Default loopback build-fetch deadline. MUST exceed the server-side
+// per-grain query timeout (models.js bumps it to ≥10 min for
+// `_rollupBuilder` requests) so the SERVER decides the timeout and
+// returns a clean HTTP error, rather than the client aborting first.
+const FETCH_TIMEOUT_MS = Number(process.env.ROLLUP_FETCH_TIMEOUT_MS) || 15 * 60 * 1000;
+
+// Uses the Node core http/https client, NOT global fetch. undici (Node
+// fetch) has a hidden 300s `headersTimeout` that is NOT settable via the
+// standard fetch options — a heavy grain whose aggregation runs longer
+// than 5 min was being killed with an opaque "fetch failed"
+// (UND_ERR_HEADERS_TIMEOUT) regardless of the server-side budget. The
+// core client lets us set an explicit overall deadline.
+function fetchRollupRows({
+  modelId, grain, fireNames, syntheticExtras, internalUserId, orgId, reportId, extras,
+  baseFilters,
 }) {
   const token = internalToken.sign({ userId: internalUserId, organizationId: orgId || null });
-  const url = `${appBase()}/api/models/${modelId}/query`;
   const ex = extras || {};
   // We materialise additive COMPONENTS, not final non-additive values:
   // `fireNames` = the named base measures (simple measures + ratio /
   // expression refs); `syntheticExtras` = AVG SUM/COUNT components
   // injected as inline extraMeasures. The planner recomposes ratios /
   // AVG / expressions from these at any grain.
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      [internalToken.HEADER]: token,
-    },
-    body: JSON.stringify({
-      dimensionNames: grain,
-      measureNames: fireNames,
-      // Bake the report's global filter bar into the rollup: /query
-      // applies these via the model join graph exactly as it would at
-      // runtime (a filter with no join relation to the widget is
-      // ignored identically here and at runtime). The grain carries
-      // ONLY display/drill/cross-filter/widget-own dims, so the rollup
-      // is the already-filtered slice.
-      widgetFilters: Array.isArray(baseFilters) ? baseFilters : [],
-      limit: MAX_ROLLUP_ROWS,
-      bypassCache: true,
-      _rollupBuilder: true,
-      // Report-scoped context so /query can resolve report extras
-      // (calc measures, date-part dims, label overrides). reportId is
-      // the persisted-extras fallback for non-owner internal callers;
-      // the explicit extra* arrays cover the owner/admin path.
-      reportId,
-      extraDimensions: ex.extraDimensions || [],
-      extraMeasures: [...(ex.extraMeasures || []), ...(syntheticExtras || [])],
-      dimensionOverrides: ex.dimensionOverrides || {},
-      measureOverrides: ex.measureOverrides || {},
-    }),
+  const bodyStr = JSON.stringify({
+    dimensionNames: grain,
+    measureNames: fireNames,
+    // Bake the report's global filter bar into the rollup: /query
+    // applies these via the model join graph exactly as it would at
+    // runtime (a filter with no join relation to the widget is
+    // ignored identically here and at runtime). The grain carries
+    // ONLY display/drill/cross-filter/widget-own dims, so the rollup
+    // is the already-filtered slice.
+    widgetFilters: Array.isArray(baseFilters) ? baseFilters : [],
+    limit: MAX_ROLLUP_ROWS,
+    bypassCache: true,
+    _rollupBuilder: true,
+    // Report-scoped context so /query can resolve report extras
+    // (calc measures, date-part dims, label overrides). reportId is
+    // the persisted-extras fallback for non-owner internal callers;
+    // the explicit extra* arrays cover the owner/admin path.
+    reportId,
+    extraDimensions: ex.extraDimensions || [],
+    extraMeasures: [...(ex.extraMeasures || []), ...(syntheticExtras || [])],
+    dimensionOverrides: ex.dimensionOverrides || {},
+    measureOverrides: ex.measureOverrides || {},
   });
-  if (!r.ok) {
-    const text = await r.text().catch(() => '');
-    throw new Error(`/query failed (${r.status}): ${text.slice(0, 200)}`);
-  }
-  const payload = await r.json();
-  return Array.isArray(payload?.rows) ? payload.rows : [];
+
+  const u = new URL(`${appBase()}/api/models/${modelId}/query`);
+  const client = u.protocol === 'https:' ? require('https') : require('http');
+
+  return new Promise((resolve, reject) => {
+    const req = client.request({
+      hostname: u.hostname,
+      port: u.port || (u.protocol === 'https:' ? 443 : 80),
+      path: u.pathname + u.search,
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(bodyStr),
+        [internalToken.HEADER]: token,
+      },
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        clearTimeout(timer);
+        const text = Buffer.concat(chunks).toString('utf8');
+        const sc = res.statusCode || 0;
+        if (sc < 200 || sc >= 300) {
+          return reject(new Error(`/query failed (${sc}): ${text.slice(0, 200)}`));
+        }
+        try {
+          const p = JSON.parse(text);
+          resolve(Array.isArray(p && p.rows) ? p.rows : []);
+        } catch (e) {
+          reject(new Error(`/query returned non-JSON: ${e.message}`));
+        }
+      });
+    });
+    // Overall deadline (not a socket-idle timeout — a long aggregation
+    // legitimately sends no bytes for minutes). The server's own query
+    // timeout should fire first and return a clean error.
+    const timer = setTimeout(() => {
+      req.destroy(new Error(`/query exceeded builder deadline ${FETCH_TIMEOUT_MS}ms`));
+    }, FETCH_TIMEOUT_MS);
+    req.on('error', (err) => {
+      clearTimeout(timer);
+      reject(new Error(`/query unreachable at ${u.href} → ${err.code || err.message}`));
+    });
+    req.write(bodyStr);
+    req.end();
+  });
 }
 
 // Load the model's dim + measure definitions and build name→outputKey
@@ -415,7 +556,7 @@ function inferColumnType(rows, col) {
   return 'VARCHAR'; // all-null column — VARCHAR is the safe default
 }
 
-async function buildRollupToDuckDB({ tableName, grain, atomCols, rows, dimLabel, measureLabel }) {
+async function buildRollupToDuckDB({ modelId, orgId, gen, tableName, grain, atomCols, rows, dimLabel, measureLabel }) {
   // DuckDB column name = the dim NAME / atom column id (stable). The
   // matching /query row key is the LABEL (or NAME when no label). For
   // synthetic AVG components the /query alias == the atom id (no label),
@@ -446,9 +587,9 @@ async function buildRollupToDuckDB({ tableName, grain, atomCols, rows, dimLabel,
     const t = atomSet.has(c) ? 'DOUBLE' : inferColumnType(remapped, c);
     return `"${c.replace(/"/g, '""')}" ${t}`;
   });
-  await rollupDuckDB.dropTable(tableName);
-  await rollupDuckDB.run(`CREATE TABLE "${tableName}" (${colSpecs.join(', ')})`);
-  await rollupDuckDB.insertRows(tableName, columns, remapped);
+  // Fresh gen file → the table can't pre-exist; no DROP needed.
+  await rollupDuckDB.run(modelId, gen, `CREATE TABLE "${tableName}" (${colSpecs.join(', ')})`, orgId);
+  await rollupDuckDB.insertRows(modelId, gen, tableName, columns, remapped, orgId);
   // Per-grain volumetry estimate. DuckDB exposes no clean per-table
   // byte size (`duckdb_tables().estimated_size` is row cardinality), so
   // we estimate row width from the materialised data: 8 B per numeric/
@@ -486,10 +627,19 @@ async function buildRollup({
   extras,
   baseFilters = [],
   baseFilterHash,
+  factTable = '',
+  gen,
 }) {
   const hash = grainHashOf(grain);
   const bfHash = baseFilterHash || baseFilterHashOf(baseFilters);
-  const tableName = rollupTableName({ modelId, grainHash: hash, baseFilterHash: bfHash, orgId });
+  // Blue-green: build into a generation-stamped physical table. The
+  // manifest row keeps pointing at the PREVIOUS table (still serving
+  // queries) until the upsert below flips it — only reached if the
+  // fetch + DuckDB write succeed. A transient source error throws before
+  // that flip, leaving the live table + manifest row untouched.
+  const tableName = rollupTableName({
+    modelId, grainHash: hash, baseFilterHash: bfHash, factTable, orgId, gen,
+  });
 
   // Decompose every output measure into its additive component columns.
   const { byName: measureByName, defs: allMeasureDefs } = loadMeasureDefs(modelId, extras);
@@ -511,7 +661,7 @@ async function buildRollup({
   let bytes = 0;
   if (storageMode === 'duckdb') {
     const result = await buildRollupToDuckDB({
-      tableName, grain, atomCols, rows,
+      modelId, orgId, gen, tableName, grain, atomCols, rows,
       dimLabel: maps.dimLabel,
       measureLabel: maps.measureLabel,
     });
@@ -525,13 +675,13 @@ async function buildRollup({
     throw new Error(`Unknown rollup storage mode: ${storageMode}`);
   }
 
-  // Upsert manifest keyed by (model, grain, base_filter, org). Keeping
-  // the row id stable across rebuilds protects any future FKs.
+  // Upsert manifest keyed by (model, grain, base_filter, fact, org).
+  // Keeping the row id stable across rebuilds protects any future FKs.
   const existing = db.prepare(
     `SELECT id FROM rollups
-     WHERE model_id = ? AND grain_hash = ? AND base_filter_hash = ?
+     WHERE model_id = ? AND grain_hash = ? AND base_filter_hash = ? AND fact_table = ?
        AND (organization_id IS ? OR organization_id = ?)`
-  ).get(modelId, hash, bfHash, orgId || null, orgId || null);
+  ).get(modelId, hash, bfHash, factTable || '', orgId || null, orgId || null);
 
   const builtAt = new Date().toISOString();
   const baseFiltersJson = JSON.stringify(normalizeFilterRules(baseFilters));
@@ -562,9 +712,9 @@ async function buildRollup({
   db.prepare(
     `INSERT INTO rollups
        (id, model_id, organization_id, storage_mode, grain_hash, grain_dims,
-        measures, base_filters, base_filter_hash, table_name, built_at,
-        row_count, bytes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        measures, base_filters, base_filter_hash, fact_table, table_name,
+        built_at, row_count, bytes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     modelId,
@@ -575,6 +725,7 @@ async function buildRollup({
     measuresJson,
     baseFiltersJson,
     bfHash,
+    factTable || '',
     tableName,
     builtAt,
     rowCount,
@@ -591,6 +742,7 @@ async function buildRollupsForModel(opts) {
     return await _buildRollupsForModelInner(opts);
   } finally {
     _building.delete(opts.modelId);
+    _progress.delete(opts.modelId);
   }
 }
 
@@ -606,9 +758,22 @@ async function _buildRollupsForModelInner({ modelId, internalUserId, orgId, log 
   if (plan.length === 0) {
     return { fired: 0, built: 0, errors: [], measures };
   }
+  _progress.set(modelId, { done: 0, total: plan.length });
   if (log) {
     console.log(`[rollup] model=${modelId} grains=${plan.length} measures=${measures.length} storage=${storageMode}`);
   }
+
+  // Blue-green rebuild: every rollup this run writes goes to a fresh
+  // generation-stamped physical table while the PREVIOUS generation keeps
+  // serving queries. Each rollup's manifest row only flips to the new
+  // table after that table is fully built; the now-unreferenced old table
+  // is dropped by the post-build sweep. A transient source error therefore
+  // never wrecks the cache — the live tables + manifest are untouched and
+  // keep serving until a rebuild actually succeeds. (We deliberately do
+  // NOT delete the store up-front: that turned a source timeout into total
+  // cache loss. A full file delete is only safe in dropAllRollups, where
+  // the model schema changed and the rows are invalid regardless.)
+  const gen = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
   let built = 0;
   const errors = [];
@@ -626,55 +791,72 @@ async function _buildRollupsForModelInner({ modelId, internalUserId, orgId, log 
         extras: item.extras,
         baseFilters: item.baseFilters,
         baseFilterHash: item.baseFilterHash,
+        factTable: item.factTable,
+        gen,
       });
       built++;
       builtIds.add(r.id);
-      if (log) console.log(`[rollup] built ${r.tableName} rows=${r.rowCount} bytes=${r.bytes}`);
+      if (log) console.log(`[rollup] built ${r.tableName} fact=${item.factTable} rows=${r.rowCount} bytes=${r.bytes}`);
     } catch (err) {
-      errors.push(`grain=[${item.grain.join(',')}] bf=${item.baseFilterHash} → ${err.message}`);
-      if (log) console.warn(`[rollup] FAILED grain=[${item.grain.join(',')}] bf=${item.baseFilterHash} ${err.message}`);
+      errors.push(`grain=[${item.grain.join(',')}] fact=${item.factTable} → ${err.message}`);
+      if (log) console.warn(`[rollup] FAILED grain=[${item.grain.join(',')}] fact=${item.factTable} ${err.message}`);
     }
+    _progress.set(modelId, { done: built + errors.length, total: plan.length });
   }
 
-  // Garbage collect rollups no widget needs anymore — keyed by
-  // (grain_hash, base_filter_hash). Only prune when at least one rollup
-  // built, so a transient DB failure can't wipe the whole manifest.
+  // Fold this gen file's WAL into its .duckdb. The connection stays open
+  // to serve queries so DuckDB never auto-checkpoints — without this the
+  // gen .duckdb is a ~12 KB header and all the data sits in a sibling
+  // .wal (durable but the reported size is wrong + not self-contained).
+  if (storageMode === 'duckdb' && built > 0) {
+    try { await rollupDuckDB.checkpoint(modelId, gen, orgId); } catch { /* best-effort */ }
+  }
+
+  // Prune manifest rows no widget needs anymore (keyed by
+  // grain_hash::base_filter_hash::fact_table). Only when ≥1 rollup built,
+  // so a transient failure can't wipe the manifest. No DROP TABLE — each
+  // row's table lives in a gen file the file-prune below removes wholesale
+  // once unreferenced.
   if (built > 0) {
     const existing = db.prepare(
-      `SELECT id, grain_hash, base_filter_hash, table_name FROM rollups
+      `SELECT id, grain_hash, base_filter_hash, fact_table FROM rollups
        WHERE model_id = ? AND (organization_id IS ? OR organization_id = ?)`
     ).all(modelId, orgId || null, orgId || null);
-    const wanted = new Set(plan.map((p) => `${p.hash}::${p.baseFilterHash}`));
+    const wanted = new Set(plan.map((p) => `${p.hash}::${p.baseFilterHash}::${p.factTable}`));
     for (const row of existing) {
-      if (!wanted.has(`${row.grain_hash}::${row.base_filter_hash}`)) {
-        try { await rollupDuckDB.dropTable(row.table_name); } catch { /* best-effort */ }
+      if (!wanted.has(`${row.grain_hash}::${row.base_filter_hash}::${row.fact_table}`)) {
         db.prepare('DELETE FROM rollups WHERE id = ?').run(row.id);
-        if (log) console.log(`[rollup] gc dropped ${row.table_name}`);
       }
     }
 
-    // Physical-orphan sweep. The manifest GC above only knows about its
-    // own rows — physical `or_rollup_*` tables left over from older
-    // table-naming schemes (or other deleted models) are invisible to
-    // it and would accumulate forever, since DuckDB never shrinks its
-    // file. Drop every physical table NOT referenced by ANY manifest
-    // row (manifest is the source of truth; rollups are regenerable),
-    // then CHECKPOINT so the freed blocks are actually reclaimed.
-    try {
-      const live = new Set(
-        db.prepare('SELECT table_name FROM rollups').all().map((r) => r.table_name)
-      );
-      const physical = await rollupDuckDB.listRollupTables();
-      let swept = 0;
-      for (const t of physical) {
-        if (!live.has(t)) {
-          try { await rollupDuckDB.dropTable(t); swept++; } catch { /* best-effort */ }
+    // Per-generation files: delete every gen file no surviving manifest
+    // row references. This build's successful rollups flipped their
+    // manifest rows to the NEW gen, so the OLD gen is now unreferenced —
+    // its file is opened by nobody (the planner only opens the gen the
+    // manifest points at) → deletable on ANY OS, no handle fight, and we
+    // never touch the file that's actively serving. A fact whose build
+    // FAILED keeps its old-gen manifest row → that gen stays referenced
+    // → its file is kept (zero cache loss). Legacy single file removed.
+    if (storageMode === 'duckdb') {
+      try {
+        const referenced = new Set(
+          db.prepare(
+            `SELECT table_name FROM rollups
+             WHERE model_id = ? AND (organization_id IS ? OR organization_id = ?)`
+          ).all(modelId, orgId || null, orgId || null)
+            .map((r) => rollupDuckDB.genOfTableName(r.table_name))
+            .filter(Boolean)
+        );
+        const before = rollupDuckDB.modelStoreBytes(modelId, orgId);
+        await rollupDuckDB.pruneGenFiles(modelId, orgId, [...referenced]);
+        if (log) {
+          const after = rollupDuckDB.modelStoreBytes(modelId, orgId);
+          console.log(`[rollup] gen-file prune: kept gen[${[...referenced].join(',')}] ` +
+            `store ${(before / 1048576).toFixed(2)}MB → ${(after / 1048576).toFixed(2)}MB`);
         }
+      } catch (err) {
+        if (log) console.warn(`[rollup] gen-file prune failed: ${err.message}`);
       }
-      await rollupDuckDB.checkpoint();
-      if (log && swept > 0) console.log(`[rollup] orphan sweep dropped ${swept} stale table(s) + checkpoint`);
-    } catch (err) {
-      if (log) console.warn(`[rollup] orphan sweep failed: ${err.message}`);
     }
   }
 
@@ -686,8 +868,8 @@ async function _buildRollupsForModelInner({ modelId, internalUserId, orgId, log 
 function getManifest({ modelId, orgId }) {
   const rows = db.prepare(
     `SELECT id, model_id, organization_id, storage_mode, grain_hash, grain_dims,
-            measures, base_filters, base_filter_hash, table_name, built_at,
-            row_count, bytes
+            measures, base_filters, base_filter_hash, fact_table, table_name,
+            built_at, row_count, bytes
      FROM rollups
      WHERE model_id = ? AND (organization_id IS ? OR organization_id = ?)
      ORDER BY built_at DESC NULLS LAST`
@@ -703,6 +885,7 @@ function getManifest({ modelId, orgId }) {
     measureNames: (safeJSON(r.measures, { outputs: [] }).outputs || []).map((o) => o.name),
     baseFilters: safeJSON(r.base_filters, []),
     baseFilterHash: r.base_filter_hash,
+    factTable: r.fact_table,
     tableName: r.table_name,
     builtAt: r.built_at,
     rowCount: r.row_count,
@@ -714,17 +897,26 @@ function getManifest({ modelId, orgId }) {
 // grainHash only; a grain can now have multiple baked-filter slices).
 async function dropRollup({ modelId, grainHash, orgId }) {
   const rows = db.prepare(
-    `SELECT id, table_name, storage_mode FROM rollups
+    `SELECT id, table_name FROM rollups
      WHERE model_id = ? AND grain_hash = ?
        AND (organization_id IS ? OR organization_id = ?)`
   ).all(modelId, grainHash, orgId || null, orgId || null);
   if (rows.length === 0) return { dropped: false };
   for (const row of rows) {
-    if (row.storage_mode === 'duckdb') {
-      try { await rollupDuckDB.dropTable(row.table_name); } catch { /* best-effort */ }
-    }
     db.prepare('DELETE FROM rollups WHERE id = ?').run(row.id);
   }
+  // Drop any gen file no surviving manifest row still references.
+  try {
+    const referenced = new Set(
+      db.prepare(
+        `SELECT table_name FROM rollups
+         WHERE model_id = ? AND (organization_id IS ? OR organization_id = ?)`
+      ).all(modelId, orgId || null, orgId || null)
+        .map((r) => rollupDuckDB.genOfTableName(r.table_name))
+        .filter(Boolean)
+    );
+    await rollupDuckDB.pruneGenFiles(modelId, orgId, [...referenced]);
+  } catch { /* best-effort */ }
   return { dropped: true, count: rows.length, tableNames: rows.map((r) => r.table_name) };
 }
 
@@ -732,12 +924,12 @@ async function dropRollup({ modelId, grainHash, orgId }) {
 // change invalidates the materialised rows).
 async function dropAllRollups({ modelId, orgId }) {
   const rows = db.prepare(
-    `SELECT id, table_name FROM rollups
+    `SELECT id FROM rollups
      WHERE model_id = ? AND (organization_id IS ? OR organization_id = ?)`
   ).all(modelId, orgId || null, orgId || null);
-  for (const row of rows) {
-    try { await rollupDuckDB.dropTable(row.table_name); } catch { /* best-effort */ }
-  }
+  // A model edit invalidates every materialised row, so blow away the
+  // whole store file (real OS reclaim, not just internal block-free).
+  try { await rollupDuckDB.destroyModelStore(modelId, orgId); } catch { /* best-effort */ }
   db.prepare(
     `DELETE FROM rollups WHERE model_id = ? AND (organization_id IS ? OR organization_id = ?)`
   ).run(modelId, orgId || null, orgId || null);
@@ -768,16 +960,17 @@ async function dropAllRollupsForDatasource({ datasourceId, orgId }) {
 // under filter B (it's a different data slice). `match` is 'exact' when
 // the rollup grain == requested grain (no aggregation collapses rows —
 // safe for non-additive measures), else 'superset'.
-function findBestRollup({ modelId, grainDims, baseFilterHash, orgId }) {
+function findBestRollup({ modelId, grainDims, baseFilterHash, factTable, orgId }) {
   const wanted = new Set(grainDims);
   const wantedHash = grainHashOf(grainDims);
   const bf = baseFilterHash || '0';
   const candidates = db.prepare(
-    `SELECT id, grain_hash, grain_dims, measures, table_name, storage_mode, row_count
+    `SELECT id, grain_hash, grain_dims, measures, fact_table, table_name,
+            storage_mode, row_count
      FROM rollups
-     WHERE model_id = ? AND base_filter_hash = ?
+     WHERE model_id = ? AND base_filter_hash = ? AND fact_table = ?
        AND (organization_id IS ? OR organization_id = ?)`
-  ).all(modelId, bf, orgId || null, orgId || null);
+  ).all(modelId, bf, factTable || '', orgId || null, orgId || null);
 
   let best = null;
   let bestRowCount = Infinity;
@@ -789,6 +982,7 @@ function findBestRollup({ modelId, grainDims, baseFilterHash, orgId }) {
         storageMode: row.storage_mode,
         grainDims: safeJSON(row.grain_dims, []),
         measures: safeJSON(row.measures, { outputs: [], atoms: [] }),
+        factTable: row.fact_table,
         match: 'exact',
       };
     }
@@ -807,6 +1001,7 @@ function findBestRollup({ modelId, grainDims, baseFilterHash, orgId }) {
         storageMode: row.storage_mode,
         grainDims: grainDimsArr,
         measures: safeJSON(row.measures, { outputs: [], atoms: [] }),
+        factTable: row.fact_table,
         match: 'superset',
       };
       bestRowCount = rc;
@@ -828,6 +1023,7 @@ module.exports = {
   buildRollup,
   buildRollupsForModel,
   buildingModelIds,
+  buildProgress,
   getManifest,
   dropRollup,
   dropAllRollups,

@@ -24,10 +24,11 @@ const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
 const rollupDuckDB = require('../utils/rollupDuckDB');
 
-// Real on-disk size of the embedded rollup store (shared by every model
-// on the instance — it's the file, not a per-report figure).
-function rollupDiskBytes() {
-  try { return fs.statSync(rollupDuckDB.ROLLUP_DB_PATH).size; } catch { return 0; }
+// Real on-disk size of THIS report's model store. Each model has its own
+// DuckDB file, so this is now a true per-report (per-model) figure — the
+// storage that report's "refresh" rebuilds and reclaims.
+function rollupDiskBytes(modelId, orgId) {
+  return rollupDuckDB.modelStoreBytes(modelId, orgId);
 }
 
 const router = express.Router();
@@ -119,15 +120,20 @@ router.post('/:id/run', requireAuth, async (req, res) => {
 // caller-visible reports attached to them.
 router.get('/warming', requireAuth, (req, res) => {
   const modelIds = rollupBuilder.buildingModelIds();
-  if (modelIds.length === 0) return res.json({ reportIds: [] });
+  if (modelIds.length === 0) return res.json({ reportIds: [], progress: {} });
   const placeholders = modelIds.map(() => '?').join(', ');
   const reports = db.prepare(
-    `SELECT id, user_id FROM reports WHERE model_id IN (${placeholders})`
+    `SELECT id, user_id, model_id FROM reports WHERE model_id IN (${placeholders})`
   ).all(...modelIds);
-  const visible = reports
-    .filter((r) => canManageSchedule(r, req.user))
-    .map((r) => r.id);
-  res.json({ reportIds: visible });
+  const prog = rollupBuilder.buildProgress(); // modelId → { done, total }
+  const reportIds = [];
+  const progress = {}; // reportId → { done, total }
+  for (const r of reports) {
+    if (!canManageSchedule(r, req.user)) continue;
+    reportIds.push(r.id);
+    if (prog[r.model_id]) progress[r.id] = prog[r.model_id];
+  }
+  res.json({ reportIds, progress });
 });
 
 // Rollup inspector — admin / owner view of the materialised rollup
@@ -144,7 +150,7 @@ router.get('/inspect/:reportId', requireAuth, (req, res) => {
     orgId: req.organizationId || null,
   });
 
-  const diskBytes = rollupDiskBytes();
+  const diskBytes = rollupDiskBytes(report.model_id, req.organizationId || null);
   const base = manifest.map((r) => ({
     grainHash: r.grainHash,
     grainDims: r.grainDims || [],
@@ -196,7 +202,7 @@ router.get('/size/:reportId', requireAuth, (req, res) => {
     rollupCount: manifest.length,
     totalBytes: manifest.reduce((s, x) => s + (x.bytes || 0), 0),
     totalRows: manifest.reduce((s, x) => s + (x.rowCount || 0), 0),
-    diskBytes: rollupDiskBytes(),
+    diskBytes: rollupDiskBytes(modelId, req.organizationId || null),
     queryEntries: queryCache.entriesForModel(modelId),
     queryBytes: queryCache.bytesForModel(modelId),
     builtAt: [queryBuiltAt, rollupBuiltAt].filter(Boolean).sort().pop() || null,

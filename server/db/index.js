@@ -96,10 +96,16 @@ db.exec(`CREATE TABLE IF NOT EXISTS custom_visuals (
 // before base_filter_hash existed) is dropped and recreated. Rollups are a
 // rebuildable cache — no data loss of record. Orphaned physical DuckDB tables
 // are harmless (disk only) and get overwritten on the next build.
+// `fact_table` scopes a rollup to ONE fact table of a constellation
+// model — a rollup aggregates a single fact (joining facts together
+// fans out cartesian). It participates in the uniqueness + physical
+// table name so different facts at the same grain/filter get distinct
+// rollups; the runtime planner FULL OUTER JOINs the per-fact rollups
+// on the conformed grain dims.
 {
   const rollupCols = db.prepare("PRAGMA table_info(rollups)").all();
-  const hasBaseFilter = rollupCols.some((c) => c.name === 'base_filter_hash');
-  if (rollupCols.length > 0 && !hasBaseFilter) {
+  const hasFactTable = rollupCols.some((c) => c.name === 'fact_table');
+  if (rollupCols.length > 0 && !hasFactTable) {
     db.exec('DROP TABLE rollups');
   }
 }
@@ -113,11 +119,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS rollups (
   measures         TEXT NOT NULL,
   base_filters     TEXT NOT NULL DEFAULT '[]',
   base_filter_hash TEXT NOT NULL DEFAULT '0',
+  fact_table       TEXT NOT NULL DEFAULT '',
   table_name       TEXT NOT NULL,
   built_at         TEXT,
   row_count        INTEGER,
   bytes            INTEGER,
-  UNIQUE(model_id, grain_hash, base_filter_hash, organization_id),
+  UNIQUE(model_id, grain_hash, base_filter_hash, fact_table, organization_id),
   FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE
 )`);
 db.exec("CREATE INDEX IF NOT EXISTS idx_rollups_model ON rollups (model_id)");

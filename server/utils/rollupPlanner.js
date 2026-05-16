@@ -5,25 +5,30 @@
  * request can be served from a materialised rollup instead of the source
  * fact table, and if so builds + executes the rollup SQL.
  *
- * Filter model (see project memory `rollup-table-cache-architecture`,
- * the 2026-05 revision):
- *   - The report's GLOBAL filter bar is BAKED into the rollup at build.
+ * Filter model (global filter VALUES are baked — keeps rollups small):
+ *   - The report's global filter bar is BAKED into the rollup at build.
  *     We split the request's widgetFilters into the global portion
  *     (field+op matches a `settings.reportFilters` rule — the client
- *     already applied exclusions) and the rest. The global portion's
- *     normalized hash must equal the rollup's `base_filter_hash`, else
- *     it's a different data slice → MISS → live fact query (this is the
- *     accepted "changing the global bar = rebuild" tradeoff).
- *   - Cross-filter / drill / widget-own filters are NOT baked: their
- *     dims are in the grain and we re-apply them at query time.
+ *     already applied this widget's exclusions) and the rest. The global
+ *     portion's normalized hash must equal a rollup's `base_filter_hash`,
+ *     else it's a different data slice → MISS → live fact query (the
+ *     accepted "change the global bar = rebuild" tradeoff).
+ *   - N-1 / period comparison: the YoY query the client fires has the
+ *     year-like / full-date filter shifted -1, so its globalPart hashes
+ *     differently. The builder ALSO bakes that shifted slice
+ *     (rollupBuilder.planRollupsForModel), so the N-1 query HITs its own
+ *     baked rollup with a correct value (critical for override / filter-
+ *     ignoring measures — a baked rollup missing the shifted period would
+ *     return a WRONG number, not just be slow).
+ *   - Cross-filter / drill / widget-own filters are NOT baked: their dims
+ *     are in the grain and re-applied as runtime WHERE on the rollup.
  *
  * Re-aggregation:
  *   - We ALWAYS GROUP BY the requested display dims and recombine.
  *   - additive (sum/count→SUM, min→MIN, max→MAX): valid for any rollup
  *     whose grain ⊇ (displayDims ∪ runtime-filter dims).
- *   - non-additive (avg / ratio / `_calc.%`): only when the rollup grain
- *     == displayDims exactly (no aggregation collapses rows) and no
- *     runtime filter sits on a non-displayed dim; otherwise MISS.
+ *   - non-additive (avg / ratio / `_calc.%`): recomposed from additive
+ *     atoms after the GROUP BY, correct at any grain ⊇ the rollup grain.
  *
  * Other deliberate misses (fall through to fact):
  *   - RLS-restricted requester (rollup built under the trigger user's
@@ -35,7 +40,7 @@
 const db = require('../db');
 const rollupBuilder = require('./rollupBuilder');
 const rollupDuckDB = require('./rollupDuckDB');
-const { recomposeMeasure } = require('./measureType');
+const { recomposeMeasure, factsForMeasure } = require('./measureType');
 
 function qIdent(name) {
   return `"${String(name).replace(/"/g, '""')}"`;
@@ -113,9 +118,9 @@ function isSyntheticTopN(f) {
   return f && (f.op === 'top_n' || f.op === 'bottom_n');
 }
 
-// Report's global-filter-bar rule definitions (field+op identify a rule;
-// values are the current selection). Used to split the runtime
-// widgetFilters into the baked-global portion vs the rest.
+// Report's global-filter-bar rule definitions (field+op identify a rule).
+// Used to split the runtime widgetFilters into the baked-global portion
+// vs the rest.
 function loadReportFilters(reportId) {
   if (!reportId) return [];
   try {
@@ -149,8 +154,9 @@ async function tryServeFromRollup(opts) {
 
   // Split widgetFilters: the global portion (field+op matches a report
   // global-filter rule — the client already applied this widget's
-  // exclusions, so whatever global rule is present here genuinely
-  // applies) is BAKED into the rollup; the rest is applied at runtime.
+  // exclusions) is BAKED into the rollup; the rest is applied at runtime.
+  // The N-1 query (year shifted) has its own baked rollup with a matching
+  // shifted hash (builder bakes it), so this split + hash works for it.
   const reportFilters = loadReportFilters(reportId);
   const globalKeys = new Set(
     reportFilters
@@ -172,58 +178,87 @@ async function tryServeFromRollup(opts) {
   const objFilterKeys = Object.keys(filters || {}).filter(
     (k) => Array.isArray(filters[k]) && filters[k].length > 0
   );
-  const runtimeFilterDims = [
+  const grainDims = [...new Set([
+    ...dimensionNames,
     ...runtimePart.map((f) => f.field),
     ...objFilterKeys,
-  ];
-  const grainDims = [...new Set([...dimensionNames, ...runtimeFilterDims])];
+  ])];
   if (measureNames.length === 0) return { hit: false, reason: 'no-measures' };
 
-  // grainDims may be empty here: a scorecard (no display dims) whose
-  // only filters are the baked global bar. That's still servable —
-  // findBestRollup with an empty wanted-set matches ANY rollup under
-  // the same base_filter_hash (the additive atoms summed over the whole
-  // rollup = the grand total of the baked slice). No GROUP BY is emitted
-  // below, so we get one recomposed row. This is what keeps scorecards
-  // off Postgres on every drill/cross-filter refresh.
-  const rollup = rollupBuilder.findBestRollup({ modelId: mid, grainDims, baseFilterHash, orgId });
-  if (!rollup) return { hit: false, reason: 'no-rollup' };
-  if (rollup.storageMode !== 'duckdb') return { hit: false, reason: 'source-storage-unsupported' };
-
-  // The manifest carries the recompose recipe: per-output decomposed
-  // spec + the physical additive atom columns with their re-agg fn.
-  const manifest = rollup.measures || { outputs: [], atoms: [] };
-  const outputByName = new Map((manifest.outputs || []).map((o) => [o.name, o]));
-  const reqOutputs = [];
+  // grainDims may be empty: a scorecard whose only filters are the baked
+  // global bar. findBestRollup with an empty wanted-set matches any
+  // rollup under the same base_filter_hash; summing its additive atoms =
+  // the grand total of that baked slice. No GROUP BY → one recomposed row.
+  // Resolve each requested measure to its fact table, then group.
+  // Constellation models keep one rollup per fact (joining facts fans
+  // out cartesian); a widget mixing facts is served by FULL OUTER
+  // JOINing the per-fact rollups on the conformed grain dims.
+  const factToMeasures = new Map(); // factTable -> [measureName]
   for (const mn of measureNames) {
-    const o = outputByName.get(mn);
-    if (!o || !o.supported || !o.spec) {
-      return { hit: false, reason: `non-decomposable:${mn}` };
-    }
-    reqOutputs.push(o);
+    const def = allMeasures.find((m) => m && m.name === mn);
+    if (!def) return { hit: false, reason: `measure-not-model:${mn}` };
+    const facts = factsForMeasure(def, allMeasures);
+    if (facts.length !== 1) return { hit: false, reason: `cross-fact:${mn}` };
+    const f = facts[0];
+    if (!factToMeasures.has(f)) factToMeasures.set(f, []);
+    factToMeasures.get(f).push(mn);
   }
-  const atoms = manifest.atoms || [];
-  if (atoms.length === 0) return { hit: false, reason: 'no-atoms' };
 
-  // SELECT: display dims aliased to label||name + every atom re-aggregated
-  // by its stored fn (SUM / MIN / MAX). Recompose happens in JS per row.
-  const dimSelects = dimensionNames.map((dn) => {
-    const d = allDimensions.find((x) => x.name === dn);
-    return `${qIdent(dn)} AS ${qIdent((d && d.label) || dn)}`;
-  });
-  const atomSelects = atoms.map(
-    (a) => `${a.agg}(${qIdent(a.col)}) AS ${qIdent(a.col)}`
-  );
+  // Per fact-group: smallest rollup whose grain ⊇ requested grain AND
+  // whose baked-global-filter hash matches the request's (incl. the N-1
+  // shifted slice — the builder bakes it separately).
+  const groups = []; // { rollup, outputs:[{name,label,spec}], atoms:[{col,agg}] }
+  let anyMatch = 'exact';
+  for (const [factTable, mns] of factToMeasures) {
+    const rollup = rollupBuilder.findBestRollup({
+      modelId: mid, grainDims, baseFilterHash, factTable, orgId,
+    });
+    if (!rollup) {
+      if (process.env.ROLLUP_LOG !== '0') {
+        try {
+          const cand = db.prepare(
+            `SELECT base_filter_hash AS bf, grain_dims AS g, base_filters AS bfs FROM rollups
+             WHERE model_id = ? AND fact_table = ?
+               AND (organization_id IS ? OR organization_id = ?)`
+          ).all(mid, factTable, orgId || null, orgId || null);
+          console.log(
+            `[rollup] no-rollup fact=${factTable} wantBf=${baseFilterHash} ` +
+            `wantGrain=[${grainDims.join(',')}]\n` +
+            `  runtime globalPart(norm)=${JSON.stringify(rollupBuilder.normalizeFilterRules(globalPart))}\n` +
+            `  candidates=` +
+            JSON.stringify(cand.map((c) => ({
+              bf: c.bf,
+              grain: JSON.parse(c.g || '[]'),
+              baked: rollupBuilder.normalizeFilterRules(JSON.parse(c.bfs || '[]')),
+            })))
+          );
+        } catch { /* diagnostic only */ }
+      }
+      return { hit: false, reason: `no-rollup:${factTable}` };
+    }
+    if (rollup.storageMode !== 'duckdb') return { hit: false, reason: 'source-storage-unsupported' };
+    const man = rollup.measures || { outputs: [], atoms: [] };
+    const byName = new Map((man.outputs || []).map((o) => [o.name, o]));
+    const outs = [];
+    for (const mn of mns) {
+      const o = byName.get(mn);
+      if (!o || !o.supported || !o.spec) return { hit: false, reason: `non-decomposable:${mn}` };
+      outs.push(o);
+    }
+    if (!(man.atoms || []).length) return { hit: false, reason: `no-atoms:${factTable}` };
+    if (rollup.match !== 'exact') anyMatch = 'superset';
+    groups.push({ rollup, outputs: outs, atoms: man.atoms });
+  }
 
-  // WHERE — runtime filters ONLY (global already baked into the rollup).
+  // WHERE — runtime filters ONLY (the global bar is already baked into
+  // the rollup data). Same clause for every per-fact subquery (all share
+  // the conformed grain dims).
   const whereParts = [];
   for (const [dn, vals] of Object.entries(filters || {})) {
     if (!Array.isArray(vals) || vals.length === 0) continue;
     const d = allDimensions.find((x) => x.name === dn);
     const dimType = d ? d.type : 'string';
-    whereParts.push(
-      `${qIdent(dn)} IN (${vals.map((v) => litFor(dimType, v)).join(', ')})`
-    );
+    whereParts.push(`${qIdent(dn)} IN (${vals.map((v) => litFor(dimType, v)).join(', ')})`);
   }
   for (const f of runtimePart) {
     const d = allDimensions.find((x) => x.name === f.field);
@@ -232,32 +267,70 @@ async function tryServeFromRollup(opts) {
     if (clause === null) return { hit: false, reason: `unsupported-op:${f.op}` };
     whereParts.push(clause);
   }
+  const whereSql = whereParts.length ? ` WHERE ${whereParts.join(' AND ')}` : '';
+  const dimNameCols = dimensionNames.map((dn) => qIdent(dn));
+  const groupSql = dimNameCols.length ? ` GROUP BY ${dimNameCols.join(', ')}` : '';
 
-  let sql = `SELECT ${[...dimSelects, ...atomSelects].join(', ')} FROM ${qIdent(rollup.tableName)}`;
-  if (whereParts.length > 0) sql += ` WHERE ${whereParts.join(' AND ')}`;
-  if (dimensionNames.length > 0) {
-    sql += ` GROUP BY ${dimensionNames.map((dn) => qIdent(dn)).join(', ')}`;
-    const first = dimensionNames[0];
-    const d = allDimensions.find((x) => x.name === first);
-    sql += ` ORDER BY ${qIdent((d && d.label) || first)}`;
+  // One aggregate subquery per fact-group, dims by NAME so FULL JOIN
+  // USING aligns the conformed grain across facts.
+  const subFor = (g) => {
+    const aselects = g.atoms.map((a) => `${a.agg}(${qIdent(a.col)}) AS ${qIdent(a.col)}`);
+    return `SELECT ${[...dimNameCols, ...aselects].join(', ')} FROM ${qIdent(g.rollup.tableName)}${whereSql}${groupSql}`;
+  };
+
+  let fromSql;
+  if (groups.length === 1) {
+    fromSql = `(${subFor(groups[0])}) g0`;
+  } else if (dimNameCols.length > 0) {
+    fromSql = groups
+      .map((g, i) => `(${subFor(g)}) g${i}`)
+      .reduce((acc, cur, i) => (i === 0 ? cur : `${acc} FULL JOIN ${cur} USING (${dimNameCols.join(', ')})`));
+  } else {
+    // Scorecard across facts: each subquery is one grand-total row.
+    fromSql = groups
+      .map((g, i) => `(${subFor(g)}) g${i}`)
+      .reduce((acc, cur, i) => (i === 0 ? cur : `${acc} CROSS JOIN ${cur}`));
   }
-  const lim = Math.min(Number(limit) || 1000, 1_000_000);
-  sql += ` LIMIT ${lim}`;
 
-  let rawRows;
-  try {
-    rawRows = await rollupDuckDB.query(sql);
-  } catch (err) {
-    return { hit: false, reason: `duckdb-error:${err.message}` };
-  }
-
-  // Recompose: project dims (already aliased to label) + recombine each
-  // requested measure from the aggregated atoms. Raw atom columns are
-  // dropped — the response shape matches the normal /query path.
+  // Atom column names are globally unique (measure names / AVG aliases),
+  // so after the join they're referenceable unqualified. USING coalesces
+  // the dim columns automatically.
   const dimLabels = dimensionNames.map((dn) => {
     const d = allDimensions.find((x) => x.name === dn);
     return (d && d.label) || dn;
   });
+  const finalDimSelects = dimensionNames.map((dn) => {
+    const d = allDimensions.find((x) => x.name === dn);
+    return `${qIdent(dn)} AS ${qIdent((d && d.label) || dn)}`;
+  });
+  const finalAtomSelects = [];
+  for (const g of groups) for (const a of g.atoms) finalAtomSelects.push(qIdent(a.col));
+
+  let sql = `SELECT ${[...finalDimSelects, ...finalAtomSelects].join(', ')} FROM ${fromSql}`;
+  if (dimNameCols.length > 0) sql += ` ORDER BY ${dimNameCols[0]}`;
+  const lim = Math.min(Number(limit) || 1000, 1_000_000);
+  sql += ` LIMIT ${lim}`;
+
+  // All groups' tables must live in the SAME generation file (one
+  // connection can't FULL JOIN across two DuckDB files). A successful
+  // full build writes every fact's rollup into one gen file, so this
+  // holds in the normal case; only a partially-failed build leaves a
+  // widget's facts split across gens → transient MISS until the next
+  // build reunifies them.
+  const gens = [...new Set(groups.map((g) => rollupDuckDB.genOfTableName(g.rollup.tableName)))];
+  if (gens.length !== 1 || !gens[0]) {
+    return { hit: false, reason: `mixed-gen:${gens.join('|')}` };
+  }
+
+  let rawRows;
+  try {
+    rawRows = await rollupDuckDB.query(mid, gens[0], sql, orgId);
+  } catch (err) {
+    return { hit: false, reason: `duckdb-error:${err.message}` };
+  }
+
+  const reqOutputs = [];
+  for (const g of groups) for (const o of g.outputs) reqOutputs.push(o);
   let rows = rawRows.map((raw) => {
     const out = {};
     for (const lbl of dimLabels) out[lbl] = raw[lbl];
@@ -267,9 +340,7 @@ async function tryServeFromRollup(opts) {
       const n = Number(v);
       return Number.isFinite(n) ? n : null;
     };
-    for (const o of reqOutputs) {
-      out[o.label] = recomposeMeasure(o.spec, o.name, getAtom);
-    }
+    for (const o of reqOutputs) out[o.label] = recomposeMeasure(o.spec, o.name, getAtom);
     return out;
   });
 
@@ -278,7 +349,7 @@ async function tryServeFromRollup(opts) {
   if (topN && topN.field) {
     const n = Math.max(1, Math.floor(topN.value || 0));
     if (n > 0 && rows.length > n) {
-      const o = outputByName.get(topN.field);
+      const o = reqOutputs.find((x) => x.name === topN.field);
       const key = o ? o.label : topN.field;
       const dir = topN.op === 'top_n' ? 'desc' : 'asc';
       rows = [...rows].sort((a, b) => {
@@ -290,7 +361,13 @@ async function tryServeFromRollup(opts) {
     }
   }
 
-  return { hit: true, rows, tableName: rollup.tableName, match: rollup.match, sql };
+  return {
+    hit: true,
+    rows,
+    tableName: groups.map((g) => g.rollup.tableName).join('+'),
+    match: anyMatch,
+    sql,
+  };
 }
 
 module.exports = { tryServeFromRollup };

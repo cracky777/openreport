@@ -7,20 +7,55 @@ disagree, the document wins — fix the code.
 
 Code: `server/utils/rollupBuilder.js`, `server/utils/rollupPlanner.js`,
 `server/utils/rollupDuckDB.js`. Manifest table: `rollups` (SQLite
-metadata DB). Physical rollup tables: embedded `server/data/rollups.duckdb`.
+metadata DB). Physical rollup tables: **one embedded DuckDB file per
+(model, GENERATION)** —
+`server/data/rollups_[o<orgHash>_]m<modelHash>_g<gen>.duckdb` (cloud
+prefixes the org hash). Every successful build writes a brand-new gen
+file containing only that build's tables; the manifest's `table_name`
+carries the `_g<gen>` suffix and the planner derives the file from it.
+The OLD gen file is then referenced by nobody → deletable on **any** OS
+(we never delete the file actively serving, so no fight with
+node-duckdb's GC-deferred handle). A failed build never flips the
+manifest, so its old gen stays referenced and is kept → **zero cache
+loss**, and the fresh file is naturally tight (≈ real data size) so the
+store never bloats. This replaced the earlier "single per-model file +
+in-place DROP/CHECKPOINT/compaction" which could not shrink on disk
+(DuckDB never truncates a file in place).
 
 ---
 
 ## 1. Core idea
 
 A rollup is a **pre-aggregated, pre-filtered table** for one
-`(model, grain, baked-global-filter)` triple. At runtime the planner
-rewrites a widget's `/query` to hit the smallest matching rollup instead
-of the source fact table, re-aggregating on the fly. Replaces the old
-GROUPING SETS warmer + `displayCache`.
+`(model, grain, baked-global-filter, fact-table)` tuple. At runtime the
+planner rewrites a widget's `/query` to hit the smallest matching rollup
+instead of the source fact table, re-aggregating on the fly. Replaces
+the old GROUPING SETS warmer + `displayCache`.
 
 Two-layer cache: rollup table (persistent, survives restart) → wrapped
 by `queryCache` (in-RAM, SHA-keyed) for repeat identical requests.
+
+**Consolidation**: per baked-global-filter the builder materialises ONE
+rollup at the *union* grain of every widget's grains (not one table per
+widget-grain). The planner re-aggregates that base grain down to each
+widget's coarser grain (superset match + `GROUP BY`). Fewer/larger
+tables → far less DuckDB per-table block overhead.
+
+**Constellation (galaxy schema)**: a model with several fact tables
+sharing conformed dimensions gets ONE rollup *per fact* (joining facts
+in a single query fans out cartesian on the shared dim). The planner
+groups a widget's measures by fact, picks the per-fact rollup for each,
+and combines them: `FULL JOIN ... USING (<conformed grain dims>)` when
+there are grain dims, `CROSS JOIN` for a multi-fact scorecard, single
+subquery for one fact. A measure whose `factsForMeasure` ≠ exactly one
+fact (cross-fact ratio/expression, or unresolvable) → `MISS:cross-fact`.
+
+**Fact resolution** (`measureType.factsForMeasure`): a measure's fact is
+`measure.table`, or — for a custom-SQL measure with no `${ref}` and an
+empty `.table` — parsed from the `"schema"."fact"."col"` references in
+its raw expression (`tablesInExpression`). Ratio/expression measures
+union their refs' facts (cycle-guarded). This is why a calc measure like
+`COUNT("s"."fact"."id")` is correctly single-fact and rollable.
 
 ---
 
@@ -123,6 +158,36 @@ refresh rebuilds that slice. This is the explicitly accepted tradeoff
 (small/fast rollups vs. rebuild-on-global-filter-change). Cross-filter
 and drill stay fast because they are runtime-applied, not baked.
 
+> History note: a no-bake variant (global-filter fields as grain
+> columns, sliced at query time) was tried — it removed all bar-change
+> MISSes but exploded the rollup (full multi-client cube: 203k rows /
+> ~10 MB vs ~2.5k / ~0.5 MB baked). Reverted to baking + N-1 (§4a).
+> If you're tempted to "just put the filters in the grain", that's why
+> it was rejected: size, dominated by high-cardinality bar fields.
+
+### 4a. N-1 / period comparison — MUST be baked too
+
+A widget doing year-over-year fires a **second** `/query` at runtime
+with the year-like / full-date filter shifted **−1**
+(`comparePeriod.shiftWidgetFiltersForN1`). That shifted `globalPart`
+hashes to a **different** `base_filter_hash` than the main query, so:
+
+- The builder, per widget, also bakes the **shifted slice**: for each
+  baked filter that carries a year-like / full-date rule it emits an
+  extra rollup whose `baseFilters` are the year-decremented rules (same
+  grain, same fact). `comparePeriod` (server mirror) detects year-like
+  dims via the report+model dimension defs.
+- The planner needs no special path — the client sends the shifted
+  filter, its `globalPart` hashes to the N-1 rollup's `base_filter_hash`,
+  normal match.
+
+This is **correctness, not just speed**: an override / filter-ignoring
+measure (see §6a) served from a baked rollup that lacks the shifted
+period would return a **WRONG number**, not merely be slow. If a
+year-like dim isn't recognised (not in model dims / not int+name-match /
+not `datePart`), the N-1 slice isn't baked → that N-1 query MISSes →
+live query (safe, just slower).
+
 ---
 
 ## 5. Filter precedence summary
@@ -172,6 +237,42 @@ The rollup `measures` manifest column stores the recipe:
 `{ outputs:[{name,label,spec,supported}], atoms:[{col,agg}] }`. The
 planner reads it; no model lookup needed at query time.
 
+### 6a. Filtered custom measures — two modes, only one is rollup-safe
+
+A custom measure can carry its own `filterRules`. Two distinct modes
+(set in the calc-measure form; see `client/.../DataPanel.jsx`):
+
+1. **Intersection — `filterRules` WITHOUT `overrideFilters`** (the
+   "filter context / CASE WHEN inside the aggregate" form). `/query`
+   emits `SUM(CASE WHEN <rules> THEN <expr> END)`. The widget/global
+   `WHERE` **still applies** to the whole query; the CASE WHEN is an
+   *extra* restriction inside the already-filtered rowset. This is
+   **fully rollup-safe**: the CASE-WHEN aggregate is additive, the
+   builder fires `/query` with the baked global filter, the value is
+   stored as a normal additive atom and re-aggregates correctly at any
+   grain. `_filt.*` count-restricted measures and a ratio like
+   `_calc.%` built on them are this mode → served from rollups.
+
+2. **Override — `filterRules` WITH `overrideFilters`**. `/query` emits
+   a correlated scalar subquery that **drops the visual's `WHERE` on
+   the override fields** and substitutes the measure's own rules
+   (`models.js: overrideMeasureInfos`). It deliberately ignores part of
+   the widget/global filter. This is **NOT safely re-aggregatable from
+   atoms**: the value ignores filters the atoms were grouped/baked by,
+   so serving it from a rollup at any grain/filter ≠ the bake returns a
+   **WRONG number**, not just a slow one.
+
+**Implemented guard** (`measureType.isOverrideTainted`, used by
+`componentPlanForMeasures`): a measure is "override-tainted" if it — or
+ANY measure it transitively references (ratio num/den, expression
+`${ref}`s, cycle-guarded) — has `filterRules` + `overrideFilters`.
+Tainted measures are marked `supported:false`, never materialised; the
+planner returns `MISS:non-decomposable:<m>` → live query → **always
+correct**, just not accelerated. Intersection-mode measures are NOT
+tainted (verified: `_filt.*` with `overrideFilters:false` → not
+tainted → still rollup-served). **Do not** weaken this guard to
+"optimise": silently wrong numbers are worse than a slow live query.
+
 ---
 
 ## 7. RLS
@@ -188,21 +289,49 @@ Owner/admin (no RLS) is served normally.
 `buildRollupsForModel({ modelId, internalUserId, orgId })`:
 
 1. Walk every report on the model. Per report parse `widgets` +
-   `settings` (extras + `reportFilters`).
-2. Per widget: enumerate grains (§2, no global dims), compute the
-   baked global rule set + its hash (§4), collect the report's measure
-   union (resolvable under that report's extras).
-3. Plan item = `(grain, baseFilterHash)` deduped across the model.
-   Larger grains build first.
+   `settings` (extras + `reportFilters`), load model+extra dim defs.
+2. Partition the report's measures **by fact** (`factsForMeasure`);
+   drop cross-fact / unresolved (planner falls to live for those).
+3. Per baked-global-filter (`prepareGlobalRulesForWidget` per widget,
+   exclusions applied), accumulate the **union** of every widget's
+   grains → one consolidated grain per filter. For each baked filter
+   carrying a year-like/full-date rule, also create the **N-1 shifted**
+   baked filter (§4a). Plan item = `(grain, baseFilterHash, factTable)`
+   deduped across the model; larger grains build first.
 4. Per item fire `/query` over loopback with: `dimensionNames = grain`,
-   `measureNames = report measure union`, `widgetFilters = baked global
-   rules`, `reportId` + extras, `_rollupBuilder: true` (skips the
-   planner, gets a 10-min timeout, bypasses queryCache).
-5. Land the aggregated rows in `rollups.duckdb` (columns keyed by
-   dim/measure **name**; the `/query` response is keyed by `label||name`
-   — `buildNameLabelMaps` bridges that, extras included).
-6. Upsert the manifest row; GC manifest rows + DuckDB tables no longer
-   in the plan (keyed by `grain_hash::base_filter_hash`).
+   `measureNames = that fact's decomposed fire-names`, `widgetFilters =
+   baked global rules`, `reportId` + extras, `_rollupBuilder: true`
+   (skips the planner, gets a 10-min timeout, bypasses queryCache).
+5. **Blue-green at FILE level**: each build run gets one `gen` token; all
+   its rollup tables are written into a brand-new
+   `..._m<modelHash>_g<gen>.duckdb` file while the previous gen file
+   keeps serving every query. The manifest row's `table_name`
+   (`..._g<gen>`) only flips **after** that rollup's table is fully
+   built. A failed build throws before the flip → manifest still points
+   at the old gen file → **zero cache loss** on a transient error. The
+   store is NEVER deleted up-front for a refresh.
+6. Land aggregated rows (columns keyed by dim/measure **name**; `/query`
+   response keyed by `label||name` — `buildNameLabelMaps` bridges, extras
+   included). Upsert the manifest row → it now points at the new gen.
+6b. **CHECKPOINT the gen file once** after the build loop
+   (`rollupDuckDB.checkpoint(modelId, gen, orgId)`). We keep the
+   connection open to serve queries, so DuckDB NEVER auto-checkpoints —
+   without this the gen `.duckdb` is just a ~12 KB header and ALL the
+   data sits in a sibling `.duckdb.wal` (durable via recovery, but the
+   reported on-disk size is wrong and the file isn't self-contained).
+   The checkpoint folds the WAL into the main file → its size is the
+   true ≈ data size. (If you ever see a tiny `.duckdb` next to a big
+   `.wal`, the checkpoint didn't run.)
+7. **Cleanup = delete unreferenced gen files** (`pruneGenFiles`). Prune
+   manifest rows no longer in the plan (no DROP TABLE — the table is in a
+   gen file). Then delete every gen file whose `gen` is referenced by no
+   surviving manifest row, plus the legacy single file. After a clean
+   build the old gen is unreferenced → its file is opened by nobody →
+   deleted on **any OS** (real disk reclaim, no handle fight; we never
+   touch the gen actively serving). A fact whose build failed keeps its
+   old-gen row → that gen file is kept. This *is* "delete the storage
+   after the refresh and apply the new one", done safely and
+   cross-platform — fresh gen file ≈ real data size, so no bloat ever.
 
 `storage_mode`: `'duckdb'` (default) or `'source'` (per-datasource
 opt-in, **not implemented in v1** — throws 501).
@@ -210,7 +339,10 @@ opt-in, **not implemented in v1** — throws 501).
 Triggers: `POST /api/rollups/run-now/:modelId`, the report Refresh
 button (`/api/cache-schedules/run-now/:reportId`), and scheduled
 `cache_warm` (`cacheScheduler`). No boot-warm — rollups persist across
-restarts. Model edit / datasource change drops the affected rollups.
+restarts. Model edit / datasource change → `dropAllRollups` deletes the
+model's whole DuckDB file (schema changed → rows invalid regardless;
+this is the only path that deletes a store, and it's safe because the
+data is invalid, not merely stale).
 
 ---
 
@@ -221,16 +353,28 @@ In `POST /api/models/:id/query`, before any fact SQL:
 1. Skip if `sqlOnly` or `_rollupBuilder`.
 2. MISS if RLS applies.
 3. Split `widgetFilters` → global vs runtime (§4). Compute
-   `baseFilterHash` from the global portion.
+   `baseFilterHash` from the global portion (the N-1 query's shifted
+   global hashes to its own baked rollup — §4a).
 4. Requested grain = `dimensionNames ∪ runtime-filter dims` (object
-   `filters` IN-lists are runtime).
-5. `findBestRollup`: smallest rollup with `grain ⊇ requested` **and**
-   `base_filter_hash == request hash` (exact-grain preferred).
-6. Build `SELECT displayDims, reagg(measures) FROM rollup
-   WHERE <runtime filters only> GROUP BY displayDims ORDER BY dim1
-   LIMIT n`. Global filters are **not** re-applied (already baked).
-7. Execute against DuckDB; apply `top_n/bottom_n` in memory; return
-   with `_cache.fromRollup` + `rollupMatch`.
+   `filters` IN-lists are runtime). Group requested measures **by fact**
+   (`factsForMeasure`); `MISS:cross-fact:<m>` if a measure ≠ 1 fact.
+5. Per fact group `findBestRollup`: smallest rollup with
+   `grain ⊇ requested` **and** `base_filter_hash == request hash` **and**
+   `fact_table == fact` (exact-grain preferred). Any group unmatched →
+   `MISS:no-rollup:<fact>`.
+6. Per fact build a `SELECT <grain dims by name>, reagg(atoms) FROM
+   <rollup> WHERE <runtime filters only> GROUP BY <dims>` subquery, then
+   combine groups: 1 fact → single subquery; N facts + dims →
+   `FULL JOIN ... USING (<dim name cols>)`; N facts + no dims (scorecard)
+   → `CROSS JOIN`. Final SELECT aliases dims to label, selects all atoms;
+   measures recomposed in JS (`recomposeMeasure`). Global filters are
+   **not** re-applied (already baked).
+7. Derive the gen from the rollup table name (`genOfTableName`); all
+   fact groups must share one gen (a single connection can't FULL JOIN
+   across two DuckDB files) — else `MISS:mixed-gen` (transient, only
+   after a partially-failed multi-fact build; next build reunifies).
+   Execute against that gen file; apply `top_n/bottom_n` in memory;
+   return with `_cache.fromRollup` + `rollupMatch`.
 
 Any MISS → fall through to the existing live fact-query path unchanged.
 
@@ -243,12 +387,13 @@ Logged as `[qXXXX] rollupPlanner MISS:<reason>`.
 | reason | meaning | fix / expected? |
 |---|---|---|
 | `rls-restricted` | requester has RLS | expected; owner/admin only |
-| `no-rollup` (empty grain) | scorecard whose baked-filter hash matches no built rollup | global bar changed → rebuild |
 | `measure-not-model:<m>` | measure unresolved | check binding/model |
 | `no-measures` | request had no measures | expected |
-| `no-rollup` | no rollup matches grain **and** baked-filter hash | rebuild, or global filter changed |
+| `cross-fact:<m>` | measure resolves to ≠1 fact (cross-fact ratio/expr, or unresolvable fact) | expected (§1 constellation); not rolled up in v1 |
+| `no-rollup:<fact>` | no rollup for that fact matches grain **and** baked-filter hash. Diagnostic logs `wantBf` + `runtime globalPart(norm)` + candidates' `bf/grain/baked` | global bar changed to an unbaked slice → rebuild; or an N-1 slice for a year-dim that wasn't recognised |
 | `non-decomposable:<m>` | measure can't be split into additive atoms (COUNT DISTINCT, median, non-additive refs) | expected (see §6) |
-| `no-atoms` | manifest has no component columns (stale pre-decomposition rollup) | rebuild |
+| `no-atoms:<fact>` | manifest has no component columns (stale pre-decomposition rollup) | rebuild |
+| `mixed-gen:<g\|g>` | a multi-fact widget's per-fact rollups are in different generation files (only after a partially-failed build) | transient — next successful build writes all facts into one gen |
 | `source-storage-unsupported` | rollup `storage_mode='source'` | v1 limitation |
 | `unsupported-op:<op>` | a widgetFilter op the planner can't emit | extend `scalarClause` |
 | `duckdb-error:<msg>` | rollup SQL failed | investigate; falls back to fact |
@@ -260,15 +405,36 @@ Logged as `[qXXXX] rollupPlanner MISS:<reason>`.
 - Non-decomposable measures (COUNT DISTINCT, median, ratio of
   non-additive refs) → fact (§6). Decomposable ratios/AVG/expressions
   are served at any grain.
-- Pure scorecards: dedicated 1-row grand-total rollup per baked-filter
-  signature → served exact, no Postgres hit.
-- Changing the global filter bar selection → MISS until rebuild (§4).
+- Cross-fact measures (ratio/expression whose refs span >1 fact, or a
+  measure with no resolvable fact) are not rolled up → live query
+  (§1 constellation).
+- Pure scorecards: served from the consolidated rollup (empty requested
+  grain matches any rollup under the same baked filter; atoms summed) —
+  no Postgres hit.
+- Changing the global filter bar selection to an unbaked slice → MISS
+  until rebuild (§4). N-1 of a baked slice IS covered (§4a) **iff** the
+  year/date dim is recognised by `comparePeriod` (model dim with
+  `datePart`, or int/number whose name matches a year regex); otherwise
+  that N-1 query MISSes → live.
+- Override / filter-ignoring measures (`filterRules` + `overrideFilters`)
+  are auto-detected (`isOverrideTainted`, transitive) and forced
+  `supported:false` → planner MISS → live query (always correct, not
+  accelerated). Intersection-mode filtered measures stay rollup-served.
+  See **§6a**; never weaken the guard to "optimise".
 - Two reports on the same model colliding on
-  `(grain, base_filter)` overwrite — last build wins.
-- Per-rollup `bytes` in the manifest equals row count (DuckDB
-  `estimated_size` is cardinality, not bytes). No longer surfaced in the
-  UI — the admin dashboard and the per-report inspector both show the
-  real on-disk size (`fs.statSync` of `rollups.duckdb`) + row counts.
+  `(grain, base_filter, fact)` overwrite — last build wins.
+- Per-rollup `bytes` in the manifest is an estimate (row count ×
+  sampled row width). Real on-disk size = `fs.statSync` of the model's
+  DuckDB file: admin dashboard sums all model files
+  (`totalStoreBytes`); the per-report inspector shows that model's file
+  (`modelStoreBytes`) distributed across its rollups.
+- DuckDB never truncates a file in place — solved by **per-generation
+  files** (§intro, §8.5–8.7): each build writes a fresh tight file and
+  the old one is deleted once unreferenced. Real OS reclaim on every OS
+  (the deleted file is never the one open). Transient extra disk during
+  a build = old gen + new gen coexist until the manifest flips + prune.
+  A partially-failed multi-fact build can leave a widget's facts split
+  across gens → `MISS:mixed-gen` until the next clean build.
 - Cross-filter grain over-generation for drillable sources (§3 note).
 - `storage_mode='source'` not implemented.
 

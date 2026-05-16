@@ -579,6 +579,13 @@ function componentPlanForMeasures(outputDefs, allMeasures) {
   for (const m of outputDefs) {
     if (!m || !m.name) continue;
     const label = m.label || m.name;
+    // Override-mode filtered measures (or anything referencing one) can't
+    // be safely re-aggregated from atoms — never materialise them; the
+    // planner MISSes → live query (always correct). See isOverrideTainted.
+    if (isOverrideTainted(m, allMeasures)) {
+      outputs.push({ name: m.name, label, spec: null, supported: false });
+      continue;
+    }
     const spec = decomposeMeasure(m, allMeasures);
     if (!spec) {
       outputs.push({ name: m.name, label, spec: null, supported: false });
@@ -655,6 +662,124 @@ function recomposeMeasure(spec, refName, getAtom) {
   return null;
 }
 
+// Fact table(s) a custom-SQL expression reads DIRECTLY, parsed from its
+// raw column references. The UI generates fully-qualified, double-quoted
+// refs like `"schema"."fact"."col"` (or `"fact"."col"`); the fact table
+// is every quoted part except the trailing column, dot-joined — the same
+// `schema.table` form `measure.table` carries for model measures, so the
+// builder's fact-grouping and the planner's findBestRollup line up.
+//
+// Only QUOTED multi-part runs are matched. `${ref}` placeholders (handled
+// by recursion) and bare function names like `COUNT` carry no quotes and
+// are correctly ignored, so a ratio-of-refs isn't mis-attributed here.
+function tablesInExpression(expr) {
+  if (!expr || typeof expr !== 'string') return [];
+  const out = new Set();
+  // A run = one quoted ident followed by ≥1 (`.` quoted ident). Requires
+  // at least two parts so a lone quoted alias is never read as a table.
+  const RUN = /"(?:[^"]|"")*"(?:\s*\.\s*"(?:[^"]|"")*")+/g;
+  const PART = /"((?:[^"]|"")*)"/g;
+  let run;
+  while ((run = RUN.exec(expr)) !== null) {
+    const parts = [];
+    let p;
+    PART.lastIndex = 0;
+    while ((p = PART.exec(run[0])) !== null) parts.push(p[1].replace(/""/g, '"'));
+    if (parts.length >= 2) out.add(parts.slice(0, -1).join('.'));
+  }
+  return [...out];
+}
+
+// Fact table(s) a measure DEF reads directly (not via `${ref}`s). Prefers
+// the explicit `.table` (model measures); falls back to parsing the raw
+// SQL of a custom expression (calc/extra measures where the fact is
+// embedded in the expression and `.table` is empty).
+function factTablesFromDef(measure) {
+  if (!measure) return [];
+  if (measure.table) return [measure.table];
+  if (measure.aggregation === 'custom' && measure.expression) {
+    return tablesInExpression(measure.expression);
+  }
+  return [];
+}
+
+// Distinct fact tables a measure reads from, after decomposition. A
+// constellation model has several fact tables sharing conformed
+// dimensions; a rollup must aggregate ONE fact at a time (joining facts
+// together fans out into a cartesian product). This tells the builder
+// which fact-group a measure belongs to:
+//   - 1 table  → single-fact measure (rollupable in that fact's rollup)
+//   - 0 tables → unknown (no `table` on the def — e.g. a bare COUNT(*));
+//                treated as cross/unrollable in v1
+//   - >1 tables→ cross-fact (ratio/expr whose refs span facts) — v1
+//                falls back to the live query for these
+function factsForMeasure(measure, allMeasures, _seen) {
+  if (!measure) return [];
+  const seen = _seen || new Set();
+  if (measure.name) {
+    if (seen.has(measure.name)) return [];
+    seen.add(measure.name);
+  }
+  const spec = decomposeMeasure(measure, allMeasures);
+  const uniq = (arr) => [...new Set(arr.filter(Boolean))];
+  if (!spec) return factTablesFromDef(measure);
+  if (spec.type === 'simple') return factTablesFromDef(measure);
+  if (spec.type === 'avg') return spec.table ? [spec.table] : factTablesFromDef(measure);
+  if (spec.type === 'ratio') {
+    const n = findMeasureByName(spec.numRef, allMeasures);
+    const d = findMeasureByName(spec.denRef, allMeasures);
+    return uniq([
+      ...factsForMeasure(n, allMeasures, seen),
+      ...factsForMeasure(d, allMeasures, seen),
+    ]);
+  }
+  if (spec.type === 'expression') {
+    const out = [];
+    for (const r of spec.refs) {
+      out.push(...factsForMeasure(findMeasureByName(r.name, allMeasures), allMeasures, seen));
+    }
+    return uniq(out);
+  }
+  return factTablesFromDef(measure);
+}
+
+// True if a measure is "override-tainted": it (or any measure it
+// transitively references) drops the widget/global filter on its rule
+// fields via `overrideFilters` (the /query path emits it as a correlated
+// subquery — see routes/models.js). Such a measure is NOT safely
+// re-aggregatable from rollup atoms: its value deliberately ignores
+// filters the atoms were grouped/baked by, so serving it from a rollup
+// at any grain/filter ≠ the bake would return a WRONG number. The rollup
+// builder marks these `supported:false` → planner MISS → live query
+// (always correct, just not accelerated). INTERSECTION-mode filtered
+// measures (`filterRules` WITHOUT `overrideFilters`) are SAFE — their
+// `CASE WHEN` is inside the aggregate and the global WHERE still applies,
+// so they're additive and bake/re-aggregate correctly; they are NOT
+// tainted by this check.
+function isOverrideTainted(measure, allMeasures, _seen) {
+  if (!measure) return false;
+  const seen = _seen || new Set();
+  if (measure.name) {
+    if (seen.has(measure.name)) return false;
+    seen.add(measure.name);
+  }
+  if (Array.isArray(measure.filterRules) && measure.filterRules.length > 0
+      && measure.overrideFilters) {
+    return true;
+  }
+  const spec = decomposeMeasure(measure, allMeasures);
+  if (!spec) return false;
+  if (spec.type === 'ratio') {
+    return isOverrideTainted(findMeasureByName(spec.numRef, allMeasures), allMeasures, seen)
+      || isOverrideTainted(findMeasureByName(spec.denRef, allMeasures), allMeasures, seen);
+  }
+  if (spec.type === 'expression') {
+    return spec.refs.some((r) =>
+      isOverrideTainted(findMeasureByName(r.name, allMeasures), allMeasures, seen));
+  }
+  return false;
+}
+
 module.exports = {
   additiveTypeForMeasure,
   additiveTypeForAggregation,
@@ -664,6 +789,8 @@ module.exports = {
   collectComponentsForVisual,
   componentPlanForMeasures,
   recomposeMeasure,
+  factsForMeasure,
+  isOverrideTainted,
   sqlAggForAdditive,
   avgAliasBase,
   compileExpression,
