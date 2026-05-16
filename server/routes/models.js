@@ -1841,11 +1841,42 @@ router.post('/:id/query', async (req, res) => {
         if (join) { pickedIdx = i; pickedJoin = join; break; }
       }
       if (pickedIdx === -1) {
-        // No more reachable tables — fall back to a cross-join (comma) for
-        // each leftover. Better than dropping them; they'll likely be
-        // filtered down by WHERE in practice. A warning would help here
-        // but we don't have a structured logger surfaced to the response.
-        for (const t of remaining) fromClause += `, ${quoteTable(t, dbType)}`;
+        // None of the leftover tables can be reached through a real join.
+        // A filter-only table here — e.g. a date dimension pulled in by a
+        // global date filter on a fact-less slicer query (`SELECT DISTINCT
+        // d_destinataire.lib` with no measure, so no fact to bridge
+        // d_date) — must NOT be comma-cross-joined: that's a Cartesian
+        // product AND its WHERE clause degrades to a meaningless no-op
+        // (`d_date.year = 2026` against an unrelated cross product just
+        // asks "does any 2026 row exist"). Drop such tables and strip the
+        // WHERE clauses that reference them. Tables genuinely required by
+        // the SELECT / GROUP BY (pathological broken model) keep the old
+        // cross-join fallback so we never emit invalid SQL.
+        const requiredTables = new Set();
+        for (const d of selectedDimensions) if (d.table) requiredTables.add(d.table);
+        for (const m of selectedMeasures) if (m && m.table) requiredTables.add(m.table);
+        const droppedTables = new Set();
+        for (const t of remaining) {
+          if (requiredTables.has(t)) {
+            fromClause += `, ${quoteTable(t, dbType)}`;
+          } else {
+            droppedTables.add(t);
+          }
+        }
+        if (droppedTables.size > 0) {
+          // Strip dim WHERE clauses on the dropped tables. Never drop
+          // untagged clauses (field === null): those are RLS / security
+          // and unreachable RLS is already handled by deny-all above.
+          for (let i = whereParts.length - 1; i >= 0; i--) {
+            const w = whereParts[i];
+            if (!w.field) continue;
+            const dd = allDimensions.find((d) => d.name === w.field);
+            if (dd && droppedTables.has(dd.table)) whereParts.splice(i, 1);
+          }
+          if (process.env.QUERY_TIMING !== '0') {
+            console.log(`[${__qid}] dropped unjoinable filter table(s): ${Array.from(droppedTables).join(', ')} (no join path to the query — filter would be a Cartesian no-op)`);
+          }
+        }
         break;
       }
       const t = remaining.splice(pickedIdx, 1)[0];
