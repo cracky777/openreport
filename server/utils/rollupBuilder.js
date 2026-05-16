@@ -286,22 +286,36 @@ function reportExtras(settings) {
 // Set<dimTable>> }. Joins are dim(1)→fact(*); the `*` end is the fact.
 function factConformedDimTables(joins) {
   const list = Array.isArray(joins) ? joins : [];
+
+  // Cardinality of `node`'s endpoint in join `j` ('1' | '*'). Legacy
+  // joins with no cardinality are the dim(from,1)→fact(to,*) convention.
+  const cardOf = (node, j) => {
+    const c = j.cardinality;
+    if (!c || (!c.from && !c.to)) return node === j.to_table ? '*' : '1';
+    return node === j.to_table ? (c.to || '*') : (c.from || '*');
+  };
+
+  // Directed adjacency: from `a`, list reachable `nb` WITH whether `nb`
+  // is the "1" (or 1:1) side of that join. Traversing TOWARD a `*` side
+  // while moving away from the fact fans the fact rows out (cartesian) —
+  // so we only ever step toward a `1` side.
   const adj = new Map();
-  const link = (a, b) => {
-    if (!adj.has(a)) adj.set(a, new Set());
-    if (!adj.has(b)) adj.set(b, new Set());
-    adj.get(a).add(b); adj.get(b).add(a);
+  const link = (a, b, j) => {
+    if (!adj.has(a)) adj.set(a, []);
+    if (!adj.has(b)) adj.set(b, []);
+    adj.get(a).push([b, cardOf(b, j) === '1']);
+    adj.get(b).push([a, cardOf(a, j) === '1']);
   };
   // A FACT is the "many" endpoint of a join AND is never a `from_table`
   // (nothing is parented BY a fact). This distinguishes a real fact from
-  // a snowflake CHILD dim, which is also a `*` side (`d_entite(1) →
+  // a snowflake CHILD dim, which is also a `*` side (`d_client(1) →
   // d_destinataire(*)`) but additionally parents the fact
   // (`d_destinataire(1) → f_fin(*)`) so it appears as a from_table.
   const fromTables = new Set();
   const manyTables = new Set();
   for (const j of list) {
     if (!j || !j.from_table || !j.to_table) continue;
-    link(j.from_table, j.to_table);
+    link(j.from_table, j.to_table, j);
     fromTables.add(j.from_table);
     const c = j.cardinality || {};
     if (c.to === '*' || (!c.from && !c.to)) manyTables.add(j.to_table); // dim→fact
@@ -315,11 +329,17 @@ function factConformedDimTables(joins) {
     const queue = [f];
     while (queue.length) {
       const cur = queue.shift();
-      for (const nb of adj.get(cur) || []) {
+      for (const [nb, nbIsOne] of adj.get(cur) || []) {
         if (visited.has(nb) || facts.has(nb)) continue; // never via another fact
+        // Only step toward a `1`/1:1 side. A `d_client(1)→d_destinataire(*)`
+        // hop reached FROM d_client would fan f_agg's rows out by every
+        // destinataire of the client → d_destinataire is NOT conformed to
+        // f_agg (it stays conformed to f_fin via its DIRECT join, where it
+        // IS the `1` side). This is what stops the cartesian.
+        if (!nbIsOne) continue;
         visited.add(nb);
-        dims.add(nb);          // dim conformed to f (from f or a dim chain)
-        queue.push(nb);        // keep walking dim→dim (snowflake)
+        dims.add(nb);
+        queue.push(nb);
       }
     }
     conformed.set(f, dims);
