@@ -179,12 +179,41 @@ async function tryServeFromRollup(opts) {
   const objFilterKeys = Object.keys(filters || {}).filter(
     (k) => Array.isArray(filters[k]) && filters[k].length > 0
   );
-  const grainDims = [...new Set([
-    ...dimensionNames,
+  // Runtime filter dims (slicer / cross-filter / widget-own fixed). These
+  // are applied PER FACT, and ONLY if that fact actually has a rollup
+  // grain containing the dim (⇒ the dim is conformed/joined to that
+  // fact). A filter dim with no join to a fact must be a NO-OP for that
+  // fact — NOT force a MISS→live "refresh" of an unrelated visual. This
+  // is standard BI behaviour (a slicer only filters visuals related to
+  // its dimension) and it keeps unrelated visuals served from cache.
+  const runtimeFilterDims = [...new Set([
     ...runtimePart.map((f) => f.field),
     ...objFilterKeys,
   ])];
   if (measureNames.length === 0) return { hit: false, reason: 'no-measures' };
+
+  // Per-fact grain universe = union of grain_dims over EVERY rollup of
+  // that fact. Empty ⇒ the fact has no rollups (or unreadable) ⇒ stay
+  // permissive (don't scope) so behaviour is unchanged for those facts
+  // (they MISS→live anyway). Cached per call.
+  const _fguCache = new Map();
+  const factGrainUniverse = (factTable) => {
+    if (_fguCache.has(factTable)) return _fguCache.get(factTable);
+    const set = new Set();
+    try {
+      const rows = db.prepare(
+        `SELECT grain_dims FROM rollups
+         WHERE model_id = ? AND fact_table = ?
+           AND (organization_id IS ? OR organization_id = ?)`
+      ).all(mid, factTable || '', orgId || null, orgId || null);
+      for (const r of rows) {
+        let g; try { g = JSON.parse(r.grain_dims || '[]'); } catch { g = []; }
+        for (const d of g) set.add(d);
+      }
+    } catch { /* permissive on error */ }
+    _fguCache.set(factTable, set);
+    return set;
+  };
 
   // grainDims may be empty: a scorecard whose only filters are the baked
   // global bar. findBestRollup with an empty wanted-set matches any
@@ -223,6 +252,19 @@ async function tryServeFromRollup(opts) {
   const groups = []; // { rollup, outputs:[{name,label,spec}], atoms:[{col,agg}] }
   let anyMatch = 'exact';
   for (const [factTable, mns] of factToMeasures) {
+    // Scope runtime filter dims to THIS fact: keep only those present in
+    // some rollup grain of the fact (conformed/joined). Drop the rest —
+    // they don't apply to this fact (no join) so they must neither force
+    // the requested grain nor be re-applied in WHERE. fgu empty ⇒ no
+    // rollups for the fact ⇒ stay permissive (unchanged: it MISSes→live).
+    const fgu = factGrainUniverse(factTable);
+    const allowed = fgu.size > 0
+      ? new Set(runtimeFilterDims.filter((d) => fgu.has(d)))
+      : new Set(runtimeFilterDims);
+    const grainDims = [...new Set([
+      ...dimensionNames,
+      ...runtimeFilterDims.filter((d) => allowed.has(d)),
+    ])];
     const rollup = rollupBuilder.findBestRollup({
       modelId: mid, grainDims, baseFilterHash, factTable, orgId,
     });
@@ -262,27 +304,39 @@ async function tryServeFromRollup(opts) {
     }
     if (!(man.atoms || []).length) return { hit: false, reason: `no-atoms:${factTable}` };
     if (rollup.match !== 'exact') anyMatch = 'superset';
-    groups.push({ rollup, outputs: outs, atoms: man.atoms });
+    groups.push({ rollup, outputs: outs, atoms: man.atoms, allowed });
   }
 
-  // WHERE — runtime filters ONLY (the global bar is already baked into
-  // the rollup data). Same clause for every per-fact subquery (all share
-  // the conformed grain dims).
-  const whereParts = [];
-  for (const [dn, vals] of Object.entries(filters || {})) {
-    if (!Array.isArray(vals) || vals.length === 0) continue;
-    const d = allDimensions.find((x) => x.name === dn);
-    const dimType = d ? d.type : 'string';
-    whereParts.push(`${qIdent(dn)} IN (${vals.map((v) => litFor(dimType, v)).join(', ')})`);
+  // WHERE — runtime filters ONLY (the global bar is already baked). Built
+  // PER FACT: a filter dim not conformed to a fact (not in its `allowed`
+  // set) is a NO-OP for that fact's subquery — the dim isn't even a
+  // column in that rollup, and applying it would be wrong (no join).
+  // This is what lets an unrelated slicer leave a visual cache-served
+  // and unfiltered instead of MISS→live.
+  const whereSqlFor = (allowed) => {
+    const parts = [];
+    for (const [dn, vals] of Object.entries(filters || {})) {
+      if (!Array.isArray(vals) || vals.length === 0) continue;
+      if (!allowed.has(dn)) continue;
+      const d = allDimensions.find((x) => x.name === dn);
+      const dimType = d ? d.type : 'string';
+      parts.push(`${qIdent(dn)} IN (${vals.map((v) => litFor(dimType, v)).join(', ')})`);
+    }
+    for (const f of runtimePart) {
+      if (!allowed.has(f.field)) continue;
+      const d = allDimensions.find((x) => x.name === f.field);
+      const dimType = d ? d.type : 'string';
+      const clause = scalarClause(f.field, dimType, f.op, f.value, f.values);
+      if (clause === null) return { error: `unsupported-op:${f.op}` };
+      parts.push(clause);
+    }
+    return { sql: parts.length ? ` WHERE ${parts.join(' AND ')}` : '' };
+  };
+  for (const g of groups) {
+    const w = whereSqlFor(g.allowed);
+    if (w.error) return { hit: false, reason: w.error };
+    g.whereSql = w.sql;
   }
-  for (const f of runtimePart) {
-    const d = allDimensions.find((x) => x.name === f.field);
-    const dimType = d ? d.type : 'string';
-    const clause = scalarClause(f.field, dimType, f.op, f.value, f.values);
-    if (clause === null) return { hit: false, reason: `unsupported-op:${f.op}` };
-    whereParts.push(clause);
-  }
-  const whereSql = whereParts.length ? ` WHERE ${whereParts.join(' AND ')}` : '';
   const dimNameCols = dimensionNames.map((dn) => qIdent(dn));
   const groupSql = dimNameCols.length ? ` GROUP BY ${dimNameCols.join(', ')}` : '';
 
@@ -290,7 +344,7 @@ async function tryServeFromRollup(opts) {
   // USING aligns the conformed grain across facts.
   const subFor = (g) => {
     const aselects = g.atoms.map((a) => `${a.agg}(${qIdent(a.col)}) AS ${qIdent(a.col)}`);
-    return `SELECT ${[...dimNameCols, ...aselects].join(', ')} FROM ${qIdent(g.rollup.tableName)}${whereSql}${groupSql}`;
+    return `SELECT ${[...dimNameCols, ...aselects].join(', ')} FROM ${qIdent(g.rollup.tableName)}${g.whereSql || ''}${groupSql}`;
   };
 
   let fromSql;
