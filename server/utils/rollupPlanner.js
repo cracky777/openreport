@@ -40,7 +40,7 @@
 const db = require('../db');
 const rollupBuilder = require('./rollupBuilder');
 const rollupDuckDB = require('./rollupDuckDB');
-const { recomposeMeasure, factsForMeasure } = require('./measureType');
+const { recomposeMeasure, factsForMeasure, effectiveMeasureName } = require('./measureType');
 
 function qIdent(name) {
   return `"${String(name).replace(/"/g, '""')}"`;
@@ -194,27 +194,27 @@ async function tryServeFromRollup(opts) {
   // Constellation models keep one rollup per fact (joining facts fans
   // out cartesian); a widget mixing facts is served by FULL OUTER
   // JOINing the per-fact rollups on the conformed grain dims.
-  const factToMeasures = new Map(); // factTable -> [measureName]
+  // factTable -> [{ eff, respKey }]. `eff` is the EFFECTIVE measure key
+  // (effectiveMeasureName — `<name>@@<agg>` when the visual overrides the
+  // model aggregation); the builder materialised the rollup output under
+  // that exact key, so we look it up under it (override served from
+  // cache, not bypassed — generic for every agg type). `respKey` is the
+  // key the response must use: the BASE measure's label||name, identical
+  // to what the live /query path emits, so the client is agnostic to the
+  // override.
+  const factToMeasures = new Map();
   for (const mn of measureNames) {
     const def = allMeasures.find((m) => m && m.name === mn);
     if (!def) return { hit: false, reason: `measure-not-model:${mn}` };
-    // Per-widget aggregation override (e.g. a SUM model measure displayed
-    // as AVG on the visual). The rollup atoms were materialised from the
-    // MODEL aggregation, so they cannot represent the overridden one —
-    // serving it would return the model agg (the "SUM instead of AVG"
-    // bug). models.js applies the override only when the model agg isn't
-    // 'custom'; mirror that exactly. MISS → live query, which honours the
-    // override correctly. (Materialising the overridden variant so it can
-    // also be cached is a separate, larger change — correctness first.)
-    const ov = measureAggOverrides && measureAggOverrides[mn];
-    if (ov && def.aggregation !== 'custom' && ov !== def.aggregation) {
-      return { hit: false, reason: `agg-override:${mn}` };
-    }
+    const eff = effectiveMeasureName(
+      mn, def.aggregation, measureAggOverrides && measureAggOverrides[mn]
+    );
+    const respKey = def.label || def.name;
     const facts = factsForMeasure(def, allMeasures);
     if (facts.length !== 1) return { hit: false, reason: `cross-fact:${mn}` };
     const f = facts[0];
     if (!factToMeasures.has(f)) factToMeasures.set(f, []);
-    factToMeasures.get(f).push(mn);
+    factToMeasures.get(f).push({ eff, respKey });
   }
 
   // Per fact-group: smallest rollup whose grain ⊇ requested grain AND
@@ -253,10 +253,12 @@ async function tryServeFromRollup(opts) {
     const man = rollup.measures || { outputs: [], atoms: [] };
     const byName = new Map((man.outputs || []).map((o) => [o.name, o]));
     const outs = [];
-    for (const mn of mns) {
-      const o = byName.get(mn);
-      if (!o || !o.supported || !o.spec) return { hit: false, reason: `non-decomposable:${mn}` };
-      outs.push(o);
+    for (const { eff, respKey } of mns) {
+      const o = byName.get(eff);
+      if (!o || !o.supported || !o.spec) return { hit: false, reason: `non-decomposable:${eff}` };
+      // Carry the response key separately: o.label is the rollup-internal
+      // (possibly synthetic) identity; respKey is what the client expects.
+      outs.push({ o, respKey });
     }
     if (!(man.atoms || []).length) return { hit: false, reason: `no-atoms:${factTable}` };
     if (rollup.match !== 'exact') anyMatch = 'superset';
@@ -342,8 +344,9 @@ async function tryServeFromRollup(opts) {
     return { hit: false, reason: `duckdb-error:${err.message}` };
   }
 
+  // Each entry: { o: <manifest output>, respKey: <client-facing key> }.
   const reqOutputs = [];
-  for (const g of groups) for (const o of g.outputs) reqOutputs.push(o);
+  for (const g of groups) for (const pair of g.outputs) reqOutputs.push(pair);
   let rows = rawRows.map((raw) => {
     const out = {};
     for (const lbl of dimLabels) out[lbl] = raw[lbl];
@@ -353,7 +356,9 @@ async function tryServeFromRollup(opts) {
       const n = Number(v);
       return Number.isFinite(n) ? n : null;
     };
-    for (const o of reqOutputs) out[o.label] = recomposeMeasure(o.spec, o.name, getAtom);
+    for (const { o, respKey } of reqOutputs) {
+      out[respKey] = recomposeMeasure(o.spec, o.name, getAtom);
+    }
     return out;
   });
 
@@ -362,8 +367,10 @@ async function tryServeFromRollup(opts) {
   if (topN && topN.field) {
     const n = Math.max(1, Math.floor(topN.value || 0));
     if (n > 0 && rows.length > n) {
-      const o = reqOutputs.find((x) => x.name === topN.field);
-      const key = o ? o.label : topN.field;
+      const pair = reqOutputs.find(
+        (x) => x.o.name === topN.field || x.respKey === topN.field
+      );
+      const key = pair ? pair.respKey : topN.field;
       const dir = topN.op === 'top_n' ? 'desc' : 'asc';
       rows = [...rows].sort((a, b) => {
         const va = Number(a[key]); const vb = Number(b[key]);

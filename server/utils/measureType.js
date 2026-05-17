@@ -780,7 +780,28 @@ function isOverrideTainted(measure, allMeasures, _seen) {
   return false;
 }
 
+// Per-widget aggregation override → a stable "effective measure" key.
+// A widget can display a model measure with a different aggregation
+// (`measureAggOverrides[name]` in /query; models.js applies it ONLY when
+// the model agg isn't 'custom'). The rollup builder materialises a
+// synthetic measure under this key (decomposed with the overridden agg —
+// e.g. sum/count/min/max → that additive atom; avg → the usual
+// _avg_*_sum/_count atoms), and the planner looks the manifest output up
+// under the SAME key, so an aggregation-overridden widget is served from
+// the rollup (correct AND cached) instead of bypassing it.
+//
+// Returns `baseName` when there is no real override (no override, same as
+// model agg, or model agg is 'custom' — mirrors models.js exactly), else
+// `<baseName>@@<overrideAgg>`. Generic for ALL aggregation types.
+function effectiveMeasureName(baseName, modelAgg, overrideAgg) {
+  if (!overrideAgg) return baseName;
+  if (modelAgg === 'custom') return baseName;
+  if (overrideAgg === modelAgg) return baseName;
+  return `${baseName}@@${overrideAgg}`;
+}
+
 module.exports = {
+  effectiveMeasureName,
   additiveTypeForMeasure,
   additiveTypeForAggregation,
   inferAdditiveTypeFromExpression,

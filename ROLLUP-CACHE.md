@@ -294,34 +294,54 @@ tainted → still rollup-served). **Do not** weaken this guard to
 
 ---
 
-### 6b. Per-widget aggregation override — MISS → live (2026-05 decision)
+### 6b. Per-widget aggregation override — materialised & CACHED
 
 A measure's aggregation can be overridden **per visual**: the model
 measure is e.g. `sum`, but a widget displays it as `avg`
 (`measureAggOverrides[name]` in the `/query` body; `models.js` applies
-it at runtime **only when the model agg isn't `'custom'`**).
+it at runtime **only when the model agg isn't `'custom'`**). This is
+generic for **every** aggregation type, not just AVG.
 
-The builder does **not** see this. Grain/measure enumeration
-(`measureNamesForWidget`) collects measure **names** only and resolves
-them to **model** defs (`loadMeasureDefs`). So the rollup atoms are
-materialised from the **model** aggregation — an `avg`-on-the-visual
-measure whose model def is `sum` would be stored (and naively served)
-as SUM. That is a **wrong number**, not just a slow one.
+**Rule: the override is materialised into the rollup and served from
+cache — it is NEVER a MISS / cache bypass.** (The earlier "MISS →
+live" guard was a regression: it made every aggregation-overridden
+widget uncached, so drilling/cross-filtering them hit Postgres every
+time. Removed.)
 
-**Implemented guard** (`rollupPlanner.tryServeFromRollup`): the planner
-receives `measureAggOverrides` and, per requested measure, MISSes with
-`agg-override:<m>` when `ov && def.aggregation !== 'custom' && ov !==
-def.aggregation` — the **exact** condition `models.js` uses to apply the
-override. MISS → live fact query, which honours the override correctly.
+Mechanism — `effectiveMeasureName(base, modelAgg, overrideAgg)` (in
+`measureType.js`, shared by builder + planner) returns `base` when
+there is no real override (no override, same as model agg, or model
+agg `'custom'` — mirrors `models.js` exactly), else
+`<base>@@<overrideAgg>`:
 
-**Accepted tradeoff**: a widget that overrides a measure's aggregation
-is **not cache-served** (correct, just not accelerated). Materialising
-the overridden variant too (enumerate `(name, effective-agg)` pairs,
-decompose with the overridden agg — e.g. `avg` → the usual
-`_avg_*_sum/_count` atoms — and key the manifest output by effective
-agg so the planner can recompose per request) is a deliberate **future
-enhancement**, not a v1 behaviour. Correctness first; never serve the
-model agg when the request asked for a different one.
+- **Builder** (`planRollupsForModel`): per widget it reads
+  `dataBinding.measureAggOverrides`, and for every used measure emits a
+  **synthetic measure def** under the effective name when overridden
+  (`{ ...modelDef, name: eff, label: eff, aggregation: overrideAgg }`).
+  Synthetics are injected into that report's `extras.extraMeasures`, so
+  `loadMeasureDefs` / `componentPlanForMeasures` / the build `/query`
+  all resolve them. Decomposition is the **existing** path:
+  `sum/count/min/max` → that additive atom; `avg` → the usual
+  `_avg_<t>_<col>_sum/_count` atoms (alias keyed on table+column, so an
+  override-AVG reuses the very same atoms a model-level AVG would).
+  The synthetic's **label = the synthetic name** (unique) so when both
+  the base measure and its override are materialised in one build
+  `/query` there is no duplicate SELECT alias.
+- **Planner** (`tryServeFromRollup`): for each requested measure it
+  computes the same `eff` from the request's `measureAggOverrides` and
+  looks the manifest output up under `eff`. The response is re-keyed to
+  the **base measure's `label||name`** (`respKey`), identical to what
+  the live `/query` path emits — the client is fully agnostic to the
+  override. An override whose aggregation is itself non-decomposable
+  (e.g. `count_distinct`, median) → that one output is
+  `supported:false` → `MISS:non-decomposable:<eff>` for that measure
+  only (same as a model-level non-decomposable measure); the rest of
+  the rollup is unaffected.
+
+Guardrail: **no change may turn a cached widget into a live one without
+a replacement.** A correctness fix that sacrifices a HIT is not done
+until the cached-and-correct path exists (this section is the result of
+applying that rule to the override case).
 
 ---
 
@@ -462,7 +482,7 @@ Logged as `[qXXXX] rollupPlanner MISS:<reason>`.
 | `cross-fact:<m>` | measure resolves to ≠1 fact (cross-fact ratio/expr, or unresolvable fact) | expected (§1 constellation); not rolled up in v1 |
 | `no-rollup:<fact>` | no rollup for that fact matches grain **and** baked-filter hash. Diagnostic logs `wantBf` + `runtime globalPart(norm)` + candidates' `bf/grain/baked` | global bar changed to an unbaked slice → rebuild; or an N-1 slice for a year-dim that wasn't recognised |
 | `non-decomposable:<m>` | measure can't be split into additive atoms (COUNT DISTINCT, median, non-additive refs) | expected (see §6) |
-| `agg-override:<m>` | the visual overrides the measure's aggregation (`measureAggOverrides`) to something the model-built rollup can't represent | expected (see §6b); v1 serves it live, correct but uncached |
+| `non-decomposable:<eff>` where `<eff>` is `<name>@@<agg>` | a per-visual aggregation **override** whose aggregation is itself non-decomposable (e.g. `count_distinct`) | expected (see §6b); only that measure, rest of rollup unaffected. A *decomposable* override (sum/count/min/max/avg) is materialised & **HITs** — never a MISS |
 | `no-atoms:<fact>` | manifest has no component columns (stale pre-decomposition rollup) | rebuild |
 | `mixed-gen:<g\|g>` | a multi-fact widget's per-fact rollups are in different generation files (only after a partially-failed build) | transient — next successful build writes all facts into one gen |
 | `source-storage-unsupported` | rollup `storage_mode='source'` | v1 limitation |
@@ -493,11 +513,11 @@ Logged as `[qXXXX] rollupPlanner MISS:<reason>`.
   accelerated). Intersection-mode filtered measures stay rollup-served.
   See **§6a**; never weaken the guard to "optimise".
 - Per-widget aggregation override (`measureAggOverrides`, e.g. a `sum`
-  model measure shown as `avg` on the visual) is **not cache-served**:
-  the builder materialises the model aggregation only, so the planner
-  MISSes (`agg-override:<m>`) → live query (correct, not accelerated).
-  Materialising the overridden variant is a future enhancement. See
-  **§6b**; never serve the model agg when the request overrode it.
+  model measure shown as `avg` on the visual) **IS materialised and
+  cache-served** (correct AND fast) via the synthetic effective-measure
+  mechanism — see **§6b**. Only an override whose aggregation is itself
+  non-decomposable (e.g. `count_distinct`) falls to live for that one
+  measure, exactly like a model-level non-decomposable measure.
 - Two reports on the same model colliding on
   `(grain, base_filter, fact)` overwrite — last build wins.
 - Per-rollup `bytes` in the manifest is an estimate (row count ×

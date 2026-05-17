@@ -24,7 +24,7 @@ const internalToken = require('./internalToken');
 const rollupDuckDB = require('./rollupDuckDB');
 const { prepareGlobalRulesForWidget } = require('./reportFilterRules');
 const { shiftWidgetFiltersForN1 } = require('./comparePeriod');
-const { componentPlanForMeasures, factsForMeasure } = require('./measureType');
+const { componentPlanForMeasures, factsForMeasure, effectiveMeasureName } = require('./measureType');
 
 const MAX_ROLLUP_ROWS = Number(process.env.ROLLUP_MAX_ROWS || 1_000_000);
 
@@ -399,24 +399,62 @@ function planRollupsForModel(modelId) {
       modelDims.filter((d) => d && d.name).map((d) => [d.name, d])
     );
 
-    // Every measure this report's widgets reference.
+    // Every measure this report's widgets reference, under its EFFECTIVE
+    // name. A per-widget aggregation override (`measureAggOverrides`)
+    // synthesises `<name>@@<agg>` (effectiveMeasureName) so the rollup
+    // materialises that aggregation's atoms and the planner can recompose
+    // it — the override stays CACHED, not bypassed. Generic for every
+    // aggregation type (sum/count/min/max → that additive atom; avg →
+    // _avg_*_sum/_count via the existing decompose path).
     const reportMeasures = new Set();
+    const synthByName = new Map(); // effName -> synthetic measure def
     for (const w of Object.values(widgets)) {
       if (!w || !w.dataBinding) continue;
       if (w.type === 'text' || w.type === 'shape') continue;
+      const aggOv = (w.dataBinding.measureAggOverrides && typeof w.dataBinding.measureAggOverrides === 'object')
+        ? w.dataBinding.measureAggOverrides : {};
       for (const m of measureNamesForWidget(w)) {
-        reportMeasures.add(m);
-        allMeasures.add(m);
+        const baseDef = measureByName.get(m);
+        const effName = baseDef
+          ? effectiveMeasureName(m, baseDef.aggregation, aggOv[m])
+          : m;
+        if (effName !== m && baseDef && !synthByName.has(effName)) {
+          synthByName.set(effName, {
+            ...baseDef,
+            name: effName,
+            // Unique label = the synthetic key itself. The base measure
+            // keeps its own label, so when BOTH are materialised in one
+            // build /query there is no duplicate SELECT alias. The planner
+            // re-keys the response to the base measure's label (respKey),
+            // so the client never sees this synthetic name.
+            label: effName,
+            aggregation: aggOv[m],
+          });
+        }
+        reportMeasures.add(effName);
+        allMeasures.add(effName);
       }
     }
+    // Make synthetics resolvable downstream: loadMeasureDefs merges
+    // extras.extraMeasures into the def pool, and the build /query
+    // resolves measureNames against extraMeasures too.
+    const extrasWithSynth = synthByName.size > 0
+      ? { ...extras, extraMeasures: [...(extras.extraMeasures || []), ...synthByName.values()] }
+      : extras;
+    const measureByNameEff = synthByName.size > 0
+      ? new Map([...measureByName, ...synthByName])
+      : measureByName;
+    const measureDefsEff = synthByName.size > 0
+      ? [...measureDefs, ...synthByName.values()]
+      : measureDefs;
     // Partition the report's measures by their fact table. Single-fact
     // measures group under that fact; 0- or multi-fact measures are
     // dropped from rollups (fallback to live query at runtime).
-    const factGroups = new Map(); // factTable -> [measure names]
+    const factGroups = new Map(); // factTable -> [effective measure names]
     for (const mn of reportMeasures) {
-      const def = measureByName.get(mn);
+      const def = measureByNameEff.get(mn);
       if (!def) continue;
-      const facts = factsForMeasure(def, measureDefs);
+      const facts = factsForMeasure(def, measureDefsEff);
       if (facts.length !== 1) continue; // cross-fact / unresolved → not rolled up
       const f = facts[0];
       if (!factGroups.has(f)) factGroups.set(f, []);
@@ -488,7 +526,8 @@ function planRollupsForModel(modelId) {
         seen.add(key);
         plan.push({
           grain, hash, measures: factMeasures, factTable,
-          reportId: r.id, extras, baseFilters: slot.baseFilters, baseFilterHash,
+          reportId: r.id, extras: extrasWithSynth,
+          baseFilters: slot.baseFilters, baseFilterHash,
         });
       }
     }
