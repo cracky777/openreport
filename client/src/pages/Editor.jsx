@@ -668,51 +668,21 @@ export default function Editor() {
     setRefreshing((r) => r ? r : true);
     refreshIsManualRef.current = true;
     setRefreshCounter((n) => n + 1);
-    // Slicers don't go through the main fetch effect — kick them off
-    // manually so a global Refresh actually picks up new dim values from
-    // the source DB.
-    const ws = widgetsRef.current || {};
-    for (const [wId, w] of Object.entries(ws)) {
-      if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0]) {
-        refreshSlicer(wId);
-      }
-    }
-  }, [refreshSlicer]);
+    // Slicers are refreshed by the main fetch effect (it bumps on
+    // refreshCounter). We DON'T loop refreshSlicer here anymore: this
+    // runs synchronously, and "Save & refresh" calls onChange (setSettings,
+    // async) then onRefresh() in the same tick — a synchronous slicer
+    // refresh would use the pre-commit global filter. The effect runs
+    // post-render with the committed settings, which is correct.
+  }, []);
 
-  // Filter widgets are skipped by the main fetch effect, so without this
-  // a change to the global filter (or a sibling slicer) never narrows a
-  // slicer on a RELATED dim — e.g. picking a client must shrink the
-  // destinataire slicer (server bridges the two through the fact).
-  // refreshSlicer already excludes the slicer's OWN dim, so it keeps its
-  // full universe for that dim but is constrained by the others. Skips
-  // the initial mount (slicers already hold their saved/restored values
-  // for the initial filter state) and debounces rapid filter clicks.
-  // No loop: refreshSlicer writes widget.data, never reportFilters/
-  // settings.reportFilters (this effect's deps).
-  const slicerCascadeTimerRef = useRef(null);
-  const slicerCascadeSigRef = useRef(null);
-  useEffect(() => {
-    const sig = JSON.stringify({
-      r: reportFilters || {},
-      s: Array.isArray(settings?.reportFilters) ? settings.reportFilters : [],
-    });
-    if (slicerCascadeSigRef.current === null) { slicerCascadeSigRef.current = sig; return; }
-    if (slicerCascadeSigRef.current === sig) return;
-    slicerCascadeSigRef.current = sig;
-    if (slicerCascadeTimerRef.current) clearTimeout(slicerCascadeTimerRef.current);
-    slicerCascadeTimerRef.current = setTimeout(() => {
-      const ws = widgetsRef.current || {};
-      for (const [wId, w] of Object.entries(ws)) {
-        if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0]) {
-          refreshSlicerRef.current?.(wId);
-        }
-      }
-    }, 350);
-    return () => { if (slicerCascadeTimerRef.current) clearTimeout(slicerCascadeTimerRef.current); };
-    // refreshSlicer is intentionally NOT a dep — see refreshSlicerRef above.
-    // Depending on it re-ran this effect every render and the cleanup kept
-    // cancelling the debounce, so the global filter never narrowed slicers.
-  }, [reportFilters, settings?.reportFilters]); // eslint-disable-line react-hooks/exhaustive-deps
+  // NOTE: slicer re-narrowing on global-filter / cross-filter / refresh is
+  // now done INSIDE the main fetch effect (search for "Slicers are skipped
+  // by the chart fetch below"). That effect is the same proven trigger the
+  // charts use and it runs post-render (committed settings). The previous
+  // standalone debounced cascade effect was removed: its cleanup cancelled
+  // its own setTimeout on any unrelated re-render within the debounce
+  // window, so the global filter often never narrowed slicers.
 
   // Per-widget refresh nonces — bumped by the canvas Refresh button to
   // request a fresh fetch of one specific widget without triggering the
@@ -817,6 +787,25 @@ export default function Editor() {
     const widgetRefreshId = widgetRefreshIdRef.current;
     widgetRefreshIdRef.current = null;
     const scopedToId = drillingId || interactionId || widgetRefreshId;
+
+    // Slicers are skipped by the chart fetch below (filter widgets don't
+    // run the normal SQL path). But the global filter / cross-filter /
+    // global refresh MUST also re-narrow related slicers (e.g. client →
+    // destinataire). This effect is the SAME proven trigger that already
+    // refreshes the charts on every one of those events — and crucially
+    // it runs as an EFFECT (post-render), so `settings` is the committed
+    // value, not the stale closure that broke the synchronous
+    // handleRefresh path. Reuse it instead of a separate, fragile
+    // debounced cascade. Skip when scoped to a single widget (drill /
+    // per-widget refresh / interaction toggle) — those must not refire
+    // every slicer.
+    if (!scopedToId) {
+      for (const [wId, w] of Object.entries(currentWidgets)) {
+        if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0]) {
+          refreshSlicerRef.current?.(wId);
+        }
+      }
+    }
 
     const toFetch = Object.entries(currentWidgets).filter(([wId, w]) => {
       if (!w) return false;
@@ -1398,11 +1387,13 @@ export default function Editor() {
         });
       }
     };
-    // `settingsFiltersKey` is intentionally NOT in the deps. Edits to
-    // `settings.reportFilters` come through the ReportFilterBar, which calls
-    // `handleRefresh` directly on every commit — so reacting here would
-    // double-fire the fetch.
-  }, [reportFilters, model, refreshCounter]); // eslint-disable-line react-hooks/exhaustive-deps
+    // `settings?.reportFilters` IS a dep: ReportFilterBar's plain "Save"
+    // (commitSave) only calls onChange (setSettings) — NOT handleRefresh —
+    // so without this dep a global-filter Save would refetch nothing
+    // (charts AND slicers). The internal `json`/`prevFiltersJson` guard
+    // already keys on `s: settings.reportFilters`, so adding the dep does
+    // NOT double-fire — it dedupes when nothing actually changed.
+  }, [reportFilters, settings?.reportFilters, model, refreshCounter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
