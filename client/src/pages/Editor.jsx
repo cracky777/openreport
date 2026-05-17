@@ -844,6 +844,14 @@ export default function Editor() {
           && wId !== scopedToId
           && w.data?._fetchedBinding === widgetBindingKey
           && Object.keys(w.data || {}).length > 1) {
+        try {
+          if (window?.localStorage?.getItem('LABEL_DIAG') === '1') {
+            console.log('[label-diag-cli] SKIP', wId, w.type,
+              '_measureLabel=', w.data?._measureLabel,
+              '_measures=', JSON.stringify(w.data?._measures),
+              'fetchedBinding=', w.data?._fetchedBinding);
+          }
+        } catch { /* diag only */ }
         return false;
       }
       return true;
@@ -1136,6 +1144,11 @@ export default function Editor() {
             // stripping) so the cache key matches what `toFetch` checks
             // when deciding whether to skip subsequent renders.
             emptyData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters });
+            try {
+              if (window?.localStorage?.getItem('LABEL_DIAG') === '1') {
+                console.log('[label-diag-cli] EMPTY', wId, w.type, 'meas=', JSON.stringify(meass));
+              }
+            } catch { /* diag only */ }
             return { wId, data: emptyData };
           }
           let newData = {};
@@ -1350,6 +1363,15 @@ export default function Editor() {
           // binding. Use the per-widget targetFilters so the key matches
           // the no-op skip check in `toFetch`.
           newData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters });
+          try {
+            if (window?.localStorage?.getItem('LABEL_DIAG') === '1') {
+              console.log('[label-diag-cli] BUILD', wId, w.type,
+                'meas=', JSON.stringify(meass),
+                '_measureLabel=', newData._measureLabel,
+                '_measures=', JSON.stringify(newData._measures),
+                'respKeys=', JSON.stringify(rows && rows[0] ? Object.keys(rows[0]) : []));
+            }
+          } catch { /* diag only */ }
           return { wId, data: newData };
         }).catch((err) => {
           if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return { wId, data: null };
