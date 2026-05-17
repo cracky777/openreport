@@ -430,7 +430,12 @@ function decomposeMeasure(measure, allMeasures) {
   // like `aggregation: 'custom'` with `AVG(col)` aren't recognised here —
   // users should use `aggregation: 'avg'` in the model for those.
   if (measure.aggregation === 'avg' && measure.column) {
-    return { type: 'avg', column: measure.column, table: measure.table || '' };
+    // Carry dataType so the synthetic SUM component gets the SAME
+    // interval→EXTRACT(EPOCH) treatment models.js applies to a normal
+    // measure on an INTERVAL column. Without it the numerator is
+    // SUM(interval) → not coercible to a number → atom stored NULL →
+    // AVG broken.
+    return { type: 'avg', column: measure.column, table: measure.table || '', dataType: measure.dataType };
   }
   // Ratio of two additive (or recursively decomposable) measures.
   if (measure.aggregation === 'custom') {
@@ -519,14 +524,14 @@ function collectComponentsForVisual(specs) {
     if (spec.type === 'simple') return; // handled by the visual measure itself, fired normally
     if (spec.type === 'avg') {
       const aliasBase = `_avg_${spec.table || ''}_${spec.column}`.replace(/[^A-Za-z0-9_]/g, '_');
-      synthetic.push({ alias: `${aliasBase}_sum`, column: spec.column, table: spec.table, kind: 'sum' });
+      synthetic.push({ alias: `${aliasBase}_sum`, column: spec.column, table: spec.table, kind: 'sum', dataType: spec.dataType });
       // Denominator MUST be COUNT(<column>) — count of NON-NULL values —
       // so AVG = SUM(x)/COUNT(x) matches SQL AVG semantics (NULLs skipped
       // by both SUM and COUNT). Plain `count` is COUNT(*) in models.js
       // (counts NULL-x rows too) → would understate the average whenever
       // the averaged column has NULLs. `count_col` is a dedicated kind
       // handled as COUNT(col) and never used by user `count` measures.
-      synthetic.push({ alias: `${aliasBase}_count`, column: spec.column, table: spec.table, kind: 'count_col' });
+      synthetic.push({ alias: `${aliasBase}_count`, column: spec.column, table: spec.table, kind: 'count_col', dataType: spec.dataType });
       return;
     }
     if (spec.type === 'ratio') {
@@ -613,7 +618,7 @@ function componentPlanForMeasures(outputDefs, allMeasures) {
       }
       for (const s of syntheticMeasures) {
         extraByAlias.set(s.alias, {
-          name: s.alias, aggregation: s.kind, column: s.column, table: s.table,
+          name: s.alias, aggregation: s.kind, column: s.column, table: s.table, dataType: s.dataType,
         });
         atomByCol.set(s.alias, 'SUM');
       }
