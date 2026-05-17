@@ -118,6 +118,57 @@ function isSyntheticTopN(f) {
   return f && (f.op === 'top_n' || f.op === 'bottom_n');
 }
 
+const _emptyVal = (v) => v === null || v === undefined || v === '';
+
+// In-memory equivalent of a measure-filter HAVING clause, applied to the
+// already-recomposed measure value. Mirrors models.js buildScalarClause's
+// NUMERIC semantics exactly so a rollup-served widget filters identically
+// to the live SQL path (HAVING runs before top_n/limit).
+//
+//   true  → row passes (keep)
+//   false → row filtered out
+//   'noop'  → threshold empty: live emits no clause, so neither do we
+//   'unsupported' → op we can't replicate 1:1 → caller MISSes to live
+//
+// SQL HAVING semantics: a NULL aggregate makes every comparison UNKNOWN,
+// so the row is excluded for eq/neq/gt/gte/lt/lte/between alike.
+function numericHavingMatch(rawVal, op, value, values) {
+  const num = (x) => { const y = Number(x); return Number.isFinite(y) ? y : null; };
+  switch (op) {
+    case 'eq': case 'neq': case 'gt': case 'gte': case 'lt': case 'lte': {
+      if (_emptyVal(value)) return 'noop';
+      const t = num(value);
+      if (t === null) return 'noop';
+      const n = num(rawVal);
+      if (n === null) return false; // NULL <op> x → UNKNOWN → excluded
+      switch (op) {
+        case 'eq':  return n === t;
+        case 'neq': return n !== t;
+        case 'gt':  return n > t;
+        case 'gte': return n >= t;
+        case 'lt':  return n < t;
+        case 'lte': return n <= t;
+      }
+      return false;
+    }
+    case 'between': {
+      const list = Array.isArray(values) ? values : (Array.isArray(value) ? value : null);
+      const a = list && list[0]; const b = list && list[1];
+      if (_emptyVal(a) || _emptyVal(b)) return 'noop';
+      const lo = num(a); const hi = num(b);
+      if (lo === null || hi === null) return 'noop';
+      const n = num(rawVal);
+      if (n === null) return false;
+      return n >= lo && n <= hi;
+    }
+    // in / not_in / contains / is_empty… on an aggregate are rare and
+    // live builds them with string semantics — replicate exactly by
+    // staying on the live path rather than risk a divergent rollup.
+    default:
+      return 'unsupported';
+  }
+}
+
 // Report's global-filter-bar rule definitions (field+op identify a rule).
 // Used to split the runtime widgetFilters into the baked-global portion
 // vs the rest.
@@ -417,6 +468,28 @@ async function tryServeFromRollup(opts) {
     }
     return out;
   });
+
+  // Measure filters = HAVING. The rollup row IS the aggregated group, and
+  // out[respKey] is the recomposed measure (already AVG-overridden +
+  // interval-flattened to seconds, same number the live HAVING compares).
+  // Apply them here, in memory, BEFORE top_n — exactly the SQL order
+  // (HAVING then ORDER BY/LIMIT). Anything we can't replicate 1:1
+  // (unmappable field, op live builds with string semantics) MISSes to
+  // live so a rollup result never diverges from the live result.
+  const measurePart = wf.filter(
+    (f) => f && f.isMeasure && !isSyntheticTopN(f) && f.field && f.op
+  );
+  for (const f of measurePart) {
+    const pair = reqOutputs.find(
+      (x) => x.reqName === f.field || x.o.name === f.field || x.respKey === f.field
+    );
+    if (!pair) return { hit: false, reason: `measure-filter-unmappable:${f.field}` };
+    const key = pair.respKey;
+    let probe = numericHavingMatch(0, f.op, f.value, f.values);
+    if (probe === 'unsupported') return { hit: false, reason: `measure-filter-op:${f.op}` };
+    if (probe === 'noop') continue; // live emits no clause → no-op here too
+    rows = rows.filter((r) => numericHavingMatch(r[key], f.op, f.value, f.values) === true);
+  }
 
   // top_n / bottom_n applied in memory, same as the fact path.
   const topN = wf.find(isSyntheticTopN);
