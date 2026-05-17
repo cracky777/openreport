@@ -523,7 +523,7 @@ function collectComponentsForVisual(specs) {
     if (!spec) return;
     if (spec.type === 'simple') return; // handled by the visual measure itself, fired normally
     if (spec.type === 'avg') {
-      const aliasBase = `_avg_${spec.table || ''}_${spec.column}`.replace(/[^A-Za-z0-9_]/g, '_');
+      const aliasBase = avgAliasBase(spec);
       synthetic.push({ alias: `${aliasBase}_sum`, column: spec.column, table: spec.table, kind: 'sum', dataType: spec.dataType });
       // Denominator MUST be COUNT(<column>) — count of NON-NULL values —
       // so AVG = SUM(x)/COUNT(x) matches SQL AVG semantics (NULLs skipped
@@ -568,11 +568,22 @@ function sqlAggForAdditive(t) {
   return 'SUM'; // sum, count
 }
 
-// Stable alias base for an AVG measure's SUM/COUNT components. MUST match
-// collectComponentsForVisual's scheme so build-time aliases and
-// runtime-recompose lookups line up.
+// Stable alias base for an AVG measure's SUM/COUNT components. The SINGLE
+// source of truth — collectComponentsForVisual calls THIS so the build
+// alias and the runtime-recompose lookup can never diverge.
+//
+// MUST stay ≤ 63 chars: PostgreSQL truncates every result-set column
+// alias to NAMEDATALEN (63 bytes). The old `_avg_<schema>_<table>_<col>`
+// scheme produced 70+ char aliases on real models (e.g.
+// `_avg_nyukom_appel_entrant_f_appel_entrant_agg_duree_sonnerie_totale_sum`),
+// so PG truncated the SELECT alias, the build response key no longer
+// matched the atom name, and buildRollupToDuckDB stored NULL → every
+// AVG-from-rollup returned null. A short stable hash of table.column
+// keeps the full alias (`_avg_<16hex>_sum`/`_count`) ~27 chars.
 function avgAliasBase(spec) {
-  return `_avg_${spec.table || ''}_${spec.column}`.replace(/[^A-Za-z0-9_]/g, '_');
+  const key = `${spec.table || ''}.${spec.column}`;
+  const h = require('crypto').createHash('sha1').update(key).digest('hex').slice(0, 16);
+  return `_avg_${h}`;
 }
 
 // Given the measure DEFs a rollup must serve + the full measure pool,
