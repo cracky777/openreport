@@ -294,6 +294,37 @@ tainted → still rollup-served). **Do not** weaken this guard to
 
 ---
 
+### 6b. Per-widget aggregation override — MISS → live (2026-05 decision)
+
+A measure's aggregation can be overridden **per visual**: the model
+measure is e.g. `sum`, but a widget displays it as `avg`
+(`measureAggOverrides[name]` in the `/query` body; `models.js` applies
+it at runtime **only when the model agg isn't `'custom'`**).
+
+The builder does **not** see this. Grain/measure enumeration
+(`measureNamesForWidget`) collects measure **names** only and resolves
+them to **model** defs (`loadMeasureDefs`). So the rollup atoms are
+materialised from the **model** aggregation — an `avg`-on-the-visual
+measure whose model def is `sum` would be stored (and naively served)
+as SUM. That is a **wrong number**, not just a slow one.
+
+**Implemented guard** (`rollupPlanner.tryServeFromRollup`): the planner
+receives `measureAggOverrides` and, per requested measure, MISSes with
+`agg-override:<m>` when `ov && def.aggregation !== 'custom' && ov !==
+def.aggregation` — the **exact** condition `models.js` uses to apply the
+override. MISS → live fact query, which honours the override correctly.
+
+**Accepted tradeoff**: a widget that overrides a measure's aggregation
+is **not cache-served** (correct, just not accelerated). Materialising
+the overridden variant too (enumerate `(name, effective-agg)` pairs,
+decompose with the overridden agg — e.g. `avg` → the usual
+`_avg_*_sum/_count` atoms — and key the manifest output by effective
+agg so the planner can recompose per request) is a deliberate **future
+enhancement**, not a v1 behaviour. Correctness first; never serve the
+model agg when the request asked for a different one.
+
+---
+
 ## 7. RLS
 
 If row-level security applies to the requesting user
@@ -330,6 +361,17 @@ Owner/admin (no RLS) is served normally.
    that (grain, fact); the planner MISSes those measures → live query
    (the correct path for them anyway). AVG-only groups have empty
    `fireNames` but non-empty synthetic atoms → NOT skipped.
+   _Defense in depth_: independently of this skip, the live `/query`
+   join builder (`models.js`, shared by the build-time fire) no longer
+   comma-cross-joins a **filter-only table with no join path** — it
+   **drops** that table and strips its dim `WHERE` clauses (RLS/security
+   clauses are never dropped; a table genuinely required by
+   SELECT/GROUP BY keeps the old cross-join fallback so SQL stays
+   valid). So a stray global filter on an unrelated dim (e.g. a date
+   filter on a fact-less slicer query) degrades to "filter ignored",
+   **not** a Cartesian product / nginx timeout. The conformed-grain
+   restriction (§1) and this skip remain the primary guards; the drop
+   is the backstop.
 5. **Blue-green at FILE level**: each build run gets one `gen` token; all
    its rollup tables are written into a brand-new
    `..._m<modelHash>_g<gen>.duckdb` file while the previous gen file
@@ -420,6 +462,7 @@ Logged as `[qXXXX] rollupPlanner MISS:<reason>`.
 | `cross-fact:<m>` | measure resolves to ≠1 fact (cross-fact ratio/expr, or unresolvable fact) | expected (§1 constellation); not rolled up in v1 |
 | `no-rollup:<fact>` | no rollup for that fact matches grain **and** baked-filter hash. Diagnostic logs `wantBf` + `runtime globalPart(norm)` + candidates' `bf/grain/baked` | global bar changed to an unbaked slice → rebuild; or an N-1 slice for a year-dim that wasn't recognised |
 | `non-decomposable:<m>` | measure can't be split into additive atoms (COUNT DISTINCT, median, non-additive refs) | expected (see §6) |
+| `agg-override:<m>` | the visual overrides the measure's aggregation (`measureAggOverrides`) to something the model-built rollup can't represent | expected (see §6b); v1 serves it live, correct but uncached |
 | `no-atoms:<fact>` | manifest has no component columns (stale pre-decomposition rollup) | rebuild |
 | `mixed-gen:<g\|g>` | a multi-fact widget's per-fact rollups are in different generation files (only after a partially-failed build) | transient — next successful build writes all facts into one gen |
 | `source-storage-unsupported` | rollup `storage_mode='source'` | v1 limitation |
@@ -449,6 +492,12 @@ Logged as `[qXXXX] rollupPlanner MISS:<reason>`.
   `supported:false` → planner MISS → live query (always correct, not
   accelerated). Intersection-mode filtered measures stay rollup-served.
   See **§6a**; never weaken the guard to "optimise".
+- Per-widget aggregation override (`measureAggOverrides`, e.g. a `sum`
+  model measure shown as `avg` on the visual) is **not cache-served**:
+  the builder materialises the model aggregation only, so the planner
+  MISSes (`agg-override:<m>`) → live query (correct, not accelerated).
+  Materialising the overridden variant is a future enhancement. See
+  **§6b**; never serve the model agg when the request overrode it.
 - Two reports on the same model colliding on
   `(grain, base_filter, fact)` overwrite — last build wins.
 - Per-rollup `bytes` in the manifest is an estimate (row count ×

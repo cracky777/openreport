@@ -140,6 +140,7 @@ async function tryServeFromRollup(opts) {
     model, modelId, orgId, reportId,
     dimensionNames = [],
     measureNames = [],
+    measureAggOverrides = {},
     filters = {},
     widgetFilters = [],
     allDimensions = [],
@@ -197,6 +198,18 @@ async function tryServeFromRollup(opts) {
   for (const mn of measureNames) {
     const def = allMeasures.find((m) => m && m.name === mn);
     if (!def) return { hit: false, reason: `measure-not-model:${mn}` };
+    // Per-widget aggregation override (e.g. a SUM model measure displayed
+    // as AVG on the visual). The rollup atoms were materialised from the
+    // MODEL aggregation, so they cannot represent the overridden one —
+    // serving it would return the model agg (the "SUM instead of AVG"
+    // bug). models.js applies the override only when the model agg isn't
+    // 'custom'; mirror that exactly. MISS → live query, which honours the
+    // override correctly. (Materialising the overridden variant so it can
+    // also be cached is a separate, larger change — correctness first.)
+    const ov = measureAggOverrides && measureAggOverrides[mn];
+    if (ov && def.aggregation !== 'custom' && ov !== def.aggregation) {
+      return { hit: false, reason: `agg-override:${mn}` };
+    }
     const facts = factsForMeasure(def, allMeasures);
     if (facts.length !== 1) return { hit: false, reason: `cross-fact:${mn}` };
     const f = facts[0];

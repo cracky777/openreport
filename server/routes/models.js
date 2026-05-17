@@ -1309,6 +1309,7 @@ router.post('/:id/query', async (req, res) => {
         reportId,
         dimensionNames: dimensionNames || [],
         measureNames: measureNames || [],
+        measureAggOverrides: measureAggOverrides || {},
         filters: filters || {},
         widgetFilters: Array.isArray(widgetFilters) ? widgetFilters : [],
         allDimensions,
