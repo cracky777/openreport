@@ -566,7 +566,19 @@ function fetchRollupRows({
   // AVG / expressions from these at any grain.
   const bodyStr = JSON.stringify({
     dimensionNames: grain,
-    measureNames: fireNames,
+    // The synthetic AVG/ratio/expression components (`syntheticExtras`,
+    // e.g. `_avg_<t>_<c>_sum` / `_count`) MUST be in measureNames, not
+    // only in extraMeasures: models.js builds the SELECT from
+    // `selectedMeasures` (= measureNames resolved against the measure
+    // pool) — extraMeasures are added to the resolution pool but are
+    // never SELECTed on their own. Without this, an AVG-only fact group
+    // (empty fireNames) materialised ZERO atom values → every `_avg_*`
+    // column NULL → recompose `count ? sum/count : null` → AVG always
+    // null. They stay in extraMeasures below so the names resolve.
+    measureNames: [...new Set([
+      ...(fireNames || []),
+      ...((syntheticExtras || []).map((s) => s.name)),
+    ])],
     // Bake the report's global filter bar into the rollup: /query
     // applies these via the model join graph exactly as it would at
     // runtime (a filter with no join relation to the widget is
