@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const { createConnection } = require('../utils/dbConnector');
+const { resolveIntervalColumns } = require('../utils/columnTypeResolver');
 const { canAccessReport } = require('./reports');
 const { getQueryTimeoutMs } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
@@ -1104,6 +1105,32 @@ router.post('/:id/query', async (req, res) => {
   // non-ISO format.
   const columnTypes = JSON.parse(model.column_types || '{}');
 
+  // INTERVAL safety net. A measure created before `addMeasure` stamped
+  // `dataType` (or via a path where `col.data_type` wasn't available)
+  // carries no `dataType`, and there's no `column_types` override either —
+  // so the SQL builder can't tell its column is a Postgres/DuckDB
+  // `interval` and emits `SUM("col")` / `HAVING SUM("col") <= 30`, which
+  // the DB rejects ("operator does not exist: interval <= integer").
+  // Resolve interval-ness from the source catalog (process-cached,
+  // best-effort) and inject a synthetic `{type:'interval'}` override so
+  // every existing isInterval / getOverrideType call site flattens it with
+  // EXTRACT(EPOCH …) — no model re-save required. Only fills gaps; an
+  // explicit user override always wins.
+  try {
+    const intervalProbe = (allMeasures || [])
+      .filter((m) => m && m.table && m.column && m.column !== '*'
+        && !columnTypes[`${m.table}.${m.column}`])
+      .map((m) => ({ table: m.table, column: m.column }));
+    if (intervalProbe.length) {
+      const intervalSet = await resolveIntervalColumns(datasource, intervalProbe);
+      for (const key of intervalSet) {
+        if (!columnTypes[key]) columnTypes[key] = { type: 'interval' };
+      }
+    }
+  } catch (e) {
+    console.warn('[columnType] interval probe skipped -', e.message);
+  }
+
   // Inline `${measure_name}` placeholders inside a custom SQL expression by
   // expanding them to the referenced measure's SQL. Lets users compose
   // custom measures from other measures (Power BI's `[Measure]` ref).
@@ -1624,7 +1651,8 @@ router.post('/:id/query', async (req, res) => {
             : rawCol;
           const aggExpr = `${normalizeAggregation(m.aggregation).toUpperCase()}(CASE WHEN ${whenSql} THEN ${colExpr} END)`;
           // Same INTERVAL handling as regular measures.
-          const isInterval = String(m.dataType || '').toLowerCase() === 'interval';
+          const isInterval = String(m.dataType || '').toLowerCase() === 'interval'
+            || ovType === 'interval';
           const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
           const finalExpr = (isInterval && supportsExtractEpoch)
             ? `EXTRACT(EPOCH FROM ${aggExpr})`
@@ -1684,7 +1712,8 @@ router.post('/:id/query', async (req, res) => {
       // also has an INTERVAL type but no equivalent EPOCH extract — its
       // intervals get flattened by the row post-processor instead. MySQL
       // and MSSQL have no native interval column type so nothing to wrap.
-      const isInterval = String(m.dataType || '').toLowerCase() === 'interval';
+      const isInterval = String(m.dataType || '').toLowerCase() === 'interval'
+        || ovType === 'interval';
       const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
       const finalExpr = (isInterval && supportsExtractEpoch)
         ? `EXTRACT(EPOCH FROM ${aggExpr})`
@@ -1719,7 +1748,8 @@ router.post('/:id/query', async (req, res) => {
     // so HAVING comparisons are against a number rather than an interval.
     // PG + DuckDB share the syntax; BigQuery falls back to the row post-
     // processor (and HAVING on intervals there is rare anyway).
-    const isIntervalH = String(measDef.dataType || '').toLowerCase() === 'interval';
+    const isIntervalH = String(measDef.dataType || '').toLowerCase() === 'interval'
+      || ovTypeH === 'interval';
     const supportsExtractEpochH = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
     const aggExpr = (isIntervalH && supportsExtractEpochH && measDef.aggregation !== 'count')
       ? `EXTRACT(EPOCH FROM ${baseAggExpr})`
@@ -1936,7 +1966,8 @@ router.post('/:id/query', async (req, res) => {
         ? castToNumber(rawCol, dbType, ovType)
         : rawCol;
       innerAgg = `${normalizeAggregation(m.aggregation).toUpperCase()}(${colExpr})`;
-      const isInterval = String(m.dataType || '').toLowerCase() === 'interval';
+      const isInterval = String(m.dataType || '').toLowerCase() === 'interval'
+        || ovType === 'interval';
       const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
       if (isInterval && supportsExtractEpoch) {
         innerAgg = `EXTRACT(EPOCH FROM ${innerAgg})`;
