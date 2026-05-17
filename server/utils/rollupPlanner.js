@@ -235,20 +235,6 @@ async function tryServeFromRollup(opts) {
   for (const mn of measureNames) {
     const def = allMeasures.find((m) => m && m.name === mn);
     if (!def) return { hit: false, reason: `measure-not-model:${mn}` };
-    // CORRECTNESS GUARD (re-instated): a per-visual aggregation override
-    // (e.g. a `sum` model measure shown as `avg`) is served LIVE, not from
-    // the rollup. The build-time materialisation of the synthetic
-    // decomposition atoms (`_avg_*_sum/_count`) is currently NOT producing
-    // values (every atom NULL in the rollup) — serving it would return
-    // NULL. The live path honours measureAggOverrides correctly (same path
-    // that makes the SUM-on-visual case work). Mirrors models.js exactly
-    // (override applies only when model agg isn't 'custom'). Correct now;
-    // caching the override variant is a known limitation until the build
-    // materialisation is fixed.
-    const ov = measureAggOverrides && measureAggOverrides[mn];
-    if (ov && def.aggregation !== 'custom' && ov !== def.aggregation) {
-      return { hit: false, reason: `agg-override:${mn}` };
-    }
     const eff = effectiveMeasureName(
       mn, def.aggregation, measureAggOverrides && measureAggOverrides[mn]
     );
