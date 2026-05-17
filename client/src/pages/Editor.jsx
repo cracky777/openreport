@@ -1548,6 +1548,17 @@ export default function Editor() {
         setReport(r);
         setTitle(r.title);
         setSettings(r.settings || {});
+        // Anchor the slicer-cascade baseline to the LOADED global filter
+        // immediately. Without this the baseline is seeded lazily inside
+        // the fetch effect, so the load-time `settings.reportFilters`
+        // transition ({} → saved) is misread as a user global-filter
+        // change and the slicer needlessly refetches on every editor open
+        // (notably after a warm, when saved widget data is judged stale so
+        // skipNextRefetch isn't set). Now: slicer refreshes ⟺ a real
+        // post-load global-filter change OR an explicit/manual refresh.
+        prevSettingsFiltersRef.current = JSON.stringify(
+          Array.isArray(r.settings?.reportFilters) ? r.settings.reportFilters : []
+        );
         // Auto-reveal the filter bar on load if the report already has rules,
         // so users don't lose sight of active filters. After this initial sync
         // the bar is fully user-controlled (toolbar toggle / × dismiss).
