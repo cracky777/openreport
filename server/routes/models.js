@@ -1729,6 +1729,16 @@ router.post('/:id/query', async (req, res) => {
     const measDef = allMeasures.find((mm) => mm.name === f.field);
     if (!measDef) continue;
     if (measDef.aggregation === 'custom') continue; // unsupported for now
+    // The HAVING must aggregate with the SAME function the visual uses.
+    // The SELECT path applies the per-widget aggregation override
+    // (measureAggOverrides) when building selectedMeasures, so a measure
+    // shown as AVG on the widget must be filtered as AVG too — not the
+    // measure's base aggregation (which would emit SUM here while the
+    // SELECT emits AVG, comparing the filter against the wrong number).
+    const effAggH = (measureAggOverrides && measureAggOverrides[f.field]
+      && measDef.aggregation !== 'custom')
+      ? measureAggOverrides[f.field]
+      : measDef.aggregation;
     // Same numeric-cast logic as the SELECT path so HAVING references the
     // exact same expression.
     const rawColH = (measDef.table && measDef.column)
@@ -1738,10 +1748,10 @@ router.post('/:id/query', async (req, res) => {
     const colExprH = rawColH && (ovTypeH === 'integer' || ovTypeH === 'decimal' || ovTypeH === 'number')
       ? castToNumber(rawColH, dbType, ovTypeH)
       : rawColH;
-    const baseAggExpr = measDef.aggregation === 'count'
+    const baseAggExpr = effAggH === 'count'
       ? 'COUNT(*)'
       : (colExprH
-          ? `${normalizeAggregation(measDef.aggregation).toUpperCase()}(${colExprH})`
+          ? `${normalizeAggregation(effAggH).toUpperCase()}(${colExprH})`
           : null);
     if (!baseAggExpr) continue;
     // Mirror the SELECT path: `interval` aggregates need EXTRACT(EPOCH …)
@@ -1751,7 +1761,7 @@ router.post('/:id/query', async (req, res) => {
     const isIntervalH = String(measDef.dataType || '').toLowerCase() === 'interval'
       || ovTypeH === 'interval';
     const supportsExtractEpochH = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
-    const aggExpr = (isIntervalH && supportsExtractEpochH && measDef.aggregation !== 'count')
+    const aggExpr = (isIntervalH && supportsExtractEpochH && effAggH !== 'count')
       ? `EXTRACT(EPOCH FROM ${baseAggExpr})`
       : baseAggExpr;
     if (measDef.table) tablesUsed.add(measDef.table);
