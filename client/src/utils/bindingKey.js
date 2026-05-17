@@ -4,7 +4,7 @@
 // after an Editor-driven refetch should not trigger a DataPanel refetch when
 // the binding hasn't actually moved.
 
-export function computeBindingKey({ widget, model, reportFilters }) {
+export function computeBindingKey({ widget, model, reportFilters, settings }) {
   if (!widget) return '';
   const binding = widget.dataBinding || {};
 
@@ -65,6 +65,18 @@ export function computeBindingKey({ widget, model, reportFilters }) {
   const drillPath = Array.isArray(widget.drillPath) ? widget.drillPath : [];
   const drillKey = drillPath.length > 0 ? `dp:${JSON.stringify(drillPath)}` : '';
 
+  // Per-report label/type/format overrides (settings.measureOverrides /
+  // dimensionOverrides). These change both the server response alias AND
+  // the effectiveModel labels the widget renders (e.g. scorecard's
+  // data.label, table headers). Without this term the key is unchanged
+  // when a measure label is edited, so neither fetcher invalidates the
+  // cached widget.data — the canvas keeps showing the pre-edit (default)
+  // label until some unrelated refetch, and a cross-filter that SKIPs
+  // these widgets makes the stale label visibly "revert".
+  const overridesKey = settings
+    ? `ov:${JSON.stringify({ m: settings.measureOverrides || {}, d: settings.dimensionOverrides || {} })}`
+    : '';
+
   return [
     selectedDims.join(','),
     selectedMeass.join(','),
@@ -73,5 +85,6 @@ export function computeBindingKey({ widget, model, reportFilters }) {
     scatterKey, comboKey, gaugeKey,
     aggKey, colorKey, widgetFiltersKey,
     modelVersion, filtersKey, typeKey, topNKey, drillKey, compareKey,
+    overridesKey,
   ].join(':');
 }

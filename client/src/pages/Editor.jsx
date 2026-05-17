@@ -839,7 +839,7 @@ export default function Editor() {
       // changed for them.
       const baseFiltersForKey = { ...(reportFilters || {}) };
       const targetFiltersForKey = filterForTarget(wId, baseFiltersForKey, currentWidgets, crossHighlightRef.current);
-      const widgetBindingKey = computeBindingKey({ widget: w, model, reportFilters: targetFiltersForKey });
+      const widgetBindingKey = computeBindingKey({ widget: w, model, reportFilters: targetFiltersForKey, settings });
       if (!refreshRequested
           && wId !== scopedToId
           && w.data?._fetchedBinding === widgetBindingKey
@@ -1143,7 +1143,7 @@ export default function Editor() {
             // Use the per-widget targetFilters (post interaction-exclusion
             // stripping) so the cache key matches what `toFetch` checks
             // when deciding whether to skip subsequent renders.
-            emptyData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters });
+            emptyData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters, settings });
             try {
               api.post('/models/__label_diag', { branch: 'EMPTY', wId, type: w.type, meas: meass }).catch(() => {});
             } catch { /* diag only */ }
@@ -1360,7 +1360,7 @@ export default function Editor() {
           // next widget selection — the data is already fresh for this
           // binding. Use the per-widget targetFilters so the key matches
           // the no-op skip check in `toFetch`.
-          newData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters });
+          newData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters, settings });
           try {
             api.post('/models/__label_diag', {
               branch: 'BUILD', wId, type: w.type, meas: meass,

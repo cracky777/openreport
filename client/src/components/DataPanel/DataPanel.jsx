@@ -160,7 +160,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   // agree on what counts as the "same" binding. After Editor's refetch (drill,
   // filter change, refresh), it stamps `data._fetchedBinding` with this same
   // value so re-selecting the widget doesn't trigger an unnecessary refetch.
-  const bindingKey = hasWidget ? computeBindingKey({ widget, model, reportFilters }) : '';
+  const bindingKey = hasWidget ? computeBindingKey({ widget, model, reportFilters, settings }) : '';
   const selectionKey = hasWidget ? `${widgetId}:${bindingKey}` : '';
 
   // Drag start handler
