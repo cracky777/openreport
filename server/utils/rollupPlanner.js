@@ -243,7 +243,7 @@ async function tryServeFromRollup(opts) {
     if (facts.length !== 1) return { hit: false, reason: `cross-fact:${mn}` };
     const f = facts[0];
     if (!factToMeasures.has(f)) factToMeasures.set(f, []);
-    factToMeasures.get(f).push({ eff, respKey });
+    factToMeasures.get(f).push({ eff, respKey, reqName: mn });
   }
 
   // Per fact-group: smallest rollup whose grain ⊇ requested grain AND
@@ -295,12 +295,14 @@ async function tryServeFromRollup(opts) {
     const man = rollup.measures || { outputs: [], atoms: [] };
     const byName = new Map((man.outputs || []).map((o) => [o.name, o]));
     const outs = [];
-    for (const { eff, respKey } of mns) {
+    for (const { eff, respKey, reqName } of mns) {
       const o = byName.get(eff);
       if (!o || !o.supported || !o.spec) return { hit: false, reason: `non-decomposable:${eff}` };
       // Carry the response key separately: o.label is the rollup-internal
       // (possibly synthetic) identity; respKey is what the client expects.
-      outs.push({ o, respKey });
+      // reqName = the originally requested measure name (what a synthetic
+      // top_n/bottom_n widgetFilter targets in `field`).
+      outs.push({ o, respKey, reqName });
     }
     if (!(man.atoms || []).length) return { hit: false, reason: `no-atoms:${factTable}` };
     if (rollup.match !== 'exact') anyMatch = 'superset';
@@ -421,8 +423,15 @@ async function tryServeFromRollup(opts) {
   if (topN && topN.field) {
     const n = Math.max(1, Math.floor(topN.value || 0));
     if (n > 0 && rows.length > n) {
+      // top_n widgetFilter `field` = the originally-requested measure
+      // name (client sets `field: <measureName>`). Match it against the
+      // requested name first (robust to label/override differences), then
+      // fall back to the manifest output name / response key. Rows are
+      // keyed by respKey, so that's what we sort on.
       const pair = reqOutputs.find(
-        (x) => x.o.name === topN.field || x.respKey === topN.field
+        (x) => x.reqName === topN.field
+          || x.o.name === topN.field
+          || x.respKey === topN.field
       );
       const key = pair ? pair.respKey : topN.field;
       const dir = topN.op === 'top_n' ? 'desc' : 'asc';
