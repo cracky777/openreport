@@ -1295,8 +1295,13 @@ router.post('/:id/query', async (req, res) => {
   //     source fact table — that's how the rollup gets populated. Serving
   //     them from a rollup would build a rollup from itself.
   const isRollupBuilderRequest = !!(req.body && req.body._rollupBuilder);
-  if (sqlOnly || isRollupBuilderRequest) {
-    __mark(`SKIP rollup planner (sqlOnly=${!!sqlOnly}, builder=${isRollupBuilderRequest})`);
+  // `bypassCache` = an explicit user refresh of a visual. Per product
+  // decision it must be handled by the LIVE query and stored in
+  // queryCache — NOT served from the rollup. So skip the rollup planner;
+  // the normal path then runs live (queryCache.get is itself skipped
+  // when bypassCache, forcing fresh) and writes the result to queryCache.
+  if (sqlOnly || isRollupBuilderRequest || bypassCache) {
+    __mark(`SKIP rollup planner (sqlOnly=${!!sqlOnly}, builder=${isRollupBuilderRequest}, bypassCache=${!!bypassCache})`);
   } else {
     const rollupPlanner = require('../utils/rollupPlanner');
     const __tRollup = Date.now();
