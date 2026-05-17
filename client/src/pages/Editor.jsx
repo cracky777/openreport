@@ -570,6 +570,18 @@ export default function Editor() {
     }
   }, [model, id, settings, history]);
 
+  // Live mirror of refreshSlicer. `useHistory` returns a fresh object every
+  // render, so `refreshSlicer` (which depends on `history`) is a new function
+  // every render. The slicer-cascade effect below must NOT depend on that
+  // identity — if it did, the effect would re-run on every render, its
+  // cleanup would cancel the 350ms debounce, and the sig guard would then
+  // return early without rescheduling. Net: changing the global filter would
+  // never actually fire refreshSlicer (only the direct handleRefresh path
+  // worked). Calling through this ref keeps the latest impl without making
+  // it an effect dependency.
+  const refreshSlicerRef = useRef(refreshSlicer);
+  refreshSlicerRef.current = refreshSlicer;
+
   // Called by chart widgets when user clicks a data point
   const crossFilterSourceRef = useRef(null);
   const handleCrossFilter = useCallback((sourceWidgetId, dimensionName, value) => {
@@ -669,12 +681,15 @@ export default function Editor() {
       const ws = widgetsRef.current || {};
       for (const [wId, w] of Object.entries(ws)) {
         if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0]) {
-          refreshSlicer(wId);
+          refreshSlicerRef.current?.(wId);
         }
       }
     }, 350);
     return () => { if (slicerCascadeTimerRef.current) clearTimeout(slicerCascadeTimerRef.current); };
-  }, [reportFilters, settings?.reportFilters, refreshSlicer]);
+    // refreshSlicer is intentionally NOT a dep — see refreshSlicerRef above.
+    // Depending on it re-ran this effect every render and the cleanup kept
+    // cancelling the debounce, so the global filter never narrowed slicers.
+  }, [reportFilters, settings?.reportFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Per-widget refresh nonces — bumped by the canvas Refresh button to
   // request a fresh fetch of one specific widget without triggering the
