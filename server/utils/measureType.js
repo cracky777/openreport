@@ -520,7 +520,13 @@ function collectComponentsForVisual(specs) {
     if (spec.type === 'avg') {
       const aliasBase = `_avg_${spec.table || ''}_${spec.column}`.replace(/[^A-Za-z0-9_]/g, '_');
       synthetic.push({ alias: `${aliasBase}_sum`, column: spec.column, table: spec.table, kind: 'sum' });
-      synthetic.push({ alias: `${aliasBase}_count`, column: spec.column, table: spec.table, kind: 'count' });
+      // Denominator MUST be COUNT(<column>) — count of NON-NULL values —
+      // so AVG = SUM(x)/COUNT(x) matches SQL AVG semantics (NULLs skipped
+      // by both SUM and COUNT). Plain `count` is COUNT(*) in models.js
+      // (counts NULL-x rows too) → would understate the average whenever
+      // the averaged column has NULLs. `count_col` is a dedicated kind
+      // handled as COUNT(col) and never used by user `count` measures.
+      synthetic.push({ alias: `${aliasBase}_count`, column: spec.column, table: spec.table, kind: 'count_col' });
       return;
     }
     if (spec.type === 'ratio') {

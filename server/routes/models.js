@@ -1653,6 +1653,13 @@ router.post('/:id/query', async (req, res) => {
           tablesUsed.add(field.table);
         }
       }
+    } else if (m.aggregation === 'count_col' && m.table && m.column) {
+      // Internal kind used ONLY by the AVG decomposition's denominator
+      // (measureType.collectComponentsForVisual): COUNT of NON-NULL
+      // values of the column, so a rolled-up AVG = SUM(x)/COUNT(x)
+      // matches SQL AVG (NULLs skipped). Distinct from user `count`
+      // measures, which stay COUNT(*) (next branch).
+      selectParts.push(`COUNT(${quoteCol(m.table, m.column, dbType)}) AS ${quoteIdent(m.label || m.name, dbType)}`);
     } else if (m.aggregation === 'count') {
       selectParts.push(`COUNT(*) AS ${quoteIdent(m.label || m.name, dbType)}`);
     } else {
