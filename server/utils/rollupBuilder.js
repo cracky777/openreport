@@ -926,6 +926,16 @@ async function buildRollupsForModel(opts) {
 async function _buildRollupsForModelInner({ modelId, internalUserId, orgId, log = false }) {
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(modelId);
   if (!model) throw new Error(`Model not found: ${modelId}`);
+  // Build /query calls MUST run AS THE MODEL OWNER. models.js strips the
+  // request's extraMeasures (→ the synthetic AVG/ratio/expr decomposition
+  // components) for any caller that isn't the model owner/admin, keeping
+  // only the report's PERSISTED extras — which never contain the
+  // build-time synthetics. So if the warm was triggered by anyone other
+  // than the owner (a schedule's user, an admin, a different account),
+  // every `_avg_*` atom is silently never SELECTed → materialised NULL →
+  // AVG/ratio rollups always null. Running as the owner (server-internal,
+  // signed token, the model's own data) makes it deterministic.
+  const ownerUserId = model.user_id || internalUserId;
   const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
   if (!datasource) throw new Error(`Datasource not found for model: ${modelId}`);
 
@@ -963,7 +973,7 @@ async function _buildRollupsForModelInner({ modelId, internalUserId, orgId, log 
         grain: item.grain,
         measures: item.measures,
         storageMode,
-        internalUserId,
+        internalUserId: ownerUserId,
         orgId,
         reportId: item.reportId,
         extras: item.extras,
