@@ -936,6 +936,14 @@ async function _buildRollupsForModelInner({ modelId, internalUserId, orgId, log 
   // AVG/ratio rollups always null. Running as the owner (server-internal,
   // signed token, the model's own data) makes it deterministic.
   const ownerUserId = model.user_id || internalUserId;
+  // Normalise orgId to the MODEL's org for the WHOLE build (token AND
+  // storage/checkpoint/prune), so everything stays consistent and the
+  // cloud shadow gate (which also requires model.organization_id ===
+  // req.organizationId on top of the owner match) is satisfied
+  // deterministically regardless of who/what triggered the warm. OSS
+  // models have no organization_id → falls back to the passed orgId
+  // (null) → no behaviour change.
+  orgId = model.organization_id || orgId || null;
   const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
   if (!datasource) throw new Error(`Datasource not found for model: ${modelId}`);
 
