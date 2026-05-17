@@ -642,6 +642,11 @@ export default function Editor() {
   // When filters change, refetch all widgets
   // Cross-filter refetch with debounce + abort + loading indicator
   const prevFiltersJson = useRef('{}');
+  // Tracks ONLY the global-filter-bar rules. The slicer re-narrow pass must
+  // fire on a real global-filter change (or explicit refresh) — NOT on every
+  // cross-filter / drill-leaf click, which would flood the server with heavy
+  // bypassCache `DISTINCT` slicer queries and make drilling feel uncached.
+  const prevSettingsFiltersRef = useRef(null);
   const abortControllerRef = useRef(null);
   const debounceTimerRef = useRef(null);
   // Set of queryIds currently registered server-side. handleCancelFetch
@@ -788,18 +793,22 @@ export default function Editor() {
     widgetRefreshIdRef.current = null;
     const scopedToId = drillingId || interactionId || widgetRefreshId;
 
-    // Slicers are skipped by the chart fetch below (filter widgets don't
-    // run the normal SQL path). But the global filter / cross-filter /
-    // global refresh MUST also re-narrow related slicers (e.g. client →
-    // destinataire). This effect is the SAME proven trigger that already
-    // refreshes the charts on every one of those events — and crucially
-    // it runs as an EFFECT (post-render), so `settings` is the committed
-    // value, not the stale closure that broke the synchronous
-    // handleRefresh path. Reuse it instead of a separate, fragile
-    // debounced cascade. Skip when scoped to a single widget (drill /
-    // per-widget refresh / interaction toggle) — those must not refire
-    // every slicer.
-    if (!scopedToId) {
+    // Re-narrow related slicers (e.g. client → destinataire) using this
+    // same proven, post-render trigger (committed `settings`, no stale
+    // closure). CRITICAL SCOPE: fire ONLY when the global filter bar
+    // actually changed, or on an explicit/global refresh — NEVER on a
+    // cross-filter or drill-leaf click. refreshSlicer issues a heavy
+    // bypassCache `DISTINCT` query per slicer; firing it on every chart
+    // click floods the server and makes drilling feel uncached (the
+    // regression). Cross-filter narrowing of a sibling slicer is not
+    // worth that cost.
+    const settingsFiltersKey = JSON.stringify(
+      Array.isArray(settings?.reportFilters) ? settings.reportFilters : []
+    );
+    const globalFilterChanged = prevSettingsFiltersRef.current !== null
+      && prevSettingsFiltersRef.current !== settingsFiltersKey;
+    prevSettingsFiltersRef.current = settingsFiltersKey;
+    if (!scopedToId && (globalFilterChanged || manualRefresh)) {
       for (const [wId, w] of Object.entries(currentWidgets)) {
         if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0]) {
           refreshSlicerRef.current?.(wId);
