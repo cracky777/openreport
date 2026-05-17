@@ -845,12 +845,12 @@ export default function Editor() {
           && w.data?._fetchedBinding === widgetBindingKey
           && Object.keys(w.data || {}).length > 1) {
         try {
-          if (window?.localStorage?.getItem('LABEL_DIAG') === '1') {
-            console.log('[label-diag-cli] SKIP', wId, w.type,
-              '_measureLabel=', w.data?._measureLabel,
-              '_measures=', JSON.stringify(w.data?._measures),
-              'fetchedBinding=', w.data?._fetchedBinding);
-          }
+          api.post('/models/__label_diag', {
+            branch: 'SKIP', wId, type: w.type,
+            measureLabel: w.data?._measureLabel,
+            measures: w.data?._measures,
+            fetchedBinding: w.data?._fetchedBinding,
+          }).catch(() => {});
         } catch { /* diag only */ }
         return false;
       }
@@ -1145,9 +1145,7 @@ export default function Editor() {
             // when deciding whether to skip subsequent renders.
             emptyData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters });
             try {
-              if (window?.localStorage?.getItem('LABEL_DIAG') === '1') {
-                console.log('[label-diag-cli] EMPTY', wId, w.type, 'meas=', JSON.stringify(meass));
-              }
+              api.post('/models/__label_diag', { branch: 'EMPTY', wId, type: w.type, meas: meass }).catch(() => {});
             } catch { /* diag only */ }
             return { wId, data: emptyData };
           }
@@ -1364,13 +1362,12 @@ export default function Editor() {
           // the no-op skip check in `toFetch`.
           newData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters });
           try {
-            if (window?.localStorage?.getItem('LABEL_DIAG') === '1') {
-              console.log('[label-diag-cli] BUILD', wId, w.type,
-                'meas=', JSON.stringify(meass),
-                '_measureLabel=', newData._measureLabel,
-                '_measures=', JSON.stringify(newData._measures),
-                'respKeys=', JSON.stringify(rows && rows[0] ? Object.keys(rows[0]) : []));
-            }
+            api.post('/models/__label_diag', {
+              branch: 'BUILD', wId, type: w.type, meas: meass,
+              measureLabel: newData._measureLabel,
+              measures: newData._measures,
+              respKeys: rows && rows[0] ? Object.keys(rows[0]) : [],
+            }).catch(() => {});
           } catch { /* diag only */ }
           return { wId, data: newData };
         }).catch((err) => {

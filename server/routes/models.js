@@ -29,6 +29,18 @@ function resolveQueryTimeoutMs(req) {
 
 const router = express.Router();
 
+// TEMP diagnostic sink (gated by LABEL_DIAG=1). The client posts the
+// widget-data label branch (SKIP/EMPTY/BUILD + labels + response keys)
+// here so it lands in `docker compose logs` — no browser console needed.
+// Remove together with the [label-diag] instrumentation.
+router.post('/__label_diag', requireAuth, (req, res) => {
+  if (process.env.LABEL_DIAG === '1') {
+    try { console.log('[label-diag-cli]', JSON.stringify(req.body)); }
+    catch { console.log('[label-diag-cli] <unserialisable>'); }
+  }
+  res.json({ ok: true });
+});
+
 // In-flight cancellable queries — keyed by client-generated queryId so the
 // client can explicitly request cancellation via a separate HTTP endpoint
 // (avoids the brittle res.on('close') / req.on('close') listener approach).
