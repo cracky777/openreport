@@ -175,6 +175,16 @@ export default function Editor() {
   // change. Same pattern as widgetsRef / crossHighlightRef below.
   const reportFiltersRef = useRef(reportFilters);
   reportFiltersRef.current = reportFilters;
+  // Live mirror of `settings`. refreshSlicer must read the global filter
+  // rules + report extras from HERE, not from its closure: the
+  // ReportFilterBar "Save & refresh" path calls onChange (setSettings —
+  // async) then onRefresh (handleRefresh → refreshSlicer) SYNCHRONOUSLY
+  // in the same tick, so the closure's `settings` is still pre-commit and
+  // the slicer query would carry the OLD global filter. The onChange
+  // handler updates this ref synchronously (before onRefresh runs) so the
+  // synchronous refreshSlicer sees the just-committed rules.
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const urlFiltersAppliedRef = useRef(false);
   // Once the model is loaded, seed `settings.reportFilters` from the URL
   // `?f_<col>=…` params. URL rules win over saved rules for the same field
@@ -438,17 +448,21 @@ export default function Editor() {
     });
 
     try {
+      // Live ref, not closure (consistency with refreshSlicer / Save &
+      // refresh — the search must reflect the latest committed global
+      // filter, see settingsRef).
+      const s = settingsRef.current || {};
       const reportExtras = {
-        extraDimensions: settings?.extraDimensions || [],
-        extraMeasures: settings?.extraMeasures || [],
-        dimensionOverrides: settings?.dimensionOverrides || {},
-        measureOverrides: settings?.measureOverrides || {},
+        extraDimensions: s.extraDimensions || [],
+        extraMeasures: s.extraMeasures || [],
+        dimensionOverrides: s.dimensionOverrides || {},
+        measureOverrides: s.measureOverrides || {},
       };
       // Include the report-level global filters (snowflake joins etc. are
       // resolved by the server's bridge-table BFS). Without these the
       // search would return distinct values that the rest of the report
       // wouldn't actually display.
-      const reportLevelFilters = prepareGlobalRulesForWidget(settings?.reportFilters, widgetId);
+      const reportLevelFilters = prepareGlobalRulesForWidget(s.reportFilters, widgetId);
       const ownWidgetFilters = Array.isArray(w.dataBinding?.widgetFilters) ? w.dataBinding.widgetFilters : [];
       // Same applied-filter universe as the main slicer list (see
       // refreshSlicer): a searched list must stay constrained by the
@@ -492,7 +506,8 @@ export default function Editor() {
         return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...cur, data: { ...(cur.data || {}), _isSearching: false } } } };
       });
     }
-  }, [model, id, settings, history]);
+    // `settings` read via settingsRef (see refreshSlicer) — not a dep.
+  }, [model, id, history]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Global Refresh extends to slicers too. Editor's main fetch effect
   // skips `filter` widgets (their distinct values don't change when other
@@ -510,16 +525,21 @@ export default function Editor() {
       return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...cur, _loading: true } } };
     });
     try {
+      // Read from the live ref, NOT the closure — see settingsRef. The
+      // "Save & refresh" path invokes this synchronously right after
+      // setSettings, before any re-render, so the closure's `settings`
+      // would still be the pre-commit global filter.
+      const s = settingsRef.current || {};
       const reportExtras = {
-        extraDimensions: settings?.extraDimensions || [],
-        extraMeasures: settings?.extraMeasures || [],
-        dimensionOverrides: settings?.dimensionOverrides || {},
-        measureOverrides: settings?.measureOverrides || {},
+        extraDimensions: s.extraDimensions || [],
+        extraMeasures: s.extraMeasures || [],
+        dimensionOverrides: s.dimensionOverrides || {},
+        measureOverrides: s.measureOverrides || {},
       };
       // Apply the report-level global filters so the slicer's distinct
       // values reflect the same filter universe as the rest of the report
       // (bridge tables are resolved server-side by the BFS in models.js).
-      const reportLevelFilters = prepareGlobalRulesForWidget(settings?.reportFilters, widgetId);
+      const reportLevelFilters = prepareGlobalRulesForWidget(s.reportFilters, widgetId);
       const ownWidgetFilters = Array.isArray(w.dataBinding?.widgetFilters) ? w.dataBinding.widgetFilters : [];
       // The slicer's value list MUST reflect the same applied selections
       // as the rest of the report: a global/other-slicer filter on a
@@ -568,7 +588,10 @@ export default function Editor() {
         return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...cur, _loading: false } } };
       });
     }
-  }, [model, id, settings, history]);
+    // `settings` intentionally NOT a dep — refreshSlicer reads it via
+    // settingsRef so the synchronous "Save & refresh" path sees the
+    // just-committed global filter (closure would be stale).
+  }, [model, id, history]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Live mirror of refreshSlicer. `useHistory` returns a fresh object every
   // render, so `refreshSlicer` (which depends on `history`) is a new function
@@ -2047,7 +2070,15 @@ export default function Editor() {
       <ReportFilterBar
         model={model}
         rules={settings?.reportFilters || []}
-        onChange={(next) => setSettings({ ...settings, reportFilters: next })}
+        onChange={(next) => {
+          // Update the ref SYNCHRONOUSLY before setSettings: ReportFilterBar's
+          // "Save & refresh" calls this then onRefresh() in the same tick,
+          // and refreshSlicer (via handleRefresh) reads settingsRef — so it
+          // must already hold the committed rules, not wait for the re-render.
+          const ns = { ...settingsRef.current, reportFilters: next };
+          settingsRef.current = ns;
+          setSettings(ns);
+        }}
         onRefresh={handleRefresh}
         visible={reportFilterBarOpen}
         onVisibilityChange={setReportFilterBarOpen}
