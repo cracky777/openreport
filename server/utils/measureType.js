@@ -520,6 +520,30 @@ function decomposeAsExpression(measure, allMeasures) {
   if (!expression || typeof expression !== 'string') return null;
   const refNames = extractRefs(expression);
   if (refNames.length === 0) return null;
+  // HARDENING (correctness over cache coverage, per product decision): the
+  // transpiler also accepts SQL math/util functions (ROUND, LOG, COS,
+  // POWER, GREATEST, COALESCE, …). Applying f(ΣA, ΣB) at the group grain
+  // is mathematically exact, but we deliberately DON'T cache those
+  // "exotic" expressions — only plain arithmetic of additive refs
+  // (+ - * / parentheses), the NULLIF/CASE guards, and comparisons.
+  // Anything containing a function call → non-decomposable → planner
+  // MISSes to live (always correct, just not cached). Ratios with a
+  // guard are still cached via detectRatio (runs before this). Revisit
+  // when we do the comprehensive indicator-coverage pass.
+  {
+    // Drop CAST(...) wrappers and ${refs} so only the surrounding SQL is
+    // scanned for call-shaped tokens `NAME(`. NULLIF is the one allowed
+    // callable (div-by-zero guard); CASE/WHEN/… are keywords (no paren).
+    let scan = String(expression);
+    let prev;
+    do { prev = scan; scan = scan.replace(/CAST\s*\(/gi, '('); } while (scan !== prev);
+    scan = scan.replace(EXPR_REF_PATTERN, '_R_');
+    const callRe = /([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+    let m;
+    while ((m = callRe.exec(scan)) !== null) {
+      if (m[1].toUpperCase() !== 'NULLIF') return null; // function call → live
+    }
+  }
   const refs = [];
   for (const name of refNames) {
     const compM = findMeasureByName(name, allMeasures);

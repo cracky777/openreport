@@ -245,12 +245,31 @@ measure (`server/utils/measureType.js: additiveTypeForMeasure`):
   the planner `GROUP BY` display dims, re-aggregates the atoms in SQL,
   then **recomposes the final value in JS per row**
   (`measureType.recomposeMeasure`): `sum/count` for AVG,
-  `(num/den)*scale` for ratios, the compiled expression for custom.
-  This is correct at **any** grain ≥ the rollup grain — drill-up and
-  coarser views stay fast.
-- **Non-decomposable** — `COUNT(DISTINCT)`, median/percentile, ratio
-  whose refs aren't additive, expression that won't transpile. The
-  planner returns `MISS: non-decomposable:<measure>` → live fact query.
+  `num/den` then `*scale` for ratios, the compiled expression for
+  custom. The ratio recompose **reproduces the SQL div-by-zero guard
+  exactly** (`detectRatio` captures the kind + the `THEN` literal):
+  `guard:'case'` (`CASE WHEN den=0 THEN <t> ELSE den END`) → divisor =
+  `guardThen` (e.g. 1); `guard:'nullif'` (`NULLIF(den,0)`) or
+  `guard:'none'` → `null` at `den=0`; `num|den == null` → `null` (SQL
+  NULL propagation). A non-numeric `THEN` makes `detectRatio` bail (the
+  general path / live handles it). This is correct at **any** grain ≥
+  the rollup grain — drill-up and coarser views stay fast.
+  _The `guard`/`guardThen` fields are frozen in the manifest at build
+  time → a fix here needs a **re-warm** to take effect (back-compatible:
+  un-rewarmed rollups keep the prior behaviour, no wrong value)._
+- A custom measure whose expression is **exactly a single `${ref}`** is
+  as additive as that ref; if it also carries intersection
+  `filterRules` it is materialised as a `simple` atom **fired by name**
+  so the build `/query` inlines the ref **and** applies the CASE-WHEN
+  filter (without this it fell to the expression path which expanded the
+  ref to the *unfiltered* base and silently dropped the filter →
+  wrong rollup value while live stayed correct).
+- **Non-decomposable** — `DISTINCT` inside **any** aggregate
+  (`COUNT/SUM/MIN/MAX(DISTINCT …)`, not just COUNT), median/percentile,
+  ratio whose refs aren't additive, expression that won't transpile, and
+  (by the §6c hardening) **any expression containing a function call**.
+  The planner returns `MISS: non-decomposable:<measure>` → live fact
+  query (always correct, just not accelerated).
 
 The rollup `measures` manifest column stores the recipe:
 `{ outputs:[{name,label,spec,supported}], atoms:[{col,agg}] }`. The
@@ -342,6 +361,44 @@ Guardrail: **no change may turn a cached widget into a live one without
 a replacement.** A correctness fix that sacrifices a HIT is not done
 until the cached-and-correct path exists (this section is the result of
 applying that rule to the override case).
+
+---
+
+### 6c. Expression-decomposition hardening (correctness > coverage, 2026-05)
+
+`decomposeAsExpression` (the general `${ref}`-arithmetic path) is
+**deliberately conservative**. The transpiler (`transpileSqlToJs`)
+*can* translate a broad SQL subset — `ROUND`, `LOG`, `COS`, `POWER`,
+`GREATEST`, `LEAST`, `COALESCE`, … — and applying `f(ΣA, ΣB)` at the
+group grain is in fact mathematically exact (the rollup sums the
+additive atoms to the requested group, then evaluates `f` — identical
+to what live SQL computes at that same grain). **Even so, we do NOT
+cache function-bearing expressions.**
+
+Rule: an expression is materialised **only** when, after stripping
+`CAST(...)` and `${refs}`, it contains **no function call** — i.e.
+nothing matching `NAME(` except the `NULLIF` guard. Plain arithmetic
+(`+ - * /`, parentheses), `CASE WHEN … END`, comparisons and the
+NULLIF guard over additive refs → **cached** (`A+B-C`, `A/(B-C)`,
+`CASE WHEN ${a}>0 THEN ${b} ELSE ${c} END`, guarded ratios via
+`detectRatio`). Anything with `ROUND/LOG/COALESCE/GREATEST/…` →
+`decomposeAsExpression` returns `null` → `supported:false` →
+**planner MISS → live query** (correct, not accelerated).
+
+Why trade cache coverage away when it's provably exact: it shrinks the
+surface where a *future* subtle bug (a transpile edge, an additivity
+mis-detection, a ROUND-precision quirk) could silently cache a **wrong
+value**. A slow-but-correct live query always beats a fast wrong one.
+Non-additive operands (AVG / DISTINCT / ratio-of-ratios /
+override-filtered) inside an expression already force live (§6/§6a).
+
+> **FUTURE — to revisit (parked, needs dedicated time):** the rule is
+> intentionally too strict. The plan is to widen it so **more
+> indicators are cached again** — re-enable function-bearing /
+> richer-combination measures with a *proven-exact* recomposition and
+> per-shape tests, instead of dumping them to live. Track: project
+> memory `project_rollup_indicator_coverage`. Do not loosen the gate
+> ad hoc; only widen it together with proofs + tests (§13).
 
 ---
 
@@ -493,9 +550,17 @@ Logged as `[qXXXX] rollupPlanner MISS:<reason>`.
 
 ## 11. Known v1 limitations
 
-- Non-decomposable measures (COUNT DISTINCT, median, ratio of
-  non-additive refs) → fact (§6). Decomposable ratios/AVG/expressions
-  are served at any grain.
+- Non-decomposable measures (`DISTINCT` in any aggregate, median,
+  ratio of non-additive refs) → live fact query (§6). Decomposable
+  ratios/AVG and **plain-arithmetic** expressions of additive refs are
+  served at any grain.
+- **Hardening (§6c)**: a custom expression containing a function call
+  (`ROUND/LOG/COS/POWER/GREATEST/COALESCE/…`) is deliberately **not
+  cached** → live (correct, just not accelerated), even though it is
+  mathematically exact. **FUTURE / parked**: widen the rules so more
+  indicators are cached again, with proven-exact recompose + tests
+  (project memory `project_rollup_indicator_coverage`). This is the
+  agreed direction, not a permanent limitation.
 - Cross-fact measures (ratio/expression whose refs span >1 fact, or a
   measure with no resolvable fact) are not rolled up → live query
   (§1 constellation).
