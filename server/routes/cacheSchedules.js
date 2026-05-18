@@ -114,6 +114,43 @@ router.post('/:id/run', requireAuth, async (req, res) => {
   res.json({ result });
 });
 
+// Purge ALL cache for a workspace: drops every rollup (manifest rows +
+// DuckDB store) AND flushes the in-RAM queryCache for every model used
+// by that workspace's reports. Manual maintenance escape hatch for a
+// suspected stale/corrupt cache — everything rebuilds on the next warm
+// or live query.
+//
+// Auth (OSS): a global admin OR the workspace owner. The cloud edition
+// narrows this to the organisation's owner/admin and scopes the
+// workspace lookup to req.organizationId (done in the cloud backport).
+//
+// NOTE: rollups are keyed per MODEL, not per workspace. If a model is
+// shared by reports in several workspaces, clearing one workspace's
+// cache also clears that model's rollups for the others — accepted for
+// a manual maintenance action (cache simply rebuilds).
+router.post('/clear-workspace/:workspaceId', requireAuth, async (req, res) => {
+  const ws = db.prepare('SELECT id, owner_id FROM workspaces WHERE id = ?').get(req.params.workspaceId);
+  if (!ws) return res.status(404).json({ error: 'Workspace not found' });
+  if (req.user.role !== 'admin' && ws.owner_id !== req.user.id) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const modelRows = db.prepare(
+    'SELECT DISTINCT model_id FROM reports WHERE workspace_id = ? AND model_id IS NOT NULL'
+  ).all(ws.id);
+  const orgId = req.organizationId || null;
+  let droppedRollups = 0;
+  for (const { model_id } of modelRows) {
+    try {
+      const r = await rollupBuilder.dropAllRollups({ modelId: model_id, orgId });
+      droppedRollups += (r && r.droppedCount) || 0;
+    } catch (e) {
+      console.warn('[clear-workspace] dropAllRollups failed for', model_id, '-', e.message);
+    }
+    try { queryCache.invalidateModel(model_id); } catch { /* best-effort */ }
+  }
+  res.json({ clearedModels: modelRows.length, droppedRollups });
+});
+
 // Reports whose rollup rebuild is currently in flight. Used by the
 // Dashboard to keep the spinner on the right cards after an F5. Rollups
 // are model-scoped; we translate the building model ids back to the

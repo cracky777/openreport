@@ -49,14 +49,14 @@ export default function Dashboard() {
   // Per-report cache breakdown modal — fetched lazily on click. Keyed by
   // reportId so it survives navigations and the cache stays warm if the
   // user re-opens.
-  const [cacheInspect, setCacheInspect] = useState({ reportId: null, data: null, loading: false, error: null });
-  const openCacheInspect = useCallback(async (reportId, reportTitle) => {
-    setCacheInspect({ reportId, reportTitle, data: null, loading: true, error: null });
+  const [cacheInspect, setCacheInspect] = useState({ reportId: null, workspaceId: null, data: null, loading: false, error: null });
+  const openCacheInspect = useCallback(async (reportId, reportTitle, workspaceId) => {
+    setCacheInspect({ reportId, reportTitle, workspaceId: workspaceId || null, data: null, loading: true, error: null });
     try {
       const res = await api.get(`/cache-schedules/inspect/${reportId}`);
-      setCacheInspect({ reportId, reportTitle, data: res.data, loading: false, error: null });
+      setCacheInspect({ reportId, reportTitle, workspaceId: workspaceId || null, data: res.data, loading: false, error: null });
     } catch (err) {
-      setCacheInspect({ reportId, reportTitle, data: null, loading: false, error: err.response?.data?.error || err.message });
+      setCacheInspect({ reportId, reportTitle, workspaceId: workspaceId || null, data: null, loading: false, error: err.response?.data?.error || err.message });
     }
   }, []);
   const [newTitle, setNewTitle] = useState('');
@@ -1540,7 +1540,7 @@ export default function Dashboard() {
                     }
                     return (
                       <div
-                        onClick={(e) => { e.stopPropagation(); openCacheInspect(report.id, report.title); }}
+                        onClick={(e) => { e.stopPropagation(); openCacheInspect(report.id, report.title, report.workspace_id); }}
                         style={{
                           padding: '0 20px 12px', fontSize: 11,
                           color: 'var(--text-disabled)',
@@ -1552,7 +1552,7 @@ export default function Dashboard() {
                       >
                         {cardCacheStats[report.id].rollupCount > 0
                           ? `${formatBytes(cardCacheStats[report.id].diskBytes || 0)} · ${(cardCacheStats[report.id].totalRows || 0).toLocaleString()} rows`
-                          : 'No rollups — Refresh to build'}
+                          : 'No cache — Refresh to build'}
                       </div>
                     );
                   })()}
@@ -1703,10 +1703,13 @@ export default function Dashboard() {
         <CacheInspectorModal
           reportId={cacheInspect.reportId}
           reportTitle={cacheInspect.reportTitle}
+          workspaceId={cacheInspect.workspaceId}
+          canManage={canEdit || user?.role === 'admin'}
           data={cacheInspect.data}
           loading={cacheInspect.loading}
           error={cacheInspect.error}
-          onClose={() => setCacheInspect({ reportId: null, data: null, loading: false, error: null })}
+          onClose={() => setCacheInspect({ reportId: null, workspaceId: null, data: null, loading: false, error: null })}
+          onCleared={() => openCacheInspect(cacheInspect.reportId, cacheInspect.reportTitle, cacheInspect.workspaceId)}
           formatBytes={formatBytes}
         />
       )}
@@ -1714,7 +1717,30 @@ export default function Dashboard() {
   );
 }
 
-function CacheInspectorModal({ reportId, reportTitle, data, loading, error, onClose, formatBytes }) {
+function CacheInspectorModal({ reportId, reportTitle, workspaceId, canManage, data, loading, error, onClose, onCleared, formatBytes }) {
+  const [clearing, setClearing] = useState(false);
+  const [clearMsg, setClearMsg] = useState(null);
+  const handleClearWorkspace = async () => {
+    if (!workspaceId || clearing) return;
+    if (!window.confirm(
+      'Clear ALL cache (rollups + in-memory results) for every model used '
+      + 'by this workspace’s reports?\n\nThe cache rebuilds on the next warm '
+      + 'or query. A model shared with other workspaces will have its cache '
+      + 'cleared too.'
+    )) return;
+    setClearing(true);
+    setClearMsg(null);
+    try {
+      const res = await api.post(`/cache-schedules/clear-workspace/${workspaceId}`);
+      const d = res.data || {};
+      setClearMsg(`Cache cleared: ${d.clearedModels ?? 0} model(s), ${d.droppedRollups ?? 0} rollup(s) dropped.`);
+      onCleared?.();
+    } catch (err) {
+      setClearMsg(err.response?.data?.error || err.message || 'Clear failed');
+    } finally {
+      setClearing(false);
+    }
+  };
   return (
     <div
       onClick={onClose}
@@ -1736,8 +1762,28 @@ function CacheInspectorModal({ reportId, reportTitle, data, loading, error, onCl
           <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>
             Cache breakdown — <span style={{ color: 'var(--text-secondary)' }}>{reportTitle || reportId.slice(0, 8)}</span>
           </h3>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--text-muted)' }}>×</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {canManage && workspaceId && (
+              <button
+                onClick={handleClearWorkspace}
+                disabled={clearing}
+                title="Drops all rollups + the in-memory cache for this workspace’s models"
+                style={{
+                  background: 'transparent', border: '1px solid var(--state-danger)',
+                  color: 'var(--state-danger)', borderRadius: 6, padding: '5px 10px',
+                  fontSize: 12, fontWeight: 600, cursor: clearing ? 'default' : 'pointer',
+                  opacity: clearing ? 0.6 : 1,
+                }}
+              >
+                {clearing ? 'Clearing…' : 'Clear workspace cache'}
+              </button>
+            )}
+            <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--text-muted)' }}>×</button>
+          </div>
         </div>
+        {clearMsg && (
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>{clearMsg}</div>
+        )}
 
         {loading && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>}
         {error && <div style={{ color: 'var(--state-danger)', fontSize: 13 }}>{error}</div>}
@@ -1810,7 +1856,7 @@ function CacheInspectorModal({ reportId, reportTitle, data, loading, error, onCl
               </table>
             ) : (
               <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                No rollups built yet for this report's model — click Refresh to build them.
+                No cache built yet for this report's model — click Refresh to build it.
               </div>
             )}
           </>
