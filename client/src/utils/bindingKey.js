@@ -65,17 +65,31 @@ export function computeBindingKey({ widget, model, reportFilters, settings }) {
   const drillPath = Array.isArray(widget.drillPath) ? widget.drillPath : [];
   const drillKey = drillPath.length > 0 ? `dp:${JSON.stringify(drillPath)}` : '';
 
-  // Per-report label/type/format overrides (settings.measureOverrides /
-  // dimensionOverrides). These change both the server response alias AND
-  // the effectiveModel labels the widget renders (e.g. scorecard's
-  // data.label, table headers). Without this term the key is unchanged
-  // when a measure label is edited, so neither fetcher invalidates the
-  // cached widget.data — the canvas keeps showing the pre-edit (default)
-  // label until some unrelated refetch, and a cross-filter that SKIPs
-  // these widgets makes the stale label visibly "revert".
+  // Report-scoped definitions/overrides that change the server response
+  // shape/alias OR the effectiveModel labels the widget renders:
+  //   - measureOverrides / dimensionOverrides: label/type/format of a
+  //     model field (drives response alias + scorecard data.label,
+  //     table headers, _measures, _durationColumns…).
+  //   - extraMeasures / extraDimensions: report-only fields. Editing a
+  //     report measure's expression/label/format does NOT change its
+  //     name (so selectedMeass is unchanged) — without this term the
+  //     cached widget.data is reused stale (same class as the label bug).
+  // Any edit here must invalidate BOTH fetchers' caches so the canvas
+  // rebuilds from the fresh effectiveModel rather than show pre-edit data.
   const overridesKey = settings
-    ? `ov:${JSON.stringify({ m: settings.measureOverrides || {}, d: settings.dimensionOverrides || {} })}`
+    ? `ov:${JSON.stringify({
+        m: settings.measureOverrides || {},
+        d: settings.dimensionOverrides || {},
+        em: settings.extraMeasures || [],
+        ed: settings.extraDimensions || [],
+      })}`
     : '';
+
+  // Per-widget row cap. It is sent as the SQL `limit`, so changing it
+  // requires a refetch (more/fewer rows) — it was not reflected in the
+  // key, so editing the data limit left the widget showing the old
+  // row count until an unrelated refetch (same staleness class).
+  const limitKey = `lim:${widget?.config?.dataLimit || 1000}`;
 
   return [
     selectedDims.join(','),
@@ -85,6 +99,6 @@ export function computeBindingKey({ widget, model, reportFilters, settings }) {
     scatterKey, comboKey, gaugeKey,
     aggKey, colorKey, widgetFiltersKey,
     modelVersion, filtersKey, typeKey, topNKey, drillKey, compareKey,
-    overridesKey,
+    overridesKey, limitKey,
   ].join(':');
 }
