@@ -98,10 +98,30 @@ function additiveTypeForAggregation(agg) {
 // Public API. Pass the model measure object — `aggregation` is the
 // primary signal, with `expression` consulted only for `aggregation:
 // 'custom'` to recover the additive trivial cases.
-function additiveTypeForMeasure(m) {
+function additiveTypeForMeasure(m, allMeasures, _seen) {
   if (!m) return null;
   if (m.aggregation === 'custom') {
-    return inferAdditiveTypeFromExpression(m.expression);
+    const direct = inferAdditiveTypeFromExpression(m.expression);
+    if (direct) return direct;
+    // A custom measure whose expression is EXACTLY a single `${ref}` is
+    // as additive as that ref. Resolving it here matters when the
+    // measure also carries intersection `filterRules`: an interval/count
+    // filter doesn't break additivity (COUNT(CASE WHEN f THEN x END) is
+    // still additive), so it becomes a `simple` atom fired BY NAME —
+    // /query then inlines the ref AND applies the filterRules. Without
+    // this it falls to decomposeAsExpression, which expands the ref to
+    // the UNFILTERED base and silently drops the filter (wrong rollup
+    // value while the live query stays correct).
+    const ex = String(m.expression || '').trim();
+    const sole = ex.match(/^\$\{([A-Za-z0-9_.$-]+)\}$/);
+    if (sole && Array.isArray(allMeasures)) {
+      const seen = _seen || new Set();
+      if (seen.has(sole[1])) return null; // ref cycle → bail
+      seen.add(sole[1]);
+      const ref = allMeasures.find((x) => x && x.name === sole[1]);
+      return ref ? additiveTypeForMeasure(ref, allMeasures, seen) : null;
+    }
+    return null;
   }
   return additiveTypeForAggregation(m.aggregation);
 }
@@ -433,7 +453,7 @@ function findMeasureByName(name, allMeasures) {
 //       and divide.
 function decomposeMeasure(measure, allMeasures) {
   if (!measure) return null;
-  const simple = additiveTypeForMeasure(measure);
+  const simple = additiveTypeForMeasure(measure, allMeasures);
   if (simple) return { type: 'simple', innerType: simple };
   // AVG decomposes to SUM + COUNT of the same column. Trivial expressions
   // like `aggregation: 'custom'` with `AVG(col)` aren't recognised here —
@@ -504,7 +524,7 @@ function decomposeAsExpression(measure, allMeasures) {
   for (const name of refNames) {
     const compM = findMeasureByName(name, allMeasures);
     if (!compM) return null;
-    const innerType = additiveTypeForMeasure(compM);
+    const innerType = additiveTypeForMeasure(compM, allMeasures);
     if (!innerType) return null;
     refs.push({ name, innerType });
   }
@@ -636,7 +656,7 @@ function componentPlanForMeasures(outputDefs, allMeasures) {
       for (const b of baseMeasureNames) {
         fireNames.add(b);
         const bd = allMeasures.find((x) => x && x.name === b);
-        atomByCol.set(b, sqlAggForAdditive(additiveTypeForMeasure(bd)));
+        atomByCol.set(b, sqlAggForAdditive(additiveTypeForMeasure(bd, allMeasures)));
       }
       for (const s of syntheticMeasures) {
         extraByAlias.set(s.alias, {
