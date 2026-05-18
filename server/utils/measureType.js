@@ -110,22 +110,24 @@ function additiveTypeForMeasure(m) {
 // tells the warmer + aggregate runtime what to store and how to recompose
 // the final value at drill / cross-filter time.
 
-// Ratio patterns recognised in `aggregation: 'custom'` measures. All three
-// produce `{ numRef, denRef, hasGuard, scale }` — the denominator's div-by-
-// zero guard is dropped at recompose time (we apply it ourselves in
-// inMemoryAgg), and an optional `* <number>` multiplier at the end of the
-// expression (common pattern for percentages: `… * 100`) is captured into
-// `scale` and applied after the division.
-//
-// Pattern 1: ${A} / ${B}                                            [* N]
-// Pattern 2: ${A} / NULLIF(${B}, 0)                                 [* N]
-// Pattern 3: ${A} / CASE WHEN ${B} = 0 THEN <anything> ELSE ${B} END [* N]
+// Ratio patterns recognised in `aggregation: 'custom'` measures. They
+// produce `{ numRef, denRef, guard, guardThen, hasGuard, scale }`. The
+// denominator's div-by-zero guard is NOT just dropped — `recomposeMeasure`
+// must reproduce it exactly so a rollup-served ratio matches the live SQL:
+//   guard 'none'   → A / B            (B=0 → undefined → null, like SQL)
+//   guard 'nullif' → A / NULLIF(B,0)  (B=0 → A/NULL → null)
+//   guard 'case'   → A / CASE WHEN B=0 THEN <t> ELSE B END
+//                       (B=0 → A / <t>; <t> captured into `guardThen`)
+// An optional `* <number>` tail (percentages: `… * 100`) goes into
+// `scale`, applied after the division. The `case` THEN value MUST be a
+// finite number; a non-numeric THEN makes detectRatio bail so the general
+// expression decomposer (or the live path) handles it exactly.
 const REF = '[A-Za-z0-9_.$\\-]+';
 const SCALE_TAIL = `(?:\\s*\\*\\s*([0-9]+(?:\\.[0-9]+)?))?`;
 const RATIO_PATTERNS = [
-  { hasGuard: false, re: new RegExp(`^\\s*\\$\\{(${REF})\\}\\s*\\/\\s*\\$\\{(${REF})\\}${SCALE_TAIL}\\s*$`) },
-  { hasGuard: true, re: new RegExp(`^\\s*\\$\\{(${REF})\\}\\s*\\/\\s*NULLIF\\s*\\(\\s*\\$\\{(${REF})\\}\\s*,\\s*0\\s*\\)${SCALE_TAIL}\\s*$`, 'i') },
-  { hasGuard: true, re: new RegExp(`^\\s*\\$\\{(${REF})\\}\\s*\\/\\s*CASE\\s+WHEN\\s+\\$\\{(${REF})\\}\\s*=\\s*0\\s+THEN\\s+[^\\s]+\\s+ELSE\\s+\\$\\{(${REF})\\}\\s+END${SCALE_TAIL}\\s*$`, 'i') },
+  { guard: 'none', re: new RegExp(`^\\s*\\$\\{(${REF})\\}\\s*\\/\\s*\\$\\{(${REF})\\}${SCALE_TAIL}\\s*$`) },
+  { guard: 'nullif', re: new RegExp(`^\\s*\\$\\{(${REF})\\}\\s*\\/\\s*NULLIF\\s*\\(\\s*\\$\\{(${REF})\\}\\s*,\\s*0\\s*\\)${SCALE_TAIL}\\s*$`, 'i') },
+  { guard: 'case', re: new RegExp(`^\\s*\\$\\{(${REF})\\}\\s*\\/\\s*CASE\\s+WHEN\\s+\\$\\{(${REF})\\}\\s*=\\s*0\\s+THEN\\s+(\\S+)\\s+ELSE\\s+\\$\\{(${REF})\\}\\s+END${SCALE_TAIL}\\s*$`, 'i') },
 ];
 
 // ─── General expression decomposer ─────────────────────────────────────
@@ -373,28 +375,32 @@ function compileExpression(rawExpression, refs) {
 
 function detectRatio(expression) {
   if (!expression || typeof expression !== 'string') return null;
-  for (const { hasGuard, re } of RATIO_PATTERNS) {
+  for (const { guard, re } of RATIO_PATTERNS) {
     const m = expression.match(re);
     if (!m) continue;
     const numRef = m[1];
     const denRef = m[2];
-    // Pattern 3 has an extra denRef capture for the backref-style
-    // duplicate (CASE WHEN … END must reference the same measure on both
-    // sides) — when present, it MUST equal the first denRef capture.
-    // Pattern 1 & 2 have just (num, den, scale); pattern 3 has (num, den,
-    // den2, scale). We disambiguate by the regex's capture count.
+    let guardThen = null;
     let scaleStr;
-    if (m.length === 5) {
-      // Pattern 3: m[1]=num, m[2]=den, m[3]=den2, m[4]=scale
-      if (m[3] !== denRef) return null;
-      scaleStr = m[4];
+    if (guard === 'case') {
+      // m[1]=num, m[2]=den, m[3]=THEN, m[4]=den2, m[5]=scale.
+      // The CASE's ELSE ref MUST be the same measure as the WHEN ref,
+      // otherwise this isn't a div-by-zero guard on `den`.
+      if (m[4] !== denRef) return null;
+      const t = Number(m[3]);
+      // Non-numeric THEN (a ${ref} or expression) can't be reproduced
+      // safely here — bail so the general expression decomposer (or the
+      // live SQL) evaluates the real CASE exactly.
+      if (!Number.isFinite(t)) return null;
+      guardThen = t;
+      scaleStr = m[5];
     } else {
-      // Patterns 1 & 2: m[1]=num, m[2]=den, m[3]=scale
+      // none / nullif: m[1]=num, m[2]=den, m[3]=scale
       scaleStr = m[3];
     }
     const scale = scaleStr ? Number(scaleStr) : 1;
     if (!Number.isFinite(scale) || scale === 0) return null;
-    return { numRef, denRef, hasGuard, scale };
+    return { numRef, denRef, guard, guardThen, hasGuard: guard !== 'none', scale };
   }
   return null;
 }
@@ -456,6 +462,8 @@ function decomposeMeasure(measure, allMeasures) {
             type: 'ratio',
             numRef: ratio.numRef,
             denRef: ratio.denRef,
+            guard: ratio.guard,
+            guardThen: ratio.guardThen,
             hasGuard: ratio.hasGuard,
             scale: ratio.scale,
             numSpec,
@@ -664,8 +672,29 @@ function recomposeMeasure(spec, refName, getAtom) {
   if (spec.type === 'ratio') {
     const n = recomposeMeasure(spec.numSpec, spec.numRef, getAtom);
     const d = recomposeMeasure(spec.denSpec, spec.denRef, getAtom);
-    if (n == null || d == null || d === 0) return null;
-    let v = n / d;
+    // SQL NULL propagation: A/<anything-NULL> and <NULL>/B are NULL.
+    if (n == null || d == null) return null;
+    let divisor;
+    if (d === 0) {
+      // Reproduce the denominator's div-by-zero guard exactly, as the
+      // live SQL does:
+      //   guard 'case'  → CASE WHEN den=0 THEN <guardThen> ELSE den END
+      //                   ⇒ divisor = guardThen (numeric, e.g. 1)
+      //   guard 'nullif'→ NULLIF(den,0) ⇒ den/NULL ⇒ NULL
+      //   guard 'none'  → real /0 ⇒ undefined
+      // Legacy manifests built before this change have no `spec.guard`;
+      // they fall through to `null` here — i.e. exactly the prior
+      // behaviour, so no regression until the rollup is re-warmed.
+      if (spec.guard === 'case') {
+        divisor = (spec.guardThen != null ? spec.guardThen : 1);
+      } else {
+        return null;
+      }
+    } else {
+      divisor = d;
+    }
+    if (!divisor) return null; // guardThen could itself be 0
+    let v = n / divisor;
     if (spec.scale && spec.scale !== 1) v *= spec.scale;
     return Number.isFinite(v) ? v : null;
   }
