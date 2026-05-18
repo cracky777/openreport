@@ -844,14 +844,6 @@ export default function Editor() {
           && wId !== scopedToId
           && w.data?._fetchedBinding === widgetBindingKey
           && Object.keys(w.data || {}).length > 1) {
-        try {
-          api.post('/models/__label_diag', {
-            branch: 'SKIP', wId, type: w.type,
-            measureLabel: w.data?._measureLabel,
-            measures: w.data?._measures,
-            fetchedBinding: w.data?._fetchedBinding,
-          }).catch(() => {});
-        } catch { /* diag only */ }
         return false;
       }
       return true;
@@ -1144,9 +1136,6 @@ export default function Editor() {
             // stripping) so the cache key matches what `toFetch` checks
             // when deciding whether to skip subsequent renders.
             emptyData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters, settings });
-            try {
-              api.post('/models/__label_diag', { branch: 'EMPTY', wId, type: w.type, meas: meass }).catch(() => {});
-            } catch { /* diag only */ }
             return { wId, data: emptyData };
           }
           let newData = {};
@@ -1361,14 +1350,6 @@ export default function Editor() {
           // binding. Use the per-widget targetFilters so the key matches
           // the no-op skip check in `toFetch`.
           newData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters, settings });
-          try {
-            api.post('/models/__label_diag', {
-              branch: 'BUILD', wId, type: w.type, meas: meass,
-              measureLabel: newData._measureLabel,
-              measures: newData._measures,
-              respKeys: rows && rows[0] ? Object.keys(rows[0]) : [],
-            }).catch(() => {});
-          } catch { /* diag only */ }
           return { wId, data: newData };
         }).catch((err) => {
           if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return { wId, data: null };

@@ -29,18 +29,6 @@ function resolveQueryTimeoutMs(req) {
 
 const router = express.Router();
 
-// TEMP diagnostic sink (gated by LABEL_DIAG=1). The client posts the
-// widget-data label branch (SKIP/EMPTY/BUILD + labels + response keys)
-// here so it lands in `docker compose logs` — no browser console needed.
-// Remove together with the [label-diag] instrumentation.
-router.post('/__label_diag', requireAuth, (req, res) => {
-  if (process.env.LABEL_DIAG === '1') {
-    try { console.log('[label-diag-cli]', JSON.stringify(req.body)); }
-    catch { console.log('[label-diag-cli] <unserialisable>'); }
-  }
-  res.json({ ok: true });
-});
-
 // In-flight cancellable queries — keyed by client-generated queryId so the
 // client can explicitly request cancellation via a separate HTTP endpoint
 // (avoids the brittle res.on('close') / req.on('close') listener approach).
@@ -1110,30 +1098,6 @@ router.post('/:id/query', async (req, res) => {
       }
     }
   }
-  // TEMP DIAGNOSTIC (gated, off by default). One grep-able line per /query
-  // that shows whether the request carried measureOverrides and what label
-  // the server resolved for each requested measure (= the response/SQL
-  // alias the client must match). Lets us bisect the "edited measure label
-  // reverts to default on cross-filter" bug without Network digging.
-  // Enable with LABEL_DIAG=1; remove once root-caused.
-  if (process.env.LABEL_DIAG === '1') {
-    try {
-      const applied = {};
-      for (const n of (measureNames || [])) {
-        const d = allMeasures.find((m) => m && m.name === n);
-        if (d) applied[n] = d.label || d.name;
-      }
-      console.log(
-        `[label-diag] ${__qid} owner=${userIsModelOwner} report=${reportId || '-'} ` +
-        `meas=${JSON.stringify(measureNames || [])} ` +
-        `reqOvKeys=${JSON.stringify(Object.keys(measureOverrides || {}))} ` +
-        `reqOvLabels=${JSON.stringify(Object.fromEntries(Object.entries(measureOverrides || {}).map(([k, v]) => [k, v && v.label])))} ` +
-        `serverResolvedLabels=${JSON.stringify(applied)} ` +
-        `xfilterDims=${JSON.stringify(Object.keys(filters || {}))} bypass=${!!bypassCache}`
-      );
-    } catch (e) { console.log('[label-diag] err', e.message); }
-  }
-
   const allJoins = JSON.parse(model.joins);
   const rls = JSON.parse(model.rls || '{}');
   // Per-column overrides (type + optional format). Used by castToDate to
