@@ -146,7 +146,9 @@ export default function ScorecardWidget({ data, config }) {
           fontWeight: 500,
         }}
       >
-        {data?.label || ''}
+        {/* Persisted per-widget override (config.label) wins; empty/unset
+            falls back to the measure's default label baked into data. */}
+        {(config?.label || data?.label) || ''}
       </div>
       {/* Main row: optional left lines + value + optional right lines.
           Each side picks up the per-line spacing as a horizontal gap so

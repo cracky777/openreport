@@ -779,7 +779,16 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           {widget.type === 'scorecard' && (
             <>
               <Field label="Label">
-                <input type="text" value={widget.data?.label || ''} onChange={(e) => updateData('label', e.target.value)} style={inputStyle} />
+                {/* Persist on `config` (saved + survives refetch). It used
+                    to write `data.label`, which buildSnapshot strips and
+                    every refetch overwrites — so the custom label was lost
+                    on save / cross-filter / reload. Empty falls back to the
+                    measure's default label (see ScorecardWidget). */}
+                <input type="text"
+                  value={widget.config?.label ?? ''}
+                  placeholder={widget.data?.label || ''}
+                  onChange={(e) => updateConfig('label', e.target.value)}
+                  style={inputStyle} />
               </Field>
               <Field label="Value size">
                 <input type="number" min={16} max={72} value={widget.config?.valueSize ?? ''} placeholder="36"
