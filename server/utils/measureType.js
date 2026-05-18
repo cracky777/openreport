@@ -69,9 +69,12 @@ function inferAdditiveTypeFromExpression(expr) {
   const closeIdx = matchingClose(s, openIdx);
   if (closeIdx < 0 || closeIdx !== s.length - 1) return null;
   const inner = s.slice(openIdx + 1, closeIdx);
-  // COUNT(DISTINCT …) is non-additive — finer-grain distincts can
-  // overlap and double-counting them at the coarser grain is wrong.
-  if (type === 'count' && /\bDISTINCT\b/i.test(inner)) return null;
+  // DISTINCT breaks additive re-aggregation for ANY aggregate, not just
+  // COUNT: finer-grain distinct sets overlap, so SUM(DISTINCT x) /
+  // COUNT(DISTINCT x) over partitions ≠ the whole-set distinct value.
+  // (MIN/MAX(DISTINCT) is value-equivalent but we stay conservative and
+  // route it to the live path rather than claim additivity.)
+  if (/\bDISTINCT\b/i.test(inner)) return null;
   // Nested aggregations: defend against pathological/typo inputs. SQL
   // engines reject these anyway (outside of subqueries/windows we don't
   // support here), so if one slips through it's safer to fall back to
