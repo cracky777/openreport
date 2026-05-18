@@ -22,6 +22,37 @@ export default function Viewer() {
   const widgetsRef = useRef({});
   widgetsRef.current = widgets;
   const [reportFilters, setReportFilters] = useState({});
+  // Effective model = model + report-scoped extras/overrides (Editor
+  // parity — see Editor.jsx effectiveModel). The Viewer used the RAW
+  // model to resolve response columns, so any widget bound to a
+  // report-scoped `_calc.*`/`_filt.*` measure or an overridden label
+  // couldn't be mapped → empty visual (while the Editor, which merges
+  // these, rendered fine). Every response-column / label lookup in the
+  // data-build effect now consults this instead of `model`.
+  const effectiveModel = useMemo(() => {
+    if (!model) return { dimensions: [], measures: [], dateColumn: null };
+    const s = report?.settings || {};
+    const overD = s.dimensionOverrides || {};
+    const overM = s.measureOverrides || {};
+    const rawDims = Array.isArray(model.dimensions) ? model.dimensions : [];
+    const rawMeas = Array.isArray(model.measures) ? model.measures : [];
+    const baseDims = rawDims.map((d) => {
+      const ov = overD[d.name];
+      return ov ? { ...d, ...ov, _source: 'model' } : { ...d, _source: 'model' };
+    });
+    const extraDims = (s.extraDimensions || []).map((d) => ({ ...d, _source: 'report' }));
+    const baseMeas = rawMeas.map((m) => {
+      const ov = overM[m.name];
+      return ov ? { ...m, ...ov, _source: 'model' } : { ...m, _source: 'model' };
+    });
+    const extraMeas = (s.extraMeasures || []).map((m) => ({ ...m, _source: 'report' }));
+    return {
+      ...model,
+      dimensions: [...baseDims, ...extraDims],
+      measures: [...baseMeas, ...extraMeas],
+      dateColumn: s.dateColumn != null ? s.dateColumn : model.dateColumn,
+    };
+  }, [model, report?.settings]);
   const urlFiltersAppliedRef = useRef(false);
   // Once the model is loaded, apply URL filters:
   //   - `?f_<col>=…`  → merged into `report.settings.reportFilters`. URL
@@ -532,7 +563,7 @@ export default function Viewer() {
       const compareDateDim = w.type === 'scorecard' ? (binding.compareDateDim || null) : null;
       // Use the merged dim list (model + extras) so a `_date.*` part can
       // be detected as year-like by the N-1 helper.
-      const dimsForN1 = [...(model?.dimensions || []), ...reportExtras.extraDimensions];
+      const dimsForN1 = [...(effectiveModel.dimensions || [])];
       const shouldFetchN1 = !!compareDateDim
         && hasShiftableFilterForN1(queryFilters, widgetFilters, dimsForN1);
       const n1Filters = shouldFetchN1
@@ -591,7 +622,7 @@ export default function Viewer() {
           // a drill happens to land on an empty result.
           if (isDrillable) {
             emptyData._hierarchy = fullHierarchy.map((dn) => {
-              const def = (model.dimensions || []).find((x) => x.name === dn);
+              const def = (effectiveModel.dimensions || []).find((x) => x.name === dn);
               return { name: dn, label: def?.label || def?.name || dn };
             });
             emptyData._drillPath = drillPath;
@@ -604,7 +635,7 @@ export default function Viewer() {
         let newData = {};
         const keys = Object.keys(rows[0]);
         if (w.type === 'filter') {
-          const dimDef = (model.dimensions || []).find((x) => x.name === dims[0]);
+          const dimDef = (effectiveModel.dimensions || []).find((x) => x.name === dims[0]);
           newData = {
             values: [...new Set(rows.map((r) => r[keys[0]]).filter((v) => v != null))],
             label: dims[0] || '',
@@ -613,20 +644,20 @@ export default function Viewer() {
         } else if (w.type === 'pivotTable') {
           const rowDimNames = [...dims];
           newData = { rawRows: rows,
-            _rowDims: rowDimNames.map((d) => { const def = (model.dimensions || []).find((x) => x.name === d); return def?.label || def?.name || d; }),
-            _colDims: colDimsB.map((d) => { const def = (model.dimensions || []).find((x) => x.name === d); return def?.label || def?.name || d; }),
-            _measures: meass.map((m) => { const def = (model.measures || []).find((x) => x.name === m); return def?.label || def?.name || m; }),
+            _rowDims: rowDimNames.map((d) => { const def = (effectiveModel.dimensions || []).find((x) => x.name === d); return def?.label || def?.name || d; }),
+            _colDims: colDimsB.map((d) => { const def = (effectiveModel.dimensions || []).find((x) => x.name === d); return def?.label || def?.name || d; }),
+            _measures: meass.map((m) => { const def = (effectiveModel.measures || []).find((x) => x.name === m); return def?.label || def?.name || m; }),
           };
         } else if (w.type === 'scatter') {
           const sm = binding.scatterMeasures || {};
           if (sm.x && sm.y) {
             const gl = (name, list) => { const d = list.find((x) => x.name === name); return d?.label || d?.name || name; };
             const fk = (label) => keys.find((k) => k === label) || null;
-            const dk = dims.length > 0 ? fk(gl(dims[0], model.dimensions || [])) : null;
-            const gk = grpBy.length > 0 ? fk(gl(grpBy[0], model.dimensions || [])) : null;
-            const xk = fk(gl(sm.x, model.measures || []));
-            const yk = fk(gl(sm.y, model.measures || []));
-            const sk = sm.size ? fk(gl(sm.size, model.measures || [])) : null;
+            const dk = dims.length > 0 ? fk(gl(dims[0], effectiveModel.dimensions || [])) : null;
+            const gk = grpBy.length > 0 ? fk(gl(grpBy[0], effectiveModel.dimensions || [])) : null;
+            const xk = fk(gl(sm.x, effectiveModel.measures || []));
+            const yk = fk(gl(sm.y, effectiveModel.measures || []));
+            const sk = sm.size ? fk(gl(sm.size, effectiveModel.measures || [])) : null;
             if (xk && yk) {
               const bp = (r) => ({ x: Number(r[xk]) || 0, y: Number(r[yk]) || 0, size: sk ? Number(r[sk]) || 0 : undefined, label: dk ? String(r[dk] ?? '') : undefined });
               if (gk) {
@@ -636,10 +667,10 @@ export default function Viewer() {
               } else {
                 newData = { points: rows.map(bp) };
               }
-              newData._xLabel = gl(sm.x, model.measures || []);
-              newData._yLabel = gl(sm.y, model.measures || []);
+              newData._xLabel = gl(sm.x, effectiveModel.measures || []);
+              newData._yLabel = gl(sm.y, effectiveModel.measures || []);
               newData._hasSize = !!sk;
-              if (sk) newData._sizeLabel = gl(sm.size, model.measures || []);
+              if (sk) newData._sizeLabel = gl(sm.size, effectiveModel.measures || []);
             }
           }
         } else if (w.type === 'combo') {
@@ -647,18 +678,18 @@ export default function Viewer() {
           const clm = binding.comboLineMeasures || [];
           const gl = (name, list) => { const d = list.find((x) => x.name === name); return d?.label || d?.name || name; };
           const fk = (label) => keys.find((k) => k === label) || null;
-          const axisKey = dims.length > 0 ? fk(gl(dims[0], model.dimensions || [])) || keys[0] : keys[0];
-          const grpLabel = grpBy.length > 0 ? gl(grpBy[0], model.dimensions || []) : null;
+          const axisKey = dims.length > 0 ? fk(gl(dims[0], effectiveModel.dimensions || [])) || keys[0] : keys[0];
+          const grpLabel = grpBy.length > 0 ? gl(grpBy[0], effectiveModel.dimensions || []) : null;
           const grpKey = grpLabel ? fk(grpLabel) : null;
           const labels = [...new Set(rows.map((r) => String(r[axisKey] ?? '')))];
           let barSeries = [];
           if (grpKey) {
             const ug = [...new Set(rows.map((r) => String(r[grpKey] ?? '')))].sort();
-            cbm.forEach((mn) => { const ml = gl(mn, model.measures || []); const mk = fk(ml); if (!mk) return;
+            cbm.forEach((mn) => { const ml = gl(mn, effectiveModel.measures || []); const mk = fk(ml); if (!mk) return;
               ug.forEach((gv) => { barSeries.push({ name: cbm.length === 1 ? gv : `${gv} - ${ml}`, values: labels.map((l) => { const row = rows.find((r) => String(r[axisKey] ?? '') === l && String(r[grpKey] ?? '') === gv); return row ? Number(row[mk]) || 0 : 0; }) }); });
             });
           } else {
-            cbm.forEach((mn) => { const ml = gl(mn, model.measures || []); const mk = fk(ml); if (!mk) return; barSeries.push({ name: ml, values: labels.map((l) => { const row = rows.find((r) => String(r[axisKey] ?? '') === l); return row ? Number(row[mk]) || 0 : 0; }) }); });
+            cbm.forEach((mn) => { const ml = gl(mn, effectiveModel.measures || []); const mk = fk(ml); if (!mk) return; barSeries.push({ name: ml, values: labels.map((l) => { const row = rows.find((r) => String(r[axisKey] ?? '') === l); return row ? Number(row[mk]) || 0 : 0; }) }); });
           }
           // Line series: prefer the dedicated (dim, line) query so the
           // value is aggregated at the right level. See Editor counterpart.
@@ -667,7 +698,7 @@ export default function Viewer() {
           if (lineRows && grpBy.length > 0) {
             const lineKeys = lineRows.length > 0 ? Object.keys(lineRows[0]) : [];
             lineSeries = clm.map((mn) => {
-              const ml = gl(mn, model.measures || []);
+              const ml = gl(mn, effectiveModel.measures || []);
               const mk = lineKeys.includes(ml) ? ml : (lineKeys.includes(mn) ? mn : null);
               if (!mk) return null;
               return {
@@ -679,13 +710,13 @@ export default function Viewer() {
               };
             }).filter(Boolean);
           } else {
-            lineSeries = clm.map((mn) => { const ml = gl(mn, model.measures || []); const mk = fk(ml); if (!mk) return null;
+            lineSeries = clm.map((mn) => { const ml = gl(mn, effectiveModel.measures || []); const mk = fk(ml); if (!mk) return null;
               return { name: ml, values: labels.map((l) => rows.filter((r) => String(r[axisKey] ?? '') === l).reduce((s, r) => s + (Number(r[mk]) || 0), 0)) };
             }).filter(Boolean);
           }
           newData = { labels, barSeries, lineSeries };
-          newData._barMeasureLabel = cbm.map((mn) => gl(mn, model.measures || [])).join(', ');
-          newData._lineMeasureLabel = clm.map((mn) => gl(mn, model.measures || [])).join(', ');
+          newData._barMeasureLabel = cbm.map((mn) => gl(mn, effectiveModel.measures || [])).join(', ');
+          newData._lineMeasureLabel = clm.map((mn) => gl(mn, effectiveModel.measures || [])).join(', ');
         } else if (w.type === 'table') {
           newData = { columns: keys, rows: rows.map((r) => Object.values(r).map((v) => v != null ? String(v) : '')) };
         } else if (w.type === 'pie' || w.type === 'treemap') {
@@ -694,7 +725,7 @@ export default function Viewer() {
           const firstRow = rows[0];
           if (firstRow) {
             const valueMeasName = w.dataBinding?.selectedMeasures?.[0];
-            const valueMeasDef = (model.measures || []).find((m) => m.name === valueMeasName);
+            const valueMeasDef = (effectiveModel.measures || []).find((m) => m.name === valueMeasName);
             const valueKey = valueMeasDef?.label || valueMeasDef?.name || valueMeasName;
             const measureVal = valueKey && firstRow[valueKey] !== undefined ? firstRow[valueKey] : Object.values(firstRow)[0];
             newData = {
@@ -710,7 +741,7 @@ export default function Viewer() {
             if (w.type === 'gauge') {
               const extractMeas = (measName) => {
                 if (!measName) return undefined;
-                const def = (model.measures || []).find((m) => m.name === measName);
+                const def = (effectiveModel.measures || []).find((m) => m.name === measName);
                 const key = def?.label || def?.name || measName;
                 const raw = firstRow[key];
                 if (typeof raw === 'number') return raw;
@@ -738,7 +769,7 @@ export default function Viewer() {
         // Mirror Editor: track interval columns for duration formatting in Table/PivotTable.
         const durationCols = [];
         meass.forEach((mn) => {
-          const md = (model.measures || []).find((x) => x.name === mn);
+          const md = (effectiveModel.measures || []).find((x) => x.name === mn);
           if (!md) return;
           const colKey = md.label || md.name;
           if (md.format) mf[colKey] = md.format;
@@ -748,24 +779,24 @@ export default function Viewer() {
         if (durationCols.length > 0) newData._durationColumns = durationCols;
         if (dims.length > 0) {
           newData._dimName = dims[0];
-          const axisDim = (model.dimensions || []).find((x) => x.name === dims[0]);
+          const axisDim = (effectiveModel.dimensions || []).find((x) => x.name === dims[0]);
           newData._dimLabel = axisDim?.label || axisDim?.name || dims[0];
           if (axisDim?.datePart) newData._datePart = axisDim.datePart;
           else if (axisDim?.type === 'date') newData._datePart = 'full_date';
           if (axisDim) newData._axisDimDef = { type: axisDim.type, datePart: axisDim.datePart };
         }
         if (grpBy.length > 0) {
-          const legendDim = (model.dimensions || []).find((x) => x.name === grpBy[0]);
+          const legendDim = (effectiveModel.dimensions || []).find((x) => x.name === grpBy[0]);
           if (legendDim) newData._legendDimDef = { type: legendDim.type, datePart: legendDim.datePart };
         }
         if (meass.length > 0) {
-          const m0 = (model.measures || []).find((x) => x.name === meass[0]);
+          const m0 = (effectiveModel.measures || []).find((x) => x.name === meass[0]);
           newData._measureLabel = m0?.label || m0?.name || meass[0];
         }
         newData._rowCount = rows.length;
         if (isDrillable) {
           newData._hierarchy = fullHierarchy.map((dn) => {
-            const def = (model.dimensions || []).find((x) => x.name === dn);
+            const def = (effectiveModel.dimensions || []).find((x) => x.name === dn);
             return { name: dn, label: def?.label || def?.name || dn };
           });
           newData._drillPath = drillPath;
