@@ -1031,7 +1031,14 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 }}
               >
                 <span style={dragHandle}>⠿</span>
-                <span style={truncatedLabel} title={m.label || m.column}>{m.label || m.column}</span>
+                <span
+                  style={truncatedLabel}
+                  title={
+                    m.aggregation === 'custom'
+                      ? `${m.label || m.name}${m.expression ? ` — fx: ${m.expression}` : ''}`
+                      : `${m.label || m.column}${m.table ? ` — ${m.table}.${m.column}` : (m.column ? ` — ${m.column}` : '')}`
+                  }
+                >{m.label || m.column}</span>
                 <span style={{ ...(m.aggregation === 'custom' ? customTag : measTag), flexShrink: 0 }}>
                   {m.aggregation === 'custom' ? 'fx' : m.aggregation}
                 </span>
