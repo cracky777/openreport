@@ -67,7 +67,7 @@ router.get('/:id', requireAuth, (req, res) => {
 
   const ws = access?.workspace || db.prepare('SELECT * FROM workspaces WHERE id = ?').get(req.params.id);
   const reportsRaw = db.prepare(`
-    SELECT r.id, r.title, r.updated_at, r.is_public, r.model_id, r.workspace_id,
+    SELECT r.id, r.title, r.updated_at, r.is_public, r.live_mode, r.model_id, r.workspace_id,
       m.name as model_name,
       d.id as datasource_id, d.db_type, d.extra_config
     FROM reports r
@@ -80,7 +80,7 @@ router.get('/:id', requireAuth, (req, res) => {
   // Surface uploaded-file size on local (DuckDB) datasources so the workspace UI
   // can show storage usage per report without an extra round-trip.
   const reports = reportsRaw.map((r) => {
-    const out = { id: r.id, title: r.title, updated_at: r.updated_at, is_public: r.is_public, model_id: r.model_id, workspace_id: r.workspace_id, model_name: r.model_name, datasource_id: r.datasource_id, db_type: r.db_type };
+    const out = { id: r.id, title: r.title, updated_at: r.updated_at, is_public: r.is_public, live_mode: r.live_mode, model_id: r.model_id, workspace_id: r.workspace_id, model_name: r.model_name, datasource_id: r.datasource_id, db_type: r.db_type };
     if (r.db_type === 'duckdb' && r.extra_config) {
       try {
         const cfg = JSON.parse(r.extra_config);

@@ -41,7 +41,7 @@ function canAccessReport(report, user) {
 // List reports for current user
 router.get('/', requireAuth, (req, res) => {
   const rows = db.prepare(`
-    SELECT r.id, r.title, r.model_id, r.workspace_id, r.is_public, r.created_at, r.updated_at,
+    SELECT r.id, r.title, r.model_id, r.workspace_id, r.is_public, r.live_mode, r.created_at, r.updated_at,
       m.name as model_name,
       d.id as datasource_id, d.db_type, d.extra_config
     FROM reports r
@@ -52,7 +52,7 @@ router.get('/', requireAuth, (req, res) => {
   `).all(req.user.id);
   // Same shape as /workspaces/:id — surface fileSize for local (DuckDB) datasources.
   const reports = rows.map((r) => {
-    const out = { id: r.id, title: r.title, model_id: r.model_id, workspace_id: r.workspace_id, is_public: r.is_public, created_at: r.created_at, updated_at: r.updated_at, model_name: r.model_name, datasource_id: r.datasource_id, db_type: r.db_type };
+    const out = { id: r.id, title: r.title, model_id: r.model_id, workspace_id: r.workspace_id, is_public: r.is_public, live_mode: r.live_mode, created_at: r.created_at, updated_at: r.updated_at, model_name: r.model_name, datasource_id: r.datasource_id, db_type: r.db_type };
     if (r.db_type === 'duckdb' && r.extra_config) {
       try {
         const cfg = JSON.parse(r.extra_config);
@@ -239,7 +239,7 @@ router.put('/:id', requireAuth, (req, res) => {
     return res.status(404).json({ error: 'Report not found' });
   }
 
-  const { title, layout, widgets, settings, is_public, workspace_id, pages } = req.body;
+  const { title, layout, widgets, settings, is_public, live_mode, workspace_id, pages } = req.body;
 
   // Only build a settings payload when the caller actually supplied one.
   // Returning null lets the COALESCE keep the existing row value — otherwise
@@ -264,6 +264,7 @@ router.put('/:id', requireAuth, (req, res) => {
       widgets = COALESCE(?, widgets),
       settings = COALESCE(?, settings),
       is_public = COALESCE(?, is_public),
+      live_mode = COALESCE(?, live_mode),
       workspace_id = CASE WHEN ? = 1 THEN ? ELSE workspace_id END,
       updated_at = datetime('now')
     WHERE id = ?
@@ -273,6 +274,7 @@ router.put('/:id', requireAuth, (req, res) => {
     widgets ? JSON.stringify(widgets) : null,
     settingsParam,
     is_public !== undefined ? (is_public ? 1 : 0) : null,
+    live_mode !== undefined ? (live_mode ? 1 : 0) : null,
     workspace_id !== undefined ? 1 : 0,
     workspace_id !== undefined ? workspace_id : null,
     req.params.id

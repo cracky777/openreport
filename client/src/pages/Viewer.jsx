@@ -530,6 +530,7 @@ export default function Viewer() {
         ? api.post(`/models/${model.id}/query`, {
             dimensionNames: allDims, measureNames: meass,
             measureAggOverrides: aggOverridesPayload,
+            bypassCache: !!(report?.live_mode),
             limit: queryLimit, filters: queryFilters,
             widgetFilters: sanitizeWidgetFilters(widgetFiltersWithTopN),
             distinct: isFilterWidget || undefined,
@@ -541,6 +542,7 @@ export default function Viewer() {
         ? api.post(`/models/${model.id}/query`, {
             dimensionNames: [], measureNames: [colorMeasure],
             measureAggOverrides: aggOverridesPayload,
+            bypassCache: !!(report?.live_mode),
             limit: 1,
             filters: queryFilters,
             widgetFilters: sanitizeWidgetFilters(widgetFilters),
@@ -552,6 +554,7 @@ export default function Viewer() {
         ? api.post(`/models/${model.id}/query`, {
             dimensionNames: [], measureNames: [topNMeasure],
             measureAggOverrides: aggOverridesPayload,
+            bypassCache: !!(report?.live_mode),
             limit: 1,
             filters: queryFilters,
             widgetFilters: sanitizeWidgetFilters(widgetFilters),
@@ -576,6 +579,7 @@ export default function Viewer() {
         ? api.post(`/models/${model.id}/query`, {
             dimensionNames: allDims, measureNames: meass,
             measureAggOverrides: aggOverridesPayload,
+            bypassCache: !!(report?.live_mode),
             limit: 1,
             filters: n1Filters,
             widgetFilters: sanitizeWidgetFilters(n1WidgetFilters),
@@ -594,6 +598,7 @@ export default function Viewer() {
             dimensionNames: dims,
             measureNames: [...new Set(clm)],
             measureAggOverrides: aggOverridesPayload,
+            bypassCache: !!(report?.live_mode),
             limit: w.config?.dataLimit || 1000,
             filters: queryFilters,
             widgetFilters: sanitizeWidgetFilters(widgetFilters),
@@ -822,7 +827,7 @@ export default function Viewer() {
         setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data: { _error: msg, _errorCode: code, _errorTimeoutMs: timeoutMs, _rowCount: 0 } } }));
       });
     });
-  }, [reportFilters, refreshCounter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reportFilters, refreshCounter, report?.live_mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Print mode — fire one explicit refresh ~1s after the report loads, on top
   // of the initial automatic fetch. The server-side renderer's networkidle0

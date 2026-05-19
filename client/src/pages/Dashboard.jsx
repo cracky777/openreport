@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbPencil, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbLoader2, TbRefresh } from 'react-icons/tb';
+import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbPencil, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbLoader2, TbRefresh } from 'react-icons/tb';
 import { formatBytes } from '../utils/formatHuman';
 import { useTheme } from '../hooks/useTheme';
 import { TopbarSwitcher, UserMenuExtras } from '../cloud';
@@ -356,6 +356,18 @@ export default function Dashboard() {
       navigator.clipboard?.writeText(url);
       alert(`Public link copied:\n${url}`);
     }
+  };
+
+  // Per-report data-source mode. 0 = cache (default, fast: served from
+  // the rollup when available); 1 = live (Viewer sends bypassCache:true
+  // on every widget query → source DB each time). Only surfaced to ws/
+  // org admins in the card menu — the field IS managed server-side too
+  // (PUT /reports/:id accepts `live_mode`).
+  const toggleLiveMode = async (report) => {
+    const newVal = report.live_mode ? 0 : 1;
+    await api.put(`/reports/${report.id}`, { live_mode: newVal });
+    setReports((p) => p.map((r) => r.id === report.id ? { ...r, live_mode: newVal } : r));
+    setWsReports((p) => p.map((r) => r.id === report.id ? { ...r, live_mode: newVal } : r));
   };
 
   const createWorkspace = async () => {
@@ -1562,6 +1574,19 @@ export default function Dashboard() {
                                 {report.is_public
                                   ? <><TbShareOff size={14} /> Make private</>
                                   : <><TbShare size={14} /> Share public link</>}
+                              </button>
+                            )}
+                            {(wsUserRole === 'admin' || activeOrgRole === 'admin' || user?.role === 'admin') && (
+                              <button style={cardMenuItem}
+                                onClick={() => { setCardMenu(null); toggleLiveMode(report); }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                title={report.live_mode
+                                  ? 'Switch this report back to the cached (rollup) data source — faster, default.'
+                                  : 'Switch this report to a live source query — bypasses the rollup cache on every widget.'}>
+                                {report.live_mode
+                                  ? <><TbDatabase size={14} /> Use cached data</>
+                                  : <><TbBolt size={14} /> Use live query</>}
                               </button>
                             )}
                             {report.is_public ? (

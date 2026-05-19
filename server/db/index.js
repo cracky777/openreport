@@ -23,6 +23,11 @@ db.exec(schema);
 // Migrations for existing DBs
 try { db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE reports ADD COLUMN workspace_id TEXT"); } catch { /* already exists */ }
+// Per-report data-source mode toggle (managed from the workspace card by
+// ws/org admins). 0 = serve from the rollup cache when available (fast,
+// default); 1 = bypass the cache, query the source DB live on every
+// widget. The Viewer reads this and sets `bypassCache` on every /query.
+try { db.exec("ALTER TABLE reports ADD COLUMN live_mode INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE datasources ADD COLUMN extra_config TEXT DEFAULT '{}'"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE models ADD COLUMN date_column TEXT DEFAULT ''"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE models ADD COLUMN rls TEXT NOT NULL DEFAULT '{}'"); } catch { /* already exists */ }
