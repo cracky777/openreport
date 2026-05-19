@@ -27,9 +27,9 @@ function WidgetTooltip({ text, show }) {
   );
 }
 
-export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions, onOpenReportFilters, reportFilterCount = 0, reportFilterBarVisible = false }) {
+export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, onRebuildCache, cacheWarming = false, cacheWarmPct = 0, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions, onOpenReportFilters, reportFilterCount = 0, reportFilterBarVisible = false }) {
   const navigate = useNavigate();
-  const [openMenu, setOpenMenu] = useState(null); // 'bar' | 'line' | null
+  const [openMenu, setOpenMenu] = useState(null); // 'bar' | 'line' | 'refresh' | null
   const [hoverKey, setHoverKey] = useState(null);
   const hoverTimerRef = useRef(null);
   const [previewPrompt, setPreviewPrompt] = useState(false);
@@ -522,19 +522,54 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
       <div style={utilityGroupStyle}>
         {onRefresh && (
           <>
-            <div style={{ position: 'relative' }}
-              onMouseEnter={() => scheduleHover('refresh')}
-              onMouseLeave={clearHover}>
-              <button
-                onClick={onRefresh}
-                disabled={refreshing}
-                style={{ ...utilityIconBtn, opacity: refreshing ? 0.5 : 1, cursor: refreshing ? 'not-allowed' : 'pointer' }}
-                onMouseEnter={(e) => { if (!refreshing) { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
-              >
-                <TbRefresh size={18} color="var(--text-secondary)" style={{ animation: refreshing ? 'spin 0.8s linear infinite' : undefined }} />
-              </button>
-              <WidgetTooltip text="Refresh all widgets" show={hoverKey === 'refresh' && !refreshing} />
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}
+              onMouseEnter={() => { if (onRebuildCache && !refreshing && !cacheWarming) setOpenMenu('refresh'); }}
+              onMouseLeave={() => { if (openMenu === 'refresh') setOpenMenu(null); }}
+            >
+              <div style={{ position: 'relative' }}
+                onMouseEnter={() => { if (!onRebuildCache) scheduleHover('refresh'); }}
+                onMouseLeave={clearHover}>
+                <button
+                  onClick={() => { if (!onRebuildCache && !refreshing && !cacheWarming) onRefresh(); }}
+                  disabled={refreshing || cacheWarming}
+                  style={{ ...utilityIconBtn, opacity: (refreshing || cacheWarming) ? 0.5 : 1, cursor: (refreshing || cacheWarming) ? 'not-allowed' : 'pointer' }}
+                  onMouseEnter={(e) => { if (!refreshing && !cacheWarming) { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                >
+                  <TbRefresh size={18} color="var(--text-secondary)" style={{ animation: (refreshing || cacheWarming) ? 'spin 0.8s linear infinite' : undefined }} />
+                  {onRebuildCache && <span style={{ fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 }}>▼</span>}
+                </button>
+                {!onRebuildCache && <WidgetTooltip text="Refresh all widgets (live query)" show={hoverKey === 'refresh' && !refreshing && !cacheWarming} />}
+              </div>
+              {/* Hover flyout (mirrors the widget sub-type menus): two
+                  refresh modes, same icon. "Live query" = bypass cache,
+                  query the source; "Cache" = rebuild rollups then refetch
+                  from them (progress bar below while it warms). */}
+              {onRebuildCache && openMenu === 'refresh' && !refreshing && !cacheWarming && (
+                <div style={dropdownStyle}><div style={dropdownInner}>
+                  <button style={{ ...dropdownItem, display: 'flex', alignItems: 'center' }}
+                    onClick={() => { setOpenMenu(null); onRefresh(); }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
+                    <TbRefresh size={14} color="var(--text-secondary)" style={{ marginRight: 6, flexShrink: 0 }} />Live query
+                  </button>
+                  <button style={{ ...dropdownItem, display: 'flex', alignItems: 'center' }}
+                    onClick={() => { setOpenMenu(null); onRebuildCache(); }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
+                    <TbRefresh size={14} color="var(--text-secondary)" style={{ marginRight: 6, flexShrink: 0 }} />Cache
+                  </button>
+                </div></div>
+              )}
+              {cacheWarming && (
+                <div className="rollup-progress determinate"
+                  role="progressbar"
+                  aria-valuenow={Math.round(cacheWarmPct)} aria-valuemin={0} aria-valuemax={100}
+                  aria-label="Rebuilding cache"
+                  style={{ position: 'absolute', left: 4, right: 4, bottom: -7, width: 'auto' }}>
+                  <span style={{ width: `${Math.max(0, Math.min(100, cacheWarmPct))}%` }} />
+                </div>
+              )}
             </div>
             <div style={{ width: 1, height: 20, background: 'var(--border-default)' }} />
           </>

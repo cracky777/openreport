@@ -200,7 +200,21 @@ export default function Editor() {
       setSettings((prev) => {
         const existing = Array.isArray(prev?.reportFilters) ? prev.reportFilters : [];
         const urlFields = new Set(fromUrl.map((r) => r.field));
-        const merged = [...existing.filter((r) => !urlFields.has(r.field)), ...fromUrl];
+        // The URL only carries `field`+`values` (see urlFilters.js) — it
+        // does NOT round-trip the editor-only `exclusions` (the per-visual
+        // global-filter↔visual interaction config). Carry the existing
+        // rule's `exclusions` onto the URL rule that overrides the same
+        // field; otherwise every model (re)load silently wipes the
+        // interaction and the next save persists the loss.
+        const exclByField = new Map(
+          existing
+            .filter((r) => r && Array.isArray(r.exclusions))
+            .map((r) => [r.field, r.exclusions])
+        );
+        const fromUrlMerged = fromUrl.map((r) =>
+          exclByField.has(r.field) ? { ...r, exclusions: exclByField.get(r.field) } : r
+        );
+        const merged = [...existing.filter((r) => !urlFields.has(r.field)), ...fromUrlMerged];
         return { ...prev, reportFilters: merged };
       });
     }
@@ -679,6 +693,90 @@ export default function Editor() {
     // async) then onRefresh() in the same tick — a synchronous slicer
     // refresh would use the pre-commit global filter. The effect runs
     // post-render with the committed settings, which is correct.
+  }, []);
+
+  // ── "Rebuild cache & refresh" (split-button action on the toolbar
+  // Refresh control). Unlike the plain Refresh (bypassCache → live source
+  // query, skips the rollup planner), this re-materialises the rollup
+  // cache via the same endpoint the Dashboard card uses, then triggers a
+  // NORMAL refetch (refreshIsManualRef left false ⇒ bypassCache false) so
+  // the planner serves the freshly-built rollups — the rollup-hit path
+  // short-circuits the RAM queryCache, so there's no stale read even
+  // though run-now doesn't flush queryCache. Progress is the same
+  // rollup-by-rollup bar as the Dashboard, driven by polling
+  // /cache-schedules/warming + a trickle so the bar always moves.
+  const [cacheWarming, setCacheWarming] = useState(false);
+  const [cacheWarmPct, setCacheWarmPct] = useState(0);
+  const cacheWarmProgressRef = useRef({ done: 0, total: 0 });
+  const cacheWarmPctRef = useRef(0);
+  const cacheWarmCtlRef = useRef({ active: false, cancelled: false, pending: false, timer: null, trickle: null });
+  const handleRebuildCache = useCallback(async () => {
+    const st = cacheWarmCtlRef.current;
+    if (st.active) return;
+    st.active = true; st.cancelled = false; st.pending = true;
+    cacheWarmProgressRef.current = { done: 0, total: 0 };
+    cacheWarmPctRef.current = 0;
+    setCacheWarmPct(0);
+    setCacheWarming(true);
+
+    const poll = async () => {
+      try {
+        const res = await api.get('/cache-schedules/warming');
+        if (st.cancelled) return;
+        const p = res.data?.progress?.[id];
+        if (p && typeof p.total === 'number') {
+          cacheWarmProgressRef.current = { done: p.done || 0, total: p.total || 0 };
+        }
+        const serverBuilding = Array.isArray(res.data?.reportIds) && res.data.reportIds.includes(id);
+        if ((serverBuilding || st.pending) && !st.cancelled) {
+          st.timer = setTimeout(poll, 2000);
+        }
+      } catch { /* logged out / transient — the awaited POST below still resolves */ }
+    };
+    poll();
+
+    // Trickle the displayed % toward the next milestone every 450 ms (CSS
+    // `width 0.4s` smooths it); snap up the instant a real rollup lands.
+    st.trickle = setInterval(() => {
+      const { done, total } = cacheWarmProgressRef.current;
+      let floor, ceil;
+      if (total > 0) {
+        floor = Math.min(100, (done / total) * 100);
+        ceil = Math.min(100, ((done + 1) / total) * 100);
+      } else { floor = 0; ceil = 12; }
+      let v = cacheWarmPctRef.current;
+      if (v < floor) v = floor;
+      const cap = floor + (ceil - floor) * 0.9;
+      if (v < cap) v += Math.max(0.5, (cap - v) * 0.12);
+      if (v > cap) v = cap;
+      if (v > 100) v = 100;
+      if (v !== cacheWarmPctRef.current) { cacheWarmPctRef.current = v; setCacheWarmPct(v); }
+    }, 450);
+
+    try {
+      await api.post(`/cache-schedules/run-now/${id}`);
+    } catch (err) {
+      console.error('Rebuild cache failed:', err);
+      setSaveMsg(err.response?.data?.error || 'Cache rebuild failed');
+      setTimeout(() => setSaveMsg(null), 3000);
+    } finally {
+      st.cancelled = true; st.pending = false; st.active = false;
+      if (st.timer) clearTimeout(st.timer);
+      if (st.trickle) clearInterval(st.trickle);
+      setCacheWarming(false);
+      setCacheWarmPct(0);
+      cacheWarmPctRef.current = 0;
+      // Normal refetch (NOT a manual/live refresh) → rollup planner serves
+      // the just-built rollups.
+      setRefreshCounter((n) => n + 1);
+    }
+  }, [id]);
+  useEffect(() => () => {
+    // Editor unmounted mid-rebuild → stop the poll/trickle cleanly.
+    const st = cacheWarmCtlRef.current;
+    st.cancelled = true; st.active = false; st.pending = false;
+    if (st.timer) clearTimeout(st.timer);
+    if (st.trickle) clearInterval(st.trickle);
   }, []);
 
   // NOTE: slicer re-narrowing on global-filter / cross-filter / refresh is
@@ -2034,6 +2132,9 @@ export default function Editor() {
         reportId={id}
         onRefresh={handleRefresh}
         refreshing={refreshing}
+        onRebuildCache={handleRebuildCache}
+        cacheWarming={cacheWarming}
+        cacheWarmPct={cacheWarmPct}
         exportMenu={(() => {
           // Build a report-shaped object pulling the multi-page snapshot — JSON export
           // needs every page, not just the one currently visible. Layout/widgets at the
