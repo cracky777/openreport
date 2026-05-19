@@ -170,6 +170,14 @@ body {
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 
+/* Inline-accordion field-edit panel: slide down + fade as it opens
+   under the clicked field row. max-height in the keyframe gives the
+   "expand" feel without needing a measured height. */
+@keyframes fieldEditIn {
+  from { opacity: 0; transform: translateY(-6px); max-height: 0; }
+  to   { opacity: 1; transform: translateY(0);    max-height: 70vh; }
+}
+
 /* Indeterminate loading bar — used on report cards while a rollup
    refresh is in flight (the server only reports busy/idle, not a
    percentage, so an indeterminate sweep is the honest representation). */

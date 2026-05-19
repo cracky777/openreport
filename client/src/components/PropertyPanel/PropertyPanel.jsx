@@ -6,7 +6,7 @@ import TablePropertySections from './TablePropertySections';
 import DimensionMultiSelect from './DimensionMultiSelect';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
 import FontPicker from '../FontPicker/FontPicker';
-import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase } from 'react-icons/tb';
+import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase, TbPencil } from 'react-icons/tb';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
 import { parseIntOrNull, parseFloatOrNull } from '../../utils/input';
 import api from '../../utils/api';
@@ -1943,9 +1943,34 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onS
     <div style={dynamicDataStyle}>
       <div {...handleProps} />
       <div style={panelHeader}>
-        <span style={panelHeaderTitle}>
-          <TbDatabase size={14} color="var(--accent-cyan)" />
-          Data
+        <span style={{ ...panelHeaderTitle, minWidth: 0, flex: 1 }}>
+          <TbDatabase size={14} color="var(--accent-cyan)" style={{ flexShrink: 0 }} />
+          <span style={{ flexShrink: 0 }}>Data</span>
+          {model?.id ? (
+            <a
+              href={`/models/${model.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`${model.name} — open data model`}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0,
+                marginLeft: 2, textTransform: 'none', letterSpacing: 0, fontWeight: 500,
+                fontSize: 11, color: 'var(--text-disabled)', textDecoration: 'none',
+                transition: 'color 0.12s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-primary)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-disabled)'; }}
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{model.name}</span>
+              <TbPencil size={10} style={{ flexShrink: 0, opacity: 0.6 }} />
+            </a>
+          ) : (model?.name ? (
+            <span style={{
+              textTransform: 'none', letterSpacing: 0, fontWeight: 500, fontSize: 11,
+              color: 'var(--text-disabled)', overflow: 'hidden', textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap', minWidth: 0,
+            }}>{model.name}</span>
+          ) : null)}
         </span>
         <button onClick={() => toggleCollapsed(true)} style={chevronBtn} title="Collapse panel"
           onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--border-strong)'; e.currentTarget.style.color = 'var(--text-primary)'; }}

@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { TbPencil, TbChevronDown } from 'react-icons/tb';
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
+import { createPortal } from 'react-dom';
+import { TbChevronDown } from 'react-icons/tb';
 import api from '../../utils/api';
 import SqlExpressionInput from '../SqlExpressionInput/SqlExpressionInput';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
@@ -44,6 +45,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   const [editForm, setEditForm] = useState({});
   const [editingDim, setEditingDim] = useState(null); // dimension name being edited
   const [dimEditForm, setDimEditForm] = useState({});
+  // Inline-accordion mount points: the (large) edit-panel JSX stays where
+  // it is in the tree and is portaled into a placeholder rendered right
+  // under the active row, so it visually belongs to the clicked field.
+  const [measurePanelMount, setMeasurePanelMount] = useState(null);
+  const [dimPanelMount, setDimPanelMount] = useState(null);
   const [loading, setLoading] = useState(false);
   // Date Table is collapsed by default — only the main date column is shown,
   // the per-period extension dims (year, month, weekday, …) appear when opened.
@@ -794,44 +800,15 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexShrink: 0 }}>
-        <div style={{ ...sectionTitle, display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-          <span>Data —&nbsp;</span>
-          {model.id ? (
-            <a
-              href={`/models/${model.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={`${model.name} — open data model`}
-              style={modelLinkStyle}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = 'var(--accent-primary)';
-                const pencil = e.currentTarget.querySelector('[data-pencil]');
-                if (pencil) pencil.style.opacity = '1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'var(--text-disabled)';
-                const pencil = e.currentTarget.querySelector('[data-pencil]');
-                if (pencil) pencil.style.opacity = '0.5';
-              }}
-            >
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{model.name}</span>
-              <TbPencil data-pencil size={11} style={{ opacity: 0.5, transition: 'opacity 0.12s', flexShrink: 0 }} />
-            </a>
-          ) : (
-            <span>{model.name}</span>
-          )}
-        </div>
-        {loading && <div style={loadingDot} />}
-      </div>
-
-      {/* Measures first — fixed height, does not shrink when editing */}
+      {/* Measures first — fixed height, does not shrink when editing.
+          (The model name + edit link moved to the panel header in
+          PropertyPanel's DataModelPanel so "Data" isn't shown twice.) */}
       <FieldSection label={
         <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
           <span>Measures</span>
           <button onClick={() => setShowCalcForm(!showCalcForm)} style={addCalcBtnSmall}>+ Measure</button>
         </span>
-      } style={{ flex: '0 0 auto', maxHeight: showCalcForm ? '60%' : '25%' }}>
+      } style={{ flex: '0 0 auto', maxHeight: (showCalcForm || editingField) ? '60%' : '25%', transition: 'max-height 0.25s ease' }}>
         {/* Unified measure wizard:
               - Aggregation (SUM/AVG/COUNT/MIN/MAX/Custom)
               - Column (or custom SQL when aggregation = 'custom')
@@ -986,8 +963,8 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         )}
         <div style={listBox}>
           {(model.measures || []).map((m) => (
+            <Fragment key={m.name}>
               <div
-                key={m.name}
                 draggable
                 onDragStart={(e) => handleDragStart(e, m.name, 'measure')}
                 onClick={(e) => {
@@ -1043,19 +1020,21 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   {m.aggregation === 'custom' ? 'fx' : m.aggregation}
                 </span>
               </div>
+              {editingField === m.name && (
+                <div ref={(node) => setMeasurePanelMount((cur) => (cur === node ? cur : node))} />
+              )}
+            </Fragment>
             ))}
           </div>
         </FieldSection>
 
-      {/* Edit panel — between measures and dimensions */}
+      {/* Measure edit panel — rendered (via portal) inline under the
+          clicked row in the measures list so it visually belongs to it. */}
       {editingField && (() => {
         const m = (model.measures || []).find((x) => x.name === editingField);
-        if (!m) return null;
-        return (
+        if (!m || !measurePanelMount) return null;
+        return createPortal((
           <div style={{ ...editPanelStyle, flexShrink: 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-primary)', marginBottom: 6 }}>
-              Edit: {m.label || m.column}
-            </div>
             <div style={editRow}>
               <span style={editLabel}>Label</span>
               <input type="text" value={editForm.label}
@@ -1357,7 +1336,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               }} style={editSaveBtn}>Save</button>
             </div>
           </div>
-        );
+        ), measurePanelMount);
       })()}
 
       {/* Date table — collapsible block. We render a plain container
@@ -1468,8 +1447,8 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 <div key={table}>
                   <div style={tableGroupHeader}>{table}</div>
                   {dims.map((d) => (
+                    <Fragment key={d.name}>
                     <div
-                      key={d.name}
                       draggable
                       onDragStart={(e) => handleDragStart(e, d.name, 'dimension')}
                       onClick={(e) => {
@@ -1504,6 +1483,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                         >📅</button>
                       )}
                     </div>
+                    {editingDim === d.name && (
+                      <div ref={(node) => setDimPanelMount((cur) => (cur === node ? cur : node))} />
+                    )}
+                    </Fragment>
                   ))}
                 </div>
               ));
@@ -1515,12 +1498,9 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
       {/* Dimension edit panel — below dimensions */}
       {editingDim && (() => {
         const d = (model.dimensions || []).find((x) => x.name === editingDim);
-        if (!d) return null;
-        return (
+        if (!d || !dimPanelMount) return null;
+        return createPortal((
           <div style={{ ...editPanelStyle, flexShrink: 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-primary)', marginBottom: 6 }}>
-              Edit: {d.label || d.column}
-            </div>
             <div style={editRow}>
               <span style={editLabel}>Label</span>
               <input type="text" value={dimEditForm.label}
@@ -1657,7 +1637,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               }} style={{ ...editSaveBtn, background: 'var(--accent-primary)' }}>Save</button>
             </div>
           </div>
-        );
+        ), dimPanelMount);
       })()}
 
       {model.dimensions?.length === 0 && model.measures?.length === 0 && (
@@ -1807,15 +1787,6 @@ function FieldSection({ label, children, style }) {
 const sectionTitle = {
   fontSize: 11, fontWeight: 600, color: 'var(--text-disabled)', textTransform: 'uppercase', marginBottom: 0,
 };
-const modelLinkStyle = {
-  display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0,
-  color: 'var(--text-disabled)', textDecoration: 'none',
-  cursor: 'pointer', transition: 'color 0.12s',
-};
-const loadingDot = {
-  width: 8, height: 8, borderRadius: '50%', background: 'var(--accent-primary)',
-  animation: 'pulse 1s infinite',
-};
 const listBox = {
   flex: 1, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 4, minHeight: 0,
 };
@@ -1852,9 +1823,29 @@ const dateTag = {
 const customTag = {
   fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--bg-active)', color: 'var(--accent-primary)', fontWeight: 700,
 };
+// Inline-accordion edit panel, portaled directly under the active field
+// row. It reuses the clicked row's highlight (--bg-active) + a 3px accent
+// left border so it visually reads as one block with the field above.
+// Full width + border-box + overflowX:hidden kills the horizontal
+// scrollbar in the narrow dimensions list; no inner maxHeight/overflow so
+// the form shows at full size and the (single) host list scroll handles
+// height instead of a cramped scroll-within-scroll.
 const editPanelStyle = {
-  padding: 8, background: 'var(--bg-panel-alt)', borderBottom: '1px solid var(--border-default)',
-  maxHeight: '60vh', overflowY: 'auto',
+  padding: 10,
+  // Same family as the selected row (--bg-active) but blended toward the
+  // panel bg so it's a touch dimmer — distinct from, yet clearly tied to,
+  // the highlighted field above.
+  background: 'color-mix(in srgb, var(--bg-active) 45%, var(--bg-panel))',
+  borderLeft: '3px solid var(--accent-primary)',
+  borderBottom: '1px solid var(--border-default)',
+  boxSizing: 'border-box',
+  width: '100%',
+  overflowX: 'hidden',
+  // Light shading so the panel reads as a recessed sub-block hanging
+  // off the field row above (inset top + soft drop).
+  boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.06)',
+  // Slide-down + fade on open.
+  animation: 'fieldEditIn 180ms ease-out',
 };
 const editRow = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5,
