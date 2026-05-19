@@ -6,6 +6,7 @@ import Toolbar from '../components/Toolbar/Toolbar';
 import ExportMenu from '../components/ExportMenu/ExportMenu';
 import { WidgetConfigPanel, DataModelPanel } from '../components/PropertyPanel/PropertyPanel';
 import { WIDGET_TYPES } from '../components/Widgets';
+import { rectOf, newMergeGroupId } from '../utils/mergeFrames';
 import SettingsPanel from '../components/SettingsPanel/SettingsPanel';
 import ReportFilterBar from '../components/ReportFilterBar/ReportFilterBar';
 import PagesColumn, { PAGES_COLUMN_TRANSITION_MS } from '../components/PagesColumn/PagesColumn';
@@ -1638,6 +1639,108 @@ export default function Editor() {
     }));
   }, [history]);
 
+  // ── Frame-merge of adjacent visuals ─────────────────────────────────
+  // Membership lives on each member's config.mergeGroup; the separator
+  // flag on config.mergeSeparator (kept in sync across the group). Pairs
+  // are merged one at a time (a group grows by chaining); the rendering,
+  // solid-block drag AND all UI affordances (merge magnet, broken-magnet
+  // unmerge, separator toggle) live on the canvas in ReportCanvas — no
+  // panel UI needed.
+  const handleMergeWith = useCallback((targetId) => {
+    if (!selectedWidget || !targetId || targetId === selectedWidget) return;
+    setLayoutAndWidgets(
+      // Snap the target flush against the selected widget so there is NO
+      // gap left between their frames (a small leftover gap is what made
+      // the merged pair look like two separate cards). The selected one
+      // stays put; only the target moves, on the touching axis only
+      // (perpendicular position kept → partial overlap still allowed).
+      (prevLayout) => {
+        const s = prevLayout.find((l) => l.i === selectedWidget);
+        const t = prevLayout.find((l) => l.i === targetId);
+        if (!s || !t) return prevLayout;
+        const sr = rectOf(s);
+        const tr = rectOf(t);
+        const vOverlap = Math.min(sr.y + sr.h, tr.y + tr.h) - Math.max(sr.y, tr.y);
+        const hOverlap = Math.min(sr.x + sr.w, tr.x + tr.w) - Math.max(sr.x, tr.x);
+        let nx = t.x, ny = t.y;
+        if (vOverlap >= hOverlap) {
+          // Side by side → close the horizontal gap.
+          const tCx = tr.x + tr.w / 2;
+          const sCx = sr.x + sr.w / 2;
+          nx = tCx >= sCx ? sr.x + sr.w : sr.x - tr.w;
+        } else {
+          // Stacked → close the vertical gap.
+          const tCy = tr.y + tr.h / 2;
+          const sCy = sr.y + sr.h / 2;
+          ny = tCy >= sCy ? sr.y + sr.h : sr.y - tr.h;
+        }
+        return prevLayout.map((l) => l.i === targetId
+          ? { ...l, x: Math.max(0, nx), y: Math.max(0, ny) } : l);
+      },
+      (prevWidgets) => {
+        const sel = prevWidgets[selectedWidget];
+        const tgt = prevWidgets[targetId];
+        if (!sel || !tgt) return prevWidgets;
+        const selGid = sel.config?.mergeGroup || null;
+        const tgtGid = tgt.config?.mergeGroup || null;
+        const gid = selGid || tgtGid || newMergeGroupId();
+        // Preserve an existing group's separator preference; default off.
+        const sepSource = selGid ? sel : (tgtGid ? tgt : null);
+        const sep = !!sepSource?.config?.mergeSeparator;
+        const next = { ...prevWidgets };
+        // Rehome any pre-existing group(s) of the two sides into `gid` so
+        // chaining keeps a single coherent group.
+        for (const [wid, w] of Object.entries(prevWidgets)) {
+          const wg = w?.config?.mergeGroup;
+          const isSide = wid === selectedWidget || wid === targetId;
+          if (isSide || (wg && (wg === selGid || wg === tgtGid))) {
+            next[wid] = { ...w, config: { ...(w.config || {}), mergeGroup: gid, mergeSeparator: sep } };
+          }
+        }
+        return next;
+      },
+    );
+  }, [selectedWidget, setLayoutAndWidgets]);
+
+  const handleUnmergeSelected = useCallback(() => {
+    if (!selectedWidget) return;
+    setWidgets((prev) => {
+      const sel = prev[selectedWidget];
+      const gid = sel?.config?.mergeGroup;
+      if (!gid) return prev;
+      const next = { ...prev };
+      // Drop the selected widget from the group.
+      const { mergeGroup, mergeSeparator, ...restCfg } = sel.config || {};
+      next[selectedWidget] = { ...sel, config: restCfg };
+      // If only one member is left, clear it too (a lone member is not a
+      // merge — keeps the data clean).
+      const remaining = Object.entries(next).filter(([, w]) => w?.config?.mergeGroup === gid);
+      if (remaining.length === 1) {
+        const [wid, w] = remaining[0];
+        const { mergeGroup: _g, mergeSeparator: _s, ...rc } = w.config || {};
+        next[wid] = { ...w, config: rc };
+      }
+      return next;
+    });
+  }, [selectedWidget, setWidgets]);
+
+  const handleToggleMergeSeparator = useCallback(() => {
+    if (!selectedWidget) return;
+    setWidgets((prev) => {
+      const sel = prev[selectedWidget];
+      const gid = sel?.config?.mergeGroup;
+      if (!gid) return prev;
+      const nextVal = !sel.config?.mergeSeparator;
+      const next = { ...prev };
+      for (const [wid, w] of Object.entries(prev)) {
+        if (w?.config?.mergeGroup === gid) {
+          next[wid] = { ...w, config: { ...(w.config || {}), mergeSeparator: nextVal } };
+        }
+      }
+      return next;
+    });
+  }, [selectedWidget, setWidgets]);
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -2273,6 +2376,9 @@ export default function Editor() {
               onToggleCrossFilter={handleToggleCrossFilter}
               onCancelFetch={handleCancelFetch}
               onRefreshWidget={handleRefreshWidget}
+              onMergeWith={handleMergeWith}
+              onUnmerge={handleUnmergeSelected}
+              onToggleSeparator={handleToggleMergeSeparator}
             />
           </div>
         </div>

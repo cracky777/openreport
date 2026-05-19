@@ -576,7 +576,9 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
         );
       })()}
 
-      {/* Field wells - drag & drop zones */}
+      {/* Field wells - drag & drop zones.
+          Frame-merge controls moved onto the canvas (magnet for merge,
+          broken-magnet + separator toggle at the seam mid-point). */}
       {renderFieldWells()}
 
       {(widget.type === 'bar' || widget.type === 'combo') && (() => {

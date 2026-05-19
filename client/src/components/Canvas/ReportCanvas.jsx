@@ -1,11 +1,12 @@
-import { useRef, useState, useEffect, useCallback, memo, useMemo } from 'react';
+import { useRef, useState, useEffect, useCallback, memo, useMemo, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import Draggable from 'react-draggable';
-import { TbCode, TbX, TbCopy, TbRefresh } from 'react-icons/tb';
+import { TbCode, TbX, TbCopy, TbRefresh, TbMagnet, TbMagnetOff, TbMinus } from 'react-icons/tb';
 import { WIDGET_TYPES } from '../Widgets';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 import MaxRowsWarning from '../Widgets/MaxRowsWarning';
 import { evaluateColorCondition } from '../../utils/conditionalFormat';
+import { getMergeGroups, groupSeams, mergeCorners, edgeMidpoint } from '../../utils/mergeFrames';
 
 function buildGradientCSS(g) {
   if (!g?.enabled) return null;
@@ -22,7 +23,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners }) {
   const nodeRef = useRef(null);
   const [showSql, setShowSql] = useState(false);
   const WidgetType = WIDGET_TYPES[widget.type];
@@ -38,6 +39,46 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
   const paddingTotal = contentPadding * 2;
   const contentWidth = Math.max(50, (typeof w === 'number' ? w : 400) - paddingTotal);
   const contentHeight = Math.max(50, (typeof h === 'number' ? h : 300) - titleHeight - paddingTotal);
+
+  // ── Frame chrome (bg / border / radius / shadow) ────────────────────
+  // Seam-merge model: EVERY widget (merged or not) keeps its own full
+  // frame — border + rounded corners everywhere, own size. Merging only
+  // overlays a "seam cover" on the exact touching segment (rendered in
+  // ReportCanvas), so the parts that don't touch keep their border and
+  // rounding intact.
+  const _bgValue = (() => {
+    const cc = widget.config?.colorCondition;
+    const cond = cc?.enabled ? evaluateColorCondition(cc, widget.data?._colorValue) : null;
+    if (cond) return cond;
+    return widget.config?.transparentBg
+      ? 'transparent'
+      : (buildGradientCSS(widget.config?.gradientBg) || widget.config?.backgroundColor || (widget.type === 'filter' ? 'transparent' : 'var(--bg-panel)'));
+  })();
+  const _hasBorder = widget.config?.borderEnabled !== false;
+  const _borderColor = widget.config?.borderColor || 'var(--border-default)';
+  const _baseRadius = (widget.type === 'shape' && widget.config?.shape === 'round')
+    ? '50%' : (widget.config?.borderRadius ?? 8);
+  // Per-corner radius: a corner that sits exactly at a merge junction is
+  // squared (→ continuous frame at the seam); every other corner keeps
+  // its rounding. Border stays full everywhere; the seam cover (rendered
+  // in ReportCanvas) masks the doubled border on the touching segment.
+  const _r = (squared) => (squared ? 0 : _baseRadius);
+  const mc = mergeCorners || null;
+  const frameChrome = {
+    background: _bgValue,
+    borderTopLeftRadius: mc ? _r(mc.tl) : _baseRadius,
+    borderTopRightRadius: mc ? _r(mc.tr) : _baseRadius,
+    borderBottomRightRadius: mc ? _r(mc.br) : _baseRadius,
+    borderBottomLeftRadius: mc ? _r(mc.bl) : _baseRadius,
+    border: isSelected
+      ? '2px solid var(--accent-primary)'
+      : (_hasBorder ? `1px solid ${_borderColor}` : 'none'),
+    boxShadow: [
+      isSelected ? '0 0 0 3px rgba(124,58,237,0.15)' : null,
+      buildShadowCSS(widget.config?.shadow),
+      !isSelected && !widget.config?.shadow?.enabled && _hasBorder ? '0 1px 3px rgba(0,0,0,0.05)' : null,
+    ].filter(Boolean).join(', ') || 'none',
+  };
 
   return (
     <Draggable
@@ -66,27 +107,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           width: '100%', height: '100%',
           transform: widget.config?.rotation ? `rotate(${widget.config.rotation}deg)` : undefined,
           transformOrigin: 'center center',
-          background: (() => {
-            // Conditional formatting (driven by colorMeasure binding) takes priority
-            // over the static container background settings when a rule matches.
-            const cc = widget.config?.colorCondition;
-            const cond = cc?.enabled ? evaluateColorCondition(cc, widget.data?._colorValue) : null;
-            if (cond) return cond;
-            return widget.config?.transparentBg
-              ? 'transparent'
-              : (buildGradientCSS(widget.config?.gradientBg) || widget.config?.backgroundColor || (widget.type === 'filter' ? 'transparent' : 'var(--bg-panel)'));
-          })(),
-          borderRadius: (widget.type === 'shape' && widget.config?.shape === 'round') ? '50%' : (widget.config?.borderRadius ?? 8),
-          border: isSelected
-            ? '2px solid var(--accent-primary)'
-            : (widget.config?.borderEnabled === false
-                ? 'none'
-                : `1px solid ${widget.config?.borderColor || 'var(--border-default)'}`),
-          boxShadow: [
-            isSelected ? '0 0 0 3px rgba(124,58,237,0.15)' : null,
-            buildShadowCSS(widget.config?.shadow),
-            !isSelected && !widget.config?.shadow?.enabled && widget.config?.borderEnabled !== false ? '0 1px 3px rgba(0,0,0,0.05)' : null,
-          ].filter(Boolean).join(', ') || 'none',
+          ...frameChrome,
           overflow: widget.config?.shadow?.enabled ? 'visible' : 'hidden',
         }}>
         {widget.config?.title && (
@@ -359,6 +380,14 @@ export default function ReportCanvas({
   interactionsRule,
   onCancelFetch,
   onRefreshWidget,
+  // Merge the selected widget with a neighbour (called by the on-canvas
+  // magnet affordance). No-op in read-only.
+  onMergeWith,
+  // Unmerge the currently-selected widget from its group, and toggle the
+  // group's separator. Same handlers as the PropertyPanel actions — also
+  // surfaced on-canvas at each seam of the selected widget's group.
+  onUnmerge,
+  onToggleSeparator,
   // Print mode strips the surrounding chrome (outer padding + bg-app
   // background + auto-margin centering + fit-to-width scale) so a server
   // -side Puppeteer renderer can capture just the report canvas at its
@@ -398,11 +427,59 @@ export default function ReportCanvas({
   const snap = useCallback((v) => Math.round(v / gridSize) * gridSize, [gridSize]);
   const snapGrid = (settings.snapToGrid ?? true) ? [gridSize, gridSize] : undefined;
 
+  // Groups of merged widgets (gid -> items, only groups with >= 2 present
+  // members). Used to render the single shared frame + drive solid-block
+  // dragging + neutralise each member's own chrome.
+  const mergeGroups = useMemo(() => getMergeGroups(layout, widgets), [layout, widgets]);
+  const mergedGidById = useMemo(() => {
+    const m = {};
+    for (const [gid, items] of Object.entries(mergeGroups)) {
+      for (const it of items) m[it.i] = gid;
+    }
+    return m;
+  }, [mergeGroups]);
+
+  // On-canvas "magnet" affordances: when a widget is selected (edit mode),
+  // a small magnet sits at the junction with each adjacent neighbour that
+  // isn't already merged with it — click to merge the two.
+  const mergeMagnets = useMemo(() => {
+    if (readOnly || !selectedWidget) return [];
+    const sel = layout.find((l) => l.i === selectedWidget);
+    const selW = widgets[selectedWidget];
+    if (!sel || !selW) return [];
+    const selGid = selW.config?.mergeGroup || null;
+    const out = [];
+    for (const it of layout) {
+      if (it.i === selectedWidget) continue;
+      const w = widgets[it.i];
+      if (!w || !WIDGET_TYPES[w.type]) continue;
+      if (selGid && w.config?.mergeGroup === selGid) continue;
+      const p = edgeMidpoint(sel, it);
+      if (p) out.push({ id: it.i, x: p.x, y: p.y });
+    }
+    return out;
+  }, [readOnly, selectedWidget, layout, widgets]);
+
   const handleDragStop = useCallback((id, data) => {
+    const it = layout.find((l) => l.i === id);
+    const nx = Math.max(0, snap(data.x));
+    const ny = Math.max(0, snap(data.y));
+    const gid = mergedGidById[id];
+    if (gid && it) {
+      // Solid block: translate every member by the same delta so a merged
+      // group stays contiguous (chosen behaviour: "bloc solidaire").
+      const dx = nx - (it.x || 0);
+      const dy = ny - (it.y || 0);
+      const memberIds = new Set((mergeGroups[gid] || []).map((m) => m.i));
+      onLayoutChange(layout.map((l) => memberIds.has(l.i)
+        ? { ...l, x: Math.max(0, (l.x || 0) + dx), y: Math.max(0, (l.y || 0) + dy) }
+        : l));
+      return;
+    }
     onLayoutChange(layout.map((item) =>
-      item.i === id ? { ...item, x: Math.max(0, snap(data.x)), y: Math.max(0, snap(data.y)) } : item
+      item.i === id ? { ...item, x: nx, y: ny } : item
     ));
-  }, [layout, onLayoutChange, snap]);
+  }, [layout, onLayoutChange, snap, mergedGidById, mergeGroups]);
 
   const handleAutoHeight = useCallback((id, newH) => {
     onLayoutChange(layout.map((item) =>
@@ -506,6 +583,9 @@ export default function ReportCanvas({
             pointerEvents: 'none', zIndex: 0, borderRadius: settings.borderRadius ?? 8,
           }} />
         )}
+        {/* Seam-merge model: NO bounding-box backdrop — each merged
+            member keeps its own size/frame; the shared border between
+            two members is dropped (per-edge, in WidgetItem). */}
         {layout.map((item) => {
           const widget = widgets[item.i];
           if (!widget) return null;
@@ -556,9 +636,159 @@ export default function ReportCanvas({
               onToggleCrossFilter={onToggleCrossFilter}
               onCancelFetch={onCancelFetch}
               onRefreshWidget={onRefreshWidget}
+              mergeCorners={mergedGidById[item.i]
+                ? mergeCorners(item, mergeGroups[mergedGidById[item.i]] || [])
+                : null}
             />
           );
         })}
+        {/* Seam covers: each merged member keeps its FULL frame; we only
+            mask the exact touching segment (doubled border + rounded-
+            corner nubs) so the parts that don't touch keep their border
+            and rounding. When the group's separator is on, a single thin
+            line is drawn over the seam instead. */}
+        {Object.values(mergeGroups).map((items, gi) => {
+          const sep = items.some((it) => widgets[it.i]?.config?.mergeSeparator);
+          const inGroupSelected = !readOnly && selectedWidget && items.some((it) => it.i === selectedWidget);
+          const COVER = 6; // masks 1px border on each side + radius nubs
+          return groupSeams(items).map((s, k) => {
+            const inset = Math.max(6, Math.min(16, s.length * 0.12));
+            const lineLen = Math.max(2, s.length - 2 * inset);
+            const capCss = '1px solid var(--border-default)';
+            // At an end that is NOT an aligned outer corner (a concave
+            // L-corner: one widget terminates there, the other goes on)
+            // pull the cover back ~2px so the two widgets' own kept
+            // borders meet cleanly at the corner instead of leaving a
+            // 1px hole. Aligned ends keep the continuity cap.
+            const PULL = 2;
+            // On-canvas action cluster at the seam midpoint (shown only
+            // when the selected widget is in this group, edit mode).
+            // Two affordances: broken-magnet → unmerge ; line → toggle
+            // the separator line.
+            const midX = s.vertical ? s.x : s.x + s.length / 2;
+            const midY = s.vertical ? s.y + s.length / 2 : s.y;
+            const iconBtnBase = {
+              width: 22, height: 22, padding: 0, border: 'none', borderRadius: 11,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            };
+            // Cluster oriented along the seam: vertical seam → buttons
+            // stacked (pill is tall); horizontal seam → buttons side by
+            // side (pill is wide). Keeps the affordance compact along
+            // the actual junction.
+            const clusterStyle = s.vertical
+              ? { left: midX - 13, top: midY - 28, width: 26, height: 56, flexDirection: 'column', padding: '2px 0' }
+              : { left: midX - 28, top: midY - 13, width: 56, height: 26, flexDirection: 'row', padding: '0 2px' };
+            const cluster = inGroupSelected ? (
+              <div style={{
+                position: 'absolute',
+                ...clusterStyle,
+                borderRadius: 13,
+                background: 'var(--bg-panel)',
+                border: '1px solid var(--border-default)',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                gap: 2,
+                zIndex: 60, pointerEvents: 'auto',
+              }}>
+                <button
+                  title="Unmerge frames"
+                  onClick={(e) => { e.stopPropagation(); onUnmerge?.(); }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  style={{ ...iconBtnBase, background: 'transparent', color: 'var(--text-secondary)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--state-danger)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                >
+                  <TbMagnetOff size={13} />
+                </button>
+                <button
+                  title={sep ? 'Hide separator' : 'Show separator'}
+                  onClick={(e) => { e.stopPropagation(); onToggleSeparator?.(); }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  style={{
+                    ...iconBtnBase,
+                    background: sep ? 'var(--accent-primary)' : 'transparent',
+                    color: sep ? '#fff' : 'var(--text-secondary)',
+                  }}
+                  onMouseEnter={(e) => { if (!sep) { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--accent-primary)'; } }}
+                  onMouseLeave={(e) => { if (!sep) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; } }}
+                >
+                  <TbMinus size={14} />
+                </button>
+              </div>
+            ) : null;
+
+            if (s.vertical) {
+              const ti = s.capStart ? 0 : PULL;
+              const bi = s.capEnd ? 0 : PULL;
+              return (
+                <Fragment key={`seam-${gi}-${k}`}>
+                  <div style={{
+                    position: 'absolute', left: s.x - COVER / 2, top: s.y + ti,
+                    width: COVER, height: Math.max(1, s.length - ti - bi),
+                    background: 'var(--bg-panel)',
+                    borderTop: s.capStart ? capCss : 'none',
+                    borderBottom: s.capEnd ? capCss : 'none',
+                    boxSizing: 'border-box',
+                    zIndex: 50, pointerEvents: 'none',
+                  }}>
+                    {sep && <div style={{
+                      position: 'absolute', left: COVER / 2 - 0.5, top: inset,
+                      width: 1, height: lineLen, background: 'var(--border-default)',
+                    }} />}
+                  </div>
+                  {cluster}
+                </Fragment>
+              );
+            }
+            const li = s.capStart ? 0 : PULL;
+            const ri = s.capEnd ? 0 : PULL;
+            return (
+              <Fragment key={`seam-${gi}-${k}`}>
+                <div style={{
+                  position: 'absolute', left: s.x + li, top: s.y - COVER / 2,
+                  width: Math.max(1, s.length - li - ri), height: COVER,
+                  background: 'var(--bg-panel)',
+                  borderLeft: s.capStart ? capCss : 'none',
+                  borderRight: s.capEnd ? capCss : 'none',
+                  boxSizing: 'border-box',
+                  zIndex: 50, pointerEvents: 'none',
+                }}>
+                  {sep && <div style={{
+                    position: 'absolute', top: COVER / 2 - 0.5, left: inset,
+                    height: 1, width: lineLen, background: 'var(--border-default)',
+                  }} />}
+                </div>
+                {cluster}
+              </Fragment>
+            );
+          });
+        })}
+        {/* Magnet affordances at the junctions of the selected widget
+            with its mergeable neighbours (edit mode only). */}
+        {mergeMagnets.map((mag) => (
+          <button
+            key={'magnet-' + mag.id}
+            title="Merge these two frames"
+            onClick={(e) => { e.stopPropagation(); onMergeWith?.(mag.id); }}
+            onMouseDown={(e) => e.stopPropagation()}
+            style={{
+              position: 'absolute',
+              left: mag.x - 13, top: mag.y - 13,
+              width: 26, height: 26, borderRadius: '50%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 0, cursor: 'pointer', zIndex: 60,
+              background: 'var(--bg-panel)',
+              border: '1px solid var(--accent-primary)',
+              color: 'var(--accent-primary)',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
+              transition: 'background 0.12s, transform 0.12s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-primary)'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.transform = 'scale(1.12)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.transform = 'scale(1)'; }}
+          >
+            <TbMagnet size={14} />
+          </button>
+        ))}
         </div>
       </div>
     </div>
