@@ -191,7 +191,10 @@ body {
   left: 0;
   height: 100%;
   border-radius: 2px;
-  background: var(--text-accent);
+  /* --text-accent was never declared in the theme → the fill was
+     transparent and the bar looked permanently empty. Use the real
+     accent token, with a hard fallback. */
+  background: var(--accent-primary, #7c3aed);
 }
 /* Unknown total → sweeping bar. Known N/total → solid bar whose width
    is set inline; transition makes each poll tick animate smoothly. */
