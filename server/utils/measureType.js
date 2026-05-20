@@ -165,21 +165,27 @@ const RATIO_PATTERNS = [
 // arithmetic, CASE, IFNULL, …) bails so the live SQL handles it exactly.
 // Returns `{ column, table }` or null. `table` is `''` when the inner
 // reference is a bare `"col"` with no qualifier.
-// True when the HLL pipeline is active end-to-end. Set
-// `ROLLUP_HLL_ENABLED=1` once D-3 (build SQL) + D-4 (planner SQL) land
-// alongside this recognition; until then DISTINCT measures stay
-// non-decomposable so the planner MISSes → live SQL (correct,
-// unaccelerated, identical to today's behaviour).
-function hllEnabled() {
-  return process.env.ROLLUP_HLL_ENABLED === '1';
-}
-
-const COUNT_DISTINCT_RE = /^\s*COUNT\s*\(\s*DISTINCT\s+([\s\S]+?)\s*\)\s*$/i;
+// SQL accepts two equivalent DISTINCT shapes — `COUNT(DISTINCT col)`
+// (whitespace-separated) and `COUNT(DISTINCT(col))` (parenthesised).
+// `(?=[\s(])` requires DISTINCT to be followed by whitespace OR `(`
+// (never an identifier char), so a typo like `DISTINCTcol` doesn't
+// match. The englobing parens of the second shape land inside the
+// capture group; the helper peels them off below.
+const COUNT_DISTINCT_RE = /^\s*COUNT\s*\(\s*DISTINCT(?=[\s(])\s*([\s\S]+?)\s*\)\s*$/i;
 function detectCountDistinct(expression) {
   if (!expression || typeof expression !== 'string') return null;
   const m = expression.match(COUNT_DISTINCT_RE);
   if (!m) return null;
-  const inner = m[1].trim();
+  let inner = m[1].trim();
+  // Peel englobing parens — `COUNT(DISTINCT("col"))` arrives as
+  // `("col")` in the capture, which the PART_RE below would reject.
+  // Loop in case someone writes `COUNT(DISTINCT(("col")))`. Stop as
+  // soon as the outer parens stop balancing the entire inner.
+  while (inner.startsWith('(') && inner.endsWith(')')) {
+    const close = matchingClose(inner, 0);
+    if (close !== inner.length - 1) break;
+    inner = inner.slice(1, -1).trim();
+  }
   // The inner reference must be a sequence of double-quoted idents
   // joined by `.` and nothing else (no expressions, no functions).
   const PART_RE = /^"((?:[^"]|"")*)"(?:\s*\.\s*"((?:[^"]|"")*)")*$/;
@@ -565,14 +571,18 @@ function decomposeMeasure(measure, allMeasures) {
     // fall through to decomposeAsExpression (which rejects DISTINCT
     // refs anywhere) → live SQL keeps doing the exact count.
     //
-    // Gated behind ROLLUP_HLL_ENABLED while D-3 (build SQL) + D-4
-    // (planner SQL) are landing in a coordinated change. When the
-    // flag is off the spec recognition still happens IF the caller
-    // explicitly opts in (used by Jest tests below); without that
-    // opt-in we return null → distinct stays non-decomposable, the
-    // existing MISS → live SQL path is preserved on every install.
+    // Whether HLL is actually USED for the recognition is decided at
+    // the plan layer: `componentPlanForMeasures({hllReady})` reads
+    // `isHllReady(db)` on the destination DuckDB and marks distinct
+    // outputs `supported:false` when the DataSketches extension
+    // failed to load (air-gapped install, repo unreachable, …). The
+    // spec itself stays recognised; only the materialisation is
+    // gated. Three layers of defence — extension load is a no-op on
+    // failure, plan opts mark the output, the build path try/catches
+    // the staging→rollup transition — so a recognised spec on a host
+    // without the extension is always safe.
     const distinct = detectCountDistinct(measure.expression);
-    if (distinct && hllEnabled()) {
+    if (distinct) {
       return {
         type: 'distinct',
         kind: 'hll',
@@ -794,11 +804,12 @@ function hllAliasBase(spec) {
 //   fireNames:     measure names to request from /query by name
 //   extraMeasures: synthetic AVG components to pass as extraMeasures
 //   atoms:         [{ col, agg }] physical component columns + re-agg fn
-function componentPlanForMeasures(outputDefs, allMeasures) {
+function componentPlanForMeasures(outputDefs, allMeasures, opts) {
+  const hllReady = !!(opts && opts.hllReady);
   const outputs = [];
   const fireNames = new Set();
   const extraByAlias = new Map();
-  const atomByCol = new Map(); // col -> agg ('sum'|'min'|'max')
+  const atomByCol = new Map(); // col -> agg ('sum'|'min'|'max') | {agg, lgK}
 
   for (const m of outputDefs) {
     if (!m || !m.name) continue;
@@ -812,6 +823,16 @@ function componentPlanForMeasures(outputDefs, allMeasures) {
     }
     const spec = decomposeMeasure(m, allMeasures);
     if (!spec) {
+      outputs.push({ name: m.name, label, spec: null, supported: false });
+      continue;
+    }
+    // DISTINCT measures need the DataSketches DuckDB extension to
+    // materialise their HLL sketch atoms. If the extension didn't load
+    // (offline / unreachable community repo), drop the output to
+    // `supported:false` so the planner MISSes → live SQL (correct,
+    // unaccelerated). Generic for every DISTINCT shape — never
+    // materialise an HLL atom we can't read back.
+    if (spec.type === 'distinct' && !hllReady) {
       outputs.push({ name: m.name, label, spec: null, supported: false });
       continue;
     }

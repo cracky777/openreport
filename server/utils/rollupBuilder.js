@@ -721,13 +721,17 @@ function inferColumnType(rows, col) {
   return 'VARCHAR'; // all-null column — VARCHAR is the safe default
 }
 
-async function buildRollupToDuckDB({ modelId, orgId, gen, tableName, grain, atomCols, rows, dimLabel, measureLabel }) {
+async function buildRollupToDuckDB({ modelId, orgId, gen, tableName, grain, atoms, rows, dimLabel, measureLabel }) {
   // DuckDB column name = the dim NAME / atom column id (stable). The
   // matching /query row key is the LABEL (or NAME when no label). For
   // synthetic AVG components the /query alias == the atom id (no label),
   // so the `|| n` fallback resolves them correctly.
+  const atomCols = atoms.map((a) => a.col);
+  const hllAtoms = atoms.filter((a) => a.agg === 'HLL_UNION');
+  const additiveAtoms = atoms.filter((a) => a.agg !== 'HLL_UNION');
+  const additiveSet = new Set(additiveAtoms.map((a) => a.col));
+  const hllSet = new Set(hllAtoms.map((a) => a.col));
   const columns = [...grain, ...atomCols];
-  const atomSet = new Set(atomCols);
   const nameToRowKey = {};
   for (const n of grain) nameToRowKey[n] = dimLabel[n] || n;
   for (const n of atomCols) nameToRowKey[n] = measureLabel[n] || n;
@@ -740,45 +744,119 @@ async function buildRollupToDuckDB({ modelId, orgId, gen, tableName, grain, atom
     const out = {};
     for (const col of columns) {
       const v = row[nameToRowKey[col]];
-      // Atom columns are always numeric aggregates. node-postgres returns
-      // NUMERIC/BIGINT as STRINGS — without coercion inferColumnType sees
-      // a string and types the column VARCHAR, then SUM(VARCHAR) fails at
-      // query time. Force them to numbers (non-numeric → null).
-      out[col] = atomSet.has(col) ? toNum(v) : v;
+      // Additive atoms are numeric aggregates → coerce. HLL columns
+      // arrive raw (no aggregate function applied at source) — keep
+      // them as-is so DuckDB sees the native source type. Grain dim
+      // columns also stay untouched.
+      out[col] = additiveSet.has(col) ? toNum(v) : v;
     }
     return out;
   });
-  const colSpecs = columns.map((c) => {
-    const t = atomSet.has(c) ? 'DOUBLE' : inferColumnType(remapped, c);
-    return `"${c.replace(/"/g, '""')}" ${t}`;
+
+  // ─── No HLL atoms: direct CREATE TABLE + INSERT path ─────────────────
+  if (hllAtoms.length === 0) {
+    const colSpecs = columns.map((c) => {
+      const t = additiveSet.has(c) ? 'DOUBLE' : inferColumnType(remapped, c);
+      return `"${c.replace(/"/g, '""')}" ${t}`;
+    });
+    // Fresh gen file → the table can't pre-exist; no DROP needed.
+    await rollupDuckDB.run(modelId, gen, `CREATE TABLE "${tableName}" (${colSpecs.join(', ')})`, orgId);
+    await rollupDuckDB.insertRows(modelId, gen, tableName, columns, remapped, orgId);
+    const bytes = estimateRowBytes(remapped, columns, additiveSet, hllSet);
+    return { rowCount: remapped.length, bytes };
+  }
+
+  // ─── HLL path: staging table + final GROUP-BY-aggregated rollup ──────
+  // The fetch already widened the grain to (grain ∪ hll_cols) at /query
+  // time (routes/models.js's `aggregation: 'hll'` branch emits the raw
+  // column in SELECT + GROUP BY). Additive atoms in the same query are
+  // therefore aggregated at THIS finer grain — mathematically the same
+  // total at the requested grain since SUM/MIN/MAX/COUNT are additive,
+  // we just re-aggregate them in DuckDB alongside the HLL sketches.
+  //
+  // Staging layout: every column we received in `remapped`. Additive
+  // atoms typed DOUBLE; HLL raw columns + grain dims inferred from the
+  // values themselves (could be VARCHAR / BIGINT / DOUBLE / DATE depending
+  // on the source column type). DataSketches' `datasketch_hll(lgK, x)`
+  // accepts any of those.
+  const stagingName = `${tableName}__stg`;
+  const stagingSpecs = columns.map((c) => {
+    if (additiveSet.has(c)) return `"${c.replace(/"/g, '""')}" DOUBLE`;
+    return `"${c.replace(/"/g, '""')}" ${inferColumnType(remapped, c)}`;
   });
-  // Fresh gen file → the table can't pre-exist; no DROP needed.
-  await rollupDuckDB.run(modelId, gen, `CREATE TABLE "${tableName}" (${colSpecs.join(', ')})`, orgId);
-  await rollupDuckDB.insertRows(modelId, gen, tableName, columns, remapped, orgId);
-  // Per-grain volumetry estimate. DuckDB exposes no clean per-table
-  // byte size (`duckdb_tables().estimated_size` is row cardinality), so
-  // we estimate row width from the materialised data: 8 B per numeric/
-  // atom/date cell, sampled average string length (+1) per VARCHAR cell.
-  // Good enough to compare which grains are heavy.
+  await rollupDuckDB.run(modelId, gen, `CREATE TABLE "${stagingName}" (${stagingSpecs.join(', ')})`, orgId);
+  await rollupDuckDB.insertRows(modelId, gen, stagingName, columns, remapped, orgId);
+
+  // Final rollup: re-aggregate additive atoms with their own SQL agg
+  // (SUM/MIN/MAX — same agg the planner emits at query time) and emit a
+  // DataSketches HLL sketch per HLL column. GROUP BY the grain dims —
+  // the result is exactly one row per grain bucket. All sibling additive
+  // atoms collapse correctly from the finer (grain ∪ col) cardinality.
+  const grainCols = grain.map((g) => `"${g.replace(/"/g, '""')}"`);
+  const finalSelects = [
+    ...grainCols,
+    ...additiveAtoms.map((a) => `${a.agg}("${a.col.replace(/"/g, '""')}") AS "${a.col.replace(/"/g, '""')}"`),
+    ...hllAtoms.map((a) => {
+      const lgK = a.lgK || 12;
+      return `datasketch_hll(${lgK}, "${a.col.replace(/"/g, '""')}") AS "${a.col.replace(/"/g, '""')}"`;
+    }),
+  ];
+  const groupClause = grainCols.length ? ` GROUP BY ${grainCols.join(', ')}` : '';
+  const finalSql = `CREATE TABLE "${tableName}" AS SELECT ${finalSelects.join(', ')} FROM "${stagingName}"${groupClause}`;
+  try {
+    await rollupDuckDB.run(modelId, gen, finalSql, orgId);
+  } finally {
+    // Always drop staging — keeps the gen file tight even when the
+    // CREATE TABLE failed (DROP IF EXISTS is a no-op then).
+    try { await rollupDuckDB.run(modelId, gen, `DROP TABLE IF EXISTS "${stagingName}"`, orgId); } catch { /* best-effort */ }
+  }
+
+  // For the row-count + bytes report we read the final table's
+  // cardinality from DuckDB (the staging row count is the wider grain).
+  // Sketches don't have a clean "average BLOB size" knob — use the
+  // canonical 4 KB at lg_k=12 (≈ what Query.farm publishes); other
+  // lg_k's scale 2^k bytes per sketch.
+  const finalRows = await rollupDuckDB.query(modelId, gen, `SELECT COUNT(*) AS n FROM "${tableName}"`, orgId);
+  const finalRowCount = Number((finalRows[0] && finalRows[0].n) || 0);
+  // Sum per-row width: grain dims by inferred type (using the staging
+  // sample), additive atoms = 8 B, HLL sketches = ~2^lgK bytes.
+  const sample = remapped.slice(0, 200);
+  let rowWidth = 0;
+  for (const c of grain) rowWidth += dimWidth(sample, c);
+  for (const _ of additiveAtoms) rowWidth += 8;
+  for (const a of hllAtoms) rowWidth += Math.pow(2, a.lgK || 12);
+  const bytes = finalRowCount * rowWidth;
+  return { rowCount: finalRowCount, bytes };
+}
+
+// Sampled per-column width for dim cells — same heuristic the old direct
+// path used inline, factored out so the HLL branch can reuse it.
+function dimWidth(sample, col) {
+  let isNumeric = true;
+  let lenSum = 0;
+  let lenN = 0;
+  for (const r of sample) {
+    const v = r[col];
+    if (v === null || v === undefined) continue;
+    if (typeof v === 'number') { lenSum += 8; lenN++; continue; }
+    isNumeric = false;
+    lenSum += String(v).length + 1;
+    lenN++;
+  }
+  return lenN === 0 ? 8 : (isNumeric ? 8 : Math.ceil(lenSum / lenN));
+}
+
+// Row-width / total-bytes estimate for the direct (no-HLL) path. Same
+// 8 B per additive cell + sampled string length for dim cells.
+function estimateRowBytes(remapped, columns, additiveSet, hllSet) {
   const sample = remapped.slice(0, 200);
   let rowWidth = 0;
   for (const c of columns) {
-    if (atomSet.has(c)) { rowWidth += 8; continue; }
-    let isNumeric = true;
-    let lenSum = 0;
-    let lenN = 0;
-    for (const r of sample) {
-      const v = r[c];
-      if (v === null || v === undefined) continue;
-      if (typeof v === 'number') { lenSum += 8; lenN++; continue; }
-      isNumeric = false;
-      lenSum += String(v).length + 1;
-      lenN++;
-    }
-    rowWidth += lenN === 0 ? 8 : (isNumeric ? 8 : Math.ceil(lenSum / lenN));
+    if (additiveSet.has(c)) { rowWidth += 8; continue; }
+    if (hllSet.has(c)) { rowWidth += 4096; continue; } // unused in this path
+    rowWidth += dimWidth(sample, c);
   }
-  const bytes = remapped.length * rowWidth;
-  return { rowCount: remapped.length, bytes };
+  return remapped.length * rowWidth;
 }
 
 async function buildRollup({
@@ -807,11 +885,24 @@ async function buildRollup({
   });
 
   // Decompose every output measure into its additive component columns.
+  // For DISTINCT measures we need the DataSketches DuckDB extension to be
+  // loadable — pre-warm the destination gen file and read the readiness
+  // flag so the planner can decide between an HLL atom (cached) and a
+  // `supported:false` output (live fallback) BEFORE the source SELECT
+  // runs. The connection stays open and is reused by buildRollupToDuckDB
+  // below; opening it twice is a no-op (Map-cached per absolute path).
   const { byName: measureByName, defs: allMeasureDefs } = loadMeasureDefs(modelId, extras);
   const outputDefs = measures
     .map((n) => measureByName.get(n))
     .filter(Boolean);
-  const plan = componentPlanForMeasures(outputDefs, allMeasureDefs);
+  let hllReady = false;
+  if (storageMode === 'duckdb') {
+    try {
+      const _db = await rollupDuckDB.getDb(modelId, orgId, gen);
+      hllReady = rollupDuckDB.isHllReady(_db);
+    } catch { /* getDb failed; leave hllReady false → live fallback */ }
+  }
+  const plan = componentPlanForMeasures(outputDefs, allMeasureDefs, { hllReady });
 
   // No materialisable component columns for this fact group — every
   // measure is override-tainted / non-decomposable. Firing /query with
@@ -825,31 +916,84 @@ async function buildRollup({
     return { skipped: true, reason: 'no-materialisable-measures' };
   }
 
-  const rows = await fetchRollupRows({
-    modelId, grain,
-    fireNames: plan.fireNames,
-    syntheticExtras: plan.extraMeasures,
-    internalUserId, orgId, reportId, extras, baseFilters,
-  });
-  const maps = buildNameLabelMaps(modelId, extras);
-  const atomCols = plan.atoms.map((a) => a.col);
+  // Detect spec drift against the existing manifest row (if any). When
+  // a measure's decomposition changes — typical example: a DISTINCT
+  // measure that was `supported:false` pre-Phase D and is now
+  // `supported:true` after the HLL pipeline landed — the OLD row still
+  // points at an OLD physical table whose schema cannot serve the new
+  // spec. If the new build then FAILS for any reason (source timeout,
+  // dialect mismatch, …), the blue-green design keeps the OLD row
+  // serving — which means the planner returns `non-decomposable` for
+  // an output that's actually decomposable now, and the visual stays
+  // on live SQL forever. Worse: a manifest row with stale supported
+  // flags can shadow the next successful build's row if both share the
+  // (model, grain, base_filter, fact) key (upsert overwrites — but
+  // until the upsert lands, planner serves stale).
+  //
+  // Cleanup contract: when the EXISTING outputs differ from what the
+  // CURRENT plan would emit, the row is "incompatible" — if the new
+  // build then fails, delete it. The next successful build will
+  // recreate it. Same-shape drift (e.g. row count changed) keeps the
+  // row → blue-green still wins for transient infra failures on
+  // unchanged specs.
+  const existingPreBuild = db.prepare(
+    `SELECT id, measures FROM rollups
+     WHERE model_id = ? AND grain_hash = ? AND base_filter_hash = ? AND fact_table = ?
+       AND (organization_id IS ? OR organization_id = ?)`
+  ).get(modelId, hash, bfHash, factTable || '', orgId || null, orgId || null);
+  let staleIfBuildFails = null;
+  if (existingPreBuild) {
+    try {
+      const oldOutputs = JSON.parse(existingPreBuild.measures || '{}').outputs || [];
+      // Stringify-compare: the outputs array is JSON-serialisable and
+      // the plan generates it deterministically, so a key-order or
+      // type-coercion mismatch will never produce a false-positive.
+      const drifted = JSON.stringify(oldOutputs) !== JSON.stringify(plan.outputs);
+      if (drifted) staleIfBuildFails = existingPreBuild.id;
+    } catch { staleIfBuildFails = existingPreBuild.id; }
+  }
 
+  let rows;
   let rowCount = 0;
   let bytes = 0;
-  if (storageMode === 'duckdb') {
-    const result = await buildRollupToDuckDB({
-      modelId, orgId, gen, tableName, grain, atomCols, rows,
-      dimLabel: maps.dimLabel,
-      measureLabel: maps.measureLabel,
+  try {
+    rows = await fetchRollupRows({
+      modelId, grain,
+      fireNames: plan.fireNames,
+      syntheticExtras: plan.extraMeasures,
+      internalUserId, orgId, reportId, extras, baseFilters,
     });
-    rowCount = result.rowCount;
-    bytes = result.bytes;
-  } else if (storageMode === 'source') {
-    const err = new Error('Source-DB rollup storage is not yet supported (v1 = duckdb only)');
-    err.code = 'ROLLUP_STORAGE_UNSUPPORTED';
+    const maps = buildNameLabelMaps(modelId, extras);
+
+    if (storageMode === 'duckdb') {
+      const result = await buildRollupToDuckDB({
+        modelId, orgId, gen, tableName, grain, atoms: plan.atoms, rows,
+        dimLabel: maps.dimLabel,
+        measureLabel: maps.measureLabel,
+      });
+      rowCount = result.rowCount;
+      bytes = result.bytes;
+    } else if (storageMode === 'source') {
+      const err = new Error('Source-DB rollup storage is not yet supported (v1 = duckdb only)');
+      err.code = 'ROLLUP_STORAGE_UNSUPPORTED';
+      throw err;
+    } else {
+      throw new Error(`Unknown rollup storage mode: ${storageMode}`);
+    }
+  } catch (err) {
+    // Build failed (source timeout, dialect mismatch, …). If the
+    // existing manifest row was incompatible with the current spec,
+    // delete it so the planner emits `no-rollup` → live SQL (always
+    // correct) instead of `non-decomposable` shadowing the stale row.
+    if (staleIfBuildFails) {
+      try {
+        db.prepare('DELETE FROM rollups WHERE id = ?').run(staleIfBuildFails);
+        console.log(`[rollup] cleaned stale manifest row id=${staleIfBuildFails} after failed build (spec drift)`);
+      } catch (delErr) {
+        console.warn(`[rollup] stale-row cleanup failed for id=${staleIfBuildFails}: ${delErr.message}`);
+      }
+    }
     throw err;
-  } else {
-    throw new Error(`Unknown rollup storage mode: ${storageMode}`);
   }
 
   // Upsert manifest keyed by (model, grain, base_filter, fact, org).

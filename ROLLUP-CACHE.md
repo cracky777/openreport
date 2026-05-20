@@ -432,7 +432,7 @@ property in (positive + negative paths).
 > same change (§13). Never widen the gate ad hoc — every safe form
 > needs a regression-guard.
 
-### 6c-bis. DISTINCT via HyperLogLog — Phase D (staged, gated)
+### 6c-bis. DISTINCT via HyperLogLog — Phase D (gated, opt-in)
 
 `COUNT(DISTINCT col)` is fundamentally non-additive (the distinct sets
 of two partitions overlap, so `count_distinct(A ∪ B) ≠ count_distinct(A)
@@ -446,7 +446,7 @@ exposes this as `datasketch_hll(lg_k, col)` (build aggregate),
 `datasketch_hll_union(lg_k, sketch)` (merge aggregate), and
 `datasketch_hll_estimate(sketch)` (scalar extraction).
 
-**Current state (2026-05-20) — D-1 + D-2 landed:**
+**Current state (2026-05-20) — D-1 to D-4 landed, gated opt-in:**
 
 - **D-1** — `server/utils/rollupDuckDB.js` attempts `LOAD datasketches`
   on every new connection; falls back to `INSTALL datasketches FROM
@@ -467,30 +467,63 @@ exposes this as `datasketch_hll(lg_k, col)` (build aggregate),
   per-column + per-`lg_k`, so two distinct measures sharing the same
   column reuse one sketch but a different precision gets its own.
 
-  Recognition is gated behind `ROLLUP_HLL_ENABLED=1`. When the flag
-  is OFF (default on every install today), `decomposeMeasure` still
-  returns `null` for `COUNT(DISTINCT …)` — the planner MISSes →
-  live fact SQL, **identical to today's behaviour**. Tests in
-  `server/__tests__/measureType.distinct.test.js` flip the flag per
-  describe to validate both the gated path and the recognised-spec
-  contract.
+  Parser is **tolerant**: both `COUNT(DISTINCT "tbl"."col")`
+  (space-separated, SQL standard) and `COUNT(DISTINCT("tbl"."col"))`
+  (parenthesised, user-friendly) decompose to the same spec. The
+  helper peels englobing parens iff they balance the entire inner;
+  arithmetic / function wrappers / unquoted columns are still
+  rejected (caller falls to live SQL).
 
-- **D-3 / D-4 (pending)** — flipping the flag on requires:
-  - the rollup builder to fetch deduped `(grain ∪ col)` tuples from
-    the source DB and run `datasketch_hll(lgK, col)` in DuckDB
-    staging→rollup (today's `fetchRollupRows` only knows
-    grain-level aggregates);
-  - the planner to emit
-    `datasketch_hll_estimate(datasketch_hll_union(lgK, hll_col))`
-    when an atom carries `agg: 'HLL_UNION'` (today's planner emits
-    only `SUM` / `MIN` / `MAX`).
+  The single gate on **materialisation** is `isHllReady(db)` — the
+  builder pre-warms the destination gen DuckDB, reads
+  `db.__hllReady` (true iff `LOAD datasketches` succeeded), and
+  passes it as `componentPlanForMeasures({hllReady})`. When false,
+  distinct outputs become `supported:false` and the planner MISSes
+  → live SQL. There is **no env var flag** — the design is safe by
+  construction (three layers of defence: extension load is a no-op
+  on failure, plan opts mark unsupported outputs, build path
+  try/catches the staging→rollup transition), so the feature is
+  active out-of-the-box wherever the extension can load, and
+  invisible everywhere else. Tests in
+  `server/__tests__/measureType.distinct.test.js` cover both the
+  recognised-spec contract and the `{hllReady}` gate.
 
-  Until both ship in the same change, the flag stays off; the spec
-  recognition + recompose are dormant (zero behavioural change). When
-  D-3 + D-4 land, the same Jest harness gets an end-to-end shape
-  (decompose → build SQL string → planner SQL string → recompose
-  scalar) so the math is regression-guarded across the whole
-  pipeline.
+- **D-3** — build path:
+  - `routes/models.js` (OSS + cloud shadow `server/cloud/routes/
+    models.js`) gained an `aggregation: 'hll'` branch alongside
+    `count_col`: emits the raw column in SELECT **and** adds it to
+    `GROUP BY` — every supported source DB (PG / MySQL / MSSQL /
+    BigQuery / DuckDB) dedupes `(grain ∪ col)` tuples natively, no
+    extension required source-side.
+  - `rollupBuilder.buildRollup` pre-warms the destination DuckDB
+    (`rollupDuckDB.getDb`) and forwards `isHllReady(db) &&
+    ROLLUP_HLL_ENABLED === '1'` to `componentPlanForMeasures` as
+    `{hllReady}`. When `hllReady === false` (flag off, or the
+    extension didn't load), DISTINCT outputs are marked
+    `supported:false` → planner MISS → live SQL. No HLL atom is
+    materialised in that build.
+  - `rollupBuilder.buildRollupToDuckDB` splits atoms into additive
+    vs `HLL_UNION`. With no HLL atoms it keeps the direct
+    `CREATE TABLE … INSERT` path. With at least one HLL atom it:
+    (a) lands the (grain ∪ col) tuples in a staging table whose
+    additive columns are typed `DOUBLE` and whose raw HLL + grain
+    columns are inferred from the source values;
+    (b) builds the final rollup table via
+    `CREATE TABLE rollup AS SELECT grain, SUM/MIN/MAX(additive_atom),
+    datasketch_hll(lgK, hll_col) FROM staging GROUP BY grain`;
+    (c) drops the staging table (always — even on a failed final
+    CREATE TABLE, so the gen file stays tight).
+    The final row width estimate accounts for sketch size
+    (`2^lg_k` bytes / row / HLL column).
+
+- **D-4** — planner path: `rollupPlanner.subFor` branches on
+  `atom.agg === 'HLL_UNION'`. Additive atoms still come out as
+  `SUM(col)` / `MIN(col)` / `MAX(col)`. HLL atoms come out as
+  `datasketch_hll_estimate(datasketch_hll_union(lgK, sketch))` —
+  union-then-estimate, so the row arrives at the recompose layer
+  as a scalar cardinality, indistinguishable from any other additive
+  result. `recomposeMeasure` for `type:'distinct'` simply returns
+  the atom value (the math already happened in DuckDB).
 
 What still falls back to live regardless of the flag:
 

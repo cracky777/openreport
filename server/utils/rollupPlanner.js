@@ -395,8 +395,23 @@ async function tryServeFromRollup(opts) {
 
   // One aggregate subquery per fact-group, dims by NAME so FULL JOIN
   // USING aligns the conformed grain across facts.
+  //
+  // HLL atoms (`agg: 'HLL_UNION'`) take a different SQL shape than
+  // additive atoms (SUM/MIN/MAX): the rollup column stores a BLOB
+  // sketch built at warm time by `datasketch_hll(lgK, col)`, and we
+  // serve a cardinality estimate by `datasketch_hll_union(lgK, sketch)`
+  // (merge sketches across the requested grain) then wrapping the
+  // merged sketch with `datasketch_hll_estimate(…)` so the row arrives
+  // at the recompose layer as a scalar — indistinguishable for the
+  // post-processing from a plain additive SUM/MIN/MAX result.
   const subFor = (g) => {
-    const aselects = g.atoms.map((a) => `${a.agg}(${qIdent(a.col)}) AS ${qIdent(a.col)}`);
+    const aselects = g.atoms.map((a) => {
+      if (a.agg === 'HLL_UNION') {
+        const lgK = a.lgK || 12;
+        return `datasketch_hll_estimate(datasketch_hll_union(${lgK}, ${qIdent(a.col)})) AS ${qIdent(a.col)}`;
+      }
+      return `${a.agg}(${qIdent(a.col)}) AS ${qIdent(a.col)}`;
+    });
     return `SELECT ${[...dimNameCols, ...aselects].join(', ')} FROM ${qIdent(g.rollup.tableName)}${g.whereSql || ''}${groupSql}`;
   };
 

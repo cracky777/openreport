@@ -1,42 +1,33 @@
 /**
- * Phase D-2 — DISTINCT decomposition into a mergeable HyperLogLog spec.
+ * Phase D-2 → D-4 — DISTINCT decomposition into a mergeable HyperLogLog
+ * spec, threaded end-to-end through the rollup build + planner SQL.
  *
- * The recognition is gated behind `ROLLUP_HLL_ENABLED=1`; D-3 (build
- * SQL emitting `datasketch_hll(lgK, col)`) and D-4 (planner SQL emitting
- * `datasketch_hll_estimate(datasketch_hll_union(lgK, sketch))`) land
- * before the flag flips on by default. Until then, distinct measures
- * stay non-decomposable on production installs — the live SQL keeps
- * returning the exact count.
+ * `decomposeMeasure` recognises a clean COUNT(DISTINCT col) shape
+ * unconditionally; the gate that decides whether the rollup actually
+ * materialises an HLL atom lives in `componentPlanForMeasures({hllReady})`
+ * — readiness comes from `rollupDuckDB.isHllReady(db)` (only true once
+ * the DataSketches extension successfully `LOAD`ed in the destination
+ * gen DuckDB). When the extension isn't available, distinct outputs
+ * fall to `supported:false` and the planner MISSes → live SQL.
  *
  * These tests cover:
- *   - `detectCountDistinct` parsing (positive + negative shapes)
- *   - `decomposeMeasure` gating + spec shape under the flag
+ *   - `detectCountDistinct` parsing (positive + negative shapes,
+ *     including the `COUNT(DISTINCT(col))` parenthesised variant)
+ *   - `decomposeMeasure` spec shape (always recognised when the parser
+ *     accepts the expression)
  *   - `hllAliasBase` stability and per-column / per-lgK uniqueness
  *   - `collectComponentsForVisual` synthetic emission
  *   - `componentPlanForMeasures` atom shape (`agg: 'HLL_UNION'`, `lgK`)
+ *     and its `{hllReady}` gate
  *   - `recomposeMeasure` returning the scalar from the merged sketch
  *   - `factsForMeasure` attributing the spec to the right fact table
  *   - Wrapped DISTINCT (arithmetic, IFNULL, …) staying non-decomposable
  *     so the live SQL handles it exactly.
  */
 
-// `hllEnabled()` reads process.env at call time, so we toggle the flag
-// per test rather than reloading the module. `loadModule({hll})` is a
-// shim that sets the flag for the lifetime of the returned object's
-// caller — every helper that depends on the gate is wrapped here.
-function loadModule({ hll }) {
-  // The flag must be live when decomposeMeasure runs, so we set it
-  // process-wide before returning. The afterEach hook below resets it.
-  process.env.ROLLUP_HLL_ENABLED = hll ? '1' : '';
-  return require('../utils/measureType');
-}
-
-afterEach(() => {
-  delete process.env.ROLLUP_HLL_ENABLED;
-});
+const mt = require('../utils/measureType');
 
 describe('detectCountDistinct — recognised shapes', () => {
-  const mt = loadModule({ hll: false }); // parser doesn't need the gate
   const { detectCountDistinct } = mt;
 
   test('table-qualified column', () => {
@@ -63,10 +54,26 @@ describe('detectCountDistinct — recognised shapes', () => {
     expect(detectCountDistinct('COUNT(DISTINCT "weird""col")'))
       .toEqual({ column: 'weird"col', table: '' });
   });
+
+  // SQL accepts both forms; the parser must accept both.
+  test('parenthesised arg: COUNT(DISTINCT("schema"."t"."col"))', () => {
+    expect(detectCountDistinct('COUNT(DISTINCT("nyukom_dimension"."d_date"."nom_mois"))'))
+      .toEqual({ column: 'nom_mois', table: 'nyukom_dimension.d_date' });
+  });
+
+  test('parenthesised arg, table-qualified', () => {
+    expect(detectCountDistinct('COUNT(DISTINCT("t"."col"))'))
+      .toEqual({ column: 'col', table: 't' });
+  });
+
+  test('parenthesised arg with whitespace inside', () => {
+    expect(detectCountDistinct('COUNT(DISTINCT ( "t" . "col" ))'))
+      .toEqual({ column: 'col', table: 't' });
+  });
 });
 
 describe('detectCountDistinct — rejected shapes', () => {
-  const { detectCountDistinct } = loadModule({ hll: false });
+  const { detectCountDistinct } = mt;
 
   test('arithmetic wrapper — not a clean DISTINCT', () => {
     expect(detectCountDistinct('COUNT(DISTINCT "t"."col") * 100')).toBeNull();
@@ -101,20 +108,15 @@ describe('detectCountDistinct — rejected shapes', () => {
   });
 });
 
-describe('decomposeMeasure — gating + spec shape', () => {
+describe('decomposeMeasure — spec shape (always recognised)', () => {
+  const { decomposeMeasure } = mt;
   const distinctMeasure = {
     name: 'unique_users',
     aggregation: 'custom',
     expression: 'COUNT(DISTINCT "events"."user_id")',
   };
 
-  test('flag OFF (default) — returns null (preserves today\'s behaviour)', () => {
-    const { decomposeMeasure } = loadModule({ hll: false });
-    expect(decomposeMeasure(distinctMeasure)).toBeNull();
-  });
-
-  test('flag ON — returns {type:\'distinct\', kind:\'hll\', …}', () => {
-    const { decomposeMeasure } = loadModule({ hll: true });
+  test('canonical shape → {type:\'distinct\', kind:\'hll\', …}', () => {
     expect(decomposeMeasure(distinctMeasure)).toEqual({
       type: 'distinct',
       kind: 'hll',
@@ -124,8 +126,20 @@ describe('decomposeMeasure — gating + spec shape', () => {
     });
   });
 
-  test('flag ON + wrapped DISTINCT — null (falls through to decomposeAsExpression which rejects)', () => {
-    const { decomposeMeasure } = loadModule({ hll: true });
+  test('parenthesised SQL form → same spec', () => {
+    const m = {
+      name: 'count_mois_distinct',
+      aggregation: 'custom',
+      expression: 'COUNT(DISTINCT("nyukom_dimension"."d_date"."nom_mois"))',
+    };
+    expect(decomposeMeasure(m)).toEqual({
+      type: 'distinct', kind: 'hll',
+      column: 'nom_mois', table: 'nyukom_dimension.d_date',
+      lgK: 12,
+    });
+  });
+
+  test('wrapped DISTINCT (×100) — null (decomposeAsExpression rejects)', () => {
     const m = {
       name: 'pct_unique',
       aggregation: 'custom',
@@ -134,8 +148,7 @@ describe('decomposeMeasure — gating + spec shape', () => {
     expect(decomposeMeasure(m)).toBeNull();
   });
 
-  test('flag ON + bare quoted column (no table) — table:\'\'', () => {
-    const { decomposeMeasure } = loadModule({ hll: true });
+  test('bare quoted column (no table) — table:\'\'', () => {
     const m = {
       name: 'unique_tags',
       aggregation: 'custom',
@@ -148,7 +161,7 @@ describe('decomposeMeasure — gating + spec shape', () => {
 });
 
 describe('hllAliasBase — stable, per-column, per-lgK', () => {
-  const { hllAliasBase } = loadModule({ hll: false }); // pure function
+  const { hllAliasBase } = mt;
 
   test('same (table, column, lgK) → same alias', () => {
     const a = hllAliasBase({ table: 't', column: 'c', lgK: 12 });
@@ -178,7 +191,7 @@ describe('hllAliasBase — stable, per-column, per-lgK', () => {
 
 describe('collectComponentsForVisual + componentPlanForMeasures — HLL synthetic + atom', () => {
   test('one distinct measure → one HLL synthetic + one HLL atom', () => {
-    const mt = loadModule({ hll: true });
+
     const m = {
       name: 'unique_users',
       aggregation: 'custom',
@@ -196,7 +209,7 @@ describe('collectComponentsForVisual + componentPlanForMeasures — HLL syntheti
     expect(s.table).toBe('events');
     expect(s.alias).toBe(mt.hllAliasBase(spec));
 
-    const plan = mt.componentPlanForMeasures([m], [m]);
+    const plan = mt.componentPlanForMeasures([m], [m], { hllReady: true });
     expect(plan.outputs).toHaveLength(1);
     expect(plan.outputs[0].supported).toBe(true);
     expect(plan.outputs[0].spec).toEqual(spec);
@@ -212,35 +225,54 @@ describe('collectComponentsForVisual + componentPlanForMeasures — HLL syntheti
   });
 
   test('two distinct measures on same column+lgK share one atom', () => {
-    const mt = loadModule({ hll: true });
+
     const m1 = { name: 'unique_a', aggregation: 'custom',
       expression: 'COUNT(DISTINCT "events"."user_id")' };
     const m2 = { name: 'unique_b', aggregation: 'custom',
       expression: 'COUNT(DISTINCT "events"."user_id")' };
-    const plan = mt.componentPlanForMeasures([m1, m2], [m1, m2]);
+    const plan = mt.componentPlanForMeasures([m1, m2], [m1, m2], { hllReady: true });
     // Both outputs supported, both reference the SAME atom (same alias).
     expect(plan.outputs.map((o) => o.supported)).toEqual([true, true]);
     expect(plan.atoms).toHaveLength(1);
   });
 
   test('two distinct measures on different columns → two atoms', () => {
-    const mt = loadModule({ hll: true });
+
     const m1 = { name: 'unique_u', aggregation: 'custom',
       expression: 'COUNT(DISTINCT "events"."user_id")' };
     const m2 = { name: 'unique_s', aggregation: 'custom',
       expression: 'COUNT(DISTINCT "events"."session_id")' };
-    const plan = mt.componentPlanForMeasures([m1, m2], [m1, m2]);
+    const plan = mt.componentPlanForMeasures([m1, m2], [m1, m2], { hllReady: true });
     expect(plan.outputs.map((o) => o.supported)).toEqual([true, true]);
     expect(plan.atoms).toHaveLength(2);
     expect(new Set(plan.atoms.map((a) => a.agg))).toEqual(new Set(['HLL_UNION']));
   });
 
+  test('hllReady=false in plan opts → distinct outputs supported:false (live fallback)', () => {
+
+    const m = { name: 'unique_users', aggregation: 'custom',
+      expression: 'COUNT(DISTINCT "events"."user_id")' };
+    const plan = mt.componentPlanForMeasures([m], [m], { hllReady: false });
+    expect(plan.outputs[0].supported).toBe(false);
+    expect(plan.atoms).toHaveLength(0);
+    expect(plan.extraMeasures).toHaveLength(0);
+  });
+
+  test('omitted opts → defaults to hllReady=false (live fallback)', () => {
+
+    const m = { name: 'unique_users', aggregation: 'custom',
+      expression: 'COUNT(DISTINCT "events"."user_id")' };
+    const plan = mt.componentPlanForMeasures([m], [m]); // no opts
+    expect(plan.outputs[0].supported).toBe(false);
+    expect(plan.atoms).toHaveLength(0);
+  });
+
   test('mixed: simple sum + distinct → one base measure + one HLL atom', () => {
-    const mt = loadModule({ hll: true });
+
     const m1 = { name: 'total', aggregation: 'sum', table: 'events', column: 'amount' };
     const m2 = { name: 'unique_u', aggregation: 'custom',
       expression: 'COUNT(DISTINCT "events"."user_id")' };
-    const plan = mt.componentPlanForMeasures([m1, m2], [m1, m2]);
+    const plan = mt.componentPlanForMeasures([m1, m2], [m1, m2], { hllReady: true });
     expect(plan.fireNames).toEqual(['total']);
     expect(plan.atoms).toHaveLength(2);
     const byCol = Object.fromEntries(plan.atoms.map((a) => [a.col, a]));
@@ -253,7 +285,7 @@ describe('collectComponentsForVisual + componentPlanForMeasures — HLL syntheti
 
 describe('recomposeMeasure — distinct passes the merged-estimate scalar through', () => {
   test('returns the atom value when present', () => {
-    const mt = loadModule({ hll: true });
+
     const m = { name: 'unique_users', aggregation: 'custom',
       expression: 'COUNT(DISTINCT "events"."user_id")' };
     const spec = mt.decomposeMeasure(m);
@@ -266,7 +298,7 @@ describe('recomposeMeasure — distinct passes the merged-estimate scalar throug
   });
 
   test('returns null when atom missing', () => {
-    const mt = loadModule({ hll: true });
+
     const m = { name: 'unique_users', aggregation: 'custom',
       expression: 'COUNT(DISTINCT "events"."user_id")' };
     const spec = mt.decomposeMeasure(m);
@@ -277,14 +309,14 @@ describe('recomposeMeasure — distinct passes the merged-estimate scalar throug
 
 describe('factsForMeasure — distinct attributes to its column\'s table', () => {
   test('table from spec', () => {
-    const mt = loadModule({ hll: true });
+
     const m = { name: 'unique_users', aggregation: 'custom',
       expression: 'COUNT(DISTINCT "events"."user_id")' };
     expect(mt.factsForMeasure(m, [m])).toEqual(['events']);
   });
 
   test('bare quoted column → falls back to factTablesFromDef (empty)', () => {
-    const mt = loadModule({ hll: true });
+
     const m = { name: 'unique_tags', aggregation: 'custom',
       expression: 'COUNT(DISTINCT "tag")' };
     // No fact attribution → builder treats as cross/unrollable v1.
@@ -294,7 +326,7 @@ describe('factsForMeasure — distinct attributes to its column\'s table', () =>
 
 describe('Distinct as nested ref in a custom expression — rejected', () => {
   test('${distinct} + ${additive} → null (Phase C policy preserved)', () => {
-    const mt = loadModule({ hll: true });
+
     const distA = {
       name: 'distA', table: 'events', column: 'user_id', aggregation: 'custom',
       expression: 'COUNT(DISTINCT "events"."user_id")',
@@ -308,5 +340,88 @@ describe('Distinct as nested ref in a custom expression — rejected', () => {
     // refs; distinct is not on the nested-allowed list, so the wrapping
     // expression bails — exactly today's behaviour.
     expect(mt.decomposeMeasure(wrapped, [distA, b, wrapped])).toBeNull();
+  });
+});
+
+describe('Real-world expressions — parser tolerance audit', () => {
+  // The user-facing UI accepts whatever SQL the user types verbatim.
+  // We can't normalise it later, so every recogniser MUST be tolerant
+  // on whitespace and on the SQL idioms a human actually writes.
+
+  test('COUNT(DISTINCT(...)) parenthesised — same spec as space-separated', () => {
+    const parens = mt.decomposeMeasure({
+      name: 'a', aggregation: 'custom',
+      expression: 'COUNT(DISTINCT("t"."col"))',
+    });
+    const spaced = mt.decomposeMeasure({
+      name: 'b', aggregation: 'custom',
+      expression: 'COUNT(DISTINCT "t"."col")',
+    });
+    expect(parens).toEqual(spaced);
+  });
+
+  test('plain COUNT(col) still decomposes additive (Phase A guard untouched)', () => {
+    const spec = mt.decomposeMeasure({
+      name: 'cnt', aggregation: 'custom',
+      expression: 'COUNT("t"."col")',
+    });
+    expect(spec).toEqual({ type: 'simple', innerType: 'count' });
+  });
+
+  test('case-guarded ratio with NO whitespace around operators (real user shape)', () => {
+    const num = { name: 'num', table: 't', column: 'a', aggregation: 'sum' };
+    const den = { name: 'den', table: 't', column: 'b', aggregation: 'sum' };
+    const pct = {
+      name: 'pct', aggregation: 'custom',
+      expression: '${num}/CASE WHEN ${den}=0 THEN 1 ELSE ${den} END * 100',
+    };
+    const spec = mt.decomposeMeasure(pct, [num, den, pct]);
+    expect(spec).not.toBeNull();
+    expect(spec.type).toBe('ratio');
+    expect(spec.guard).toBe('case');
+    expect(spec.guardThen).toBe(1);
+    expect(spec.scale).toBe(100);
+  });
+
+  test('ROUND on additive sums — picked up via Phase A whitelist', () => {
+    const a = { name: 'a', table: 't', column: 'a', aggregation: 'sum' };
+    const b = { name: 'b', table: 't', column: 'b', aggregation: 'sum' };
+    const kpi = {
+      name: 'kpi', aggregation: 'custom',
+      expression: 'ROUND(${a} / ${b}, 2)',
+    };
+    const spec = mt.decomposeMeasure(kpi, [a, b, kpi]);
+    expect(spec).not.toBeNull();
+    expect(spec.type).toBe('expression');
+    const value = mt.recomposeMeasure(spec, 'kpi', (n) => ({ a: 50, b: 7 }[n]));
+    expect(value).toBe(7.14);
+  });
+
+  test('GREATEST as guard for non-negative result', () => {
+    const a = { name: 'a', table: 't', column: 'a', aggregation: 'sum' };
+    const b = { name: 'b', table: 't', column: 'b', aggregation: 'sum' };
+    const kpi = {
+      name: 'kpi', aggregation: 'custom',
+      expression: 'GREATEST(0, ${a} - ${b})',
+    };
+    const spec = mt.decomposeMeasure(kpi, [a, b, kpi]);
+    expect(spec).not.toBeNull();
+    expect(spec.type).toBe('expression');
+    const value = mt.recomposeMeasure(spec, 'kpi', (n) => ({ a: 5, b: 10 }[n]));
+    expect(value).toBe(0); // GREATEST(0, -5) = 0
+  });
+
+  test('Phase B IF as guard inside Phase A ROUND', () => {
+    const a = { name: 'a', table: 't', column: 'a', aggregation: 'sum' };
+    const b = { name: 'b', table: 't', column: 'b', aggregation: 'sum' };
+    const kpi = {
+      name: 'kpi', aggregation: 'custom',
+      expression: 'ROUND(IF(${b} = 0, 0, ${a} / ${b}) * 100, 1)',
+    };
+    const spec = mt.decomposeMeasure(kpi, [a, b, kpi]);
+    expect(spec).not.toBeNull();
+    expect(spec.type).toBe('expression');
+    const value = mt.recomposeMeasure(spec, 'kpi', (n) => ({ a: 25, b: 100 }[n]));
+    expect(value).toBe(25.0);
   });
 });

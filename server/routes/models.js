@@ -1693,6 +1693,22 @@ router.post('/:id/query', async (req, res) => {
       // matches SQL AVG (NULLs skipped). Distinct from user `count`
       // measures, which stay COUNT(*) (next branch).
       selectParts.push(`COUNT(${quoteCol(m.table, m.column, dbType)}) AS ${quoteIdent(m.label || m.name, dbType)}`);
+    } else if (m.aggregation === 'hll' && m.table && m.column) {
+      // Internal kind used ONLY by the rollup builder's DISTINCT-via-HLL
+      // pipeline (measureType.collectComponentsForVisual emits one
+      // synthetic per `COUNT(DISTINCT col)` measure). The source DB has
+      // no `datasketch_hll` function — every dialect we support, BQ
+      // excepted — so we can't compute a sketch here. Instead we emit
+      // the column RAW (no aggregate) and add it to GROUP BY. The
+      // source DB then delivers deduped (grain ∪ col) tuples; the
+      // downstream DuckDB staging step computes
+      // `datasketch_hll(lgK, col)` at the grain level. Sibling additive
+      // atoms in the same query get aggregated at the finer (grain ∪
+      // col) cardinality, then re-aggregated in DuckDB — mathematically
+      // exact since SUM/MIN/MAX/COUNT are additive.
+      const rawCol = quoteCol(m.table, m.column, dbType);
+      selectParts.push(`${rawCol} AS ${quoteIdent(m.label || m.name, dbType)}`);
+      groupByParts.push(rawCol);
     } else if (m.aggregation === 'count') {
       selectParts.push(`COUNT(*) AS ${quoteIdent(m.label || m.name, dbType)}`);
     } else {
