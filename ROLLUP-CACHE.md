@@ -496,12 +496,15 @@ exposes this as `datasketch_hll(lg_k, col)` (build aggregate),
     BigQuery / DuckDB) dedupes `(grain ∪ col)` tuples natively, no
     extension required source-side.
   - `rollupBuilder.buildRollup` pre-warms the destination DuckDB
-    (`rollupDuckDB.getDb`) and forwards `isHllReady(db) &&
-    ROLLUP_HLL_ENABLED === '1'` to `componentPlanForMeasures` as
-    `{hllReady}`. When `hllReady === false` (flag off, or the
-    extension didn't load), DISTINCT outputs are marked
-    `supported:false` → planner MISS → live SQL. No HLL atom is
-    materialised in that build.
+    (`rollupDuckDB.getDb`) and forwards `isHllReady(db)` to
+    `componentPlanForMeasures` as `{hllReady}`. When `hllReady ===
+    false` (the DataSketches extension didn't load — air-gapped
+    container, community repo unreachable), DISTINCT outputs are
+    marked `supported:false` → planner MISS → live SQL. No HLL atom
+    is materialised in that build. The drop of the previous
+    `ROLLUP_HLL_ENABLED` env-var flag is intentional: the three
+    layers of defence below already make the feature safe to
+    activate out-of-the-box wherever the extension can load.
   - `rollupBuilder.buildRollupToDuckDB` splits atoms into additive
     vs `HLL_UNION`. With no HLL atoms it keeps the direct
     `CREATE TABLE … INSERT` path. With at least one HLL atom it:

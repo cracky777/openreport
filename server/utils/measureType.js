@@ -1,21 +1,26 @@
 /**
- * Single source of truth for "is this measure additive?" — used by the
- * pre-agg path (runtime cache lookup + warm-time eligibility).
+ * Single source of truth for "how does this measure decompose into
+ * rollup-storable atoms?" — the math the rollup builder uses at warm
+ * time to decide what to materialise, and the rollup planner uses at
+ * query time to recombine those atoms into the final value at any
+ * grain ⊇ the rollup grain.
  *
- * A measure is additive when its rows can be re-aggregated in-memory
- * after filtering: SUM, COUNT, MIN, MAX. AVG, COUNT(DISTINCT …),
- * MEDIAN, percentiles and most custom expressions are not.
+ * A measure is *additive* when its rows can be re-aggregated after
+ * filtering: SUM, COUNT, MIN, MAX. Non-additive shapes — AVG,
+ * COUNT(DISTINCT), ratios, custom expressions — are not additive on
+ * their own values, but most can be re-aggregated from their additive
+ * COMPONENTS (e.g. AVG = SUM/COUNT, distinct via HyperLogLog sketches
+ * mergeable across partitions). `decomposeMeasure` returns the spec
+ * that tells the builder what atoms to store and the planner how to
+ * recombine them; supported spec types are `simple` / `avg` / `ratio` /
+ * `expression` (Phase A+B+C math whitelist) / `distinct` (Phase D HLL).
+ * The whole math is documented end-to-end in `ROLLUP-CACHE.md` §6.
  *
- * For `aggregation: 'custom'` measures we still try to recognise the
- * trivial wrappers a user typically writes — `COUNT(col)`, `SUM(col)`,
- * `MIN(col)`, `MAX(col)`, plus `COUNT(*)`. Anything richer (DISTINCT,
- * arithmetic, multiple aggregates, CASE, etc.) drops back to null and
- * the visual falls through to the SQL-keyed cache or the source DB.
- *
- * Lives in server/utils so both routes/models.js (and its cloud shadow)
- * and cacheWarmer.js (OSS + cloud) can share the exact same logic — a
- * mismatch between warm-time and runtime eligibility would silently
- * break the pre-agg cache for half the visuals.
+ * Lives in server/utils so both routes/models.js (and its cloud shadow
+ * server/cloud/routes/models.js) and rollupBuilder.js (OSS + cloud
+ * share the same file post-merge) consume the same decomposition —
+ * any drift between warm-time and runtime eligibility would silently
+ * break the rollup for half the visuals.
  */
 
 // Generic additive-aggregation detector for `aggregation: 'custom'`
