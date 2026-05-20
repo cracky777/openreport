@@ -73,6 +73,43 @@ function genFilesFor(modelId, orgId) {
 
 const _dbByPath = new Map(); // absolute path -> Promise<duckdb.Database>
 
+// DataSketches (Query.farm community extension) gives us mergeable HLL
+// sketches: `datasketch_hll(lg_k, col)` aggregates to a BLOB sketch we
+// can store as a rollup column, then `datasketch_hll_union(lg_k, sketch)`
+// merges sketches at query time and `datasketch_hll_estimate(sketch)`
+// extracts the approximate cardinality. lg_k=12 → ~4 KB / sketch, ~1.6%
+// std-error — the default we use everywhere DISTINCT runs through HLL.
+//
+// `LOAD` is attempted first (cheap, succeeds on every subsequent open
+// once the extension binary is on disk). If LOAD fails we try the full
+// INSTALL FROM community + LOAD — that one needs network on the very
+// first call inside the container. If BOTH fail (no network at boot,
+// or repo unreachable), the connection still works; `db.__hllReady`
+// stays false and the planner / builder treat DISTINCT as non-additive
+// → falls back to live SQL. Zero hard dependency on the extension.
+async function loadDataSketches(db) {
+  try {
+    await db.run('LOAD datasketches');
+    db.__hllReady = true;
+    return;
+  } catch { /* not installed yet — try INSTALL */ }
+  try {
+    await db.run('INSTALL datasketches FROM community');
+    await db.run('LOAD datasketches');
+    db.__hllReady = true;
+  } catch (err) {
+    db.__hllReady = false;
+    db.__hllError = err && err.message ? err.message : String(err);
+  }
+}
+
+// Returns true iff `db` has the DataSketches extension loaded. The
+// builder and planner gate every HLL path on this flag so the rollup
+// pipeline stays green even when the extension can't be fetched.
+function isHllReady(db) {
+  return !!(db && db.__hllReady);
+}
+
 async function getDb(modelId, orgId, gen) {
   const p = dbPathFor(modelId, orgId, gen);
   const existing = _dbByPath.get(p);
@@ -81,6 +118,7 @@ async function getDb(modelId, orgId, gen) {
   const promise = duckdb.Database
     .create(p, { access_mode: 'read_write', default_block_size: '16384' })
     .catch(() => duckdb.Database.create(p)) // older DuckDB w/o the setting
+    .then(async (db) => { await loadDataSketches(db); return db; })
     .catch((err) => { _dbByPath.delete(p); throw err; });
   _dbByPath.set(p, promise);
   return promise;
@@ -219,6 +257,7 @@ module.exports = {
   genOfTableName,
   genFilesFor,
   getDb,
+  isHllReady,
   query,
   run,
   insertRows,

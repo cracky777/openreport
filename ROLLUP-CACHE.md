@@ -432,6 +432,80 @@ property in (positive + negative paths).
 > same change (§13). Never widen the gate ad hoc — every safe form
 > needs a regression-guard.
 
+### 6c-bis. DISTINCT via HyperLogLog — Phase D (staged, gated)
+
+`COUNT(DISTINCT col)` is fundamentally non-additive (the distinct sets
+of two partitions overlap, so `count_distinct(A ∪ B) ≠ count_distinct(A)
++ count_distinct(B)`), which is why every prior phase routed it
+straight to live SQL. The mathematically clean fix is mergeable
+HyperLogLog sketches: each partition stores one sketch, sketches
+**union exactly** across partitions, and the merged sketch's
+cardinality estimate has ~1.6% std-error at `lg_k = 12` (~4 KB per
+sketch). The Query.farm DataSketches DuckDB community extension
+exposes this as `datasketch_hll(lg_k, col)` (build aggregate),
+`datasketch_hll_union(lg_k, sketch)` (merge aggregate), and
+`datasketch_hll_estimate(sketch)` (scalar extraction).
+
+**Current state (2026-05-20) — D-1 + D-2 landed:**
+
+- **D-1** — `server/utils/rollupDuckDB.js` attempts `LOAD datasketches`
+  on every new connection; falls back to `INSTALL datasketches FROM
+  community + LOAD` on the first call; on either failure the
+  connection still works and `db.__hllReady` stays `false`. The
+  module exposes `isHllReady(db)` so the planner / builder can branch
+  on availability — failure is graceful, never a hard error.
+
+- **D-2** — `decomposeMeasure` recognises a clean `COUNT(DISTINCT
+  "tbl"."col")` shape and returns `{type:'distinct', kind:'hll',
+  column, table, lgK:12}`. `collectComponentsForVisual` emits one
+  synthetic `{kind:'hll', alias, column, table, lgK}` per spec;
+  `componentPlanForMeasures` emits a matching atom `{col, agg:
+  'HLL_UNION', lgK}` so the planner knows it must wrap the merge with
+  `datasketch_hll_estimate`. `recomposeMeasure` returns the scalar
+  estimate verbatim. `hllAliasBase(spec)` is the stable
+  `_hll_<sha1[0..16]>` alias keyed by `table.column|lgk=N` —
+  per-column + per-`lg_k`, so two distinct measures sharing the same
+  column reuse one sketch but a different precision gets its own.
+
+  Recognition is gated behind `ROLLUP_HLL_ENABLED=1`. When the flag
+  is OFF (default on every install today), `decomposeMeasure` still
+  returns `null` for `COUNT(DISTINCT …)` — the planner MISSes →
+  live fact SQL, **identical to today's behaviour**. Tests in
+  `server/__tests__/measureType.distinct.test.js` flip the flag per
+  describe to validate both the gated path and the recognised-spec
+  contract.
+
+- **D-3 / D-4 (pending)** — flipping the flag on requires:
+  - the rollup builder to fetch deduped `(grain ∪ col)` tuples from
+    the source DB and run `datasketch_hll(lgK, col)` in DuckDB
+    staging→rollup (today's `fetchRollupRows` only knows
+    grain-level aggregates);
+  - the planner to emit
+    `datasketch_hll_estimate(datasketch_hll_union(lgK, hll_col))`
+    when an atom carries `agg: 'HLL_UNION'` (today's planner emits
+    only `SUM` / `MIN` / `MAX`).
+
+  Until both ship in the same change, the flag stays off; the spec
+  recognition + recompose are dormant (zero behavioural change). When
+  D-3 + D-4 land, the same Jest harness gets an end-to-end shape
+  (decompose → build SQL string → planner SQL string → recompose
+  scalar) so the math is regression-guarded across the whole
+  pipeline.
+
+What still falls back to live regardless of the flag:
+
+- Any DISTINCT **wrapped** in arithmetic / CASE / IFNULL — `COUNT(
+  DISTINCT col) * 100`, `SUM(DISTINCT col)`, etc. The clean
+  `COUNT(DISTINCT "tbl"."col")` shape is the only recognised form
+  (live SQL handles the wrapped shapes exactly).
+- DISTINCT used as a **nested ref** inside a custom expression
+  (`${distA} + ${b}`): `decomposeAsExpression`'s Phase C nested-ref
+  whitelist accepts only `avg` / `ratio` specs, never `distinct`.
+  Keeps recursion depth bounded.
+- Distinct on an unqualified bare column (`COUNT(DISTINCT "col")`):
+  `factsForMeasure` returns `[]` → cross/unrollable v1, planner
+  MISSes.
+
 ---
 
 ## 7. RLS

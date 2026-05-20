@@ -153,6 +153,48 @@ const RATIO_PATTERNS = [
   { guard: 'case', re: new RegExp(`^\\s*\\$\\{(${REF})\\}\\s*\\/\\s*CASE\\s+WHEN\\s+\\$\\{(${REF})\\}\\s*=\\s*0\\s+THEN\\s+(\\S+)\\s+ELSE\\s+\\$\\{(${REF})\\}\\s+END${SCALE_TAIL}\\s*$`, 'i') },
 ];
 
+// ─── COUNT(DISTINCT col) recogniser (Phase D — HLL sketches) ───────────
+// DISTINCT counts aren't classically additive: count_distinct(A ∪ B) ≠
+// count_distinct(A) + count_distinct(B) because the two sets overlap.
+// HyperLogLog sketches DO merge across partitions exactly (with bounded
+// ~1.6% error at lg_k=12), so a rollup can persist one sketch per group
+// at build time and merge them at any coarser grain at query time.
+//
+// We only recognise the literal shape `COUNT(DISTINCT "table"."col")`
+// (with optional schema) — anything wrapped (`COUNT(DISTINCT … ) * 100`,
+// arithmetic, CASE, IFNULL, …) bails so the live SQL handles it exactly.
+// Returns `{ column, table }` or null. `table` is `''` when the inner
+// reference is a bare `"col"` with no qualifier.
+// True when the HLL pipeline is active end-to-end. Set
+// `ROLLUP_HLL_ENABLED=1` once D-3 (build SQL) + D-4 (planner SQL) land
+// alongside this recognition; until then DISTINCT measures stay
+// non-decomposable so the planner MISSes → live SQL (correct,
+// unaccelerated, identical to today's behaviour).
+function hllEnabled() {
+  return process.env.ROLLUP_HLL_ENABLED === '1';
+}
+
+const COUNT_DISTINCT_RE = /^\s*COUNT\s*\(\s*DISTINCT\s+([\s\S]+?)\s*\)\s*$/i;
+function detectCountDistinct(expression) {
+  if (!expression || typeof expression !== 'string') return null;
+  const m = expression.match(COUNT_DISTINCT_RE);
+  if (!m) return null;
+  const inner = m[1].trim();
+  // The inner reference must be a sequence of double-quoted idents
+  // joined by `.` and nothing else (no expressions, no functions).
+  const PART_RE = /^"((?:[^"]|"")*)"(?:\s*\.\s*"((?:[^"]|"")*)")*$/;
+  if (!PART_RE.test(inner)) return null;
+  const parts = [];
+  const re = /"((?:[^"]|"")*)"/g;
+  let p;
+  while ((p = re.exec(inner)) !== null) parts.push(p[1].replace(/""/g, '"'));
+  if (parts.length < 1) return null;
+  return {
+    column: parts[parts.length - 1],
+    table: parts.length > 1 ? parts.slice(0, -1).join('.') : '',
+  };
+}
+
 // ─── General expression decomposer ─────────────────────────────────────
 // Any custom expression whose ${refs} are ALL additive can be re-computed
 // from the component sums at any grain. We:
@@ -516,6 +558,29 @@ function decomposeMeasure(measure, allMeasures) {
         }
       }
     }
+    // COUNT(DISTINCT col) — non-additive in the classic sense, but
+    // re-aggregatable across partitions via mergeable HyperLogLog
+    // sketches. Decompose only if the expression is a clean
+    // `COUNT(DISTINCT "tbl"."col")`; arithmetic / wrappers around it
+    // fall through to decomposeAsExpression (which rejects DISTINCT
+    // refs anywhere) → live SQL keeps doing the exact count.
+    //
+    // Gated behind ROLLUP_HLL_ENABLED while D-3 (build SQL) + D-4
+    // (planner SQL) are landing in a coordinated change. When the
+    // flag is off the spec recognition still happens IF the caller
+    // explicitly opts in (used by Jest tests below); without that
+    // opt-in we return null → distinct stays non-decomposable, the
+    // existing MISS → live SQL path is preserved on every install.
+    const distinct = detectCountDistinct(measure.expression);
+    if (distinct && hllEnabled()) {
+      return {
+        type: 'distinct',
+        kind: 'hll',
+        column: distinct.column,
+        table: distinct.table,
+        lgK: 12,
+      };
+    }
     // General path: any custom expression whose ${refs} are all simple
     // additive measures can be re-evaluated at any grain from their
     // component sums. Handles arbitrary math (COS, LOG, division,
@@ -648,6 +713,22 @@ function collectComponentsForVisual(specs) {
       else visit(spec.denSpec);
       return;
     }
+    if (spec.type === 'distinct') {
+      // One mergeable HyperLogLog sketch column per (table, column, lgK).
+      // The builder fires `datasketch_hll(lgK, col)` over the deduped
+      // (grain ∪ col) tuples it pulled from the source; the planner emits
+      // `datasketch_hll_estimate(datasketch_hll_union(lgK, sketch))` to
+      // get the approximate cardinality at any requested grain.
+      const aliasBase = hllAliasBase(spec);
+      synthetic.push({
+        alias: aliasBase,
+        column: spec.column,
+        table: spec.table,
+        kind: 'hll',
+        lgK: spec.lgK || 12,
+      });
+      return;
+    }
     if (spec.type === 'expression') {
       // Each ref is either a simple additive (one atom in the model)
       // or a Phase C nested decomposition (avg / ratio — its own
@@ -695,6 +776,18 @@ function avgAliasBase(spec) {
   return `_avg_${h}`;
 }
 
+// Stable alias for an HLL sketch atom — same `<short-hash>` shape as
+// `avgAliasBase`, so two DISTINCT measures targeting the same column
+// share ONE sketch column in the rollup (idempotent). lgK is part of
+// the hash because two specs with the same column but different
+// precisions can't share the underlying sketch (HLL sketches are not
+// mergeable across lg_k values).
+function hllAliasBase(spec) {
+  const key = `${spec.table || ''}.${spec.column}|lgk=${spec.lgK || 12}`;
+  const h = require('crypto').createHash('sha1').update(key).digest('hex').slice(0, 16);
+  return `_hll_${h}`;
+}
+
 // Given the measure DEFs a rollup must serve + the full measure pool,
 // returns everything the builder and planner need:
 //   outputs:       [{ name, label, spec, supported }]
@@ -737,6 +830,20 @@ function componentPlanForMeasures(outputDefs, allMeasures) {
         atomByCol.set(b, sqlAggForAdditive(additiveTypeForMeasure(bd, allMeasures)));
       }
       for (const s of syntheticMeasures) {
+        if (s.kind === 'hll') {
+          // HLL sketch atom: stored as BLOB in the rollup, re-aggregated
+          // via datasketch_hll_union(lgK, sketch) and unwrapped by
+          // datasketch_hll_estimate(...) — the planner branches on
+          // `agg === 'HLL_UNION'` and reads `lgK` from the atom. The
+          // builder branches on `aggregation: 'hll'` to fetch (grain ∪
+          // col) deduped rows and run `datasketch_hll(lgK, col)` in
+          // DuckDB at staging→rollup time.
+          extraByAlias.set(s.alias, {
+            name: s.alias, aggregation: s.kind, column: s.column, table: s.table, lgK: s.lgK,
+          });
+          atomByCol.set(s.alias, { agg: 'HLL_UNION', lgK: s.lgK });
+          continue;
+        }
         extraByAlias.set(s.alias, {
           name: s.alias, aggregation: s.kind, column: s.column, table: s.table, dataType: s.dataType,
         });
@@ -750,7 +857,12 @@ function componentPlanForMeasures(outputDefs, allMeasures) {
     outputs,
     fireNames: [...fireNames],
     extraMeasures: [...extraByAlias.values()],
-    atoms: [...atomByCol.entries()].map(([col, agg]) => ({ col, agg })),
+    // Atoms can carry extra metadata (lgK for HLL) — accept both the
+    // legacy string form ('SUM' / 'MIN' / 'MAX') and the object form
+    // (`{agg, lgK}`) here.
+    atoms: [...atomByCol.entries()].map(([col, meta]) => (
+      typeof meta === 'string' ? { col, agg: meta } : { col, ...meta }
+    )),
   };
 }
 
@@ -769,6 +881,14 @@ function recomposeMeasure(spec, refName, getAtom) {
     const s = getAtom(`${base}_sum`);
     const c = getAtom(`${base}_count`);
     return c ? (s / c) : null;
+  }
+  if (spec.type === 'distinct') {
+    // The planner SQL wraps the merged sketch with
+    // `datasketch_hll_estimate(datasketch_hll_union(lgK, sketch))` so
+    // the atom we receive is already the scalar cardinality estimate
+    // (a number, not the BLOB sketch). Pass it through unchanged.
+    const v = getAtom(hllAliasBase(spec));
+    return (v === undefined) ? null : v;
   }
   if (spec.type === 'ratio') {
     const n = recomposeMeasure(spec.numSpec, spec.numRef, getAtom);
@@ -889,6 +1009,7 @@ function factsForMeasure(measure, allMeasures, _seen) {
   if (!spec) return factTablesFromDef(measure);
   if (spec.type === 'simple') return factTablesFromDef(measure);
   if (spec.type === 'avg') return spec.table ? [spec.table] : factTablesFromDef(measure);
+  if (spec.type === 'distinct') return spec.table ? [spec.table] : factTablesFromDef(measure);
   if (spec.type === 'ratio') {
     const n = findMeasureByName(spec.numRef, allMeasures);
     const d = findMeasureByName(spec.denRef, allMeasures);
@@ -971,6 +1092,7 @@ module.exports = {
   inferAdditiveTypeFromExpression,
   decomposeMeasure,
   detectRatio,
+  detectCountDistinct,
   collectComponentsForVisual,
   componentPlanForMeasures,
   recomposeMeasure,
@@ -978,6 +1100,7 @@ module.exports = {
   isOverrideTainted,
   sqlAggForAdditive,
   avgAliasBase,
+  hllAliasBase,
   compileExpression,
   extractRefs,
 };
