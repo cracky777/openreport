@@ -20,7 +20,23 @@
 const {
   decomposeMeasure,
   recomposeMeasure,
+  collectComponentsForVisual,
+  avgAliasBase,
 } = require('../utils/measureType');
+
+// Build a `getAtom`-friendly atom map. `simple` is straight ref→value.
+// For each AVG ref in `avg`, we compute the synthetic alias base the
+// builder uses (avgAliasBase) and stamp the corresponding `_sum` /
+// `_count` atoms — recomposeMeasure reads them exactly that way.
+function buildAtoms({ simple = {}, avg = {} } = {}) {
+  const atoms = { ...simple };
+  for (const { column, table, sum, count } of Object.values(avg)) {
+    const base = avgAliasBase({ column, table: table || '' });
+    atoms[`${base}_sum`] = sum;
+    atoms[`${base}_count`] = count;
+  }
+  return atoms;
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -172,6 +188,117 @@ describe('Phase B — IFNULL / IF / MOD aliases', () => {
   });
 });
 
+// ─── Phase C: nested AVG / ratio refs inside an expression ─────────
+
+describe('Phase C — AVG ref inside a custom expression', () => {
+  const m = { name: 'kpi', aggregation: 'custom', expression: '${avgX} * 100' };
+  const all = [
+    m,
+    { name: 'avgX', table: 't', column: 'x', aggregation: 'avg' },
+  ];
+
+  test('decompose recognises the nested AVG and carries its spec', () => {
+    const spec = decomposeMeasure(m, all);
+    expect(spec).not.toBeNull();
+    expect(spec.type).toBe('expression');
+    expect(spec.refs[0]).toMatchObject({ name: 'avgX', innerType: 'nested' });
+    expect(spec.refs[0].spec).toMatchObject({ type: 'avg', column: 'x', table: 't' });
+  });
+
+  test('recompose resolves AVG from its atoms then evaluates the expression', () => {
+    const spec = decomposeMeasure(m, all);
+    const atoms = buildAtoms({ avg: { avgX: { column: 'x', table: 't', sum: 100, count: 4 } } });
+    expect(recomposeMeasure(spec, 'kpi', (n) => atoms[n])).toBe(2500); // (100/4) * 100
+  });
+
+  test('AVG=0/0 inside COALESCE(${avgX}, 0) → 0 (user-controlled null fallback)', () => {
+    // Empty partition (count=0) → AVG resolves to null → COALESCE picks
+    // the fallback. The CALLER controls the null-handling shape here:
+    // bare arithmetic on a null operand follows JS coercion (e.g.
+    // `null * 100 === 0`), which is the same trade-off the simple-ref
+    // path has carried since day one.
+    const m2 = { name: 'kpi', aggregation: 'custom', expression: 'COALESCE(${avgX}, 0)' };
+    const spec = decomposeMeasure(m2, [m2, { name: 'avgX', table: 't', column: 'x', aggregation: 'avg' }]);
+    const atoms = buildAtoms({ avg: { avgX: { column: 'x', table: 't', sum: 0, count: 0 } } });
+    expect(recomposeMeasure(spec, 'kpi', (n) => atoms[n])).toBe(0);
+  });
+
+  test('collectComponentsForVisual pulls the AVG synthetic atoms (not the avg ref by name)', () => {
+    const spec = decomposeMeasure(m, all);
+    const { baseMeasureNames, syntheticMeasures } = collectComponentsForVisual([spec]);
+    expect(baseMeasureNames).not.toContain('avgX');                   // avgX is decomposed, not fired by name
+    expect(syntheticMeasures.length).toBe(2);                          // sum + count_col
+    expect(syntheticMeasures.find((s) => s.kind === 'sum').column).toBe('x');
+    expect(syntheticMeasures.find((s) => s.kind === 'count_col').column).toBe('x');
+  });
+});
+
+describe('Phase C — mixed AVG + simple refs', () => {
+  test('ROUND(${avgX} / ${b}, 2) — AVG over simple at the rollup grain', () => {
+    const m = { name: 'kpi', aggregation: 'custom', expression: 'ROUND(${avgX} / ${b}, 2)' };
+    const all = [
+      m,
+      { name: 'avgX', table: 't', column: 'x', aggregation: 'avg' },
+      { name: 'b', table: 't', column: 'b', aggregation: 'sum' },
+    ];
+    const spec = decomposeMeasure(m, all);
+    expect(spec).not.toBeNull();
+    const atoms = buildAtoms({
+      simple: { b: 5 },
+      avg: { avgX: { column: 'x', table: 't', sum: 100, count: 4 } }, // AVG = 25
+    });
+    expect(recomposeMeasure(spec, 'kpi', (n) => atoms[n])).toBe(5);     // ROUND(25/5, 2)
+  });
+
+  test('GREATEST(${avgX}, ${avgY}) — two AVG refs', () => {
+    const m = { name: 'kpi', aggregation: 'custom', expression: 'GREATEST(${avgX}, ${avgY})' };
+    const all = [
+      m,
+      { name: 'avgX', table: 't', column: 'x', aggregation: 'avg' },
+      { name: 'avgY', table: 't', column: 'y', aggregation: 'avg' },
+    ];
+    const spec = decomposeMeasure(m, all);
+    expect(spec).not.toBeNull();
+    const atoms = buildAtoms({
+      avg: {
+        avgX: { column: 'x', table: 't', sum: 100, count: 4 },           // 25
+        avgY: { column: 'y', table: 't', sum:  60, count: 2 },           // 30
+      },
+    });
+    expect(recomposeMeasure(spec, 'kpi', (n) => atoms[n])).toBe(30);
+  });
+});
+
+describe('Phase C — ratio ref inside an expression', () => {
+  test('${ratR} + 100 — ratio resolves to numAtom/denAtom at the grain', () => {
+    const m    = { name: 'kpi',  aggregation: 'custom', expression: '${ratR} + 100' };
+    const ratR = { name: 'ratR', aggregation: 'custom', expression: '${a}/${b}' };
+    const all = [
+      m, ratR,
+      { name: 'a', table: 't', column: 'a', aggregation: 'sum' },
+      { name: 'b', table: 't', column: 'b', aggregation: 'sum' },
+    ];
+    const spec = decomposeMeasure(m, all);
+    expect(spec).not.toBeNull();
+    expect(spec.refs[0].spec.type).toBe('ratio');
+    const atoms = { a: 100, b: 20 };
+    expect(recomposeMeasure(spec, 'kpi', (n) => atoms[n])).toBe(105);   // (100/20) + 100
+  });
+
+  test('ROUND(${ratR} * 100, 1) — percent of a ratio', () => {
+    const m    = { name: 'kpi',  aggregation: 'custom', expression: 'ROUND(${ratR} * 100, 1)' };
+    const ratR = { name: 'ratR', aggregation: 'custom', expression: '${a}/${b}' };
+    const all = [
+      m, ratR,
+      { name: 'a', table: 't', column: 'a', aggregation: 'sum' },
+      { name: 'b', table: 't', column: 'b', aggregation: 'sum' },
+    ];
+    const spec = decomposeMeasure(m, all);
+    const atoms = { a: 33, b: 100 };
+    expect(recomposeMeasure(spec, 'kpi', (n) => atoms[n])).toBe(33);
+  });
+});
+
 // ─── Negative paths — must still fall back to live ──────────────────
 
 describe('Negative paths — non-decomposable measures stay rejected', () => {
@@ -190,19 +317,18 @@ describe('Negative paths — non-decomposable measures stay rejected', () => {
     expect(spec).toBeNull();
   });
 
-  test('Non-additive ref (AVG inside expression) → null', () => {
-    const m = { name: 'kpi', aggregation: 'custom', expression: 'ROUND(${avgA}/${b}, 2)' };
+  test('Nested CUSTOM-EXPRESSION ref (not avg / ratio) → null', () => {
+    // Phase C accepts AVG and ratio refs nested in an expression, but
+    // NOT another custom expression — that would compound depth and
+    // cycle risk without a proven need. Confirm it's still rejected.
+    const m   = { name: 'kpi',  aggregation: 'custom', expression: '${expr2} + ${b}' };
+    const e2  = { name: 'expr2', aggregation: 'custom', expression: '${a} * 2' };
     const all = [
-      m,
-      { name: 'avgA', table: 't', column: 'a', aggregation: 'avg' },
+      m, e2,
+      { name: 'a', table: 't', column: 'a', aggregation: 'sum' },
       { name: 'b', table: 't', column: 'b', aggregation: 'sum' },
     ];
-    // AVG IS decomposable on its own (sum_for_avg + count_for_avg), but
-    // inside an expression decomposeAsExpression only accepts refs whose
-    // additive type is simple. Confirm this guard still holds — it's
-    // what keeps the cache safe for the messy cases.
-    const spec = decomposeMeasure(m, all);
-    expect(spec).toBeNull();
+    expect(decomposeMeasure(m, all)).toBeNull();
   });
 
   test('DISTINCT inside any aggregate → reference is non-additive → null', () => {

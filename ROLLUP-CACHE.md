@@ -376,10 +376,28 @@ step-11 bare-identifier scan, which rejects any name that isn't
 `_v`, `Math`, a JS literal, or a `Math.*` member — i.e. an unknown
 SQL function never reaches the compiled fn.
 
-Rule (current — Phase A + B): an expression is materialised when
-**every function name in it is in the whitelist** below and every
-`${ref}` resolves to a simple additive measure (recursion allowed).
-Whitelist:
+Rule (current — Phase A + B + C, 2026-05-20): an expression is
+materialised when **every function name in it is in the whitelist**
+below AND every `${ref}` resolves to a measure whose own
+decomposition is itself supported. Three ref kinds are accepted in
+an expression:
+
+1. **Simple additive** — `SUM/COUNT/MIN/MAX`, or a custom expression
+   that itself reduces to a single additive (the sole-ref chain in
+   `additiveTypeForMeasure`). One atom per ref.
+2. **AVG (Phase C)** — the ref is an `aggregation: 'avg'` measure;
+   the rollup stores its `SUM_for_avg` + `COUNT_for_avg` atoms and
+   the recompose wrapper resolves `sum/count` at the requested grain
+   before feeding the scalar into `_v`.
+3. **Ratio (Phase C)** — the ref is a custom-expression measure
+   matched by `detectRatio` (`num/den` with optional guard + scale);
+   the rollup stores the underlying additive atoms and recompose
+   recursively combines them.
+
+A nested custom-expression ref (an expression whose decomposition is
+itself `type: 'expression'`) is still **rejected** — that would
+compound depth and cycle risk without a proven payoff; keeps the
+gate audit-tractable. Whitelist:
 
 - structural rewrites: `CAST`, `NULLIF`, `COALESCE`, `IFNULL`, `IF`,
   `MOD`, `ROUND` (1 or 2 args)

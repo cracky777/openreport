@@ -578,9 +578,28 @@ function decomposeAsExpression(measure, allMeasures) {
   for (const name of refNames) {
     const compM = findMeasureByName(name, allMeasures);
     if (!compM) return null;
+    // Fast path: simple additive ref (SUM/COUNT/MIN/MAX, or a custom
+    // expression that reduces to a single additive). One atom per ref.
     const innerType = additiveTypeForMeasure(compM, allMeasures);
-    if (!innerType) return null;
-    refs.push({ name, innerType });
+    if (innerType) {
+      refs.push({ name, innerType });
+      continue;
+    }
+    // Phase C (2026-05-20): a ref can also be a fully-decomposable
+    // AVG or ratio measure. We carry the nested spec; at recompose
+    // time the wrapper recurses (sum_for_avg / count_for_avg, or
+    // num/den + guard) and feeds the resolved scalar into _v before
+    // calling the compiled fn. Mathematically exact at any grain —
+    // the wrapping function f(AVG(a), SUM(b)) operates on numbers
+    // once AVG is resolved, and AVG is itself reconstructable from
+    // its component atoms at the requested grain. Other spec types
+    // (a custom expression as a nested ref, DISTINCT, …) are still
+    // rejected here — keeps recursion depth bounded and avoids
+    // accidental cycles via co-referencing custom expressions.
+    const nested = decomposeMeasure(compM, allMeasures);
+    if (!nested) return null;
+    if (nested.type !== 'avg' && nested.type !== 'ratio') return null;
+    refs.push({ name, innerType: 'nested', spec: nested });
   }
   // Compile up-front to validate the expression; the compiled function is
   // cached in _exprCache by raw string so the runtime gets it for free.
@@ -630,8 +649,13 @@ function collectComponentsForVisual(specs) {
       return;
     }
     if (spec.type === 'expression') {
-      // Each ref is a simple additive measure named in the model.
-      for (const r of spec.refs) baseNames.add(r.name);
+      // Each ref is either a simple additive (one atom in the model)
+      // or a Phase C nested decomposition (avg / ratio — its own
+      // synthetic / base components, collected by recursing).
+      for (const r of spec.refs) {
+        if (r.spec) visit(r.spec);
+        else baseNames.add(r.name);
+      }
     }
   };
   for (const s of specs) visit(s);
@@ -780,8 +804,15 @@ function recomposeMeasure(spec, refName, getAtom) {
     if (!fn) return null;
     const _v = {};
     for (const r of spec.refs) {
-      const a = getAtom(r.name);
-      _v[r.name] = (a === undefined) ? null : a;
+      if (r.spec) {
+        // Phase C nested ref: resolve avg / ratio at the requested
+        // grain from its own atoms, then feed the scalar into _v.
+        const v = recomposeMeasure(r.spec, r.name, getAtom);
+        _v[r.name] = (v === undefined) ? null : v;
+      } else {
+        const a = getAtom(r.name);
+        _v[r.name] = (a === undefined) ? null : a;
+      }
     }
     let v;
     try { v = fn(_v); } catch { return null; }
