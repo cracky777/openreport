@@ -364,41 +364,55 @@ applying that rule to the override case).
 
 ---
 
-### 6c. Expression-decomposition hardening (correctness > coverage, 2026-05)
+### 6c. Expression-decomposition coverage (Phase A + B widened, 2026-05)
 
-`decomposeAsExpression` (the general `${ref}`-arithmetic path) is
-**deliberately conservative**. The transpiler (`transpileSqlToJs`)
-*can* translate a broad SQL subset — `ROUND`, `LOG`, `COS`, `POWER`,
-`GREATEST`, `LEAST`, `COALESCE`, … — and applying `f(ΣA, ΣB)` at the
-group grain is in fact mathematically exact (the rollup sums the
-additive atoms to the requested group, then evaluates `f` — identical
-to what live SQL computes at that same grain). **Even so, we do NOT
-cache function-bearing expressions.**
+The transpiler (`transpileSqlToJs`) translates a broad SQL subset
+(`ROUND`, `LOG`, `COS`, `POWER`, `GREATEST`, `LEAST`, `COALESCE`,
+`CASE WHEN`, …) into a sandboxed JS function evaluated on additive
+sums at the requested grain. Applying `f(ΣA, ΣB, …)` at that grain
+is mathematically exact: the additive sums don't depend on how the
+partitions were rolled up. The transpiler's belt-and-braces is its
+step-11 bare-identifier scan, which rejects any name that isn't
+`_v`, `Math`, a JS literal, or a `Math.*` member — i.e. an unknown
+SQL function never reaches the compiled fn.
 
-Rule: an expression is materialised **only** when, after stripping
-`CAST(...)` and `${refs}`, it contains **no function call** — i.e.
-nothing matching `NAME(` except the `NULLIF` guard. Plain arithmetic
-(`+ - * /`, parentheses), `CASE WHEN … END`, comparisons and the
-NULLIF guard over additive refs → **cached** (`A+B-C`, `A/(B-C)`,
-`CASE WHEN ${a}>0 THEN ${b} ELSE ${c} END`, guarded ratios via
-`detectRatio`). Anything with `ROUND/LOG/COALESCE/GREATEST/…` →
-`decomposeAsExpression` returns `null` → `supported:false` →
-**planner MISS → live query** (correct, not accelerated).
+Rule (current — Phase A + B): an expression is materialised when
+**every function name in it is in the whitelist** below and every
+`${ref}` resolves to a simple additive measure (recursion allowed).
+Whitelist:
 
-Why trade cache coverage away when it's provably exact: it shrinks the
-surface where a *future* subtle bug (a transpile edge, an additivity
-mis-detection, a ROUND-precision quirk) could silently cache a **wrong
-value**. A slow-but-correct live query always beats a fast wrong one.
-Non-additive operands (AVG / DISTINCT / ratio-of-ratios /
-override-filtered) inside an expression already force live (§6/§6a).
+- structural rewrites: `CAST`, `NULLIF`, `COALESCE`, `IFNULL`, `IF`,
+  `MOD`, `ROUND` (1 or 2 args)
+- math whitelist (`SQL_TO_JS_FUNCS` → `Math.*`): `ABS`, `SIGN`,
+  `SQRT`, `EXP`, `LN`, `LOG`, `LOG2`, `LOG10`, `POW`, `POWER`,
+  `FLOOR`, `CEIL` (`CEILING`), `TRUNC`, `COS`, `SIN`, `TAN`,
+  `ACOS`, `ASIN`, `ATAN`, `ATAN2`, `COSH`, `SINH`, `TANH`,
+  `GREATEST`, `LEAST`
 
-> **FUTURE — to revisit (parked, needs dedicated time):** the rule is
-> intentionally too strict. The plan is to widen it so **more
-> indicators are cached again** — re-enable function-bearing /
-> richer-combination measures with a *proven-exact* recomposition and
-> per-shape tests, instead of dumping them to live. Track: project
-> memory `project_rollup_indicator_coverage`. Do not loosen the gate
-> ad hoc; only widen it together with proofs + tests (§13).
+Anything else (date / string functions, UDFs, unknown / mistyped
+names) → `decomposeAsExpression` returns `null` → planner
+`MISS:non-decomposable:<measure>` → live fact query (always correct,
+just not accelerated). Non-additive operands (AVG / DISTINCT /
+ratio-of-ratios / override-filtered) inside an expression are
+likewise rejected upstream (§6 / §6a) — the gate widening does NOT
+weaken those guards.
+
+Null / division-by-zero / non-finite handling: the recompose wrapper
+normalises `NaN` / `±Infinity` to `null` so JS arithmetic edge cases
+(e.g. `100 / NULLIF(0, 0)` evaluates to `100 / null = Infinity` in
+JS) align with SQL `NULL`. `MOD(NULL, x)`, `MOD(x, 0)` propagate
+`null` explicitly. The aim is: **for every cached form, the rollup
+value equals the live SQL value at the same grain.** Per-shape unit
+tests in `server/__tests__/measureType.expression.test.js` lock the
+property in (positive + negative paths).
+
+> **Follow-up — only widen with proofs:** to add a function not yet
+> on the whitelist, add it both to `SQL_TO_JS_FUNCS` (or a dedicated
+> transpile rewrite if its JS semantics differ from SQL — see `MOD` /
+> `IF` / `IFNULL`) AND to `ALLOWED_FUNCS` in
+> `decomposeAsExpression`, and ship the per-shape unit test in the
+> same change (§13). Never widen the gate ad hoc — every safe form
+> needs a regression-guard.
 
 ---
 

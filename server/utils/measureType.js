@@ -262,6 +262,27 @@ function transpileSqlToJs(expression) {
     const n = args[1].trim();
     return `(Math.round((${x}) * Math.pow(10, (${n}))) / Math.pow(10, (${n})))`;
   });
+  // 5.6 IF(cond, a, b) → ternary. MySQL / SQLite-style alias for
+  //     `CASE WHEN cond THEN a ELSE b END`.
+  js = rewriteFunctionCall(js, 'IF', (args) => {
+    if (args.length !== 3) return null;
+    return `((${args[0].trim()}) ? (${args[1].trim()}) : (${args[2].trim()}))`;
+  });
+  // 5.7 IFNULL(x, y) → 2-arg COALESCE. Common SQL alias.
+  js = rewriteFunctionCall(js, 'IFNULL', (args) => {
+    if (args.length !== 2) return null;
+    return `((${args[0].trim()}) ?? (${args[1].trim()}))`;
+  });
+  // 5.8 MOD(x, y) → SQL modulo with null/zero propagation. JS coerces
+  //     `null % n` to 0 and `n % 0` to NaN; both diverge from SQL
+  //     (which returns NULL). Guard explicitly so the cached value
+  //     matches what live SQL would produce.
+  js = rewriteFunctionCall(js, 'MOD', (args) => {
+    if (args.length !== 2) return null;
+    const x = args[0].trim();
+    const y = args[1].trim();
+    return `(((${x}) == null || (${y}) == null || (${y}) === 0) ? null : ((${x}) % (${y})))`;
+  });
   // 6. Whitelisted SQL math functions → JS Math.* equivalents. Matches
   //    UPPERCASE-ish identifiers (SQL is typically uppercase) followed by
   //    `(` so we don't catch identifier prefixes by accident. The
@@ -283,7 +304,7 @@ function transpileSqlToJs(expression) {
   // 9. Validate the resulting JS only contains whitelisted characters.
   //    Rejects raw strings/keywords we didn't translate (SELECT, WHERE,
   //    function bodies, etc.).
-  const ALLOWED = /^[\s0-9_a-zA-Z."'!<>=\-+*/().?:[\],&|]+$/;
+  const ALLOWED = /^[\s0-9_a-zA-Z."'!<>=\-+*/%().?:[\],&|]+$/;
   if (!ALLOWED.test(js)) return null;
   // 10. Block dangerous identifiers as a belt-and-braces — `Math` and the
   //     handful of SQL_TO_JS_FUNCS values are the only globals an
@@ -520,20 +541,29 @@ function decomposeAsExpression(measure, allMeasures) {
   if (!expression || typeof expression !== 'string') return null;
   const refNames = extractRefs(expression);
   if (refNames.length === 0) return null;
-  // HARDENING (correctness over cache coverage, per product decision): the
-  // transpiler also accepts SQL math/util functions (ROUND, LOG, COS,
-  // POWER, GREATEST, COALESCE, …). Applying f(ΣA, ΣB) at the group grain
-  // is mathematically exact, but we deliberately DON'T cache those
-  // "exotic" expressions — only plain arithmetic of additive refs
-  // (+ - * / parentheses), the NULLIF/CASE guards, and comparisons.
-  // Anything containing a function call → non-decomposable → planner
-  // MISSes to live (always correct, just not cached). Ratios with a
-  // guard are still cached via detectRatio (runs before this). Revisit
-  // when we do the comprehensive indicator-coverage pass.
+  // Phase A+B widening (2026-05): the previous gate refused EVERY
+  // function call except NULLIF. The transpiler is now the single
+  // source of truth on what's safely re-evaluable at the rollup grain
+  // — its step-11 bare-identifier scan rejects any unknown name (so a
+  // typo / a non-whitelisted SQL function still falls back to live).
+  // Applying `f(ΣA, ΣB, …)` at the group grain is mathematically exact
+  // for every f in the math whitelist (pure of additive sums), so we
+  // let the transpiler decide; the gate here only fast-fails when an
+  // obviously unknown function name appears in the expression, to
+  // produce a planner `MISS: non-decomposable:<measure>` early instead
+  // of compiling-then-throwing at recompose time.
   {
-    // Drop CAST(...) wrappers and ${refs} so only the surrounding SQL is
-    // scanned for call-shaped tokens `NAME(`. NULLIF is the one allowed
-    // callable (div-by-zero guard); CASE/WHEN/… are keywords (no paren).
+    const ALLOWED_FUNCS = new Set([
+      // Transpiler-rewritten by name (handled before SQL_TO_JS_FUNCS):
+      'CAST', 'NULLIF', 'COALESCE', 'IFNULL', 'IF', 'MOD', 'ROUND',
+      // Pure math whitelist (SQL_TO_JS_FUNCS keys), evaluated on the
+      // additive sums at the requested grain:
+      'ABS', 'SIGN', 'SQRT', 'EXP', 'LN', 'LOG', 'LOG2', 'LOG10',
+      'POW', 'POWER', 'FLOOR', 'CEIL', 'CEILING', 'TRUNC',
+      'COS', 'SIN', 'TAN', 'ACOS', 'ASIN', 'ATAN', 'ATAN2',
+      'COSH', 'SINH', 'TANH',
+      'GREATEST', 'LEAST',
+    ]);
     let scan = String(expression);
     let prev;
     do { prev = scan; scan = scan.replace(/CAST\s*\(/gi, '('); } while (scan !== prev);
@@ -541,7 +571,7 @@ function decomposeAsExpression(measure, allMeasures) {
     const callRe = /([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
     let m;
     while ((m = callRe.exec(scan)) !== null) {
-      if (m[1].toUpperCase() !== 'NULLIF') return null; // function call → live
+      if (!ALLOWED_FUNCS.has(m[1].toUpperCase())) return null;
     }
   }
   const refs = [];
@@ -755,7 +785,12 @@ function recomposeMeasure(spec, refName, getAtom) {
     }
     let v;
     try { v = fn(_v); } catch { return null; }
-    return (typeof v === 'number' && Number.isFinite(v)) ? v : (v == null ? null : v);
+    // NaN / +-Infinity bubble up from JS arithmetic where SQL would
+    // have produced NULL (e.g. `100 / NULLIF(0, 0)` → `100 / null` →
+    // `Infinity` in JS, NULL in SQL). Normalise to null so the cached
+    // value matches the live query at the same grain.
+    if (typeof v === 'number' && !Number.isFinite(v)) return null;
+    return (v == null) ? null : v;
   }
   return null;
 }

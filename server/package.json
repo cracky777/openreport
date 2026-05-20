@@ -2,6 +2,12 @@
   "name": "open-report-server",
   "version": "0.1.0",
   "private": true,
+  "scripts": {
+    "test": "jest"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
   "dependencies": {
     "@google-cloud/bigquery": "^8.1.1",
     "adm-zip": "^0.5.17",
