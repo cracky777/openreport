@@ -66,13 +66,7 @@ export default function FilterRulesEditor({ model, modelId, rules, onChange, sty
     fontSize: 11, color: 'var(--text-secondary)', fontWeight: 500,
   };
 
-  if (wf.length === 0) {
-    return (
-      <div style={{ fontSize: 11, color: 'var(--text-disabled)', fontStyle: 'italic', marginTop: 6 }}>
-        No filter yet — drop a dimension or measure above.
-      </div>
-    );
-  }
+  if (wf.length === 0) return null;
 
   return (
     <div>

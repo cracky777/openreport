@@ -843,7 +843,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>
               <input type="checkbox" checked={calcFilterEnabled}
                 onChange={(e) => setCalcFilterEnabled(e.target.checked)} />
-              <span>Apply filter context (CASE WHEN inside the aggregate)</span>
+              <span>Add filter</span>
             </label>
             {calcFilterEnabled && (
               <>
@@ -876,7 +876,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
                   <input type="checkbox" checked={calcOverride}
                     onChange={(e) => setCalcOverride(e.target.checked)} />
-                  <span>Override report filters on these fields</span>
+                  <span>Override report filters</span>
                   <span title="When ON, this measure ignores the report-level filter on the fields it filters on." style={{ color: 'var(--text-disabled)', cursor: 'help' }}>ⓘ</span>
                 </label>
               </>
@@ -1074,7 +1074,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>
                   <input type="checkbox" checked={!!editForm.filterEnabled}
                     onChange={(e) => setEditForm({ ...editForm, filterEnabled: e.target.checked })} />
-                  <span>Apply filter context (CASE WHEN inside the aggregate)</span>
+                  <span>Add filter</span>
                 </label>
                 {editForm.filterEnabled && (
                   <>
@@ -1112,7 +1112,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
                       <input type="checkbox" checked={!!editForm.overrideFilters}
                         onChange={(e) => setEditForm({ ...editForm, overrideFilters: e.target.checked })} />
-                      <span>Override report filters on these fields</span>
+                      <span>Override report filters</span>
                       <span title="When ON, this measure ignores the report-level filter on the fields it filters on." style={{ color: 'var(--text-disabled)', cursor: 'help' }}>ⓘ</span>
                     </label>
                   </>

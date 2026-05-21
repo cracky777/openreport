@@ -124,9 +124,15 @@ export function mergeCorners(item, members, tol = 10) {
   return c;
 }
 
-// Midpoint of the shared edge between two adjacent items, in canvas px.
-// Returns { x, y } at the junction, or null if they don't touch. Used to
-// place the on-canvas "magnet" merge affordance.
+// Shared-edge info between two adjacent items, in canvas px. Returns
+// `{ x, y, vertical, start, length }` where (x, y) is the midpoint
+// (where the magnet button sits), `vertical` is true when the shared
+// edge runs top-to-bottom (right/left sides touching) — the magnet's
+// hover-trigger strip is then a tall thin zone, conversely a wide
+// short zone for a horizontal edge. `start` is the coordinate along
+// the edge where the overlap begins (`y` for vertical, `x` for
+// horizontal); `length` is the overlap span. Returns `null` when the
+// items don't touch.
 export function edgeMidpoint(a, b, tol = 10) {
   const ra = rectOf(a);
   const rb = rectOf(b);
@@ -135,12 +141,14 @@ export function edgeMidpoint(a, b, tol = 10) {
   if (vOverlap > 0 &&
       (Math.abs((ra.x + ra.w) - rb.x) <= tol || Math.abs((rb.x + rb.w) - ra.x) <= tol)) {
     const edgeX = Math.abs((ra.x + ra.w) - rb.x) <= tol ? (ra.x + ra.w) : (rb.x + rb.w);
-    return { x: edgeX, y: Math.max(ra.y, rb.y) + vOverlap / 2 };
+    const startY = Math.max(ra.y, rb.y);
+    return { x: edgeX, y: startY + vOverlap / 2, vertical: true, start: startY, length: vOverlap };
   }
   if (hOverlap > 0 &&
       (Math.abs((ra.y + ra.h) - rb.y) <= tol || Math.abs((rb.y + rb.h) - ra.y) <= tol)) {
     const edgeY = Math.abs((ra.y + ra.h) - rb.y) <= tol ? (ra.y + ra.h) : (rb.y + rb.h);
-    return { x: Math.max(ra.x, rb.x) + hOverlap / 2, y: edgeY };
+    const startX = Math.max(ra.x, rb.x);
+    return { x: startX + hOverlap / 2, y: edgeY, vertical: false, start: startX, length: hOverlap };
   }
   return null;
 }

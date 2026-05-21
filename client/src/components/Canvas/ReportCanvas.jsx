@@ -397,6 +397,19 @@ export default function ReportCanvas({
   const [resizing, setResizing] = useState(null);
   const containerRef = useRef(null);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
+  // Which merge-magnet trigger zone the cursor is currently over.
+  // Drives the hover-reveal of the merge button at that junction —
+  // the magnet stays invisible until the user moves the pointer onto
+  // the shared edge, then fades in. Reverts to null when the mouse
+  // leaves the zone. Reset implicitly when the selection changes (a
+  // different widget's magnets render under different ids).
+  const [hoveredMagnetId, setHoveredMagnetId] = useState(null);
+  // Which merged-group seam the cursor is currently over. Same
+  // hover-reveal pattern as the merge magnet, but for the unmerge +
+  // separator-toggle cluster that sits at the seam midpoint between
+  // already-merged widgets. Keyed by `seam-${groupIdx}-${seamIdx}`
+  // so each seam in a multi-member group toggles independently.
+  const [hoveredSeamKey, setHoveredSeamKey] = useState(null);
 
   // Track container size for fit modes
   useEffect(() => {
@@ -455,7 +468,7 @@ export default function ReportCanvas({
       if (!w || !WIDGET_TYPES[w.type]) continue;
       if (selGid && w.config?.mergeGroup === selGid) continue;
       const p = edgeMidpoint(sel, it);
-      if (p) out.push({ id: it.i, x: p.x, y: p.y });
+      if (p) out.push({ id: it.i, x: p.x, y: p.y, vertical: p.vertical, start: p.start, length: p.length });
     }
     return out;
   }, [readOnly, selectedWidget, layout, widgets]);
@@ -661,10 +674,13 @@ export default function ReportCanvas({
             // borders meet cleanly at the corner instead of leaving a
             // 1px hole. Aligned ends keep the continuity cap.
             const PULL = 2;
-            // On-canvas action cluster at the seam midpoint (shown only
-            // when the selected widget is in this group, edit mode).
-            // Two affordances: broken-magnet → unmerge ; line → toggle
-            // the separator line.
+            // On-canvas action cluster at the seam midpoint (rendered
+            // only when the selected widget is in this group). Two
+            // affordances: broken-magnet → unmerge ; line → toggle the
+            // separator line. Hover-revealed: the cluster fades in
+            // when the cursor enters the seam trigger zone OR the
+            // cluster itself; fades back out on leave. Same pattern
+            // as the merge magnet so the canvas stays clean by default.
             const midX = s.vertical ? s.x : s.x + s.length / 2;
             const midY = s.vertical ? s.y + s.length / 2 : s.y;
             const iconBtnBase = {
@@ -678,18 +694,32 @@ export default function ReportCanvas({
             const clusterStyle = s.vertical
               ? { left: midX - 13, top: midY - 28, width: 26, height: 56, flexDirection: 'column', padding: '2px 0' }
               : { left: midX - 28, top: midY - 13, width: 56, height: 26, flexDirection: 'row', padding: '0 2px' };
+            const seamKey = `seam-${gi}-${k}`;
+            const isSeamHovered = hoveredSeamKey === seamKey;
+            const onSeamEnter = () => setHoveredSeamKey(seamKey);
+            const onSeamLeave = () => setHoveredSeamKey((cur) => (cur === seamKey ? null : cur));
             const cluster = inGroupSelected ? (
-              <div style={{
-                position: 'absolute',
-                ...clusterStyle,
-                borderRadius: 13,
-                background: 'var(--bg-panel)',
-                border: '1px solid var(--border-default)',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                gap: 2,
-                zIndex: 60, pointerEvents: 'auto',
-              }}>
+              <div
+                onMouseEnter={onSeamEnter}
+                onMouseLeave={onSeamLeave}
+                style={{
+                  position: 'absolute',
+                  ...clusterStyle,
+                  borderRadius: 13,
+                  background: 'var(--bg-panel)',
+                  border: '1px solid var(--border-default)',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  gap: 2,
+                  zIndex: 60,
+                  opacity: isSeamHovered ? 1 : 0,
+                  // Block clicks while invisible so a stray pointer
+                  // event on the (still-laid-out) cluster doesn't fire
+                  // unmerge/separator-toggle when the user can't see
+                  // the buttons. Hover state re-enables it.
+                  pointerEvents: isSeamHovered ? 'auto' : 'none',
+                  transition: 'opacity 0.12s',
+                }}>
                 <button
                   title="Unmerge frames"
                   onClick={(e) => { e.stopPropagation(); onUnmerge?.(); }}
@@ -717,11 +747,28 @@ export default function ReportCanvas({
               </div>
             ) : null;
 
+            // Hover-trigger strip: 14px-thick band straddling the seam,
+            // spanning the entire seam length. Lets the user approach
+            // the cluster from anywhere on the junction. Only rendered
+            // when the selection is inside the group (otherwise the
+            // cluster wouldn't exist anyway).
+            const HOVER_THICK = 14;
+            const triggerStyle = s.vertical
+              ? { left: s.x - HOVER_THICK / 2, top: s.y, width: HOVER_THICK, height: s.length }
+              : { left: s.x, top: s.y - HOVER_THICK / 2, width: s.length, height: HOVER_THICK };
+            const trigger = inGroupSelected ? (
+              <div
+                onMouseEnter={onSeamEnter}
+                onMouseLeave={onSeamLeave}
+                style={{ position: 'absolute', ...triggerStyle, zIndex: 55, pointerEvents: 'auto' }}
+              />
+            ) : null;
+
             if (s.vertical) {
               const ti = s.capStart ? 0 : PULL;
               const bi = s.capEnd ? 0 : PULL;
               return (
-                <Fragment key={`seam-${gi}-${k}`}>
+                <Fragment key={seamKey}>
                   <div style={{
                     position: 'absolute', left: s.x - COVER / 2, top: s.y + ti,
                     width: COVER, height: Math.max(1, s.length - ti - bi),
@@ -736,6 +783,7 @@ export default function ReportCanvas({
                       width: 1, height: lineLen, background: 'var(--border-default)',
                     }} />}
                   </div>
+                  {trigger}
                   {cluster}
                 </Fragment>
               );
@@ -743,7 +791,7 @@ export default function ReportCanvas({
             const li = s.capStart ? 0 : PULL;
             const ri = s.capEnd ? 0 : PULL;
             return (
-              <Fragment key={`seam-${gi}-${k}`}>
+              <Fragment key={seamKey}>
                 <div style={{
                   position: 'absolute', left: s.x + li, top: s.y - COVER / 2,
                   width: Math.max(1, s.length - li - ri), height: COVER,
@@ -758,37 +806,72 @@ export default function ReportCanvas({
                     height: 1, width: lineLen, background: 'var(--border-default)',
                   }} />}
                 </div>
+                {trigger}
                 {cluster}
               </Fragment>
             );
           });
         })}
         {/* Magnet affordances at the junctions of the selected widget
-            with its mergeable neighbours (edit mode only). */}
-        {mergeMagnets.map((mag) => (
-          <button
-            key={'magnet-' + mag.id}
-            title="Merge these two frames"
-            onClick={(e) => { e.stopPropagation(); onMergeWith?.(mag.id); }}
-            onMouseDown={(e) => e.stopPropagation()}
-            style={{
-              position: 'absolute',
-              left: mag.x - 13, top: mag.y - 13,
-              width: 26, height: 26, borderRadius: '50%',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              padding: 0, cursor: 'pointer', zIndex: 60,
-              background: 'var(--bg-panel)',
-              border: '1px solid var(--accent-primary)',
-              color: 'var(--accent-primary)',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
-              transition: 'background 0.12s, transform 0.12s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-primary)'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.transform = 'scale(1.12)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.transform = 'scale(1)'; }}
-          >
-            <TbMagnet size={14} />
-          </button>
-        ))}
+            with its mergeable neighbours (edit mode only). The magnet
+            is hover-revealed: an invisible trigger zone runs along
+            the entire shared edge, the button fades in only when the
+            cursor enters that strip. Keeps the canvas clean by
+            default and matches the on-seam merged-cluster behaviour. */}
+        {mergeMagnets.map((mag) => {
+          const isHovered = hoveredMagnetId === mag.id;
+          // Trigger zone — 12px thick (6 on each side of the seam),
+          // covering the FULL overlap so the user can approach the
+          // magnet from anywhere along the shared edge.
+          const ZONE_THICK = 12;
+          const zoneStyle = mag.vertical
+            ? { left: mag.x - ZONE_THICK / 2, top: mag.start, width: ZONE_THICK, height: mag.length }
+            : { left: mag.start, top: mag.y - ZONE_THICK / 2, width: mag.length, height: ZONE_THICK };
+          // Magnet button offset INSIDE the zone — centred at the
+          // edge midpoint (= zone centre line, mid of the overlap).
+          const BTN = 26;
+          const btnLeft = mag.vertical ? (ZONE_THICK - BTN) / 2 : (mag.length / 2 - BTN / 2);
+          const btnTop = mag.vertical ? (mag.length / 2 - BTN / 2) : (ZONE_THICK - BTN) / 2;
+          return (
+            <div
+              key={'magnet-zone-' + mag.id}
+              onMouseEnter={() => setHoveredMagnetId(mag.id)}
+              onMouseLeave={() => setHoveredMagnetId((cur) => (cur === mag.id ? null : cur))}
+              style={{
+                position: 'absolute',
+                ...zoneStyle,
+                zIndex: 55,
+                pointerEvents: 'auto',
+              }}
+            >
+              <button
+                title="Merge these two frames"
+                onClick={(e) => { e.stopPropagation(); onMergeWith?.(mag.id); }}
+                onMouseDown={(e) => e.stopPropagation()}
+                style={{
+                  position: 'absolute',
+                  left: btnLeft, top: btnTop,
+                  width: BTN, height: BTN, borderRadius: '50%',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: 0, cursor: 'pointer',
+                  background: 'var(--bg-panel)',
+                  border: '1px solid var(--accent-primary)',
+                  color: 'var(--accent-primary)',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
+                  opacity: isHovered ? 1 : 0,
+                  // Block clicks while invisible — a 0-opacity button
+                  // still receives pointer events otherwise.
+                  pointerEvents: isHovered ? 'auto' : 'none',
+                  transition: 'opacity 0.12s, background 0.12s, transform 0.12s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-primary)'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.transform = 'scale(1.12)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.transform = 'scale(1)'; }}
+              >
+                <TbMagnet size={14} />
+              </button>
+            </div>
+          );
+        })}
         </div>
       </div>
     </div>

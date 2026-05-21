@@ -259,7 +259,15 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     }
 
     // Line series
+    // In horizontal / horizontalInverse mode the value axes become
+    // xAxes (see the swap below), so the line must reference
+    // `xAxisIndex` instead of `yAxisIndex` — otherwise it tries to
+    // plot against the category axis and either renders nothing or
+    // draws garbage at category[0]. Same `1` (secondary) / `0`
+    // (primary, when showSecondaryAxis is off) semantics, just on the
+    // axis dimension that actually holds the value scale.
     const lineSeries = (data.lineSeries || []).filter((s) => !hiddenSeries.has(s.name));
+    const lineValueAxisProp = earlyIsHoriz ? 'xAxisIndex' : 'yAxisIndex';
     lineSeries.forEach((s) => {
       const color = getColor(s.name);
       allLegendItems.push({ name: s.name, color });
@@ -267,7 +275,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
         type: 'line',
         name: s.name,
         data: sortedIndices.map((idx) => s.values[idx] || 0),
-        yAxisIndex: showSecondaryAxis ? 1 : 0,
+        [lineValueAxisProp]: showSecondaryAxis ? 1 : 0,
         smooth: smoothLine,
         lineStyle: { color, width: 2 },
         itemStyle: { color },
@@ -400,7 +408,18 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     };
 
     if (isHoriz) {
-      yAxes.forEach((a) => { a.inverse = barDir === 'horizontalInverse'; a.position = barDir === 'horizontalInverse' ? 'right' : undefined; });
+      // Value axes become xAxes — and an xAxis only accepts 'top'/
+      // 'bottom' (the previous code kept the original `position:'right'`
+      // copied from the yAxis spec, which is invalid for an xAxis and
+      // would silently fall back to bottom, overlapping the primary).
+      // Primary stays at the default bottom, secondary goes to top —
+      // standard combo layout. `inverse` flips the value DIRECTION, not
+      // the side the axis labels sit on, so both horizontal and
+      // horizontalInverse share the same axis-positioning rule.
+      yAxes.forEach((a, idx) => {
+        a.inverse = barDir === 'horizontalInverse';
+        a.position = idx === 0 ? undefined : 'top';
+      });
       opt.xAxis = yAxes;
       opt.yAxis = categoryAxis;
     } else {
@@ -410,8 +429,13 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     }
 
     opt.series = series;
-    const baseTop = barDir === 'verticalInverse' ? 40 : 20;
-    const baseRight = barDir === 'horizontalInverse' ? 80 : (showSecondaryAxis ? 50 : 20);
+    // In isHoriz mode the secondary value axis lives on TOP (xAxis,
+    // position 'top'), not on the right — so the +30px reservation
+    // moves from baseRight to baseTop. Vertical mode unchanged.
+    const baseTop = barDir === 'verticalInverse' ? 40
+      : (isHoriz && showSecondaryAxis ? 40 : 20);
+    const baseRight = barDir === 'horizontalInverse' ? 80
+      : (!isHoriz && showSecondaryAxis ? 50 : 20);
     const baseBottom = barDir === 'verticalInverse' ? 15 : (showXAxis ? 40 : 15);
     const baseLeft = barDir === 'horizontalInverse' ? 15 : (isHoriz ? 80 : (showYAxis ? 50 : 15));
     const catExtra = xTitleVal ? 18 : 0;
