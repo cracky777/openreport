@@ -259,6 +259,18 @@ export default function Editor() {
         return { ...prev, reportFilters: rules };
       });
       interactionToggleTargetRef.current = targetId;
+      // Filter widgets are skipped by the main fetch effect (slicers
+      // refetch via their dedicated refreshSlicer path). When the
+      // toggled target IS a filter widget, the scoped-refetch trigger
+      // alone would no-op → the slicer keeps its pre-toggle value
+      // list (e.g. a date slicer still showing only January after the
+      // global January filter's interaction was disabled on it).
+      // Defer to next tick so refreshSlicer reads the just-committed
+      // settings via settingsRef (setSettings is async).
+      const target = history.state.widgets?.[targetId];
+      if (target?.type === 'filter') {
+        setTimeout(() => refreshSlicerRef.current?.(targetId), 0);
+      }
       setRefreshCounter((n) => n + 1);
       return;
     }
@@ -283,6 +295,13 @@ export default function Editor() {
     // Trigger a scoped refetch of just the target. The main fetch loop
     // reads this ref and filters its widget list down to it.
     interactionToggleTargetRef.current = targetId;
+    // Same filter-widget escape hatch as the global-rule branch above
+    // — the main fetch loop skips slicers, so a target slicer would
+    // otherwise stay stale.
+    const target = history.state.widgets?.[targetId];
+    if (target?.type === 'filter') {
+      setTimeout(() => refreshSlicerRef.current?.(targetId), 0);
+    }
     setRefreshCounter((n) => n + 1);
   }, [selectedWidget, history, interactionsRuleIdx]);
 
@@ -767,11 +786,27 @@ export default function Editor() {
       setCacheWarming(false);
       setCacheWarmPct(0);
       cacheWarmPctRef.current = 0;
+      // Slicers don't go through the rollup planner — they fire a
+      // dedicated `bypassCache:true, distinct:true` /query in
+      // refreshSlicer. The main fetch effect below only loops them
+      // when `manualRefresh || globalFilterChanged`, neither of which
+      // holds here (post-rebuild = normal refetch). Without this
+      // explicit loop, a slicer whose global-filter exclusion just
+      // changed would stay on its pre-rebuild value list (e.g. a
+      // date slicer that was filtered to January by a global filter
+      // whose interaction was just disabled would keep showing only
+      // January dates even after the cache rebuild).
+      const slicers = history.state.widgets || {};
+      for (const [wId, w] of Object.entries(slicers)) {
+        if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0]) {
+          refreshSlicerRef.current?.(wId);
+        }
+      }
       // Normal refetch (NOT a manual/live refresh) → rollup planner serves
-      // the just-built rollups.
+      // the just-built rollups for the chart widgets.
       setRefreshCounter((n) => n + 1);
     }
-  }, [id]);
+  }, [id, history]);
   useEffect(() => () => {
     // Editor unmounted mid-rebuild → stop the poll/trickle cleanly.
     const st = cacheWarmCtlRef.current;

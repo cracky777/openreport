@@ -653,7 +653,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       {widget.type === 'filter' && (() => {
         const effStyle = widget.config?.slicerStyle || (widget.data?._isDate ? 'dateRange' : 'list');
         const isDateRange = effStyle === 'dateRange' || effStyle === 'dateBetween';
-        const isDateAny = isDateRange || effStyle === 'dateRelative';
+        const isDateCalendar = effStyle === 'dateCalendar';
+        const isDateAny = isDateRange || effStyle === 'dateRelative' || isDateCalendar;
         const isListLike = !isDateAny && effStyle !== 'range';
         return (
         <Section title="Slicer Options">
@@ -667,8 +668,9 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               <option value="range">Range</option>
               {widget.data?._isDate && (
                 <>
-                  <option value="dateRange">📅 Date Range</option>
-                  <option value="dateRelative">📅 Relative Date</option>
+                  <option value="dateRange">📆 Date Range</option>
+                  <option value="dateRelative">📆 Relative Date</option>
+                  <option value="dateCalendar">📆 Calendar</option>
                 </>
               )}
             </select>
@@ -680,6 +682,18 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 style={{ ...inputStyle, marginBottom: 0 }}>
                 <option value="vertical">Vertical</option>
                 <option value="horizontal">Horizontal</option>
+              </select>
+            </Field>
+          )}
+          {isDateCalendar && (
+            <Field label="Selection">
+              <select
+                value={widget.config?.dateCalendarMode || ((widget.config?.multiSelect ?? true) ? 'multi' : 'single')}
+                onChange={(e) => updateConfig('dateCalendarMode', e.target.value)}
+                style={{ ...inputStyle, marginBottom: 0 }}>
+                <option value="single">Single</option>
+                <option value="multi">Multi</option>
+                <option value="between">Between</option>
               </select>
             </Field>
           )}

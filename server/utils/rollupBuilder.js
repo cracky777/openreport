@@ -895,8 +895,25 @@ async function buildRollup({
   const outputDefs = measures
     .map((n) => measureByName.get(n))
     .filter(Boolean);
+  // HLL gate. The DataSketches DuckDB community extension crashes the
+  // Node process natively on Windows under some load conditions
+  // (ACCESS_VIOLATION 0xC0000005 after a multi-MB BLOB sketch column
+  // lands — no JS exception, process dies silently). Until that's
+  // diagnosed upstream, default = OFF on Windows, ON elsewhere. The
+  // env var can force either: `ROLLUP_HLL_ENABLED=1` opts in
+  // (Windows dev who wants to repro), `ROLLUP_HLL_ENABLED=0` opts out
+  // (Linux/Mac install hitting an unrelated extension issue). With
+  // the gate off, distinct outputs become `supported:false` → planner
+  // MISS → live SQL — same behaviour as pre-Phase-D, just no HLL
+  // acceleration for DISTINCT.
+  const hllEnvVar = process.env.ROLLUP_HLL_ENABLED;
+  const hllAllowed = hllEnvVar === '1'
+    ? true
+    : hllEnvVar === '0'
+      ? false
+      : process.platform !== 'win32';
   let hllReady = false;
-  if (storageMode === 'duckdb') {
+  if (storageMode === 'duckdb' && hllAllowed) {
     try {
       const _db = await rollupDuckDB.getDb(modelId, orgId, gen);
       hllReady = rollupDuckDB.isHllReady(_db);

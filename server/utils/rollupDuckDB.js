@@ -91,15 +91,18 @@ async function loadDataSketches(db) {
   try {
     await db.run('LOAD datasketches');
     db.__hllReady = true;
+    if (process.env.ROLLUP_HLL_LOG === '1') console.log('[hll] DataSketches loaded (cached)');
     return;
   } catch { /* not installed yet — try INSTALL */ }
   try {
     await db.run('INSTALL datasketches FROM community');
     await db.run('LOAD datasketches');
     db.__hllReady = true;
+    if (process.env.ROLLUP_HLL_LOG === '1') console.log('[hll] DataSketches installed from community + loaded');
   } catch (err) {
     db.__hllReady = false;
     db.__hllError = err && err.message ? err.message : String(err);
+    if (process.env.ROLLUP_HLL_LOG === '1') console.warn(`[hll] DataSketches unavailable: ${db.__hllError}`);
   }
 }
 
@@ -118,7 +121,20 @@ async function getDb(modelId, orgId, gen) {
   const promise = duckdb.Database
     .create(p, { access_mode: 'read_write', default_block_size: '16384' })
     .catch(() => duckdb.Database.create(p)) // older DuckDB w/o the setting
-    .then(async (db) => { await loadDataSketches(db); return db; })
+    .then(async (db) => {
+      // Only TOUCH the DataSketches extension when the operator opted
+      // in via ROLLUP_HLL_ENABLED=1. On Windows localhost the
+      // community extension binary triggers a native ACCESS_VIOLATION
+      // (exit code 0xC0000005) under some build conditions — gating
+      // the load itself (not just the use of the atom) keeps the
+      // process alive even if there's HLL plumbing in the codepath.
+      if (process.env.ROLLUP_HLL_ENABLED === '1') {
+        await loadDataSketches(db);
+      } else {
+        db.__hllReady = false;
+      }
+      return db;
+    })
     .catch((err) => { _dbByPath.delete(p); throw err; });
   _dbByPath.set(p, promise);
   return promise;

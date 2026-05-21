@@ -35,6 +35,10 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
   // reset it whenever the dim or search changes so we don't keep an inflated
   // window from a previous filter state.
   const [renderLimit, setRenderLimit] = useState(RENDER_BATCH);
+  // dateCalendar 'between' mode: ISO of the FIRST click while waiting
+  // for the second one. null = no anchor yet (next click sets it).
+  // Resets after the range is applied OR when the dim / mode changes.
+  const [betweenAnchor, setBetweenAnchor] = useState(null);
 
   // Reset transient UI state when the bound dimension changes (selected is synced via activeSelection effect)
   const prevDimRef = useRef(data?._dimName);
@@ -48,10 +52,16 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
       setSearch('');
       setDateFrom('');
       setDateTo('');
+      setBetweenAnchor(null);
       relAppliedRef.current = false;
       setRenderLimit(RENDER_BATCH);
     }
   }, [data?._dimName, config?.selectedValues, activeSelection]);
+
+  // dateCalendar mode change → drop the in-progress between anchor so
+  // a user who flips from 'between' to 'multi' mid-range doesn't keep
+  // a phantom anchor that hijacks the next click.
+  useEffect(() => { setBetweenAnchor(null); }, [config?.dateCalendarMode]);
 
   // Searching narrows the visible set — reset windowing so "Show more" reflects
   // the new filtered universe.
@@ -356,6 +366,141 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
     );
   }
 
+  // ─── DATE CALENDAR MODE (inline calendar, bootstrap-datepicker style) ───
+  if (slicerStyle === 'dateCalendar') {
+    // Three selection modes:
+    //   - 'single'  : one date at a time; re-click deselects.
+    //   - 'multi'   : toggle dates in/out individually (Bootstrap multidate).
+    //   - 'between' : two clicks define a range; every available date
+    //                 between (inclusive) lands in the selection.
+    // Legacy config falls back to multi/single via the old multiSelect
+    // boolean so existing reports keep their behaviour.
+    const calMode = config?.dateCalendarMode || (multiSelect ? 'multi' : 'single');
+
+    // Chronological span of AVAILABLE dates — drives the calendar's
+    // disabled state. Built from raw `values` (NOT `sortedValues`,
+    // which floats the currently-selected dates to the top → after the
+    // first click `sortedValues[0]` would BE that selected date, so
+    // minIso would snap to it and grey out every earlier day). Time
+    // component is dropped via toLocalInputDate so the iso aligns
+    // with MiniCalendar's local-day cell ids.
+    const sortedAvail = (values || [])
+      .map((v) => new Date(v))
+      .filter((d) => !isNaN(d))
+      .sort((a, b) => a - b);
+    const minIso = sortedAvail.length ? toLocalInputDate(sortedAvail[0]) : '';
+    const maxIso = sortedAvail.length ? toLocalInputDate(sortedAvail[sortedAvail.length - 1]) : '';
+    // O(1) lookup: does the day clicked correspond to a date present
+    // in the underlying data set? The MiniCalendar still emits
+    // onChange for any non-disabled cell; this guards against
+    // click-noops on sparse calendars.
+    const availableSet = new Set(
+      (values || []).map((v) => toLocalInputDate(new Date(v))).filter(Boolean)
+    );
+    // Selected isos passed to MiniCalendar for highlight.
+    const selectedIsos = (selected || [])
+      .map((v) => toLocalInputDate(new Date(v)))
+      .filter(Boolean);
+    // Between mode endpoints — used both to draw the range fill in
+    // MiniCalendar and to render the "X dates selected (Y → Z)" hint.
+    const sortedSelectedIsos = [...selectedIsos].sort();
+    const rangeStart = calMode === 'between' && sortedSelectedIsos.length
+      ? sortedSelectedIsos[0] : undefined;
+    const rangeEnd = calMode === 'between' && sortedSelectedIsos.length
+      ? sortedSelectedIsos[sortedSelectedIsos.length - 1] : undefined;
+
+    const handleCalendarClick = (iso) => {
+      // Match the click back to the original value in `values` (which
+      // may be a full timestamp string, not just YYYY-MM-DD). One iso
+      // can correspond to multiple values if the source has rows at
+      // different times the same day; include them all so the parent
+      // filter receives the right WHERE-IN list.
+      const matches = (values || []).filter((v) => toLocalInputDate(new Date(v)) === iso);
+      if (matches.length === 0) return;
+      let next;
+      if (calMode === 'between') {
+        if (!betweenAnchor) {
+          // First click of a new range — store the anchor, highlight
+          // just that one date, wait for the second click.
+          setBetweenAnchor(iso);
+          setSelected(matches);
+          onFilterChange?.(matches);
+          return;
+        }
+        // Second click — pick every available date between anchor
+        // and click (inclusive, order-insensitive).
+        const [startIso, endIso] = iso < betweenAnchor
+          ? [iso, betweenAnchor]
+          : [betweenAnchor, iso];
+        next = (values || []).filter((v) => {
+          const localIso = toLocalInputDate(new Date(v));
+          return localIso >= startIso && localIso <= endIso;
+        });
+        setBetweenAnchor(null);
+      } else if (calMode === 'multi') {
+        const setSel = new Set(selected.map(String));
+        const allSelected = matches.every((m) => setSel.has(String(m)));
+        if (allSelected) {
+          matches.forEach((m) => setSel.delete(String(m)));
+        } else {
+          matches.forEach((m) => setSel.add(String(m)));
+        }
+        next = [...setSel];
+      } else {
+        // Single — click the same date again deselects.
+        const same = selected.length === matches.length
+          && matches.every((m) => selected.includes(m));
+        next = same ? [] : matches;
+      }
+      setSelected(next);
+      onFilterChange?.(next);
+    };
+
+    const clearAll = () => {
+      setSelected([]);
+      setBetweenAnchor(null);
+      onFilterChange?.([]);
+    };
+
+    // Footer message — between mode signals which step the user is on
+    // so a calendar with one date highlighted doesn't look like a
+    // stuck single-select. After the second click, fall back to the
+    // generic "N dates selected" so the user sees the range size.
+    let footerText = '';
+    if (calMode === 'between' && betweenAnchor) {
+      footerText = 'Pick the end date';
+    } else if (selectedCount > 0) {
+      footerText = `${selectedCount} ${selectedCount === 1 ? 'date' : 'dates'} selected`;
+    }
+
+    return (
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 8, gap: 6, ...slicerFontStyle, overflow: 'auto' }}>
+        <MiniCalendar
+          min={minIso}
+          max={maxIso}
+          selectedDates={calMode !== 'single' ? selectedIsos : undefined}
+          value={calMode === 'single' && selectedIsos.length ? selectedIsos[0] : undefined}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          onChange={(iso) => {
+            // Days without underlying data: greyed out via min/max,
+            // but a click between sparse days could still emit. Guard.
+            if (!availableSet.has(iso)) return;
+            handleCalendarClick(iso);
+          }}
+        />
+        {footerText && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+            <span style={{ fontSize: 10, color: 'var(--text-disabled)' }}>{footerText}</span>
+            {(selectedCount > 0 || betweenAnchor) && (
+              <button onClick={clearAll} style={linkBtn}>Clear</button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // ─── DROPDOWN MODE ───
   if (slicerStyle === 'dropdown') {
     const displayText = selected.length === 0 ? 'All'
@@ -550,6 +695,22 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
 function toInputDate(d) {
   if (!d || isNaN(d)) return '';
   return d.toISOString().split('T')[0];
+}
+
+// Same shape as `toInputDate` but uses LOCAL year/month/day instead of
+// UTC — matches the iso that MiniCalendar emits on a day click (which
+// is built from `viewDate.getFullYear() / getMonth() / getDate()`, i.e.
+// local). Using UTC here would shift the iso by a day in any timezone
+// where the source timestamp's UTC date differs from its local date
+// (e.g. a `…T23:00:00Z` value is Jan 15 UTC but Jan 16 local in CET);
+// the calendar would show the cell on Jan 16 but availableSet would
+// only know Jan 15 → click no-op + min/max snapped to the wrong day.
+function toLocalInputDate(d) {
+  if (!d || isNaN(d)) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 }
 
 const emptyStyle = {
