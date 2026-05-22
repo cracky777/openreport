@@ -55,9 +55,26 @@ const sessionsDb = new Database(path.join(sessionsDir, 'sessions.db'));
 const isProduction = process.env.NODE_ENV === 'production';
 if (isProduction) app.set('trust proxy', 1);
 
+// SESSION_SECRET hardening. Two things signed with this:
+//   - express-session cookies (the user's auth state).
+//   - internalToken.js JWTs (used by the rollup builder for loopback
+//     /query calls that bypass passport via the x-or-internal-token
+//     header).
+// The default fallback string is published in the OSS source; an
+// attacker who knows the codebase can forge cookies / JWTs on any
+// install that boots without the env var set. Refuse to start in
+// production rather than silently weaken auth. Dev installs keep
+// the convenient default so first-time contributors can `npm run
+// dev` without configuring anything.
+const DEFAULT_SESSION_SECRET = 'dev-secret-change-me';
+if (isProduction && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === DEFAULT_SESSION_SECRET)) {
+  console.error('[startup] FATAL: SESSION_SECRET must be set to a non-default value in production. Refusing to start with the dev fallback (cookies + internal JWTs would be forgeable by anyone with the source).');
+  process.exit(1);
+}
+
 app.use(session({
   store: new SqliteStore({ client: sessionsDb, expired: { clear: true, intervalMs: 900000 } }),
-  secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
+  secret: process.env.SESSION_SECRET || DEFAULT_SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {

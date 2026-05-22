@@ -275,6 +275,20 @@ router.post('/run-now/:reportId', requireAuth, async (req, res) => {
       // itself succeeded, so don't fail the response.
       console.warn('[cache-schedules] cache_built_at update failed:', e.message);
     }
+    // Drop every queryCache entry for this model. The rollup planner
+    // serves freshly-built rollup data on HIT, but queries that MISS
+    // the planner (live SQL fallback for distinct / unsupported
+    // shapes / RLS-restricted users / …) hit queryCache afterwards
+    // — and queryCache is keyed by SHA(sql) + rlsContext, NOT by the
+    // rebuild timestamp, so a stale entry from before the rebuild
+    // would survive and feed the client pre-rebuild numbers. The
+    // model-scoped invalidate iterates by `modelId` prefix in the key
+    // and drops them all at once.
+    try {
+      queryCache.invalidateModel(full.model_id);
+    } catch (e) {
+      console.warn('[cache-schedules] queryCache invalidate failed:', e.message);
+    }
     res.json({ result });
   } catch (err) {
     if (err.code === 'ROLLUP_STORAGE_UNSUPPORTED') {

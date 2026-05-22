@@ -20,14 +20,33 @@ db.pragma('foreign_keys = ON');
 const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');
 db.exec(schema);
 
+// Run an idempotent migration. `ignoreIfExists` swallows ONLY the
+// "duplicate column"/"already exists" errors SQLite returns when the
+// migration has already been applied — real failures (permissions
+// errors, corrupted metadata, missing parent table, …) propagate and
+// crash boot. Bare `catch {}` blocks hid those crashes behind an
+// otherwise-healthy startup, with the schema silently incomplete →
+// 500s later from code expecting columns that don't exist.
+function safeMigrate(sql) {
+  try { db.exec(sql); } catch (e) {
+    const msg = String(e && e.message || '');
+    if (/duplicate column name/i.test(msg)
+        || /already exists/i.test(msg)
+        || /no such table/i.test(msg) /* upstream ALTER on a table that hasn't been created in OSS — cloud-only schema */) {
+      return;
+    }
+    throw e;
+  }
+}
+
 // Migrations for existing DBs
-try { db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'"); } catch { /* already exists */ }
-try { db.exec("ALTER TABLE reports ADD COLUMN workspace_id TEXT"); } catch { /* already exists */ }
+safeMigrate("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'");
+safeMigrate("ALTER TABLE reports ADD COLUMN workspace_id TEXT");
 // Per-report data-source mode toggle (managed from the workspace card by
 // ws/org admins). 0 = serve from the rollup cache when available (fast,
 // default); 1 = bypass the cache, query the source DB live on every
 // widget. The Viewer reads this and sets `bypassCache` on every /query.
-try { db.exec("ALTER TABLE reports ADD COLUMN live_mode INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
+safeMigrate("ALTER TABLE reports ADD COLUMN live_mode INTEGER NOT NULL DEFAULT 0");
 // ISO timestamp set on every successful rollup-cache rebuild
 // (cacheSchedules run-now). The Editor folds it into its bindingKey
 // so a saved widget's `_fetchedBinding` invalidates the next time the
@@ -35,27 +54,27 @@ try { db.exec("ALTER TABLE reports ADD COLUMN live_mode INTEGER NOT NULL DEFAULT
 // binding silently reuses pre-rebuild content (the "rebuild ignored"
 // bug when triggered from the workspace card). NULL = never rebuilt
 // since the column was added.
-try { db.exec("ALTER TABLE reports ADD COLUMN cache_built_at TEXT"); } catch { /* already exists */ }
-try { db.exec("ALTER TABLE datasources ADD COLUMN extra_config TEXT DEFAULT '{}'"); } catch { /* already exists */ }
-try { db.exec("ALTER TABLE models ADD COLUMN date_column TEXT DEFAULT ''"); } catch { /* already exists */ }
-try { db.exec("ALTER TABLE models ADD COLUMN rls TEXT NOT NULL DEFAULT '{}'"); } catch { /* already exists */ }
+safeMigrate("ALTER TABLE reports ADD COLUMN cache_built_at TEXT");
+safeMigrate("ALTER TABLE datasources ADD COLUMN extra_config TEXT DEFAULT '{}'");
+safeMigrate("ALTER TABLE models ADD COLUMN date_column TEXT DEFAULT ''");
+safeMigrate("ALTER TABLE models ADD COLUMN rls TEXT NOT NULL DEFAULT '{}'");
 // Per-column type overrides — JSON map { "table.column": "date" | "string" | "number" | "boolean" }.
 // Lets the user reinterpret a varchar that holds dates as a real date dimension,
 // or a numeric ID as a categorical string. Empty / missing keys fall back to the
 // native db type returned by information_schema.
-try { db.exec("ALTER TABLE models ADD COLUMN column_types TEXT NOT NULL DEFAULT '{}'"); } catch { /* already exists */ }
-try { db.exec("ALTER TABLE workspaces ADD COLUMN is_personal INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_workspaces_personal_owner ON workspaces (owner_id) WHERE is_personal = 1"); } catch { /* ignore */ }
+safeMigrate("ALTER TABLE models ADD COLUMN column_types TEXT NOT NULL DEFAULT '{}'");
+safeMigrate("ALTER TABLE workspaces ADD COLUMN is_personal INTEGER NOT NULL DEFAULT 0");
+safeMigrate("CREATE INDEX IF NOT EXISTS idx_workspaces_personal_owner ON workspaces (owner_id) WHERE is_personal = 1");
 // Email verification (cloud-only enforcement; OSS keeps logging in regardless).
 // Existing OSS users default to 0 — but OSS doesn't gate on this, so they're
 // unaffected. The cloud edition runs a backfill at boot to mark all
 // pre-existing users as verified (they were created before the feature
 // shipped — gating them retroactively would lock them out).
-try { db.exec("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
-try { db.exec("ALTER TABLE users ADD COLUMN last_verification_sent_at TEXT"); } catch { /* already exists */ }
+safeMigrate("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0");
+safeMigrate("ALTER TABLE users ADD COLUMN last_verification_sent_at TEXT");
 // Last login / activity timestamp — updated by the login route. Used by the
 // platform supervisor dashboard to surface stale / inactive accounts.
-try { db.exec("ALTER TABLE users ADD COLUMN last_seen_at TEXT"); } catch { /* already exists */ }
+safeMigrate("ALTER TABLE users ADD COLUMN last_seen_at TEXT");
 
 // Report version history — snapshots taken on every meaningful save so an
 // admin can roll back. Capped at 20 versions per report (FIFO pruning in
