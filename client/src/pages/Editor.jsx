@@ -186,6 +186,13 @@ export default function Editor() {
   // synchronous refreshSlicer sees the just-committed rules.
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  // Live mirror of `report` so refreshSlicer can stamp filter widgets
+  // with the current rebuild timestamp without taking `report` as a
+  // useCallback dep (which would re-create the callback every time
+  // the report state changes — defeating the slicer cascade ref
+  // pattern below).
+  const reportRef = useRef(report);
+  reportRef.current = report;
   const urlFiltersAppliedRef = useRef(false);
   // Once the model is loaded, seed `settings.reportFilters` from the URL
   // `?f_<col>=…` params. URL rules win over saved rules for the same field
@@ -553,10 +560,30 @@ export default function Editor() {
     if (!w || w.type !== 'filter') return;
     const dim = w.dataBinding?.selectedDimensions?.[0];
     if (!dim || !model?.id) return;
+    // Stamp the current cache-rebuild timestamp on the widget data
+    // BEFORE the async fetch fires. If the editor re-runs its main
+    // fetch effect (model load, settings reorder, …) while THIS
+    // refreshSlicer is still in flight, the slicer-cascade check
+    // would otherwise see the stale `_fetchedCacheBuiltAt` and
+    // re-fire — flooding the source DB with duplicate distinct
+    // queries. Stamping eagerly is safe: the catch branch below
+    // doesn't touch data, so a failed fetch keeps the stamp; the
+    // user can manual-refresh.
+    const cbAtFetchStart = reportRef.current?.cache_built_at || null;
     history.setSilent((prev) => {
       const cur = prev.widgets?.[widgetId];
       if (!cur) return prev;
-      return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...cur, _loading: true } } };
+      return {
+        ...prev,
+        widgets: {
+          ...prev.widgets,
+          [widgetId]: {
+            ...cur,
+            _loading: true,
+            data: { ...(cur.data || {}), _fetchedCacheBuiltAt: cbAtFetchStart },
+          },
+        },
+      };
     });
     try {
       // Read from the live ref, NOT the closure — see settingsRef. The
@@ -585,6 +612,13 @@ export default function Editor() {
       // by the OTHER active filters.
       const appliedFilters = { ...(reportFiltersRef.current || {}) };
       delete appliedFilters[dim];
+      // No bypassCache here: the server's slicer-distinct fast path
+      // tries the rollup first (matches the freshly-rebuilt state)
+      // and on MISS falls to LIVE while bypassing queryCache —
+      // routes/models.js sets req._slicerDistinctBypassQueryCache
+      // when distinct=true + 1 dim + 0 measures. Faster than the
+      // previous always-live behaviour wherever a rollup carries the
+      // slicer's dim in its grain.
       const res = await api.post(`/models/${model.id}/query`, {
         dimensionNames: [dim],
         measureNames: [],
@@ -593,7 +627,6 @@ export default function Editor() {
         widgetFilters: [...reportLevelFilters, ...ownWidgetFilters],
         distinct: true,
         reportId: id,
-        bypassCache: true,
         ...reportExtras,
       });
       const rows = res.data?.rows || [];
@@ -609,6 +642,11 @@ export default function Editor() {
         nextData.values = values;
         nextData.label = dim;
         nextData._isDate = dimDef?.type === 'date';
+        // Stamp the report's current rebuild timestamp so the next
+        // Editor open detects whether the cache has been rebuilt since
+        // this fetch (workspace-card rebuild → editor reopen scenario).
+        // null/undefined when the report has never been rebuilt.
+        nextData._fetchedCacheBuiltAt = reportRef.current?.cache_built_at || null;
         // Any stale search state from before the refresh is now wrong —
         // drop it so the slicer falls back to its fresh data.values.
         delete nextData._searchedValues;
@@ -942,7 +980,26 @@ export default function Editor() {
     const globalFilterChanged = prevSettingsFiltersRef.current !== null
       && prevSettingsFiltersRef.current !== settingsFiltersKey;
     prevSettingsFiltersRef.current = settingsFiltersKey;
-    if (!scopedToId && (globalFilterChanged || manualRefresh)) {
+    // Detect that the rollup cache was rebuilt while the editor was
+    // closed (workspace-card rebuild → user re-opens the report).
+    // Filter widgets are skipped by the main fetch effect (line 930)
+    // and refreshSlicer is only cascaded on manualRefresh or
+    // globalFilterChanged — neither triggers on a fresh editor mount.
+    // So a slicer with stale data.values (pre-rebuild) would stay
+    // stuck until the user re-clicks 'rebuild cache & refresh' from
+    // INSIDE the editor (which DOES loop refreshSlicer explicitly).
+    // The fix: on every effect run, check whether any filter widget's
+    // last-fetched-cache-stamp lags the current report's
+    // cache_built_at. If yes, also cascade. The stamp is recorded by
+    // refreshSlicer on every successful fetch, so subsequent renders
+    // without a new rebuild see a match → no extra refresh.
+    const reportCacheBuiltAt = report?.cache_built_at || null;
+    const slicersHaveStaleCache = !!reportCacheBuiltAt
+      && Object.values(currentWidgets).some((w) =>
+        w?.type === 'filter'
+        && w.dataBinding?.selectedDimensions?.[0]
+        && w.data?._fetchedCacheBuiltAt !== reportCacheBuiltAt);
+    if (!scopedToId && (globalFilterChanged || manualRefresh || slicersHaveStaleCache)) {
       for (const [wId, w] of Object.entries(currentWidgets)) {
         if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0]) {
           refreshSlicerRef.current?.(wId);
@@ -973,7 +1030,7 @@ export default function Editor() {
       // changed for them.
       const baseFiltersForKey = { ...(reportFilters || {}) };
       const targetFiltersForKey = filterForTarget(wId, baseFiltersForKey, currentWidgets, crossHighlightRef.current);
-      const widgetBindingKey = computeBindingKey({ widget: w, model, reportFilters: targetFiltersForKey, settings });
+      const widgetBindingKey = computeBindingKey({ widget: w, model, reportFilters: targetFiltersForKey, settings, cacheBuiltAt: report?.cache_built_at });
       if (!refreshRequested
           && wId !== scopedToId
           && w.data?._fetchedBinding === widgetBindingKey
@@ -1269,7 +1326,7 @@ export default function Editor() {
             // Use the per-widget targetFilters (post interaction-exclusion
             // stripping) so the cache key matches what `toFetch` checks
             // when deciding whether to skip subsequent renders.
-            emptyData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters, settings });
+            emptyData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters, settings, cacheBuiltAt: report?.cache_built_at });
             return { wId, data: emptyData };
           }
           let newData = {};
@@ -1483,7 +1540,7 @@ export default function Editor() {
           // next widget selection — the data is already fresh for this
           // binding. Use the per-widget targetFilters so the key matches
           // the no-op skip check in `toFetch`.
-          newData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters, settings });
+          newData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters, settings, cacheBuiltAt: report?.cache_built_at });
           return { wId, data: newData };
         }).catch((err) => {
           if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return { wId, data: null };
@@ -2456,6 +2513,7 @@ export default function Editor() {
           })()}
           refreshNonce={selectedWidget ? (widgetRefreshNonces[selectedWidget] || 0) : 0}
           reportId={id}
+          cacheBuiltAt={report?.cache_built_at}
           onResizeStart={pinCanvas}
           onResizeEnd={unpinCanvas}
         />

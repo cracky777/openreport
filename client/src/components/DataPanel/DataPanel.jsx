@@ -9,7 +9,7 @@ import { prepareGlobalRulesForWidget } from '../../utils/reportFilterRules';
 import { computeBindingKey } from '../../utils/bindingKey';
 import { shiftFiltersForN1, shiftWidgetFiltersForN1, hasShiftableFilterForN1 } from '../../utils/comparePeriod';
 
-export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, reportId }) {
+export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, reportId, cacheBuiltAt }) {
   // Helper used by every action that previously mutated the model. Updates
   // the report's `settings` JSON in-memory; the user's next Save persists it
   // to /api/reports/:id. Returns false when the host didn't provide
@@ -166,7 +166,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   // agree on what counts as the "same" binding. After Editor's refetch (drill,
   // filter change, refresh), it stamps `data._fetchedBinding` with this same
   // value so re-selecting the widget doesn't trigger an unnecessary refetch.
-  const bindingKey = hasWidget ? computeBindingKey({ widget, model, reportFilters, settings }) : '';
+  const bindingKey = hasWidget ? computeBindingKey({ widget, model, reportFilters, settings, cacheBuiltAt }) : '';
   const selectionKey = hasWidget ? `${widgetId}:${bindingKey}` : '';
 
   // Drag start handler

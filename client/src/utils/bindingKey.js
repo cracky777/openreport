@@ -4,7 +4,7 @@
 // after an Editor-driven refetch should not trigger a DataPanel refetch when
 // the binding hasn't actually moved.
 
-export function computeBindingKey({ widget, model, reportFilters, settings }) {
+export function computeBindingKey({ widget, model, reportFilters, settings, cacheBuiltAt }) {
   if (!widget) return '';
   const binding = widget.dataBinding || {};
 
@@ -91,6 +91,15 @@ export function computeBindingKey({ widget, model, reportFilters, settings }) {
   // row count until an unrelated refetch (same staleness class).
   const limitKey = `lim:${widget?.config?.dataLimit || 1000}`;
 
+  // Report-level rollup-cache rebuild timestamp (cacheSchedules run-now
+  // stamps reports.cache_built_at on success). Folding it in here makes
+  // the saved `_fetchedBinding` on every widget invalidate the next
+  // time the report opens after a rebuild from the workspace card —
+  // the Editor's skip-fetch then misses, fetches fresh data from the
+  // freshly-built rollups. Pre-rebuild reports (NULL column) fall back
+  // to '' so the key is stable for never-rebuilt reports.
+  const cacheKey = cacheBuiltAt ? `cb:${cacheBuiltAt}` : '';
+
   return [
     selectedDims.join(','),
     selectedMeass.join(','),
@@ -99,6 +108,6 @@ export function computeBindingKey({ widget, model, reportFilters, settings }) {
     scatterKey, comboKey, gaugeKey,
     aggKey, colorKey, widgetFiltersKey,
     modelVersion, filtersKey, typeKey, topNKey, drillKey, compareKey,
-    overridesKey, limitKey,
+    overridesKey, limitKey, cacheKey,
   ].join(':');
 }

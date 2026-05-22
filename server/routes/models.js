@@ -1327,8 +1327,56 @@ router.post('/:id/query', async (req, res) => {
   // queryCache — NOT served from the rollup. So skip the rollup planner;
   // the normal path then runs live (queryCache.get is itself skipped
   // when bypassCache, forcing fresh) and writes the result to queryCache.
+  // Slicer-distinct shape: distinct=true, exactly one dim, no measures.
+  // We want these to try the rollup FIRST (matches the freshly-built
+  // rollup state after a cache rebuild) and on MISS fall to LIVE
+  // skipping queryCache (whose stale entries would otherwise survive
+  // a rebuild within the same server process and feed the slicer with
+  // pre-rebuild distinct values).
+  const isSlicerDistinct = !!distinct
+    && Array.isArray(measureNames) && measureNames.length === 0
+    && Array.isArray(dimensionNames) && dimensionNames.length === 1;
   if (sqlOnly || isRollupBuilderRequest || bypassCache) {
     __mark(`SKIP rollup planner (sqlOnly=${!!sqlOnly}, builder=${isRollupBuilderRequest}, bypassCache=${!!bypassCache})`);
+  } else if (isSlicerDistinct) {
+    const rollupPlanner = require('../utils/rollupPlanner');
+    const __tRollup = Date.now();
+    let rollupResult;
+    try {
+      rollupResult = await rollupPlanner.tryServeSlicerDistinct({
+        modelId: model.id,
+        orgId: req.organizationId || null,
+        reportId,
+        dimensionName: dimensionNames[0],
+        filters: filters || {},
+        widgetFilters: Array.isArray(widgetFilters) ? widgetFilters : [],
+        allDimensions,
+        limit,
+        rlsApplies: !!rlsApplies,
+      });
+    } catch (err) {
+      rollupResult = { hit: false, reason: `planner-error:${err.message}` };
+    }
+    __mark(`rollupPlanner slicer ${rollupResult.hit ? 'HIT' : 'MISS:' + rollupResult.reason} (${Date.now() - __tRollup}ms, ${rollupResult.rows?.length ?? 0} rows)`);
+    if (rollupResult.hit) {
+      return res.json({
+        rows: rollupResult.rows,
+        rowCount: rollupResult.rows.length,
+        maxReached: rollupResult.rows.length >= 1000000,
+        sql: rollupResult.sql || null,
+        _cache: {
+          hit: true,
+          fromRollup: rollupResult.tableName,
+          rollupMatch: 'slicer',
+          serverMs: Date.now() - __t0,
+        },
+      });
+    }
+    // MISS: fall through to live SQL below. Mark this request so the
+    // queryCache check skips — otherwise a stale entry from before a
+    // cache rebuild would be served, undoing the whole "rebuild +
+    // refresh" semantics for slicer widgets.
+    req._slicerDistinctBypassQueryCache = true;
   } else {
     const rollupPlanner = require('../utils/rollupPlanner');
     const __tRollup = Date.now();
@@ -2152,10 +2200,13 @@ router.post('/:id/query', async (req, res) => {
     sql,
     rlsContext: rlsContextForCache,
   };
-  if (!bypassCache) {
+  if (!bypassCache && !req._slicerDistinctBypassQueryCache) {
     // The rollup planner was already checked at the top of the handler —
     // a hit returned early before SQL build. Reaching here means rollup
     // miss; fall through to the SQL-keyed queryCache, then the DB.
+    // `_slicerDistinctBypassQueryCache` set when a slicer-distinct
+    // request rollup-MISSed: we want fresh live values, not a stale
+    // queryCache entry from before the most recent cache rebuild.
     const cached = queryCache.get(cacheOpts);
     __mark(`queryCache.get ${cached ? 'HIT' : 'MISS'}`);
     if (cached) {

@@ -541,4 +541,137 @@ async function tryServeFromRollup(opts) {
   };
 }
 
-module.exports = { tryServeFromRollup };
+/**
+ * Slicer-distinct fast path: a filter widget asks for the distinct
+ * values of a single dim under the current filter context. The main
+ * planner (above) bails on no-measures requests; this function
+ * specifically handles that shape by picking ANY rollup whose grain
+ * already contains the dim and SELECT-DISTINCTing it.
+ *
+ * Caller contract:
+ *   - `dimensionName` is the single dim the slicer is bound to.
+ *   - `filters` / `widgetFilters` follow the same split convention as
+ *     the main planner (global → baked into baseFilterHash, runtime →
+ *     applied as WHERE on the rollup).
+ *   - On HIT, returns the same `{hit, rows, tableName, match}` shape
+ *     so the route handler can reuse its response-building path.
+ *   - On MISS, returns `{hit:false, reason}` so the caller falls
+ *     through to live SQL (skipping queryCache, since stale slicer
+ *     values would otherwise survive a cache rebuild within the same
+ *     server process).
+ *
+ * @returns {{hit:true, rows:Array, tableName:string, match:string, sql:string}}
+ *          | {hit:false, reason:string}
+ */
+async function tryServeSlicerDistinct(opts) {
+  const {
+    modelId, orgId, reportId,
+    dimensionName,
+    filters = {},
+    widgetFilters = [],
+    allDimensions = [],
+    limit,
+    rlsApplies,
+  } = opts;
+
+  if (rlsApplies) return { hit: false, reason: 'rls-restricted' };
+  if (!modelId) return { hit: false, reason: 'no-model' };
+  if (!dimensionName) return { hit: false, reason: 'no-dim' };
+
+  // Same global/runtime split as the main planner — keeps the
+  // baked-filter hash semantics consistent.
+  const reportFilters = loadReportFilters(reportId);
+  const globalKeys = new Set(
+    reportFilters
+      .filter((r) => r && !r.isMeasure && r.field && r.op)
+      .map((r) => `${r.field}|${r.op}`)
+  );
+  const wf = Array.isArray(widgetFilters) ? widgetFilters : [];
+  const globalPart = [];
+  const runtimePart = [];
+  for (const f of wf) {
+    if (!f || f.isMeasure || isSyntheticTopN(f) || !f.field || !f.op) continue;
+    if (globalKeys.has(`${f.field}|${f.op}`)) globalPart.push(f);
+    else runtimePart.push(f);
+  }
+  const baseFilterHash = rollupBuilder.baseFilterHashOf(globalPart);
+
+  // Candidates: any rollup matching the model/org AND base filter hash
+  // whose grain CONTAINS the slicer dim. Prefer the smallest one (least
+  // rows = fastest DISTINCT scan). Cross-fact arbitrary — a dim has the
+  // same value universe regardless of which fact's rollup it sits in.
+  const rows = db.prepare(
+    `SELECT id, table_name, grain_dims, row_count, storage_mode
+     FROM rollups
+     WHERE model_id = ?
+       AND base_filter_hash = ?
+       AND (organization_id IS ? OR organization_id = ?)`
+  ).all(modelId, baseFilterHash, orgId || null, orgId || null);
+
+  let best = null;
+  for (const row of rows) {
+    let grain;
+    try { grain = JSON.parse(row.grain_dims || '[]'); } catch { continue; }
+    if (!Array.isArray(grain) || !grain.includes(dimensionName)) continue;
+    if (row.storage_mode !== 'duckdb') continue;
+    if (!best || (row.row_count || 0) < (best.row_count || 0)) {
+      best = { ...row, grain };
+    }
+  }
+  if (!best) return { hit: false, reason: `no-rollup-with-dim:${dimensionName}` };
+
+  // WHERE — runtime filter dims that ALSO sit in the rollup's grain
+  // (otherwise their column doesn't exist in the table). Filters
+  // outside the grain are dropped as a no-op, mirroring the main
+  // planner's "unrelated slicer doesn't force a MISS" rule.
+  const grainSet = new Set(best.grain);
+  const whereParts = [];
+  for (const [dn, vals] of Object.entries(filters || {})) {
+    if (!Array.isArray(vals) || vals.length === 0) continue;
+    if (!grainSet.has(dn)) continue;
+    const d = allDimensions.find((x) => x.name === dn);
+    const dimType = d ? d.type : 'string';
+    whereParts.push(`${qIdent(dn)} IN (${vals.map((v) => litFor(dimType, v)).join(', ')})`);
+  }
+  for (const f of runtimePart) {
+    if (!grainSet.has(f.field)) continue;
+    const d = allDimensions.find((x) => x.name === f.field);
+    const dimType = d ? d.type : 'string';
+    const clause = scalarClause(f.field, dimType, f.op, f.value, f.values);
+    if (clause === null) return { hit: false, reason: `unsupported-op:${f.op}` };
+    whereParts.push(clause);
+  }
+  const whereSql = whereParts.length ? ` WHERE ${whereParts.join(' AND ')}` : '';
+
+  // Output column under the dim's label (or name fallback) — exactly
+  // what live /query emits for a distinct slicer query, so the
+  // FilterWidget's `data.values` extraction works unchanged.
+  const d = allDimensions.find((x) => x.name === dimensionName);
+  const respKey = (d && d.label) || dimensionName;
+  const lim = Math.min(Number(limit) || 1000, 1_000_000);
+  const sql = `SELECT DISTINCT ${qIdent(dimensionName)} AS ${qIdent(respKey)} `
+    + `FROM ${qIdent(best.table_name)}${whereSql} `
+    + `ORDER BY ${qIdent(dimensionName)} LIMIT ${lim}`;
+
+  // Drop the gen out of the table name suffix so rollupDuckDB.query
+  // opens the right per-gen file (its second arg is the gen token).
+  const gen = rollupDuckDB.genOfTableName(best.table_name);
+  if (!gen) return { hit: false, reason: 'legacy-gen' };
+
+  let resultRows;
+  try {
+    resultRows = await rollupDuckDB.query(modelId, gen, sql, orgId);
+  } catch (err) {
+    return { hit: false, reason: `duckdb-error:${err.message}` };
+  }
+
+  return {
+    hit: true,
+    rows: resultRows,
+    tableName: best.table_name,
+    match: 'slicer',
+    sql,
+  };
+}
+
+module.exports = { tryServeFromRollup, tryServeSlicerDistinct };

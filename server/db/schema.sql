@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS reports (
   widgets TEXT NOT NULL DEFAULT '{}',
   settings TEXT NOT NULL DEFAULT '{}',
   is_public INTEGER DEFAULT 0,
+  cache_built_at TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE

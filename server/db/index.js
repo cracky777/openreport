@@ -28,6 +28,14 @@ try { db.exec("ALTER TABLE reports ADD COLUMN workspace_id TEXT"); } catch { /* 
 // default); 1 = bypass the cache, query the source DB live on every
 // widget. The Viewer reads this and sets `bypassCache` on every /query.
 try { db.exec("ALTER TABLE reports ADD COLUMN live_mode INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
+// ISO timestamp set on every successful rollup-cache rebuild
+// (cacheSchedules run-now). The Editor folds it into its bindingKey
+// so a saved widget's `_fetchedBinding` invalidates the next time the
+// report opens after a rebuild — otherwise the saved data + cached
+// binding silently reuses pre-rebuild content (the "rebuild ignored"
+// bug when triggered from the workspace card). NULL = never rebuilt
+// since the column was added.
+try { db.exec("ALTER TABLE reports ADD COLUMN cache_built_at TEXT"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE datasources ADD COLUMN extra_config TEXT DEFAULT '{}'"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE models ADD COLUMN date_column TEXT DEFAULT ''"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE models ADD COLUMN rls TEXT NOT NULL DEFAULT '{}'"); } catch { /* already exists */ }

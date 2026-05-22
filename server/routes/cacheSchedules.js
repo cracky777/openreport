@@ -262,6 +262,19 @@ router.post('/run-now/:reportId', requireAuth, async (req, res) => {
       orgId: req.organizationId || null,
       log: process.env.ROLLUP_LOG !== '0',
     });
+    // Stamp the rebuild time on the report so the Editor invalidates
+    // its saved widget binding keys on next open — otherwise a rebuild
+    // triggered from the workspace card silently runs but the saved
+    // `_fetchedBinding` on each widget makes the Editor's skip-fetch
+    // check pass on next open, and the user sees pre-rebuild data.
+    try {
+      db.prepare('UPDATE reports SET cache_built_at = ? WHERE id = ?')
+        .run(new Date().toISOString(), report.id);
+    } catch (e) {
+      // Best-effort — even if the timestamp update fails, the rebuild
+      // itself succeeded, so don't fail the response.
+      console.warn('[cache-schedules] cache_built_at update failed:', e.message);
+    }
     res.json({ result });
   } catch (err) {
     if (err.code === 'ROLLUP_STORAGE_UNSUPPORTED') {
