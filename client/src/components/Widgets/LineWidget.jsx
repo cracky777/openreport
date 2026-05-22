@@ -1,4 +1,4 @@
-import { useRef, useEffect, memo, useMemo, useState, useCallback } from 'react';
+import { useRef, useEffect, memo, useMemo } from 'react';
 import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
@@ -7,43 +7,16 @@ import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues } from '../../utils/axisSort';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
-import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
-
-const COLORS = [
-  '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
-  '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#5ab1ef',
-];
-
-function buildDataLabel(params, content, abbrMode, fmt, isDuration) {
-  const numericValue = typeof params.value === 'number' ? params.value : Number(params.value);
-  const val = isDuration && Number.isFinite(numericValue)
-    ? formatDuration(numericValue)
-    : (abbreviateNumber(params.value, abbrMode) ?? formatNumber(params.value, fmt));
-  if (content === 'name') return params.name || params.seriesName || '';
-  if (content === 'nameValue') return `${params.name || params.seriesName || ''}: ${val}`;
-  if (content === 'percent') return params.percent != null ? params.percent + '%' : val;
-  return String(val);
-}
-
-function hexToRgba(hex, opacity) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${opacity / 100})`;
-}
+import { CHART_COLORS_BASIC as COLORS, hexToRgba } from '../../utils/chartPalette';
+import { buildDataLabel } from '../../utils/chartLabels';
+import { useHiddenSeries } from '../../hooks/useHiddenSeries';
+import { useChartFonts } from '../../hooks/useChartFonts';
 
 export default memo(function LineWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
   const chartRef = useRef(null);
   const instanceRef = useRef(null);
   const prevSizeRef = useRef({ w: 0, h: 0 });
-  const [hiddenSeries, setHiddenSeries] = useState(new Set());
-  const toggleSeries = useCallback((name) => {
-    setHiddenSeries((prev) => {
-      const next = new Set(prev);
-      next.has(name) ? next.delete(name) : next.add(name);
-      return next;
-    });
-  }, []);
+  const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const hasData = data?.labels?.length > 0;
   const showLabels = config?.showColumnNames ?? true;
@@ -68,12 +41,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
   const dataLabelBgOpacity = config?.dataLabelBgOpacity ?? 0;
   // Font family lookups — declared up here to dodge the TDZ trap on the
   // option literals below. Same pattern as BarWidget.
-  if (config?.dataLabelFontFamily) loadGoogleFont(config.dataLabelFontFamily);
-  if (config?.xAxisLabelFontFamily) loadGoogleFont(config.xAxisLabelFontFamily);
-  if (config?.yAxisLabelFontFamily) loadGoogleFont(config.yAxisLabelFontFamily);
-  const dataLabelFontFamily = config?.dataLabelFontFamily ? fontStack(config.dataLabelFontFamily) : undefined;
-  const xAxisFontFamily = config?.xAxisLabelFontFamily ? fontStack(config.xAxisLabelFontFamily) : undefined;
-  const yAxisFontFamily = config?.yAxisLabelFontFamily ? fontStack(config.yAxisLabelFontFamily) : undefined;
+  const { dataLabel: dataLabelFontFamily, xAxisLabel: xAxisFontFamily, yAxisLabel: yAxisFontFamily } = useChartFonts(config, ['dataLabel', 'xAxisLabel', 'yAxisLabel']);
   const hideZeros = config?.hideZeros ?? false;
   const zoneSorts = config?.zoneSorts;
   const sortOrder = zoneSorts ? (zoneSorts.values || 'none') : (config?.sortOrder || 'none');
@@ -181,7 +149,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
           stack: isStacked ? 'total' : undefined,
           label: { ...labelOpts, formatter: (p) => {
             if (hideZeros && (p.value == null || p.value === 0)) return '';
-            return buildDataLabel(p, dataLabelContent, dataLabelAbbr, data._measureFormats?.[p.seriesName], isDurationCol(p.seriesName, data._durationColumns) || isDurationCol(data._measureLabel, data._durationColumns));
+            return buildDataLabel(p, dataLabelContent, dataLabelAbbr, data._measureFormats?.[p.seriesName], { isDuration: isDurationCol(p.seriesName, data._durationColumns) || isDurationCol(data._measureLabel, data._durationColumns) });
           }},
         });
       });
@@ -196,7 +164,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
         areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15 } : undefined,
         label: { ...labelOpts, formatter: (p) => {
           if (hideZeros && (p.value == null || p.value === 0)) return '';
-          return buildDataLabel(p, dataLabelContent, dataLabelAbbr, Object.values(data._measureFormats || {})[0], isDurationCol(data._measureLabel, data._durationColumns));
+          return buildDataLabel(p, dataLabelContent, dataLabelAbbr, Object.values(data._measureFormats || {})[0], { isDuration: isDurationCol(data._measureLabel, data._durationColumns) });
         }},
       });
     }

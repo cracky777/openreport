@@ -1,4 +1,4 @@
-import { useRef, useEffect, memo, useMemo, useState, useCallback } from 'react';
+import { useRef, useEffect, memo, useMemo } from 'react';
 import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
@@ -8,9 +8,10 @@ import { compareAxisValues } from '../../utils/axisSort';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
-import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
-
-const OTHERS_COLOR = '#94a3b8';
+import { CHART_COLORS as COLORS, OTHERS_COLOR, hexToRgba } from '../../utils/chartPalette';
+import { buildDataLabel } from '../../utils/chartLabels';
+import { useHiddenSeries } from '../../hooks/useHiddenSeries';
+import { useChartFonts } from '../../hooks/useChartFonts';
 
 // Top-N collapse for bar charts. Folds the long tail of categories into a
 // single neutral "Others" bar so high-cardinality drill-downs stay readable.
@@ -70,46 +71,11 @@ function applyBarTopN(rawData, options) {
   };
 }
 
-const COLORS = [
-  '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
-  '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#5ab1ef',
-  '#d87a80', '#8d98b3', '#e5cf0d', '#97b552', '#95706d',
-];
-
-function buildDataLabel(params, content, abbrMode, fmt, hideZeros, isDuration) {
-  if (hideZeros && (params.value === 0 || params.value == null)) return '';
-  const numericValue = typeof params.value === 'number' ? params.value : Number(params.value);
-  const val = isDuration && Number.isFinite(numericValue)
-    ? formatDuration(numericValue)
-    : (abbreviateNumber(params.value, abbrMode) ?? formatNumber(params.value, fmt));
-  if (content === 'name') return params.name || params.seriesName || '';
-  if (content === 'nameValue') return `${params.name || params.seriesName || ''}: ${val}`;
-  if (content === 'percent') {
-    if (params.percent != null) return params.percent + '%';
-    return val;
-  }
-  return String(val);
-}
-
-function hexToRgba(hex, opacity) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${opacity / 100})`;
-}
-
 export default memo(function BarWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
   const chartRef = useRef(null);
   const instanceRef = useRef(null);
   const prevSizeRef = useRef({ w: 0, h: 0 });
-  const [hiddenSeries, setHiddenSeries] = useState(new Set());
-  const toggleSeries = useCallback((name) => {
-    setHiddenSeries((prev) => {
-      const next = new Set(prev);
-      next.has(name) ? next.delete(name) : next.add(name);
-      return next;
-    });
-  }, []);
+  const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const hasData = data?.labels?.length > 0;
   const subType = config?.subType || 'grouped';
@@ -130,16 +96,11 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
   const dataLabelBgOpacity = config?.dataLabelBgOpacity ?? 0;
   // Font family lookups — declared up here (before the series construction
   // below) so the renderItem / label object literals don't hit a TDZ error
-  // when JS evaluates them eagerly. Loading triggers the matching Fontsource
-  // chunk; fontStack returns a CSS family list with a sensible fallback so
-  // the chart paints something while the woff2 lands.
-  if (config?.dataLabelFontFamily) loadGoogleFont(config.dataLabelFontFamily);
-  if (config?.xAxisLabelFontFamily) loadGoogleFont(config.xAxisLabelFontFamily);
-  if (config?.yAxisLabelFontFamily) loadGoogleFont(config.yAxisLabelFontFamily);
-  if (config?.titleFontFamily) loadGoogleFont(config.titleFontFamily);
-  const dataLabelFontFamily = config?.dataLabelFontFamily ? fontStack(config.dataLabelFontFamily) : undefined;
-  const xAxisFontFamily = config?.xAxisLabelFontFamily ? fontStack(config.xAxisLabelFontFamily) : undefined;
-  const yAxisFontFamily = config?.yAxisLabelFontFamily ? fontStack(config.yAxisLabelFontFamily) : undefined;
+  // when JS evaluates them eagerly. The hook triggers the matching Fontsource
+  // chunk + returns a CSS family list with a sensible fallback so the chart
+  // paints something while the woff2 lands. `title` is preloaded as a courtesy
+  // (the canvas-level title rendered by ReportCanvas uses the same config).
+  const { dataLabel: dataLabelFontFamily, xAxisLabel: xAxisFontFamily, yAxisLabel: yAxisFontFamily } = useChartFonts(config, ['dataLabel', 'xAxisLabel', 'yAxisLabel', 'title']);
   const hideZeros = config?.hideZeros ?? false;
   const showLegend = config?.showLegend ?? false;
   const legendPosition = config?.legendPosition || 'top';
@@ -348,7 +309,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
               const barGap = nzCount > 1 ? 0.08 : 0;
               const fmt = data._measureFormats?.[s.name] || null;
               const labelText = showDataLabels
-                ? buildDataLabel({ value, name: labels[catIdx], seriesName: s.name }, dataLabelContent, dataLabelAbbr, fmt, hideZeros)
+                ? buildDataLabel({ value, name: labels[catIdx], seriesName: s.name }, dataLabelContent, dataLabelAbbr, fmt, { hideZeros })
                 : '';
               const dimmed = highlightValue && rawLabels[catIdx] !== highlightValue;
 
@@ -477,7 +438,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
               verticalAlign: Math.abs(dataLabelRotate) === 90 ? 'middle' : dataLabelPosition === 'top' ? 'bottom' : 'middle',
               backgroundColor: dataLabelBgOpacity > 0 ? hexToRgba(dataLabelBgColor, dataLabelBgOpacity) : 'transparent',
               padding: dataLabelBgOpacity > 0 ? [2, 4] : 0, borderRadius: 2,
-              formatter: (p) => buildDataLabel(p, dataLabelContent, dataLabelAbbr, data._measureFormats?.[p.seriesName], hideZeros, isDurationCol(p.seriesName, data._durationColumns) || isDurationCol(data._measureLabel, data._durationColumns)) },
+              formatter: (p) => buildDataLabel(p, dataLabelContent, dataLabelAbbr, data._measureFormats?.[p.seriesName], { hideZeros, isDuration: isDurationCol(p.seriesName, data._durationColumns) || isDurationCol(data._measureLabel, data._durationColumns) }) },
           });
         }
       }
@@ -495,7 +456,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
           verticalAlign: dataLabelPosition === 'top' ? 'bottom' : 'middle',
           backgroundColor: dataLabelBgOpacity > 0 ? hexToRgba(dataLabelBgColor, dataLabelBgOpacity) : 'transparent',
           padding: dataLabelBgOpacity > 0 ? [2, 4] : 0, borderRadius: 2,
-          formatter: (p) => buildDataLabel(p, dataLabelContent, dataLabelAbbr, Object.values(data._measureFormats || {})[0], hideZeros, isDurationCol(data._measureLabel, data._durationColumns)) },
+          formatter: (p) => buildDataLabel(p, dataLabelContent, dataLabelAbbr, Object.values(data._measureFormats || {})[0], { hideZeros, isDuration: isDurationCol(data._measureLabel, data._durationColumns) }) },
       });
     }
 

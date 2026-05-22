@@ -1,4 +1,4 @@
-import { useRef, useEffect, memo, useMemo, useState, useCallback } from 'react';
+import { useRef, useEffect, memo, useMemo } from 'react';
 import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
@@ -7,34 +7,15 @@ import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
 import { applyTopN } from '../../utils/topNGroup';
 import { compareAxisValues } from '../../utils/axisSort';
-import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
-
-const OTHERS_COLOR = '#94a3b8'; // slate-400 — neutral fill for the Others slice
-
-const COLORS = [
-  '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
-  '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#5ab1ef',
-];
-
-function hexToRgba(hex, opacity) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${opacity / 100})`;
-}
+import { CHART_COLORS_BASIC as COLORS, OTHERS_COLOR, hexToRgba } from '../../utils/chartPalette';
+import { useHiddenSeries } from '../../hooks/useHiddenSeries';
+import { useChartFonts } from '../../hooks/useChartFonts';
 
 export default memo(function PieWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
   const chartRef = useRef(null);
   const instanceRef = useRef(null);
   const prevSizeRef = useRef({ w: 0, h: 0 });
-  const [hiddenSeries, setHiddenSeries] = useState(new Set());
-  const toggleSeries = useCallback((name) => {
-    setHiddenSeries((prev) => {
-      const next = new Set(prev);
-      next.has(name) ? next.delete(name) : next.add(name);
-      return next;
-    });
-  }, []);
+  const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const hasData = data?.items?.length > 0;
   const showLegend = config?.showLegend ?? false;
@@ -46,8 +27,7 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
   const dataLabelColor = config?.dataLabelColor || '#475569';
   const dataLabelBgColor = config?.dataLabelBgColor || '#ffffff';
   const dataLabelBgOpacity = config?.dataLabelBgOpacity ?? 0;
-  if (config?.dataLabelFontFamily) loadGoogleFont(config.dataLabelFontFamily);
-  const dataLabelFontFamily = config?.dataLabelFontFamily ? fontStack(config.dataLabelFontFamily) : undefined;
+  const { dataLabel: dataLabelFontFamily } = useChartFonts(config, ['dataLabel']);
   const zoneSorts = config?.zoneSorts;
   const sortOrder = zoneSorts ? (zoneSorts.values || 'none') : (config?.sortOrder || 'none');
   const axisSort = zoneSorts?.axis || 'none';

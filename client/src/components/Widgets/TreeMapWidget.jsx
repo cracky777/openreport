@@ -6,14 +6,8 @@ import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
 import { applyTopN } from '../../utils/topNGroup';
 import { compareAxisValues } from '../../utils/axisSort';
-import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
-
-const OTHERS_COLOR = '#94a3b8';
-
-const COLORS = [
-  '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
-  '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#5ab1ef',
-];
+import { CHART_COLORS_BASIC as COLORS, OTHERS_COLOR } from '../../utils/chartPalette';
+import { useChartFonts } from '../../hooks/useChartFonts';
 
 export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
   const chartRef = useRef(null);
@@ -26,8 +20,7 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
   const dataLabelAbbr = config?.dataLabelAbbr || 'none';
   const dataLabelColor = config?.dataLabelColor || '#ffffff';
   const dataLabelSize = config?.dataLabelFontSize || 12;
-  if (config?.dataLabelFontFamily) loadGoogleFont(config.dataLabelFontFamily);
-  const dataLabelFontFamily = config?.dataLabelFontFamily ? fontStack(config.dataLabelFontFamily) : undefined;
+  const { dataLabel: dataLabelFontFamily } = useChartFonts(config, ['dataLabel']);
   // Treemap defaults to descending values when nothing else is configured —
   // a tile sorted by area is the genre's whole point.
   const zoneSorts = config?.zoneSorts;

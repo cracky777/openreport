@@ -1,30 +1,19 @@
-import { useRef, useEffect, memo, useMemo, useState, useCallback } from 'react';
+import { useRef, useEffect, memo, useMemo } from 'react';
 import * as echarts from 'echarts';
 import formatNumber from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
-import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
-
-const COLORS = [
-  '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
-  '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#5ab1ef',
-  '#d87a80', '#8d98b3', '#e5cf0d', '#97b552', '#95706d',
-];
+import { CHART_COLORS as COLORS } from '../../utils/chartPalette';
+import { useHiddenSeries } from '../../hooks/useHiddenSeries';
+import { useChartFonts } from '../../hooks/useChartFonts';
 
 export default memo(function ScatterWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
   const chartRef = useRef(null);
   const instanceRef = useRef(null);
   const prevSizeRef = useRef({ w: 0, h: 0 });
-  const [hiddenSeries, setHiddenSeries] = useState(new Set());
-  const toggleSeries = useCallback((name) => {
-    setHiddenSeries((prev) => {
-      const next = new Set(prev);
-      next.has(name) ? next.delete(name) : next.add(name);
-      return next;
-    });
-  }, []);
+  const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const hasData = data?.points?.length > 0;
   const showLegend = config?.showLegend ?? false;
@@ -33,14 +22,12 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
   const showYAxis = config?.showYAxis ?? true;
   const symbolSize = config?.symbolSize ?? 10;
   const showDataLabels = config?.showDataLabels ?? false;
-  if (config?.dataLabelFontFamily) loadGoogleFont(config.dataLabelFontFamily);
-  if (config?.xAxisLabelFontFamily) loadGoogleFont(config.xAxisLabelFontFamily);
-  if (config?.yAxisLabelFontFamily) loadGoogleFont(config.yAxisLabelFontFamily);
-  if (config?.headerFontFamily) loadGoogleFont(config.headerFontFamily);
-  const dataLabelFontFamily = config?.dataLabelFontFamily ? fontStack(config.dataLabelFontFamily) : undefined;
-  const xAxisFontFamily = config?.xAxisLabelFontFamily ? fontStack(config.xAxisLabelFontFamily) : undefined;
-  const yAxisFontFamily = config?.yAxisLabelFontFamily ? fontStack(config.yAxisLabelFontFamily) : undefined;
-  const headerFontFamily = config?.headerFontFamily ? fontStack(config.headerFontFamily) : undefined;
+  const {
+    dataLabel: dataLabelFontFamily,
+    xAxisLabel: xAxisFontFamily,
+    yAxisLabel: yAxisFontFamily,
+    header: headerFontFamily,
+  } = useChartFonts(config, ['dataLabel', 'xAxisLabel', 'yAxisLabel', 'header']);
 
   const allGroupNames = useMemo(() => (data?.seriesGroups || []).map((g) => g?.name).filter((n) => n != null), [data?.seriesGroups]);
   const { getStableIdx } = useStableColorOrder(allGroupNames.join('|'), allGroupNames);

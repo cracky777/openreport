@@ -1,4 +1,4 @@
-import { useRef, useEffect, memo, useMemo, useState, useCallback } from 'react';
+import { useRef, useEffect, memo, useMemo } from 'react';
 import * as echarts from 'echarts';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
@@ -8,33 +8,15 @@ import { compareAxisValues } from '../../utils/axisSort';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
-import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
-
-const COLORS = [
-  '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
-  '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#5ab1ef',
-  '#d87a80', '#8d98b3', '#e5cf0d', '#97b552', '#95706d',
-];
-
-function hexToRgba(hex, opacity) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${opacity / 100})`;
-}
+import { CHART_COLORS as COLORS, hexToRgba } from '../../utils/chartPalette';
+import { useHiddenSeries } from '../../hooks/useHiddenSeries';
+import { useChartFonts } from '../../hooks/useChartFonts';
 
 export default memo(function ComboWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
   const chartRef = useRef(null);
   const instanceRef = useRef(null);
   const prevSizeRef = useRef({ w: 0, h: 0 });
-  const [hiddenSeries, setHiddenSeries] = useState(new Set());
-  const toggleSeries = useCallback((name) => {
-    setHiddenSeries((prev) => {
-      const next = new Set(prev);
-      next.has(name) ? next.delete(name) : next.add(name);
-      return next;
-    });
-  }, []);
+  const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const w = chartWidth || 400;
   const hasData = data?.labels?.length > 0 && (data?.barSeries?.length > 0 || data?.lineSeries?.length > 0);
@@ -47,14 +29,12 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
   const showDataLabels = config?.showDataLabels ?? false;
   const dataLabelFontSize = config?.dataLabelFontSize ?? 10;
   const dataLabelColor = config?.dataLabelColor || '#475569';
-  if (config?.dataLabelFontFamily) loadGoogleFont(config.dataLabelFontFamily);
-  if (config?.xAxisLabelFontFamily) loadGoogleFont(config.xAxisLabelFontFamily);
-  if (config?.yAxisLabelFontFamily) loadGoogleFont(config.yAxisLabelFontFamily);
-  if (config?.secondaryYAxisLabelFontFamily) loadGoogleFont(config.secondaryYAxisLabelFontFamily);
-  const dataLabelFontFamily = config?.dataLabelFontFamily ? fontStack(config.dataLabelFontFamily) : undefined;
-  const xAxisFontFamily = config?.xAxisLabelFontFamily ? fontStack(config.xAxisLabelFontFamily) : undefined;
-  const yAxisFontFamily = config?.yAxisLabelFontFamily ? fontStack(config.yAxisLabelFontFamily) : undefined;
-  const secYAxisFontFamily = config?.secondaryYAxisLabelFontFamily ? fontStack(config.secondaryYAxisLabelFontFamily) : undefined;
+  const {
+    dataLabel: dataLabelFontFamily,
+    xAxisLabel: xAxisFontFamily,
+    yAxisLabel: yAxisFontFamily,
+    secondaryYAxisLabel: secYAxisFontFamily,
+  } = useChartFonts(config, ['dataLabel', 'xAxisLabel', 'yAxisLabel', 'secondaryYAxisLabel']);
   const valueAbbr = config?.valueAbbreviation || 'none';
   const hideZeros = config?.hideZeros ?? false;
   const gridLineStyle = config?.gridLineStyle || 'solid';
