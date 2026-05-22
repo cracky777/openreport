@@ -1,5 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
 const { v4: uuidv4 } = require('uuid');
 const { passport, requireAuth } = require('../middleware/auth');
 const db = require('../db');
@@ -7,7 +8,37 @@ const authHooks = require('../hooks/auth');
 
 const router = express.Router();
 
-router.post('/register', async (req, res) => {
+// Brute-force protection on the credential surface. Keyed on the caller IP
+// (Express's `trust proxy 1` in production makes `req.ip` use X-Forwarded-For
+// from the reverse proxy). `skipSuccessfulRequests` means a successful login
+// resets nothing but ALSO doesn't count toward the limit — so a user who
+// typos a few times then gets it right isn't penalised by the prior misses.
+// Numbers: bcrypt at cost 10 is ~80ms/hash, so 10 attempts/15min already
+// caps an online attacker far below what an offline attack would manage;
+// the visible 429 also surfaces a brute-force burst to the admin via logs.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { error: 'Too many login attempts. Try again in a few minutes.' },
+});
+
+// Tighter limit on /register — it's an enumeration vector (the 409 leaks
+// whether an email exists in the DB) AND a mass-account-creation vector
+// (especially in cloud mode where every register provisions an org). 5/h/IP
+// is generous for a legitimate signup flow (the user only does it once)
+// while killing bot-driven account farming.
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many registration attempts. Try again later.' },
+});
+
+router.post('/register', registerLimiter, async (req, res) => {
   const { email, password, displayName } = req.body;
 
   if (!email || !password) {
@@ -53,7 +84,7 @@ router.post('/register', async (req, res) => {
   });
 });
 
-router.post('/login', (req, res, next) => {
+router.post('/login', loginLimiter, (req, res, next) => {
   passport.authenticate('local', (err, user, info) => {
     if (err) return next(err);
     if (!user) {

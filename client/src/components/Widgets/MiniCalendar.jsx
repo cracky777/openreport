@@ -1,4 +1,4 @@
-import { useState, memo } from 'react';
+import { useState, useEffect, memo } from 'react';
 
 const DAYS = ['Lu', 'Ma', 'Me', 'Je', 'Ve', 'Sa', 'Di'];
 const MONTHS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
@@ -40,6 +40,29 @@ export default memo(function MiniCalendar({ value, onChange, min, max, rangeStar
   const maxY = max ? Number(max.slice(0, 4)) : Infinity;
   const minM = min ? Number(min.slice(5, 7)) - 1 : 0;
   const maxM = max ? Number(max.slice(5, 7)) - 1 : 11;
+
+  // Snap viewDate back into range whenever the parent narrows the
+  // min/max window such that the currently-shown month no longer has
+  // any selectable day. Without this, a parent that dynamically tightens
+  // the range (e.g. cross-filter on a "year" widget) leaves the calendar
+  // anchored to a month where every cell is disabled — user sees a blank
+  // grid with no hint of where to navigate. We only snap when out of
+  // range so the user's manual ◀/▶ navigation isn't yanked away.
+  useEffect(() => {
+    const vy = viewDate.getFullYear();
+    const vm = viewDate.getMonth();
+    if (min) {
+      if (vy < minY || (vy === minY && vm < minM)) {
+        setViewDate(new Date(minY, minM, 1));
+        return;
+      }
+    }
+    if (max) {
+      if (vy > maxY || (vy === maxY && vm > maxM)) {
+        setViewDate(new Date(maxY, maxM, 1));
+      }
+    }
+  }, [min, max, viewDate, minY, maxY, minM, maxM]);
 
   // ─── Day view: render the existing month grid ─────────────────────
   const renderDayGrid = () => {
