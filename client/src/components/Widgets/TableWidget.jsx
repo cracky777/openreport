@@ -123,19 +123,32 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
     setCurrentPage(1);
   };
 
-  // Column resize
+  // Column resize. Local state during drag (fast, no React re-render
+  // storm on every pixel of mousemove); persist into config on mouseup
+  // so the width survives across re-renders + saves.
   const handleResizeStart = (e, colName) => {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
     const startW = colWidths[colName] || getColumnWidth(tc, colName) || 120;
+    let lastW = startW;
     const onMove = (ev) => {
       const newW = Math.max(40, startW + ev.clientX - startX);
+      lastW = newW;
       setColWidths((p) => ({ ...p, [colName]: newW }));
     };
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      // Persist the final width onto tc.columns[colName].width so a
+      // re-render (model reload, sort click, …) doesn't snap back to
+      // the auto-layout default. tc is closure-captured at resize
+      // start; one column drag at a time, so it's never stale.
+      if (lastW !== startW) {
+        const prevCol = (tc.columns && tc.columns[colName]) || {};
+        const nextColumns = { ...(tc.columns || {}), [colName]: { ...prevCol, width: lastW } };
+        onConfigUpdate?.('tableConfig', { ...tc, columns: nextColumns });
+      }
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -163,13 +176,28 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
           tableLayout: isFixedWidth ? 'fixed' : 'auto',
           ...(grid.outerBorder ? { border: `${grid.outerBorderWidth}px solid ${grid.outerBorderColor}` } : {}),
         }}>
-          {isFixedWidth && (
-            <colgroup>
-              {columns.map((col, i) => (
-                <col key={i} style={{ width: colWidths[col] || getColumnWidth(tc, col) || undefined }} />
-              ))}
-            </colgroup>
-          )}
+          {(() => {
+            // Render the colgroup whenever ANY column has an explicit
+            // width — either from the saved tableConfig (fixed-width
+            // mode) or from a user drag (any mode). Without this, an
+            // auto-width table's drag updates colWidths but nothing
+            // visible changes because <col> never lands. Per-column
+            // explicit widths in an otherwise auto-laid table work:
+            // the <col> hint sizes that column, others stay auto.
+            const explicitForCol = (col) =>
+              colWidths[col] || getColumnWidth(tc, col) || null;
+            const anyExplicit = isFixedWidth
+              || columns.some((c) => explicitForCol(c));
+            if (!anyExplicit) return null;
+            return (
+              <colgroup>
+                {columns.map((col, i) => {
+                  const w = explicitForCol(col);
+                  return <col key={i} style={w ? { width: w } : undefined} />;
+                })}
+              </colgroup>
+            );
+          })()}
 
           {/* HEADER */}
           {showHeaders && (
@@ -179,6 +207,16 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                   const hs = getColumnHeaderStyle(tc, col);
                   const displayName = getColumnDisplayName(tc, col);
                   const isFrozenCol = freeze.freezeFirstColumn && ci === 0;
+                  // Auto-wrap when the column has an explicit width
+                  // (user dragged or persisted). Without this, narrowing
+                  // a column with the resize handle would just clip the
+                  // content with an ellipsis — visually useful only for
+                  // widening. `hs.wordWrap === false` keeps the explicit
+                  // no-wrap intent if the user toggled it off in the
+                  // header style options.
+                  const hasExplicitW = !!(colWidths[col] || getColumnWidth(tc, col));
+                  const hWrap = hs.wordWrap === true
+                    || (hs.wordWrap !== false && hasExplicitW);
                   return (
                     <th
                       key={ci}
@@ -192,13 +230,36 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                         fontStyle: hs.fontItalic ? 'italic' : 'normal',
                         backgroundColor: hs.bgColor || 'var(--bg-hover)',
                         textAlign: hs.alignment || 'left',
-                        whiteSpace: hs.wordWrap ? 'normal' : 'nowrap',
-                        overflow: hs.wordWrap ? 'visible' : 'hidden',
-                        textOverflow: hs.wordWrap ? 'unset' : 'ellipsis',
-                        maxWidth: hs.wordWrap ? 'none' : 200,
+                        whiteSpace: hWrap ? 'normal' : 'nowrap',
+                        overflow: hWrap ? 'visible' : 'hidden',
+                        textOverflow: hWrap ? 'unset' : 'ellipsis',
+                        // Drop the 200px maxWidth when there's an
+                        // explicit column width — that width IS the
+                        // bound now, the maxWidth would otherwise lock
+                        // a user-resized wide column to 200px.
+                        maxWidth: hWrap ? 'none' : (hasExplicitW ? 'none' : 200),
+                        // Allow long words (URLs, IDs) to break inside
+                        // when wrapping is on — `overflow-wrap: anywhere`
+                        // is the modern way to break unbreakable strings.
+                        overflowWrap: hWrap ? 'anywhere' : 'normal',
                         borderBottom: grid.horizontalLines ? `${grid.horizontalWidth}px solid ${grid.horizontalColor}` : 'none',
                         borderRight: grid.verticalLines && ci < columns.length - 1 ? `${grid.verticalWidth}px solid ${grid.verticalColor}` : 'none',
-                        position: freeze.stickyHeader ? 'sticky' : 'static',
+                        // Header positioning. Three modes that all need a
+                        // containing block for the absolutely positioned
+                        // resize handle below (otherwise the handle
+                        // escapes the th's rect → no col-resize cursor +
+                        // no drag):
+                        //   - stickyHeader → sticky to top during scroll
+                        //   - frozen first column → sticky to left
+                        //     during horizontal scroll (matches the
+                        //     body-cell sticky on line 332; without this
+                        //     the header of col 0 drifted out of sync
+                        //     with the frozen body, and the user
+                        //     reported they couldn't grab the resize
+                        //     handle for the leftmost column)
+                        //   - neither → relative (still a containing
+                        //     block, just no sticky scroll behaviour)
+                        position: (freeze.stickyHeader || isFrozenCol) ? 'sticky' : 'relative',
                         top: 0,
                         left: isFrozenCol ? 0 : undefined,
                         zIndex: freeze.stickyHeader && isFrozenCol ? 3 : freeze.stickyHeader ? 2 : isFrozenCol ? 1 : 'auto',
@@ -253,6 +314,14 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                     const isNum = !isNaN(numVal) && cell !== '' && cell != null;
                     const align = vs.alignment === 'auto' || !vs.alignment ? (isNum ? 'right' : 'left') : vs.alignment;
                     const isFrozenCol = freeze.freezeFirstColumn && ci === 0;
+                    // Same auto-wrap rule as the header: explicit width
+                    // (drag / persisted) defaults to wrapping content so
+                    // narrowing the column doesn't just ellipsis-clip.
+                    // `vs.wordWrap === false` keeps the explicit no-wrap
+                    // intent if set in the column value-style options.
+                    const hasExplicitW = !!(colWidths[col] || getColumnWidth(tc, col));
+                    const cellWrap = vs.wordWrap === true
+                      || (vs.wordWrap !== false && hasExplicitW);
                     // Interval-typed measures arrive as EPOCH seconds (the
                     // server flattens INTERVAL values to a number) — format
                     // them as a duration ("1h", "30min", "45s") rather than
@@ -289,10 +358,11 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                           fontWeight: vs.fontBold ? 600 : 400,
                           fontStyle: vs.fontItalic ? 'italic' : 'normal',
                           textAlign: align,
-                          whiteSpace: vs.wordWrap ? 'normal' : 'nowrap',
-                          overflow: vs.wordWrap ? 'visible' : 'hidden',
-                          textOverflow: vs.wordWrap ? 'unset' : 'ellipsis',
-                          maxWidth: vs.wordWrap ? 'none' : 250,
+                          whiteSpace: cellWrap ? 'normal' : 'nowrap',
+                          overflow: cellWrap ? 'visible' : 'hidden',
+                          textOverflow: cellWrap ? 'unset' : 'ellipsis',
+                          maxWidth: cellWrap ? 'none' : (hasExplicitW ? 'none' : 250),
+                          overflowWrap: cellWrap ? 'anywhere' : 'normal',
                           borderBottom: grid.horizontalLines ? `${grid.horizontalWidth}px solid ${grid.horizontalColor}` : 'none',
                           borderRight: grid.verticalLines && ci < columns.length - 1 ? `${grid.verticalWidth}px solid ${grid.verticalColor}` : 'none',
                           position: isFrozenCol ? 'sticky' : 'static',
