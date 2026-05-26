@@ -1,20 +1,19 @@
-import { useRef, useEffect, memo, useMemo } from 'react';
-import * as echarts from 'echarts';
+import { useRef, memo, useMemo } from 'react';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
-import { lerpColor } from '../../utils/tableConfigHelpers';
 import { applyTopN } from '../../utils/topNGroup';
 import { compareAxisValues } from '../../utils/axisSort';
 import { CHART_COLORS_BASIC as COLORS, OTHERS_COLOR, hexToRgba } from '../../utils/chartPalette';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
+import { useEchartsInstance } from '../../hooks/useEchartsInstance';
+import WidgetEmptyState from './WidgetEmptyState';
+import { resolveZoneSorts } from '../../utils/chartSorts';
+import { buildValueGradient } from '../../utils/chartGradient';
 
 export default memo(function PieWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
-  const chartRef = useRef(null);
-  const instanceRef = useRef(null);
-  const prevSizeRef = useRef({ w: 0, h: 0 });
   const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const hasData = data?.items?.length > 0;
@@ -28,9 +27,7 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
   const dataLabelBgColor = config?.dataLabelBgColor || '#ffffff';
   const dataLabelBgOpacity = config?.dataLabelBgOpacity ?? 0;
   const { dataLabel: dataLabelFontFamily } = useChartFonts(config, ['dataLabel']);
-  const zoneSorts = config?.zoneSorts;
-  const sortOrder = zoneSorts ? (zoneSorts.values || 'none') : (config?.sortOrder || 'none');
-  const axisSort = zoneSorts?.axis || 'none';
+  const { sortOrder, axisSort } = resolveZoneSorts(config);
   const topNEnabled = config?.topNEnabled === true;
   const topN = config?.topN ?? 20;
   const othersLabel = config?.othersLabel || 'Others';
@@ -50,15 +47,7 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
     const useGradient = gradient?.enabled === true;
     let getValueColor = null;
     if (useGradient) {
-      let gMin = Infinity, gMax = -Infinity;
-      for (const it of data.items) if (it?.value != null && !isNaN(it.value)) { if (it.value < gMin) gMin = it.value; if (it.value > gMax) gMax = it.value; }
-      const minColor = gradient.minColor || '#dcfce7';
-      const maxColor = gradient.maxColor || '#7c3aed';
-      getValueColor = (val) => {
-        if (val == null || isNaN(val) || gMin === Infinity) return minColor;
-        const pct = gMax > gMin ? Math.max(0, Math.min(1, (val - gMin) / (gMax - gMin))) : 0;
-        return lerpColor(minColor, maxColor, pct);
-      };
+      getValueColor = buildValueGradient(gradient, data.items.map((it) => it?.value));
     }
 
     // Pie's value comes from one measure (`_measureLabel`). If it's an
@@ -167,64 +156,26 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
 
-  useEffect(() => {
-    instanceRef.current?.dispose();
-    instanceRef.current = null;
-    prevSizeRef.current = { w: 0, h: 0 };
-  }, [showLegend, legendPosition]);
-
+  // Click → cross-filter on the dim name. Skip the synthetic "Others"
+  // slice — it has no real dim value behind it.
   const onDataClickRef = useRef(onDataClick);
   onDataClickRef.current = onDataClick;
   const dimNameRef = useRef(data?._dimName);
   dimNameRef.current = data?._dimName;
+  const chartRef = useEchartsInstance({
+    option,
+    onInit: (instance) => {
+      instance.on('click', (params) => {
+        if (params.data?._isOthers) return;
+        if (params.name && onDataClickRef.current) {
+          onDataClickRef.current(dimNameRef.current || 'dimension', params.name);
+        }
+      });
+    },
+    recreateDeps: [showLegend, legendPosition],
+  });
 
-  useEffect(() => {
-    const el = chartRef.current;
-    if (!el || !option) return;
-
-    if (instanceRef.current && instanceRef.current.getDom() !== el) {
-      instanceRef.current.dispose();
-      instanceRef.current = null;
-      prevSizeRef.current = { w: 0, h: 0 };
-    }
-
-    const render = () => {
-      const cw = el.clientWidth;
-      const ch = el.clientHeight;
-      if (cw < 10 || ch < 10) return;
-
-      if (!instanceRef.current) {
-        instanceRef.current = echarts.init(el, null, { width: cw, height: ch });
-        instanceRef.current.on('click', (params) => {
-          // Skip the synthetic "Others" slice — it has no real dimension value
-          // so a drill or cross-filter on it would just produce an empty result.
-          if (params.data?._isOthers) return;
-          if (params.name && onDataClickRef.current) {
-            onDataClickRef.current(dimNameRef.current || 'dimension', params.name);
-          }
-        });
-      } else if (prevSizeRef.current.w !== cw || prevSizeRef.current.h !== ch) {
-        instanceRef.current.resize({ width: cw, height: ch });
-      }
-      prevSizeRef.current = { w: cw, h: ch };
-      instanceRef.current.setOption(option, true);
-    };
-
-    const timer = requestAnimationFrame(render);
-    const ro = new ResizeObserver(render);
-    ro.observe(el);
-    return () => { cancelAnimationFrame(timer); ro.disconnect(); };
-  }, [option, showLegend, legendPosition]);
-
-  useEffect(() => () => { instanceRef.current?.dispose(); instanceRef.current = null; }, []);
-
-  if (!hasData) {
-    if (data?._rowCount === 0) {
-      if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
-      return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
-    }
-    return <div style={emptyStyle}>Select dimensions & measures to display a pie chart</div>;
-  }
+  if (!hasData) return <WidgetEmptyState data={data} config={config} unboundHint="Select dimensions & measures to display a pie chart" />;
 
   const showHtmlLegend = showLegend && legendItems.length > 0;
   const flexDir = legendPosition === 'left' || legendPosition === 'right' ? 'row' : 'column';
@@ -241,8 +192,3 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
     </div>
   );
 });
-
-const emptyStyle = {
-  height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  color: 'var(--text-disabled)', fontSize: 12, textAlign: 'center', padding: 16,
-};

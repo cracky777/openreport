@@ -1,5 +1,4 @@
-import { useRef, useEffect, memo, useMemo } from 'react';
-import * as echarts from 'echarts';
+import { useRef, memo, useMemo } from 'react';
 import formatNumber from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
@@ -8,11 +7,10 @@ import { lerpColor } from '../../utils/tableConfigHelpers';
 import { CHART_COLORS as COLORS } from '../../utils/chartPalette';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
+import { useEchartsInstance } from '../../hooks/useEchartsInstance';
+import WidgetEmptyState from './WidgetEmptyState';
 
 export default memo(function ScatterWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
-  const chartRef = useRef(null);
-  const instanceRef = useRef(null);
-  const prevSizeRef = useRef({ w: 0, h: 0 });
   const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const hasData = data?.points?.length > 0;
@@ -183,63 +181,27 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
 
-  useEffect(() => {
-    instanceRef.current?.dispose();
-    instanceRef.current = null;
-    prevSizeRef.current = { w: 0, h: 0 };
-  }, [showLegend, legendPosition]);
-
+  // Click → cross-filter via the `_rawLabel` ECharts itemStyle property
+  // we set on each point at build time (scatter points carry their own
+  // label, no dataIndex-to-rawLabels mapping needed).
   const onDataClickRef = useRef(onDataClick);
   onDataClickRef.current = onDataClick;
   const dimNameRef = useRef(data?._dimName);
   dimNameRef.current = data?._dimName;
+  const chartRef = useEchartsInstance({
+    option,
+    onInit: (instance) => {
+      instance.on('click', (params) => {
+        const label = params.data?._rawLabel;
+        if (label && onDataClickRef.current) {
+          onDataClickRef.current(dimNameRef.current || 'dimension', String(label));
+        }
+      });
+    },
+    recreateDeps: [showLegend, legendPosition],
+  });
 
-  useEffect(() => {
-    const el = chartRef.current;
-    if (!el || !option) return;
-
-    // If the DOM element changed (e.g. after empty→data transition), recreate instance
-    if (instanceRef.current && instanceRef.current.getDom() !== el) {
-      instanceRef.current.dispose();
-      instanceRef.current = null;
-      prevSizeRef.current = { w: 0, h: 0 };
-    }
-
-    const render = () => {
-      const cw = el.clientWidth;
-      const ch = el.clientHeight;
-      if (cw < 10 || ch < 10) return;
-
-      if (!instanceRef.current) {
-        instanceRef.current = echarts.init(el, null, { width: cw, height: ch });
-        instanceRef.current.on('click', (params) => {
-          const label = params.data?._rawLabel;
-          if (label && onDataClickRef.current) {
-            onDataClickRef.current(dimNameRef.current || 'dimension', String(label));
-          }
-        });
-      } else if (prevSizeRef.current.w !== cw || prevSizeRef.current.h !== ch) {
-        instanceRef.current.resize({ width: cw, height: ch });
-      }
-      prevSizeRef.current = { w: cw, h: ch };
-      instanceRef.current.setOption(option, true);
-    };
-
-    const timer = requestAnimationFrame(render);
-    const ro = new ResizeObserver(render);
-    ro.observe(el);
-    return () => { cancelAnimationFrame(timer); ro.disconnect(); };
-  }, [option, showLegend, legendPosition]);
-
-  useEffect(() => () => { instanceRef.current?.dispose(); instanceRef.current = null; }, []);
-
-  if (!hasData) {
-    if (data?._rowCount === 0) {
-      if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
-      return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
-    }
-    return <div style={emptyStyle}>Drop measures on X and Y axes to create a scatter chart</div>;
-  }
+  if (!hasData) return <WidgetEmptyState data={data} config={config} unboundHint="Drop measures on X and Y axes to create a scatter chart" />;
 
   const legendH = showLegend && legendItems.length > 0 ? 28 : 0;
   const isLR = legendPosition === 'left' || legendPosition === 'right';
@@ -256,8 +218,3 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
     </div>
   );
 });
-
-const emptyStyle = {
-  height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  color: 'var(--text-disabled)', fontSize: 12, textAlign: 'center', padding: 16,
-};

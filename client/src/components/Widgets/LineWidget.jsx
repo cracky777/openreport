@@ -1,5 +1,4 @@
-import { useRef, useEffect, memo, useMemo } from 'react';
-import * as echarts from 'echarts';
+import { useRef, memo, useMemo } from 'react';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
@@ -11,11 +10,11 @@ import { CHART_COLORS_BASIC as COLORS, hexToRgba } from '../../utils/chartPalett
 import { buildDataLabel } from '../../utils/chartLabels';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
+import { useEchartsInstance } from '../../hooks/useEchartsInstance';
+import WidgetEmptyState from './WidgetEmptyState';
+import { resolveZoneSorts } from '../../utils/chartSorts';
 
 export default memo(function LineWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
-  const chartRef = useRef(null);
-  const instanceRef = useRef(null);
-  const prevSizeRef = useRef({ w: 0, h: 0 });
   const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const hasData = data?.labels?.length > 0;
@@ -43,10 +42,7 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
   // option literals below. Same pattern as BarWidget.
   const { dataLabel: dataLabelFontFamily, xAxisLabel: xAxisFontFamily, yAxisLabel: yAxisFontFamily } = useChartFonts(config, ['dataLabel', 'xAxisLabel', 'yAxisLabel']);
   const hideZeros = config?.hideZeros ?? false;
-  const zoneSorts = config?.zoneSorts;
-  const sortOrder = zoneSorts ? (zoneSorts.values || 'none') : (config?.sortOrder || 'none');
-  const axisSort = zoneSorts?.axis || 'none';
-  const groupBySort = zoneSorts?.groupBy || 'none';
+  const { sortOrder, axisSort, groupBySort } = resolveZoneSorts(config);
   const w = chartWidth || 400;
   const h = chartHeight || 300;
 
@@ -261,66 +257,30 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
 
-  // Dispose and recreate when legend layout changes
-  useEffect(() => {
-    instanceRef.current?.dispose();
-    instanceRef.current = null;
-    prevSizeRef.current = { w: 0, h: 0 };
-  }, [showLegend, legendPosition]);
-
+  // Click → cross-filter via dataIndex → raw label lookup. params.name is
+  // the formatted display label (e.g. localised month name); we want the
+  // raw value that drove the SQL aggregation.
   const onDataClickRef = useRef(onDataClick);
   onDataClickRef.current = onDataClick;
   const dimNameRef = useRef(data?._dimName);
   dimNameRef.current = data?._dimName;
   const rawLabelsRef = useRef(memoResult?.rawLabels);
   rawLabelsRef.current = memoResult?.rawLabels;
+  const chartRef = useEchartsInstance({
+    option,
+    onInit: (instance) => {
+      instance.on('click', (params) => {
+        const rawLabels = rawLabelsRef.current;
+        const rawValue = (params.dataIndex != null && rawLabels) ? rawLabels[params.dataIndex] : params.name;
+        if (rawValue != null && onDataClickRef.current) {
+          onDataClickRef.current(dimNameRef.current || 'dimension', String(rawValue));
+        }
+      });
+    },
+    recreateDeps: [showLegend, legendPosition],
+  });
 
-  useEffect(() => {
-    const el = chartRef.current;
-    if (!el || !option) return;
-
-    if (instanceRef.current && instanceRef.current.getDom() !== el) {
-      instanceRef.current.dispose();
-      instanceRef.current = null;
-      prevSizeRef.current = { w: 0, h: 0 };
-    }
-
-    const render = () => {
-      const cw = el.clientWidth;
-      const ch = el.clientHeight;
-      if (cw < 10 || ch < 10) return;
-
-      if (!instanceRef.current) {
-        instanceRef.current = echarts.init(el, null, { width: cw, height: ch });
-        instanceRef.current.on('click', (params) => {
-          const rawLabels = rawLabelsRef.current;
-          const rawValue = (params.dataIndex != null && rawLabels) ? rawLabels[params.dataIndex] : params.name;
-          if (rawValue != null && onDataClickRef.current) {
-            onDataClickRef.current(dimNameRef.current || 'dimension', String(rawValue));
-          }
-        });
-      } else if (prevSizeRef.current.w !== cw || prevSizeRef.current.h !== ch) {
-        instanceRef.current.resize({ width: cw, height: ch });
-      }
-      prevSizeRef.current = { w: cw, h: ch };
-      instanceRef.current.setOption(option, true);
-    };
-
-    const timer = requestAnimationFrame(render);
-    const ro = new ResizeObserver(render);
-    ro.observe(el);
-    return () => { cancelAnimationFrame(timer); ro.disconnect(); };
-  }, [option, showLegend, legendPosition]);
-
-  useEffect(() => () => { instanceRef.current?.dispose(); instanceRef.current = null; }, []);
-
-  if (!hasData) {
-    if (data?._rowCount === 0) {
-      if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
-      return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
-    }
-    return <div style={emptyStyle}>Select dimensions & measures to display a line chart</div>;
-  }
+  if (!hasData) return <WidgetEmptyState data={data} config={config} unboundHint="Select dimensions & measures to display a line chart" />;
 
   const showHtmlLegend = showLegend && legendItems.length > 0;
   const flexDir = legendPosition === 'left' || legendPosition === 'right' ? 'row' : 'column';
@@ -337,8 +297,3 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
     </div>
   );
 });
-
-const emptyStyle = {
-  height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  color: 'var(--text-disabled)', fontSize: 12, textAlign: 'center', padding: 16,
-};

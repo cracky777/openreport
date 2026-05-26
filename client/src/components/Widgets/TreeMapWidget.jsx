@@ -1,19 +1,17 @@
-import { useRef, useEffect, memo, useMemo } from 'react';
-import * as echarts from 'echarts';
+import { useRef, memo, useMemo } from 'react';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
-import { lerpColor } from '../../utils/tableConfigHelpers';
 import { applyTopN } from '../../utils/topNGroup';
 import { compareAxisValues } from '../../utils/axisSort';
 import { CHART_COLORS_BASIC as COLORS, OTHERS_COLOR } from '../../utils/chartPalette';
 import { useChartFonts } from '../../hooks/useChartFonts';
+import { useEchartsInstance } from '../../hooks/useEchartsInstance';
+import WidgetEmptyState from './WidgetEmptyState';
+import { resolveZoneSorts } from '../../utils/chartSorts';
+import { buildValueGradient } from '../../utils/chartGradient';
 
 export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
-  const chartRef = useRef(null);
-  const instanceRef = useRef(null);
-  const prevSizeRef = useRef({ w: 0, h: 0 });
-
   const hasData = data?.items?.length > 0;
   const showDataLabels = config?.showDataLabels ?? true;
   const dataLabelContent = config?.dataLabelContent || 'nameValue';
@@ -23,9 +21,7 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
   const { dataLabel: dataLabelFontFamily } = useChartFonts(config, ['dataLabel']);
   // Treemap defaults to descending values when nothing else is configured —
   // a tile sorted by area is the genre's whole point.
-  const zoneSorts = config?.zoneSorts;
-  const sortOrder = zoneSorts ? (zoneSorts.values || 'none') : (config?.sortOrder || 'desc');
-  const axisSort = zoneSorts?.axis || 'none';
+  const { sortOrder, axisSort } = resolveZoneSorts(config, { valuesDefault: 'desc' });
   const showBorder = config?.showItemBorder ?? true;
   const borderColor = config?.itemBorderColor || '#ffffff';
   const borderWidth = config?.itemBorderWidth ?? 1;
@@ -46,15 +42,7 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
     const useGradient = gradient?.enabled === true;
     let getValueColor = null;
     if (useGradient) {
-      let gMin = Infinity, gMax = -Infinity;
-      for (const it of data.items) if (it?.value != null && !isNaN(it.value)) { if (it.value < gMin) gMin = it.value; if (it.value > gMax) gMax = it.value; }
-      const minColor = gradient.minColor || '#dcfce7';
-      const maxColor = gradient.maxColor || '#7c3aed';
-      getValueColor = (val) => {
-        if (val == null || isNaN(val) || gMin === Infinity) return minColor;
-        const pct = gMax > gMin ? Math.max(0, Math.min(1, (val - gMin) / (gMax - gMin))) : 0;
-        return lerpColor(minColor, maxColor, pct);
-      };
+      getValueColor = buildValueGradient(gradient, data.items.map((it) => it?.value));
     }
 
     let items = [...data.items];
@@ -153,62 +141,25 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
 
   const option = memoResult?.option;
 
+  // Click → cross-filter on the dim name. Skip the synthetic Others leaf
+  // (no real dim value behind it).
   const onDataClickRef = useRef(onDataClick);
   onDataClickRef.current = onDataClick;
   const dimNameRef = useRef(data?._dimName);
   dimNameRef.current = data?._dimName;
+  const chartRef = useEchartsInstance({
+    option,
+    onInit: (instance) => {
+      instance.on('click', (params) => {
+        if (params.data?._isOthers) return;
+        if (params.data?.name && onDataClickRef.current) {
+          onDataClickRef.current(dimNameRef.current || 'dimension', String(params.data.name));
+        }
+      });
+    },
+  });
 
-  useEffect(() => {
-    const el = chartRef.current;
-    if (!el || !option) return;
-
-    if (instanceRef.current && instanceRef.current.getDom() !== el) {
-      instanceRef.current.dispose();
-      instanceRef.current = null;
-      prevSizeRef.current = { w: 0, h: 0 };
-    }
-
-    const render = () => {
-      const cw = el.clientWidth;
-      const ch = el.clientHeight;
-      if (cw < 10 || ch < 10) return;
-
-      if (!instanceRef.current) {
-        instanceRef.current = echarts.init(el, null, { width: cw, height: ch });
-        instanceRef.current.on('click', (params) => {
-          // Skip the synthetic Others leaf — it has no real dimension value.
-          if (params.data?._isOthers) return;
-          if (params.data?.name && onDataClickRef.current) {
-            onDataClickRef.current(dimNameRef.current || 'dimension', String(params.data.name));
-          }
-        });
-      } else if (prevSizeRef.current.w !== cw || prevSizeRef.current.h !== ch) {
-        instanceRef.current.resize({ width: cw, height: ch });
-      }
-      prevSizeRef.current = { w: cw, h: ch };
-      instanceRef.current.setOption(option, true);
-    };
-
-    const timer = requestAnimationFrame(render);
-    const ro = new ResizeObserver(render);
-    ro.observe(el);
-    return () => { cancelAnimationFrame(timer); ro.disconnect(); };
-  }, [option]);
-
-  useEffect(() => () => { instanceRef.current?.dispose(); instanceRef.current = null; }, []);
-
-  if (!hasData) {
-    if (data?._rowCount === 0) {
-      if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
-      return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
-    }
-    return <div style={emptyStyle}>Select a dimension & measure to display a treemap</div>;
-  }
+  if (!hasData) return <WidgetEmptyState data={data} config={config} unboundHint="Select a dimension & measure to display a treemap" />;
 
   return <div ref={chartRef} style={{ width: '100%', height: '100%' }} />;
 });
-
-const emptyStyle = {
-  height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  color: 'var(--text-disabled)', fontSize: 12, textAlign: 'center', padding: 16,
-};

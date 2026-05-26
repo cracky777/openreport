@@ -1,5 +1,4 @@
-import { useRef, useEffect, memo, useMemo } from 'react';
-import * as echarts from 'echarts';
+import { useRef, memo, useMemo } from 'react';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
@@ -7,15 +6,15 @@ import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues } from '../../utils/axisSort';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
-import { lerpColor } from '../../utils/tableConfigHelpers';
 import { CHART_COLORS as COLORS, hexToRgba } from '../../utils/chartPalette';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
+import { useEchartsInstance } from '../../hooks/useEchartsInstance';
+import WidgetEmptyState from './WidgetEmptyState';
+import { resolveZoneSorts } from '../../utils/chartSorts';
+import { buildValueGradient } from '../../utils/chartGradient';
 
 export default memo(function ComboWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
-  const chartRef = useRef(null);
-  const instanceRef = useRef(null);
-  const prevSizeRef = useRef({ w: 0, h: 0 });
   const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const w = chartWidth || 400;
@@ -41,10 +40,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
   const gridLineWidth = config?.gridLineWidth ?? 1;
   const showSecondaryAxis = config?.showSecondaryAxis ?? true;
   const smoothLine = config?.smooth ?? true;
-  const zoneSorts = config?.zoneSorts;
-  const sortOrder = zoneSorts ? (zoneSorts.values || 'none') : (config?.sortOrder || 'none');
-  const axisSort = zoneSorts?.axis || 'none';
-  const groupBySort = zoneSorts?.groupBy || 'none';
+  const { sortOrder, axisSort, groupBySort } = resolveZoneSorts(config);
 
   // Stable color ordering across filters: combine bar + line series into one seen-order list
   const allComboNames = useMemo(() => {
@@ -68,15 +64,8 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     const useGradient = gradient?.enabled === true && !isStacked;
     let getValueColor = null;
     if (useGradient) {
-      let gMin = Infinity, gMax = -Infinity;
-      for (const s of (data.barSeries || [])) for (const v of s.values || []) if (v != null && !isNaN(v)) { if (v < gMin) gMin = v; if (v > gMax) gMax = v; }
-      const minColor = gradient.minColor || '#dcfce7';
-      const maxColor = gradient.maxColor || '#7c3aed';
-      getValueColor = (val) => {
-        if (val == null || isNaN(val) || gMin === Infinity) return minColor;
-        const pct = gMax > gMin ? Math.max(0, Math.min(1, (val - gMin) / (gMax - gMin))) : 0;
-        return lerpColor(minColor, maxColor, pct);
-      };
+      const flatValues = (data.barSeries || []).flatMap((s) => s.values || []);
+      getValueColor = buildValueGradient(gradient, flatValues);
     }
 
     const colorMap = {};
@@ -457,65 +446,28 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
 
-  useEffect(() => {
-    instanceRef.current?.dispose();
-    instanceRef.current = null;
-    prevSizeRef.current = { w: 0, h: 0 };
-  }, [showLegend, legendPosition]);
-
+  // Click → cross-filter via dataIndex → raw label lookup.
   const onDataClickRef = useRef(onDataClick);
   onDataClickRef.current = onDataClick;
   const dimNameRef = useRef(data?._dimName);
   dimNameRef.current = data?._dimName;
   const rawLabelsRef = useRef(memoResult?.rawLabels);
   rawLabelsRef.current = memoResult?.rawLabels;
+  const chartRef = useEchartsInstance({
+    option,
+    onInit: (instance) => {
+      instance.on('click', (params) => {
+        const rawLabels = rawLabelsRef.current;
+        const rawValue = (params.dataIndex != null && rawLabels) ? rawLabels[params.dataIndex] : params.name;
+        if (rawValue != null && onDataClickRef.current) {
+          onDataClickRef.current(dimNameRef.current || 'dimension', String(rawValue));
+        }
+      });
+    },
+    recreateDeps: [showLegend, legendPosition],
+  });
 
-  useEffect(() => {
-    const el = chartRef.current;
-    if (!el || !option) return;
-
-    if (instanceRef.current && instanceRef.current.getDom() !== el) {
-      instanceRef.current.dispose();
-      instanceRef.current = null;
-      prevSizeRef.current = { w: 0, h: 0 };
-    }
-
-    const render = () => {
-      const cw = el.clientWidth;
-      const ch = el.clientHeight;
-      if (cw < 10 || ch < 10) return;
-
-      if (!instanceRef.current) {
-        instanceRef.current = echarts.init(el, null, { width: cw, height: ch });
-        instanceRef.current.on('click', (params) => {
-          const rawLabels = rawLabelsRef.current;
-          const rawValue = (params.dataIndex != null && rawLabels) ? rawLabels[params.dataIndex] : params.name;
-          if (rawValue != null && onDataClickRef.current) {
-            onDataClickRef.current(dimNameRef.current || 'dimension', String(rawValue));
-          }
-        });
-      } else if (prevSizeRef.current.w !== cw || prevSizeRef.current.h !== ch) {
-        instanceRef.current.resize({ width: cw, height: ch });
-      }
-      prevSizeRef.current = { w: cw, h: ch };
-      instanceRef.current.setOption(option, true);
-    };
-
-    const timer = requestAnimationFrame(render);
-    const ro = new ResizeObserver(render);
-    ro.observe(el);
-    return () => { cancelAnimationFrame(timer); ro.disconnect(); };
-  }, [option, showLegend, legendPosition]);
-
-  useEffect(() => () => { instanceRef.current?.dispose(); instanceRef.current = null; }, []);
-
-  if (!hasData) {
-    if (data?._rowCount === 0) {
-      if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
-      return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
-    }
-    return <div style={emptyStyle}>Drop measures in Bar Values and Line Values</div>;
-  }
+  if (!hasData) return <WidgetEmptyState data={data} config={config} unboundHint="Drop measures in Bar Values and Line Values" />;
 
   const isLR = legendPosition === 'left' || legendPosition === 'right';
 
@@ -531,8 +483,3 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     </div>
   );
 });
-
-const emptyStyle = {
-  height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  color: 'var(--text-disabled)', fontSize: 12, textAlign: 'center', padding: 16,
-};
