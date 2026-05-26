@@ -25,6 +25,7 @@ const rollupDuckDB = require('./rollupDuckDB');
 const { prepareGlobalRulesForWidget } = require('./reportFilterRules');
 const { shiftWidgetFiltersForN1 } = require('./comparePeriod');
 const { componentPlanForMeasures, factsForMeasure, effectiveMeasureName } = require('./measureType');
+const { safeParse } = require('../db/modelRow');
 
 const MAX_ROLLUP_ROWS = Number(process.env.ROLLUP_MAX_ROWS || 1_000_000);
 
@@ -654,12 +655,8 @@ function fetchRollupRows({
 // at INSERT time and the reverse lookup at planner time.
 function buildNameLabelMaps(modelId, extras) {
   const model = db.prepare('SELECT dimensions, measures FROM models WHERE id = ?').get(modelId);
-  let dims = [];
-  let meas = [];
-  if (model) {
-    try { dims = JSON.parse(model.dimensions || '[]'); } catch { /* malformed */ }
-    try { meas = JSON.parse(model.measures || '[]'); } catch { /* malformed */ }
-  }
+  let dims = model ? safeParse(model.dimensions, []) : [];
+  let meas = model ? safeParse(model.measures, []) : [];
   const ex = extras || {};
   // Report extras participate in the /query SELECT aliasing exactly like
   // model fields, so the label map must cover them too — otherwise the
@@ -686,8 +683,7 @@ function buildNameLabelMaps(modelId, extras) {
 // its additive component columns.
 function loadMeasureDefs(modelId, extras) {
   const model = db.prepare('SELECT measures FROM models WHERE id = ?').get(modelId);
-  let defs = [];
-  if (model) { try { defs = JSON.parse(model.measures || '[]'); } catch { /* malformed */ } }
+  let defs = model ? safeParse(model.measures, []) : [];
   defs = Array.isArray(defs) ? defs.slice() : [];
   const ex = extras || {};
   const ov = ex.measureOverrides || {};

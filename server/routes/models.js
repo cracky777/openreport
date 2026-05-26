@@ -24,6 +24,7 @@ const {
 } = require('../utils/sqlBuilder/datePart');
 const { deriveJoinKeyword } = require('../utils/sqlBuilder/joins');
 const { tablesReachableFrom, getAllowedRlsKeys } = require('../utils/rls');
+const { parseModel } = require('../db/modelRow');
 
 // Hook for cloud edition to override the global query-timeout with a
 // workspace/org-scoped value. Default in OSS just returns the global
@@ -79,27 +80,21 @@ router.get('/', requireAuth, (req, res) => {
 
 // Get single model with full details (owner, global admin, or anyone with access to a report using it)
 router.get('/:id', requireAuth, (req, res) => {
-  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
-  if (!model || !canAccessModel(model, req.user)) return res.status(404).json({ error: 'Model not found' });
+  const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
+  if (!row || !canAccessModel(row, req.user)) return res.status(404).json({ error: 'Model not found' });
+  const model = parseModel(row);
 
   // Strip the RLS rules map (other users' email patterns) from the response for anyone
   // who isn't the owner or a global admin. The viewer's own access is enforced server-side
   // by /query — they don't need to see who else has access.
   const isOwner = req.user.id === model.user_id;
   const isAdmin = req.user.role === 'admin';
-  const fullRls = JSON.parse(model.rls || '{}');
-  const safeRls = (isOwner || isAdmin) ? fullRls : {};
+  const safeRls = (isOwner || isAdmin) ? model.rls : {};
 
   res.json({
     model: {
       ...model,
-      selected_tables: JSON.parse(model.selected_tables),
-      table_positions: JSON.parse(model.table_positions),
-      dimensions: JSON.parse(model.dimensions),
-      measures: JSON.parse(model.measures),
-      joins: JSON.parse(model.joins),
       rls: safeRls,
-      column_types: JSON.parse(model.column_types || '{}'),
       dateColumn: model.date_column || null,
     },
   });
@@ -196,16 +191,14 @@ router.put('/:id', requireAuth, (req, res) => {
 // Validate model references against the current datasource schema.
 // Returns a list of broken references (missing tables, missing columns).
 router.get('/:id/validate', requireAuth, async (req, res) => {
-  const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-  if (!model) return res.status(404).json({ error: 'Model not found' });
+  const row = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!row) return res.status(404).json({ error: 'Model not found' });
+  const model = parseModel(row);
 
   const source = db.prepare('SELECT * FROM datasources WHERE id = ? AND user_id = ?').get(model.datasource_id, req.user.id);
   if (!source) return res.status(404).json({ error: 'Datasource not found' });
 
-  const selectedTables = JSON.parse(model.selected_tables || '[]');
-  const dimensions = JSON.parse(model.dimensions || '[]');
-  const measures = JSON.parse(model.measures || '[]');
-  const joins = JSON.parse(model.joins || '[]');
+  const { selected_tables: selectedTables, dimensions, measures, joins } = model;
 
   let conn;
   const issues = [];
@@ -626,8 +619,9 @@ router.post('/:id/query', async (req, res) => {
     }
   };
 
-  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
-  if (!model || !canAccessModel(model, req.user)) return res.status(404).json({ error: 'Model not found' });
+  const rawModel = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
+  if (!rawModel || !canAccessModel(rawModel, req.user)) return res.status(404).json({ error: 'Model not found' });
+  const model = parseModel(rawModel);
 
   const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
   if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
@@ -696,9 +690,11 @@ router.post('/:id/query', async (req, res) => {
   // Merge model-level definitions with the report's extras / overrides.
   // Extras: appended to the list. Overrides: shallow-merged into the
   // matching entry (so the user can rename a model dim per-report or
-  // re-type it).
-  const allDimensions = JSON.parse(model.dimensions);
-  const allMeasures = JSON.parse(model.measures);
+  // re-type it). Shallow-copy here because we push extras into these
+  // arrays below — without the spread we'd mutate the parsed `model`
+  // object that's cached on the route's local scope.
+  const allDimensions = [...model.dimensions];
+  const allMeasures = [...model.measures];
   if (dimensionOverrides && typeof dimensionOverrides === 'object') {
     for (const [name, ov] of Object.entries(dimensionOverrides)) {
       const idx = allDimensions.findIndex((d) => d.name === name);
@@ -725,12 +721,12 @@ router.post('/:id/query', async (req, res) => {
       }
     }
   }
-  const allJoins = JSON.parse(model.joins);
-  const rls = JSON.parse(model.rls || '{}');
+  const allJoins = model.joins;
+  const rls = model.rls;
   // Per-column overrides (type + optional format). Used by castToDate to
   // pick the right SQL parser when a date column is stored as text in a
   // non-ISO format.
-  const columnTypes = JSON.parse(model.column_types || '{}');
+  const columnTypes = model.column_types;
 
   // INTERVAL safety net. A measure created before `addMeasure` stamped
   // `dataType` (or via a path where `col.data_type` wasn't available)

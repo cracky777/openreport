@@ -1,6 +1,28 @@
 const { Pool } = require('pg');
 const mysql = require('mysql2/promise');
 
+// Process-wide DuckDB cache. One open file lock per path — concurrent
+// callers share the same resolved Database instance, and concurrent
+// FIRST-time callers share the in-flight open promise so the file is
+// only opened once even under burst load.
+//
+// Previously lived on `globalThis._duckdbInstances` / `_duckdbPromises`
+// — promoted to module-local Maps so the cache is testable (require()
+// caching gives module-singleton semantics already) and to drop a
+// readable globalThis red flag. The graceful-shutdown path in
+// `server/index.js` walks them via `closeAllDuckDB()`.
+const _duckdbInstances = new Map();
+const _duckdbPromises = new Map();
+
+async function closeAllDuckDB(log = () => {}) {
+  for (const [path, db] of _duckdbInstances.entries()) {
+    try { await db.close(); log(`closed ${path}`); }
+    catch (err) { log(`failed to close ${path}: ${err.message}`); }
+  }
+  _duckdbInstances.clear();
+  _duckdbPromises.clear();
+}
+
 // Wrap a `{ promise, cancel }` pair with a timeout safety net so we always
 // abort the underlying query when the deadline passes — even if the
 // dialect's native timeout doesn't fire (DuckDB has none, BigQuery's
@@ -355,23 +377,21 @@ function createConnection(datasource) {
   // ─── DuckDB ───
   if (db_type === 'duckdb') {
     const duckdb = require('duckdb-async');
-    // Global cache: one instance per file path to avoid lock conflicts
-    // Cache the PROMISE (not the resolved value) so concurrent callers share the same open call
-    if (!global._duckdbInstances) global._duckdbInstances = {};
-    if (!global._duckdbPromises) global._duckdbPromises = {};
     const dbPath = db_name || ':memory:';
     const getDb = async () => {
-      if (global._duckdbInstances[dbPath]) return global._duckdbInstances[dbPath];
-      if (!global._duckdbPromises[dbPath]) {
-        global._duckdbPromises[dbPath] = duckdb.Database.create(dbPath).then((db) => {
-          global._duckdbInstances[dbPath] = db;
+      if (_duckdbInstances.has(dbPath)) return _duckdbInstances.get(dbPath);
+      if (!_duckdbPromises.has(dbPath)) {
+        const p = duckdb.Database.create(dbPath).then((db) => {
+          _duckdbInstances.set(dbPath, db);
+          _duckdbPromises.delete(dbPath);
           return db;
         }).catch((err) => {
-          delete global._duckdbPromises[dbPath];
+          _duckdbPromises.delete(dbPath);
           throw err;
         });
+        _duckdbPromises.set(dbPath, p);
       }
-      return global._duckdbPromises[dbPath];
+      return _duckdbPromises.get(dbPath);
     };
     // Convert BigInt to Number and Date to ISO string in all results
     const convertValues = (rows) => rows.map((r) => {
@@ -427,4 +447,4 @@ function createConnection(datasource) {
   throw new Error(`Unsupported database type: ${db_type}`);
 }
 
-module.exports = { createConnection };
+module.exports = { createConnection, closeAllDuckDB };
