@@ -19,6 +19,8 @@ import { parseFiltersFromUrl, syncFiltersToUrl } from '../utils/urlFilters';
 import { computeBindingKey } from '../utils/bindingKey';
 import { filterForTarget } from '../utils/crossFilter';
 import { shiftFiltersForN1, shiftWidgetFiltersForN1, hasShiftableFilterForN1 } from '../utils/comparePeriod';
+import { buildWidgetQueryPayload } from '../utils/widgetQueryPayload';
+import { buildWidgetData } from '../utils/widgetDataBuilder';
 
 // Convert data between widget formats
 function convertData(data, fromType, toType) {
@@ -1165,156 +1167,52 @@ export default function Editor() {
       abortControllerRef.current = controller;
 
       const promises = toFetch.map(([wId, w]) => {
-        const binding = w.dataBinding || {};
-        let dims = binding.selectedDimensions || [];
-        const fullHierarchy = [...dims];
-        const sm = binding.scatterMeasures || {};
-        const cbm = binding.comboBarMeasures || [];
-        const clm = binding.comboLineMeasures || [];
-        const meass = w.type === 'scatter'
-          ? [sm.x, sm.y, sm.size].filter(Boolean)
-          : w.type === 'combo'
-            ? [...new Set([...cbm, ...clm])]
-            : w.type === 'gauge'
-              ? [...new Set([...(binding.selectedMeasures || []), binding.gaugeThresholdMeasure, binding.gaugeMaxMeasure].filter(Boolean))]
-              : (binding.selectedMeasures || []);
-        const grpBy = binding.groupBy || [];
-        const colDimsB = binding.columnDimensions || [];
-
-        // Drill-down support: for drillable widgets with >1 dim, use only active dim + filter by drill path
-        const DRILLABLE = ['bar', 'line', 'combo', 'pie', 'treemap'];
-        const isDrillable = DRILLABLE.includes(w.type) && fullHierarchy.length > 1;
-        // Clean drillPath entries that no longer match the hierarchy (stale after bucket edits)
-        const drillPath = [];
-        if (isDrillable) {
-          const raw = Array.isArray(w.drillPath) ? w.drillPath : [];
-          for (let i = 0; i < raw.length && i < fullHierarchy.length - 1; i++) {
-            if (raw[i]?.dim === fullHierarchy[i]) drillPath.push(raw[i]);
-            else break;
-          }
-        }
-        const drillFilters = {};
-        if (isDrillable) {
-          drillPath.forEach(({ dim, value }) => { if (dim && value != null) drillFilters[dim] = [String(value)]; });
-          const activeDim = fullHierarchy[drillPath.length] || fullHierarchy[0];
-          dims = [activeDim];
-        }
-
-        const allDims = [...dims, ...grpBy.filter((g) => !dims.includes(g)), ...colDimsB.filter((g) => !dims.includes(g) && !grpBy.includes(g))];
-        // Cross-filter "Edit interactions" — drop filter dims that come from a
-        // source widget which excludes this target. Drill filters are
-        // self-imposed by the same widget so they're preserved unchanged.
-        const baseFilters = { ...(reportFilters || {}) };
-        const targetFilters = filterForTarget(wId, baseFilters, currentWidgets, crossHighlightRef.current);
-        const mergedFilters = { ...targetFilters, ...drillFilters };
-
-        const colorMeasure = (w.config?.colorCondition?.enabled === true) ? binding.colorMeasure : undefined;
-        // Per-widget view of the report-level global filters. See
-        // prepareGlobalRulesForWidget for the dual responsibility (drop
-        // excluded rules + strip the editor-only `exclusions` field so it
-        // doesn't pollute the preAggCache shape key).
-        const reportLevelFilters = prepareGlobalRulesForWidget(settings?.reportFilters, wId);
-        const widgetOwnFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
-        let widgetFilters = [...reportLevelFilters, ...widgetOwnFilters];
-        const hasMainBinding = (allDims.length > 0 || meass.length > 0);
-
-        // Server-side Top N — push the limit into the SQL via a synthetic
-        // top_n widget filter when enabled on bar/pie/treemap with measures.
-        // Without this, the legacy 1000-row + alphabetical default ORDER BY
-        // means a high-cardinality drill-down (commune-level) returns the
-        // first 1000 names alphabetically rather than the actual top values.
-        const TOP_N_TYPES = ['bar', 'pie', 'treemap'];
-        // Restricted to a single displayed dimension. Multi-dim queries
-        // (groupBy / columnDimensions) include extra GROUP BY columns, so a
-        // top_n on a measure would pick the top (axis × group) pairs, not the
-        // top axis values — meaningless for a bar/pie cluster.
-        const topNApplies = TOP_N_TYPES.includes(w.type)
-          && w.config?.topNEnabled === true
-          && meass.length > 0
-          && allDims.length === 1;
-        const topNValue = topNApplies ? Math.max(1, Math.floor(w.config?.topN ?? 20)) : 0;
-        const topNMeasure = topNApplies ? meass[0] : null;
-        if (topNApplies) {
-          widgetFilters = [
-            ...widgetFilters,
-            { field: topNMeasure, op: 'top_n', value: topNValue, isMeasure: true },
-          ];
-        }
-
-        // Report-scoped definitions live on report.settings — the backend
-        // merges them with effectiveModel.dimensions/measures so this report can
-        // reference dims/measures that don't exist (or have a different
-        // label/type) on the underlying model.
-        const reportExtras = {
-          extraDimensions: settings?.extraDimensions || [],
-          extraMeasures: settings?.extraMeasures || [],
-          dimensionOverrides: settings?.dimensionOverrides || {},
-          measureOverrides: settings?.measureOverrides || {},
-        };
-        // Generate a queryId so the server can register this fetch in its
-        // in-flight map; handleCancelFetch posts to /models/cancel-query
-        // with this id to abort the SQL via the dialect's native mechanism.
-        const mainQueryId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-          ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random()}`;
-        activeQueryIdsRef.current.add(mainQueryId);
-        // Per-widget aggregation overrides — e.g. the user flipped a
-        // model-defined SUM measure to AVG via the PropertyPanel. Stored
-        // on the widget binding. EVERY auxiliary query (main / total /
-        // color / n1 / comboLine / sqlOnly preview) needs to forward it,
-        // otherwise the server falls back to the model's default agg and
-        // the chart value silently diverges from the property panel.
-        const aggOverrides = binding.measureAggOverrides || {};
-        const aggOverridesPayload = Object.keys(aggOverrides).length > 0 ? aggOverrides : undefined;
-        const mainQueryBody = {
-          dimensionNames: allDims, measureNames: [...new Set(meass)],
-          measureAggOverrides: aggOverridesPayload,
-          limit: w.config?.dataLimit || 1000, filters: mergedFilters,
-          widgetFilters: sanitizeWidgetFilters(widgetFilters),
-          queryId: mainQueryId,
-          // Report context — cloud uses this to resolve the workspace
-          // override for query timeout. OSS ignores it.
+        // Build the query bodies + per-widget metadata in one shot.
+        // Pure utility — Editor passes manualRefresh as bypassCache and
+        // skips filter widgets entirely (they're already excluded from
+        // `toFetch` upstream).
+        const { meta, bodies } = buildWidgetQueryPayload(w, wId, {
+          effectiveModel,
+          reportFilters,
+          currentWidgets,
+          crossHighlight: crossHighlightRef.current,
           reportId: id,
-          // Manual refresh skips the result cache but still warms it on
-          // the way back. Other re-renders (filter / drill / interaction
-          // toggle) read straight from cache when shape matches.
+          reportLevelFilters: prepareGlobalRulesForWidget(settings?.reportFilters, wId),
+          reportExtras: {
+            extraDimensions: settings?.extraDimensions || [],
+            extraMeasures: settings?.extraMeasures || [],
+            dimensionOverrides: settings?.dimensionOverrides || {},
+            measureOverrides: settings?.measureOverrides || {},
+          },
           bypassCache: manualRefresh,
-          ...reportExtras,
-        };
-        const mainPromise = hasMainBinding
-          ? api.post(`/models/${model.id}/query`, mainQueryBody, { signal: controller.signal })
-              .finally(() => { activeQueryIdsRef.current.delete(mainQueryId); })
+          generateQueryId: () => (typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random()}`,
+          filterWidgetMode: 'skip',
+          dedupMeasures: true,
+        });
+
+        if (meta.mainQueryId) activeQueryIdsRef.current.add(meta.mainQueryId);
+        const mainPromise = bodies.main
+          ? api.post(`/models/${model.id}/query`, bodies.main, { signal: controller.signal })
+              .finally(() => { if (meta.mainQueryId) activeQueryIdsRef.current.delete(meta.mainQueryId); })
           : Promise.resolve({ data: { rows: [] } });
 
-        // Total query for the Others bucket — runs only when Top N is active.
-        // Sums the same measure WITHOUT the dimension grouping so we can
-        // compute Others = total - Σ(top N) accurately.
-        const totalPromise = topNApplies
-          ? api.post(`/models/${model.id}/query`, {
-              dimensionNames: [],
-              measureNames: [topNMeasure],
-              measureAggOverrides: aggOverridesPayload,
-              limit: 1,
-              filters: mergedFilters,
-              // The top_n synthetic filter is dropped here — we want the
-              // grand total, not the truncated one.
-              widgetFilters: sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]),
-              reportId: id,
-              bypassCache: manualRefresh,
-              ...reportExtras,
-            }, { signal: controller.signal }).catch(() => null)
+        const totalPromise = bodies.total
+          ? api.post(`/models/${model.id}/query`, bodies.total, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
-        // Fire a sqlOnly request in parallel — the server returns the assembled
-        // SQL without executing it, so the SQL viewer modal can show the
-        // query even while a slow main query is still running. Best-effort.
-        if (hasMainBinding) {
-          api.post(`/models/${model.id}/query`, { ...mainQueryBody, sqlOnly: true }, { signal: controller.signal })
+
+        // SQL viewer preview — fire-and-forget so the modal can show the
+        // assembled query even while a slow main query is still running.
+        // Skips silently if the main query already settled and stamped _sql.
+        if (bodies.sqlOnly) {
+          api.post(`/models/${model.id}/query`, bodies.sqlOnly, { signal: controller.signal })
             .then((r) => {
               const previewSql = r?.data?.sql;
               if (!previewSql) return;
               history.setSilent((prev) => {
                 const w2 = prev.widgets?.[wId];
-                if (!w2 || w2.data?._sql) return prev; // main query already settled — don't overwrite
+                if (!w2 || w2.data?._sql) return prev;
                 return {
                   ...prev,
                   widgets: { ...prev.widgets, [wId]: { ...w2, data: { ...(w2.data || {}), _sql: previewSql } } },
@@ -1323,330 +1221,50 @@ export default function Editor() {
             })
             .catch(() => { /* ignore — we'll just lack the preview */ });
         }
-        const colorPromise = colorMeasure
-          ? api.post(`/models/${model.id}/query`, {
-              dimensionNames: [], measureNames: [colorMeasure],
-              measureAggOverrides: aggOverridesPayload,
-              limit: 1, filters: mergedFilters,
-              // Drop the synthetic top_n filter for the color aggregate — it
-              // doesn't apply when there's no GROUP BY.
-              widgetFilters: sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]),
-              reportId: id,
-              bypassCache: manualRefresh,
-              ...reportExtras,
-            }, { signal: controller.signal }).catch(() => null)
+
+        const colorPromise = bodies.color
+          ? api.post(`/models/${model.id}/query`, bodies.color, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
 
-        // N-1 comparison query (scorecards only). Same SQL shape as the
-        // main fetch but every filter on `compareDateDim` is shifted by
-        // -1 year so we can render a "vs last year" comparison.
-        const compareDateDim = w.type === 'scorecard' ? (binding.compareDateDim || null) : null;
-        // The N-1 query is enabled by the user dropping ANY date dim into
-        // "Compare with". The system then walks every active filter
-        // (merged + widget) and shifts the year component on year-like
-        // and full-date dims, leaving month/day filters as-is so the
-        // comparison reads "same period, previous year".
-        const shouldFetchN1 = !!compareDateDim
-          && hasShiftableFilterForN1(mergedFilters, widgetFilters, effectiveModel?.dimensions);
-        const n1Filters = shouldFetchN1
-          ? shiftFiltersForN1(mergedFilters, effectiveModel?.dimensions)
-          : null;
-        const n1WidgetFilters = shouldFetchN1
-          ? shiftWidgetFiltersForN1(widgetFilters, effectiveModel?.dimensions)
-          : null;
-        const n1Promise = shouldFetchN1
-          ? api.post(`/models/${model.id}/query`, {
-              dimensionNames: allDims,
-              measureNames: [...new Set(meass)],
-              measureAggOverrides: aggOverridesPayload,
-              limit: 1,
-              filters: n1Filters,
-              widgetFilters: sanitizeWidgetFilters(n1WidgetFilters),
-              reportId: id,
-              bypassCache: manualRefresh,
-              ...reportExtras,
-            }, { signal: controller.signal }).catch(() => null)
+        const n1Promise = bodies.n1
+          ? api.post(`/models/${model.id}/query`, bodies.n1, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
 
-        // Combo + groupBy + line measures: bars need (dim, groupBy)
-        // granularity (each group/category gets its own bar), but the line
-        // should be aggregated at the (dim) level only. The previous
-        // implementation reduced the line client-side by summing across
-        // groups — fine for additive measures, broken for ratios/averages,
-        // and worse still it propagates per-row div-by-zero errors from
-        // the server (when a category has 0 in the denominator). Run a
-        // dedicated line query with just (dim, lineMeasures) so the line
-        // is aggregated at the right level and the per-category quirks
-        // can't blow up the whole widget.
-        const comboLineApplies = w.type === 'combo' && grpBy.length > 0 && clm.length > 0;
-        const comboLinePromise = comboLineApplies
-          ? api.post(`/models/${model.id}/query`, {
-              dimensionNames: dims,
-              measureNames: [...new Set(clm)],
-              measureAggOverrides: aggOverridesPayload,
-              limit: w.config?.dataLimit || 1000,
-              filters: mergedFilters,
-              widgetFilters: sanitizeWidgetFilters(widgetFilters),
-              reportId: id,
-              bypassCache: manualRefresh,
-              ...reportExtras,
-            }, { signal: controller.signal }).catch(() => null)
+        const comboLinePromise = bodies.comboLine
+          ? api.post(`/models/${model.id}/query`, bodies.comboLine, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
 
         return Promise.all([mainPromise, colorPromise, totalPromise, n1Promise, comboLinePromise]).then(([res, colorRes, totalRes, n1Res, comboLineRes]) => {
-          // Conditional formatting — extract a single aggregated value from the color query
-          let _colorValue;
-          if (colorRes) {
-            const cRow = colorRes.data?.rows?.[0];
-            if (cRow) {
-              const v = Object.values(cRow)[0];
-              const num = typeof v === 'number' ? v : parseFloat(v);
-              if (!isNaN(num)) _colorValue = num;
-            }
-          }
-
           const rows = res.data?.rows;
           // Combine both queries' SQL when an auxiliary line query was
-          // fired, so the SQL viewer shows the user every statement that
-          // contributed to the rendered chart — not just the bars query.
+          // fired so the SQL viewer shows every statement contributing to
+          // the rendered chart.
           const mainSql = res.data?.sql || null;
           const lineSql = comboLineRes?.data?.sql || null;
           const sql = mainSql && lineSql
             ? `-- Main query (bars)\n${mainSql}\n\n-- Line aggregation (dim only, no groupBy)\n${lineSql}`
             : mainSql;
-          if (!rows || rows.length === 0) {
-            // Even on empty results, we keep the drill metadata around so the
-            // canvas still shows the up/reset arrows — otherwise the user gets
-            // stranded at a drilled level they can't navigate back from.
-            const emptyData = { _rowCount: 0, _colorValue, _sql: sql };
-            if (isDrillable) {
-              emptyData._hierarchy = fullHierarchy.map((dn) => {
-                const def = (effectiveModel.dimensions || []).find((x) => x.name === dn);
-                return { name: dn, label: def?.label || def?.name || dn };
-              });
-              emptyData._drillPath = drillPath;
-              emptyData._drillDepth = drillPath.length;
-              emptyData._isDrillLeaf = drillPath.length >= fullHierarchy.length - 1;
-            }
-            // Use the per-widget targetFilters (post interaction-exclusion
-            // stripping) so the cache key matches what `toFetch` checks
-            // when deciding whether to skip subsequent renders.
-            emptyData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters, settings, cacheBuiltAt: report?.cache_built_at });
-            return { wId, data: emptyData };
-          }
-          let newData = {};
-          const keys = Object.keys(rows[0]);
-          if (w.type === 'pivotTable') {
-            const rowDimNames = dims.filter((d) => !colDimsB.includes(d));
-            newData = { rawRows: rows,
-              _rowDims: rowDimNames.map((d) => { const def = (effectiveModel.dimensions || []).find((x) => x.name === d); return def?.label || def?.name || d; }),
-              _colDims: colDimsB.map((d) => { const def = (effectiveModel.dimensions || []).find((x) => x.name === d); return def?.label || def?.name || d; }),
-              _measures: meass.map((m) => { const def = (effectiveModel.measures || []).find((x) => x.name === m); return def?.label || def?.name || m; }),
-            };
-          } else if (w.type === 'scatter') {
-            if (sm.x && sm.y) {
-              const gl = (name, list) => { const d = list.find((x) => x.name === name); return d?.label || d?.name || name; };
-              const dimLbl = dims.length > 0 ? gl(dims[0], effectiveModel.dimensions || []) : null;
-              const grpLbl = grpBy.length > 0 ? gl(grpBy[0], effectiveModel.dimensions || []) : null;
-              const xLbl = gl(sm.x, effectiveModel.measures || []);
-              const yLbl = gl(sm.y, effectiveModel.measures || []);
-              const sizeLbl = sm.size ? gl(sm.size, effectiveModel.measures || []) : null;
-              const fk = (l) => keys.find((k) => k === l) || null;
-              const dk = dimLbl ? fk(dimLbl) : null;
-              const gk = grpLbl ? fk(grpLbl) : null;
-              const xk = fk(xLbl), yk = fk(yLbl);
-              const sk = sizeLbl ? fk(sizeLbl) : null;
-              if (xk && yk) {
-                const bp = (r) => ({ x: Number(r[xk]) || 0, y: Number(r[yk]) || 0, size: sk ? Number(r[sk]) || 0 : undefined, label: dk ? String(r[dk] ?? '') : undefined });
-                if (gk) {
-                  const groups = {};
-                  rows.forEach((r) => { const g = String(r[gk] ?? ''); if (!groups[g]) groups[g] = []; groups[g].push(bp(r)); });
-                  newData = { points: rows.map(bp), seriesGroups: Object.entries(groups).map(([name, pts]) => ({ name, points: pts })) };
-                } else {
-                  newData = { points: rows.map(bp) };
-                }
-                newData._xLabel = xLbl;
-                newData._yLabel = yLbl;
-                newData._hasSize = !!sk;
-                if (sk) newData._sizeLabel = sizeLbl;
-              }
-            }
-          } else if (w.type === 'combo') {
-            if (rows.length > 0) {
-              const gl = (name, list) => { const d = list.find((x) => x.name === name); return d?.label || d?.name || name; };
-              const fk = (label) => keys.find((k) => k === label) || null;
-              const axisKey = dims.length > 0 ? fk(gl(dims[0], effectiveModel.dimensions || [])) || keys[0] : keys[0];
-              const grpLabel = grpBy.length > 0 ? gl(grpBy[0], effectiveModel.dimensions || []) : null;
-              const grpKey = grpLabel ? fk(grpLabel) : null;
-              const labels = [...new Set(rows.map((r) => String(r[axisKey] ?? '')))];
-              // Bar series: split by legend
-              let barSeries = [];
-              if (grpKey) {
-                const ug = [...new Set(rows.map((r) => String(r[grpKey] ?? '')))].sort();
-                cbm.forEach((mn) => { const ml = gl(mn, effectiveModel.measures || []); const mk = fk(ml); if (!mk) return;
-                  ug.forEach((gv) => { barSeries.push({ name: cbm.length === 1 ? gv : `${gv} - ${ml}`, values: labels.map((l) => { const row = rows.find((r) => String(r[axisKey] ?? '') === l && String(r[grpKey] ?? '') === gv); return row ? Number(row[mk]) || 0 : 0; }) }); });
-                });
-              } else {
-                cbm.forEach((mn) => { const ml = gl(mn, effectiveModel.measures || []); const mk = fk(ml); if (!mk) return; barSeries.push({ name: ml, values: labels.map((l) => { const row = rows.find((r) => String(r[axisKey] ?? '') === l); return row ? Number(row[mk]) || 0 : 0; }) }); });
-              }
-              // Line series: when there's a groupBy we run a dedicated
-              // query (comboLineRes) that aggregates the line at the
-              // (dim) level only — the rows there have one entry per
-              // axis value with the line measure already aggregated
-              // correctly. Without that auxiliary query (no groupBy or
-              // the request errored), fall back to the legacy client-
-              // side reduce which is only correct for additive measures.
-              let lineSeries;
-              const lineRows = comboLineRes?.data?.rows;
-              if (lineRows && grpBy.length > 0) {
-                const lineKeys = lineRows.length > 0 ? Object.keys(lineRows[0]) : [];
-                lineSeries = clm.map((mn) => {
-                  const ml = gl(mn, effectiveModel.measures || []);
-                  const mk = lineKeys.includes(ml) ? ml : (lineKeys.includes(mn) ? mn : null);
-                  if (!mk) return null;
-                  return {
-                    name: ml,
-                    values: labels.map((l) => {
-                      const row = lineRows.find((r) => String(r[axisKey] ?? '') === l);
-                      return row ? Number(row[mk]) || 0 : 0;
-                    }),
-                  };
-                }).filter(Boolean);
-              } else {
-                lineSeries = clm.map((mn) => { const ml = gl(mn, effectiveModel.measures || []); const mk = fk(ml); if (!mk) return null;
-                  return { name: ml, values: labels.map((l) => rows.filter((r) => String(r[axisKey] ?? '') === l).reduce((s, r) => s + (Number(r[mk]) || 0), 0)) };
-                }).filter(Boolean);
-              }
-              newData = { labels, barSeries, lineSeries };
-              newData._barMeasureLabel = cbm.map((mn) => gl(mn, effectiveModel.measures || [])).join(', ');
-              newData._lineMeasureLabel = clm.map((mn) => gl(mn, effectiveModel.measures || [])).join(', ');
-            }
-          } else if (w.type === 'table') {
-            newData = { columns: keys, rows: rows.map((r) => Object.values(r).map((v) => v != null ? String(v) : '')) };
-          } else if (w.type === 'customVisual') {
-            // Normalised tabular form for custom visuals — `rows` are kept as-is
-            // (server-side already keys them by display label) and `fields` describes
-            // the role of each column so the iframe-rendered visual can interpret them.
-            const dimsMeta = dims.map((name) => {
-              const d = (effectiveModel.dimensions || []).find((x) => x.name === name);
-              return { name: d?.label || d?.name || name, role: 'category', sourceName: name };
-            });
-            const measMeta = meass.map((name) => {
-              const m = (effectiveModel.measures || []).find((x) => x.name === name);
-              return { name: m?.label || m?.name || name, role: 'value', format: m?.format, sourceName: name };
-            });
-            newData = { rows, fields: { dimensions: dimsMeta, measures: measMeta } };
-          } else if (w.type === 'pie' || w.type === 'treemap') {
-            newData = { items: rows.map((r) => ({ name: String(r[keys[0]]), value: Number(r[keys[keys.length - 1]]) || 0 })) };
-          } else if (w.type === 'scorecard' || w.type === 'gauge') {
-            const firstRow = rows[0];
-            if (firstRow) {
-              const valueMeasName = w.dataBinding?.selectedMeasures?.[0];
-              const valueMeasDef = (effectiveModel.measures || []).find((m) => m.name === valueMeasName);
-              const valueKey = valueMeasDef?.label || valueMeasDef?.name || valueMeasName;
-              const measureVal = valueKey && firstRow[valueKey] !== undefined ? firstRow[valueKey] : Object.values(firstRow)[0];
-              newData = {
-                value: measureVal,
-                label: valueMeasDef?.label || valueMeasName || '',
-              };
-              // N-1 comparison value (scorecard only). Same column key as
-              // the main value — the parallel query has the same SELECT
-              // shape, only its WHERE shifted.
-              if (w.type === 'scorecard' && n1Res?.data?.rows?.[0]) {
-                const n1Row = n1Res.data.rows[0];
-                const n1Raw = valueKey && n1Row[valueKey] !== undefined ? n1Row[valueKey] : Object.values(n1Row)[0];
-                const n1Num = typeof n1Raw === 'number' ? n1Raw : parseFloat(String(n1Raw));
-                if (!isNaN(n1Num)) newData._n1Value = n1Num;
-              }
-              if (w.type === 'gauge') {
-                const extractMeas = (measName) => {
-                  if (!measName) return undefined;
-                  const def = (effectiveModel.measures || []).find((m) => m.name === measName);
-                  const key = def?.label || def?.name || measName;
-                  const raw = firstRow[key];
-                  if (typeof raw === 'number') return raw;
-                  if (raw != null) {
-                    const parsed = parseFloat(String(raw));
-                    if (!isNaN(parsed)) return parsed;
-                  }
-                  return undefined;
-                };
-                const th = extractMeas(w.dataBinding?.gaugeThresholdMeasure);
-                if (th !== undefined) newData.threshold = th;
-                const mx = extractMeas(w.dataBinding?.gaugeMaxMeasure);
-                if (mx !== undefined) newData.maxValue = mx;
-              }
-            }
-          } else if (grpBy.length > 0 && keys.length >= 3) {
-            const [axisKey, groupKey] = keys; const valueKey = keys[keys.length - 1];
-            const ul = [...new Set(rows.map((r) => String(r[axisKey])))];
-            const ug = [...new Set(rows.map((r) => String(r[groupKey])))];
-            newData = { labels: ul, series: ug.map((gv) => ({ name: gv, values: ul.map((l) => { const row = rows.find((r) => String(r[axisKey]) === l && String(r[groupKey]) === gv); return row ? Number(row[valueKey]) || 0 : 0; }) })) };
-          } else {
-            newData = { labels: rows.map((r) => String(r[keys[0]])), values: rows.map((r) => Number(r[keys[keys.length - 1]]) || 0) };
-          }
-          const mf = {};
-          // Track interval-typed measure columns so widgets can format them
-          // as a human duration ("1h", "30min", "45s") rather than the raw
-          // EPOCH-seconds number the server returns. Keyed by display label
-          // (matches what shows up as the column name in the row payload).
-          const durationCols = [];
-          meass.forEach((mn) => {
-            const md = (effectiveModel.measures || []).find((x) => x.name === mn);
-            if (!md) return;
-            const colKey = md.label || md.name;
-            if (md.format) mf[colKey] = md.format;
-            if (String(md.dataType || '').toLowerCase() === 'interval') durationCols.push(colKey);
+          // Per-widget cache key — stamped on widget.data so DataPanel
+          // doesn't re-fetch on the next selection. Computed with the
+          // per-widget targetFilters (post interaction-exclusion) so the
+          // key matches the toFetch skip check.
+          const bindingKey = computeBindingKey({
+            widget: w, model, reportFilters: meta.targetFilters, settings, cacheBuiltAt: report?.cache_built_at,
           });
-          newData._measureFormats = mf;
-          if (durationCols.length > 0) newData._durationColumns = durationCols;
-          if (dims.length > 0) {
-            newData._dimName = dims[0];
-            const axisDim = (effectiveModel.dimensions || []).find((x) => x.name === dims[0]);
-            newData._dimLabel = axisDim?.label || axisDim?.name || dims[0];
-            if (axisDim?.datePart) newData._datePart = axisDim.datePart;
-            else if (axisDim?.type === 'date') newData._datePart = 'full_date';
-            if (axisDim) newData._axisDimDef = { type: axisDim.type, datePart: axisDim.datePart };
-          }
-          if (grpBy.length > 0) {
-            // Per-zone Legend sort needs the type/datePart so the widget
-            // can sort series chronologically when the legend is a
-            // date-part dim (months in calendar order, not alphabetical).
-            const legendDim = (effectiveModel.dimensions || []).find((x) => x.name === grpBy[0]);
-            if (legendDim) newData._legendDimDef = { type: legendDim.type, datePart: legendDim.datePart };
-          }
-          if (meass.length > 0) {
-            const m0 = (effectiveModel.measures || []).find((x) => x.name === meass[0]);
-            newData._measureLabel = m0?.label || m0?.name || meass[0];
-          }
-          newData._rowCount = rows.length;
-          if (isDrillable) {
-            newData._hierarchy = fullHierarchy.map((dn) => {
-              const def = (effectiveModel.dimensions || []).find((x) => x.name === dn);
-              return { name: dn, label: def?.label || def?.name || dn };
-            });
-            newData._drillPath = drillPath;
-            newData._drillDepth = drillPath.length;
-            newData._isDrillLeaf = drillPath.length >= fullHierarchy.length - 1;
-          }
-          newData._colorValue = _colorValue;
-          newData._sql = sql;
-          // Server-side Top N: extract the grand total so the widget can
-          // derive Others = total − Σ(top N) without further client work.
-          if (topNApplies && totalRes) {
-            const tRow = totalRes.data?.rows?.[0];
-            if (tRow) {
-              const v = Object.values(tRow)[0];
-              const num = typeof v === 'number' ? v : parseFloat(v);
-              if (!isNaN(num)) newData._othersTotal = num;
-            }
-          }
-          // Stamp the binding cache key so DataPanel doesn't refetch on the
-          // next widget selection — the data is already fresh for this
-          // binding. Use the per-widget targetFilters so the key matches
-          // the no-op skip check in `toFetch`.
-          newData._fetchedBinding = computeBindingKey({ widget: w, model, reportFilters: targetFilters, settings, cacheBuiltAt: report?.cache_built_at });
-          return { wId, data: newData };
+          const data = buildWidgetData({
+            widget: w, rows, meta, effectiveModel,
+            colorRes, totalRes, n1Res, comboLineRes,
+            sql, bindingKey,
+            // Keep every selected dim in `_rowDims` even when the same dim
+            // is pinned as a column too — matches Viewer's behaviour. The
+            // historical Editor filter (`dims.filter(d => !colDimsB...)`)
+            // emptied the row list in that case, which made rows disappear
+            // after a cache rebuild's refetch (saved widget data with the
+            // old shape was overwritten with `_rowDims=[]`). User confirmed
+            // the "rows visible on both axes" output is the desired one.
+            pivotFilterRowDims: false,
+          });
+          return { wId, data };
         }).catch((err) => {
           if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return { wId, data: null };
           const msg = err?.response?.data?.error || err?.message || 'Query failed';
