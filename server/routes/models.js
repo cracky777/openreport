@@ -1630,44 +1630,50 @@ router.post('/:id/query', async (req, res) => {
     }
   }
 
-  // Fill in override-mode filtered measure placeholders. Each becomes a
-  // scalar subquery that re-runs the same FROM/JOIN graph, drops the
-  // visual's WHERE clauses on the override fields, and applies the
-  // measure's own filterRules. This runs AFTER fromClause/whereParts are
-  // finalised so the subquery has the same join graph as the outer query.
-  for (const info of overrideMeasureInfos) {
-    const { m, index, label, inlinedExpression } = info;
+  // Build the inner aggregation subquery for an override-mode filtered
+  // measure. Used by both patch-up loops below (the top-level
+  // `overrideMeasureInfos` loop and the `__OVERRIDE_REF_<i>__` placeholder
+  // resolver). Both used to inline the same ~25 lines of identical logic,
+  // with one subtle drift: the placeholder resolver was MISSING the
+  // EXTRACT(EPOCH FROM …) wrap for interval-typed measures, so a duration
+  // measure referenced via `${...}` inside a custom expression would emit
+  // an INTERVAL value while the same measure at top-level emitted seconds.
+  // Now that both call sites share one helper, the interval wrap applies
+  // in both paths.
+  //
+  // Returns the raw `SELECT ... FROM ... [WHERE ...]` string; the caller
+  // wraps it in `(...)` (+ either an `AS <label>` or a placeholder substring
+  // splice). `inlinedExpr` lets the caller pre-feed the nested-`${}`-expanded
+  // form (the overrideMeasureInfos path pre-computes this during the main
+  // SELECT loop and stashes it on the info object; the override-ref path
+  // calls inlineMeasureRefs on demand).
+  const buildOverrideSubquery = (measure, inlinedExpr) => {
     const overrideFields = new Set(
-      (m.filterRules || []).map((r) => r && r.field).filter(Boolean)
+      (measure.filterRules || []).map((r) => r && r.field).filter(Boolean)
     );
     // Keep all WHERE clauses NOT tied to an override field. Untagged
     // clauses (RLS) are always kept so security is preserved.
     const keptWhere = whereParts
       .filter((w) => !w.field || !overrideFields.has(w.field))
       .map((w) => w.sql);
-    const ruleClauses = (m.filterRules || []).map(buildRuleClause).filter(Boolean);
+    const ruleClauses = (measure.filterRules || []).map(buildRuleClause).filter(Boolean);
     const innerWhere = [...keptWhere, ...ruleClauses];
-    // Build the inner aggregation expression — same shape as the regular
-    // measure path so INTERVAL / numeric overrides / custom expressions
-    // behave identically. Custom expressions are used verbatim (with the
-    // same NUMERIC-cast trick as the regular custom path) since the
-    // subquery's own WHERE applies the filter context.
     let innerAgg;
-    if (m.aggregation === 'custom' && m.expression) {
-      // Tables already registered in the selectedMeasures loop above.
-      // `inlinedExpression` was computed there too — `${measure}` refs
-      // already expanded.
-      innerAgg = applyNumericCast(inlinedExpression || m.expression);
-    } else if (m.aggregation === 'count' || (m.column === '*' && !m.table)) {
+    if (measure.aggregation === 'custom' && measure.expression) {
+      innerAgg = applyNumericCast(inlinedExpr || measure.expression);
+    } else if (measure.aggregation === 'count' || (measure.column === '*' && !measure.table)) {
       innerAgg = 'COUNT(*)';
-    } else if (m.table && m.column) {
-      const rawCol = quoteCol(m.table, m.column, dbType);
-      const ovType = getOverrideType(m.table, m.column, columnTypes);
+    } else if (measure.table && measure.column) {
+      const rawCol = quoteCol(measure.table, measure.column, dbType);
+      const ovType = getOverrideType(measure.table, measure.column, columnTypes);
       const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
         ? castToNumber(rawCol, dbType, ovType)
         : rawCol;
-      innerAgg = `${normalizeAggregation(m.aggregation).toUpperCase()}(${colExpr})`;
-      const isInterval = String(m.dataType || '').toLowerCase() === 'interval'
+      innerAgg = `${normalizeAggregation(measure.aggregation).toUpperCase()}(${colExpr})`;
+      // Interval → seconds on the dialects that expose EXTRACT(EPOCH) on
+      // intervals (PG / Azure PG / DuckDB). MSSQL / MySQL / BigQuery don't
+      // and the response post-processor flattens the interval blob there.
+      const isInterval = String(measure.dataType || '').toLowerCase() === 'interval'
         || ovType === 'interval';
       const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
       if (isInterval && supportsExtractEpoch) {
@@ -1680,6 +1686,17 @@ router.post('/:id/query', async (req, res) => {
     if (innerWhere.length > 0) {
       subSql += ` WHERE ${innerWhere.join(' AND ')}`;
     }
+    return subSql;
+  };
+
+  // Fill in override-mode filtered measure placeholders. Each becomes a
+  // scalar subquery that re-runs the same FROM/JOIN graph, drops the
+  // visual's WHERE clauses on the override fields, and applies the
+  // measure's own filterRules. This runs AFTER fromClause/whereParts are
+  // finalised so the subquery has the same join graph as the outer query.
+  for (const info of overrideMeasureInfos) {
+    const { m, index, label, inlinedExpression } = info;
+    const subSql = buildOverrideSubquery(m, inlinedExpression);
     selectParts[index] = `(${subSql}) AS ${quoteIdent(label, dbType)}`;
   }
 
@@ -1693,33 +1710,8 @@ router.post('/:id/query', async (req, res) => {
   if (overrideRefInfos.length > 0) {
     for (let i = 0; i < overrideRefInfos.length; i++) {
       const { target } = overrideRefInfos[i];
-      const overrideFields = new Set(
-        (target.filterRules || []).map((r) => r && r.field).filter(Boolean)
-      );
-      const keptWhere = whereParts
-        .filter((w) => !w.field || !overrideFields.has(w.field))
-        .map((w) => w.sql);
-      const ruleClauses = (target.filterRules || []).map(buildRuleClause).filter(Boolean);
-      const innerWhere = [...keptWhere, ...ruleClauses];
-      let innerAgg;
-      if (target.aggregation === 'custom' && target.expression) {
-        // Custom-expression target: inline any nested ${...} refs and use
-        // verbatim. The subquery's own WHERE applies the filter context.
-        innerAgg = applyNumericCast(inlineMeasureRefs(target.expression));
-      } else if (target.aggregation === 'count' || (target.column === '*' && !target.table)) {
-        innerAgg = 'COUNT(*)';
-      } else if (target.table && target.column) {
-        const rawCol = quoteCol(target.table, target.column, dbType);
-        const ovType = getOverrideType(target.table, target.column, columnTypes);
-        const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
-          ? castToNumber(rawCol, dbType, ovType)
-          : rawCol;
-        innerAgg = `${normalizeAggregation(target.aggregation).toUpperCase()}(${colExpr})`;
-      } else {
-        innerAgg = 'NULL';
-      }
-      let subSql = `SELECT ${innerAgg} FROM ${fromClause}`;
-      if (innerWhere.length > 0) subSql += ` WHERE ${innerWhere.join(' AND ')}`;
+      const inlinedExpr = target.expression ? inlineMeasureRefs(target.expression) : null;
+      const subSql = buildOverrideSubquery(target, inlinedExpr);
       const placeholder = `__OVERRIDE_REF_${i}__`;
       const replacement = `(${subSql})`;
       for (let j = 0; j < selectParts.length; j++) {
