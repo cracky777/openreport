@@ -724,6 +724,22 @@ export default function Viewer() {
           newData._lineMeasureLabel = clm.map((mn) => gl(mn, effectiveModel.measures || [])).join(', ');
         } else if (w.type === 'table') {
           newData = { columns: keys, rows: rows.map((r) => Object.values(r).map((v) => v != null ? String(v) : '')) };
+        } else if (w.type === 'customVisual') {
+          // Normalised tabular form for custom visuals — `rows` are kept as-is
+          // (server-side already keys them by display label) and `fields`
+          // describes the role of each column so the iframe-rendered visual
+          // can interpret them. Mirrors Editor:1526-1538. Without this, the
+          // Viewer fell through to the catch-all bar/line shape and the
+          // custom visual rendered with no field metadata at all.
+          const dimsMeta = dims.map((name) => {
+            const d = (effectiveModel.dimensions || []).find((x) => x.name === name);
+            return { name: d?.label || d?.name || name, role: 'category', sourceName: name };
+          });
+          const measMeta = meass.map((name) => {
+            const m = (effectiveModel.measures || []).find((x) => x.name === name);
+            return { name: m?.label || m?.name || name, role: 'value', format: m?.format, sourceName: name };
+          });
+          newData = { rows, fields: { dimensions: dimsMeta, measures: measMeta } };
         } else if (w.type === 'pie' || w.type === 'treemap') {
           newData = { items: rows.map((r) => ({ name: String(r[keys[0]]), value: Number(r[keys[keys.length - 1]]) || 0 })) };
         } else if (w.type === 'scorecard' || w.type === 'gauge') {
