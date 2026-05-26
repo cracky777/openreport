@@ -853,6 +853,92 @@ export default function Editor() {
     if (st.trickle) clearInterval(st.trickle);
   }, []);
 
+  // On mount, check whether the server is already rebuilding this report's
+  // cache (user clicked rebuild then F5'd / navigated away and back). If
+  // yes, reactivate the loader + the polling+trickle pair so the bar keeps
+  // moving instead of disappearing on reload. When the server flips the
+  // report out of its building set, teardown + trigger a refetch so the
+  // widgets pick up the just-built rollups.
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    let localTimer = null;
+
+    const startTrickle = () => {
+      const st = cacheWarmCtlRef.current;
+      if (st.trickle) return;
+      st.trickle = setInterval(() => {
+        const { done, total } = cacheWarmProgressRef.current;
+        let floor, ceil;
+        if (total > 0) {
+          floor = Math.min(100, (done / total) * 100);
+          ceil = Math.min(100, ((done + 1) / total) * 100);
+        } else { floor = 0; ceil = 12; }
+        let v = cacheWarmPctRef.current;
+        if (v < floor) v = floor;
+        const cap = floor + (ceil - floor) * 0.9;
+        if (v < cap) v += Math.max(0.5, (cap - v) * 0.12);
+        if (v > cap) v = cap;
+        if (v > 100) v = 100;
+        if (v !== cacheWarmPctRef.current) { cacheWarmPctRef.current = v; setCacheWarmPct(v); }
+      }, 450);
+    };
+
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        const res = await api.get('/cache-schedules/warming');
+        if (cancelled) return;
+        const inProgress = Array.isArray(res.data?.reportIds) && res.data.reportIds.includes(id);
+        const p = res.data?.progress?.[id];
+        if (p && typeof p.total === 'number') {
+          cacheWarmProgressRef.current = { done: p.done || 0, total: p.total || 0 };
+        }
+        const st = cacheWarmCtlRef.current;
+        if (inProgress) {
+          // First detection (or post-F5) — show loader + start trickle.
+          // `st.pending` is the marker that handleRebuildCache is already
+          // managing its own lifecycle; defer to that case to avoid
+          // racing the teardown.
+          if (!st.active && !st.pending) {
+            st.active = true; st.cancelled = false;
+            cacheWarmPctRef.current = 0;
+            setCacheWarmPct(0);
+            setCacheWarming(true);
+            startTrickle();
+          }
+          localTimer = setTimeout(poll, 2000);
+        } else if (st.active && !st.pending) {
+          // We were showing the loader for an in-flight rebuild we did
+          // NOT trigger from this tab (no awaited POST) → rebuild just
+          // finished server-side. Teardown + refetch so widgets pick up
+          // the just-built rollups.
+          st.active = false; st.cancelled = true;
+          if (st.timer) clearTimeout(st.timer);
+          if (st.trickle) { clearInterval(st.trickle); st.trickle = null; }
+          setCacheWarming(false);
+          setCacheWarmPct(0);
+          cacheWarmPctRef.current = 0;
+          const slicers = history.state.widgets || {};
+          for (const [wId, w] of Object.entries(slicers)) {
+            if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0]) {
+              refreshSlicerRef.current?.(wId);
+            }
+          }
+          setRefreshCounter((n) => n + 1);
+        }
+        // else: idle and we weren't showing loader → stop polling.
+      } catch { /* logged out / transient — let the next mount or rebuild action try again */ }
+    };
+
+    poll();
+
+    return () => {
+      cancelled = true;
+      if (localTimer) clearTimeout(localTimer);
+    };
+  }, [id, history]);
+
   // NOTE: slicer re-narrowing on global-filter / cross-filter / refresh is
   // now done INSIDE the main fetch effect (search for "Slicers are skipped
   // by the chart fetch below"). That effect is the same proven trigger the

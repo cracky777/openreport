@@ -360,23 +360,39 @@ async function tryServeFromRollup(opts) {
     groups.push({ rollup, outputs: outs, atoms: man.atoms, allowed });
   }
 
-  // WHERE — runtime filters ONLY (the global bar is already baked). Built
-  // PER FACT: a filter dim not conformed to a fact (not in its `allowed`
-  // set) is a NO-OP for that fact's subquery — the dim isn't even a
-  // column in that rollup, and applying it would be wrong (no join).
-  // This is what lets an unrelated slicer leave a visual cache-served
-  // and unfiltered instead of MISS→live.
+  // WHERE — runtime filters ONLY (the global bar is already baked).
+  //
+  // The `filters` object carries the merged slicer + cross-highlight
+  // selections from the Editor (the cross-highlight is folded into
+  // reportFilters in Editor.jsx so the cross-filter dim arrives here
+  // alongside slicer dims). The `runtimePart` array carries the rest of
+  // the widget filters (drill, widget-own filters, the un-baked portion
+  // of widgetFilters).
+  //
+  // For BOTH paths: a filter dim that isn't in this rollup's grain
+  // (= not a column in the rollup table) can't be applied as SQL WHERE.
+  // The previous behaviour was a silent drop — serving UNFILTERED data
+  // from the rollup. Wrong for a cross-filter click (user clicked
+  // "Wednesday" on a Day Name TreeMap → expects the rest of the
+  // dashboard to filter by Wednesday): the live-SQL path would apply
+  // the filter via the join graph and return correctly filtered numbers.
+  // So when a filter targets a dim not in the rollup grain, MISS →
+  // live SQL handles it.
   const whereSqlFor = (allowed) => {
     const parts = [];
     for (const [dn, vals] of Object.entries(filters || {})) {
       if (!Array.isArray(vals) || vals.length === 0) continue;
-      if (!allowed.has(dn)) continue;
+      if (!allowed.has(dn)) {
+        return { error: `filter-not-in-grain:${dn}` };
+      }
       const d = allDimensions.find((x) => x.name === dn);
       const dimType = d ? d.type : 'string';
       parts.push(`${qIdent(dn)} IN (${vals.map((v) => litFor(dimType, v)).join(', ')})`);
     }
     for (const f of runtimePart) {
-      if (!allowed.has(f.field)) continue;
+      if (!allowed.has(f.field)) {
+        return { error: `runtime-filter-not-in-grain:${f.field}` };
+      }
       const d = allDimensions.find((x) => x.name === f.field);
       const dimType = d ? d.type : 'string';
       const clause = scalarClause(f.field, dimType, f.op, f.value, f.values);
@@ -620,21 +636,26 @@ async function tryServeSlicerDistinct(opts) {
   }
   if (!best) return { hit: false, reason: `no-rollup-with-dim:${dimensionName}` };
 
-  // WHERE — runtime filter dims that ALSO sit in the rollup's grain
-  // (otherwise their column doesn't exist in the table). Filters
-  // outside the grain are dropped as a no-op, mirroring the main
-  // planner's "unrelated slicer doesn't force a MISS" rule.
+  // WHERE — filter dims that ALSO sit in the rollup's grain (otherwise
+  // their column doesn't exist in the table). Same MISS-on-not-in-grain
+  // rule as the main planner: a cross-filter click on a dim that this
+  // rollup doesn't carry must fall back to live SQL via the join graph
+  // rather than serving unfiltered values.
   const grainSet = new Set(best.grain);
   const whereParts = [];
   for (const [dn, vals] of Object.entries(filters || {})) {
     if (!Array.isArray(vals) || vals.length === 0) continue;
-    if (!grainSet.has(dn)) continue;
+    if (!grainSet.has(dn)) {
+      return { hit: false, reason: `filter-not-in-grain:${dn}` };
+    }
     const d = allDimensions.find((x) => x.name === dn);
     const dimType = d ? d.type : 'string';
     whereParts.push(`${qIdent(dn)} IN (${vals.map((v) => litFor(dimType, v)).join(', ')})`);
   }
   for (const f of runtimePart) {
-    if (!grainSet.has(f.field)) continue;
+    if (!grainSet.has(f.field)) {
+      return { hit: false, reason: `runtime-filter-not-in-grain:${f.field}` };
+    }
     const d = allDimensions.find((x) => x.name === f.field);
     const dimType = d ? d.type : 'string';
     const clause = scalarClause(f.field, dimType, f.op, f.value, f.values);

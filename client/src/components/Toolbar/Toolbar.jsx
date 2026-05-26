@@ -33,6 +33,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
   const [hoverKey, setHoverKey] = useState(null);
   const hoverTimerRef = useRef(null);
   const [previewPrompt, setPreviewPrompt] = useState(false);
+  const [rebuildPrompt, setRebuildPrompt] = useState(false);
   const [uploadStatus, setUploadStatus] = useState(null); // {type: 'error'|'success', msg}
   const fileInputRef = useRef(null);
   const customVisualsApi = useCustomVisuals(workspaceId);
@@ -554,7 +555,17 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                     <TbRefresh size={14} color="var(--text-secondary)" style={{ marginRight: 6, flexShrink: 0 }} />Live query
                   </button>
                   <button style={{ ...dropdownItem, display: 'flex', alignItems: 'center' }}
-                    onClick={() => { setOpenMenu(null); onRebuildCache(); }}
+                    onClick={() => {
+                      setOpenMenu(null);
+                      // The server-side rebuild reads the report's widget
+                      // list from the DB to enumerate which grains to bake.
+                      // If the user just added a widget (new grain) but
+                      // hasn't saved yet, the rebuild misses that grain —
+                      // queries against it then fall through the planner
+                      // and look broken. Force a save first when dirty.
+                      if (isReportDirty?.()) setRebuildPrompt(true);
+                      else onRebuildCache();
+                    }}
                     onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
                     <TbRefresh size={14} color="var(--text-secondary)" style={{ marginRight: 6, flexShrink: 0 }} />Cache
@@ -718,6 +729,48 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                 }}
               >
                 Save and preview
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Unsaved-changes prompt before rebuilding the cache. The rebuild
+          reads the widget list from the saved DB state to enumerate grains
+          — unsaved widgets would be invisible to the plan and their later
+          queries would silently miss the rollup planner. */}
+      {rebuildPrompt && (
+        <>
+          <div onClick={() => setRebuildPrompt(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)', zIndex: 1000 }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            background: 'var(--bg-panel)', borderRadius: 10, padding: 20, minWidth: 320, maxWidth: 420,
+            boxShadow: '0 10px 30px rgba(15,23,42,0.25)', zIndex: 1001,
+          }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
+              You have unsaved changes
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setRebuildPrompt(false)}
+                style={{ padding: '6px 14px', fontSize: 13, background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setRebuildPrompt(false);
+                  await onSave?.();
+                  onRebuildCache?.();
+                }}
+                style={{
+                  padding: '6px 14px', fontSize: 13, fontWeight: 600,
+                  background: 'var(--accent-primary)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer',
+                  boxShadow: '0 1px 3px rgba(124,58,237,0.2)',
+                }}
+              >
+                Save and rebuild
               </button>
             </div>
           </div>
