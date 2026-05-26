@@ -741,8 +741,15 @@ export default function Editor() {
 
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  // Last triggered refresh type — drives the in-widget spinner colour so
+  // the user sees at a glance whether the load they're watching came from
+  // a live-source refetch (violet) or a post-cache-rebuild planner refetch
+  // (cyan). Sticky across the fetch cycle because cacheWarming/refreshing
+  // can flip off before every widget has finished its query.
+  const [refreshKind, setRefreshKind] = useState(null); // 'live' | 'cache' | null
   const handleRefresh = useCallback(() => {
     setRefreshing((r) => r ? r : true);
+    setRefreshKind('live');
     refreshIsManualRef.current = true;
     setRefreshCounter((n) => n + 1);
     // Slicers are refreshed by the main fetch effect (it bumps on
@@ -841,7 +848,9 @@ export default function Editor() {
         }
       }
       // Normal refetch (NOT a manual/live refresh) → rollup planner serves
-      // the just-built rollups for the chart widgets.
+      // the just-built rollups for the chart widgets. Tag this refresh as
+      // 'cache' so the per-widget spinners colour-code the load.
+      setRefreshKind('cache');
       setRefreshCounter((n) => n + 1);
     }
   }, [id, history]);
@@ -925,6 +934,7 @@ export default function Editor() {
               refreshSlicerRef.current?.(wId);
             }
           }
+          setRefreshKind('cache');
           setRefreshCounter((n) => n + 1);
         }
         // else: idle and we weren't showing loader → stop polling.
@@ -963,6 +973,7 @@ export default function Editor() {
     // queries (incl. the combo line-aux query) wouldn't re-fire.
     widgetRefreshIdRef.current = wId;
     refreshIsManualRef.current = true;
+    setRefreshKind('live');
     setRefreshCounter((n) => n + 1);
   }, []);
 
@@ -1128,11 +1139,19 @@ export default function Editor() {
 
     if (toFetch.length === 0) return;
 
-    // Mark all target widgets as loading (silent — not an undoable action)
+    // Mark all target widgets as loading (silent — not an undoable action).
+    // `_loadingKind` records WHY this fetch was triggered so the spinner
+    // can colour the rotating arc accordingly: 'live' when the user asked
+    // for a fresh bypassCache=true fetch (live source query), 'cache'
+    // otherwise (planner / queryCache path). Set per-widget rather than
+    // off the global `refreshKind` state so cross-filter / drill / binding
+    // edits that happen AFTER a cache rebuild don't keep painting cyan —
+    // they are normal-path fetches and should read as 'cache'.
+    const loadingKindForThisFetch = manualRefresh ? 'live' : 'cache';
     history.setSilent((prev) => {
       const next = { ...prev, widgets: { ...prev.widgets } };
       toFetch.forEach(([wId]) => {
-        if (next.widgets[wId]) next.widgets[wId] = { ...next.widgets[wId], _loading: true };
+        if (next.widgets[wId]) next.widgets[wId] = { ...next.widgets[wId], _loading: true, _loadingKind: loadingKindForThisFetch };
       });
       return next;
     });
@@ -2554,6 +2573,7 @@ export default function Editor() {
               onToggleCrossFilter={handleToggleCrossFilter}
               onCancelFetch={handleCancelFetch}
               onRefreshWidget={handleRefreshWidget}
+              refreshKind={refreshKind}
               onMergeWith={handleMergeWith}
               onUnmerge={handleUnmergeSelected}
               onToggleSeparator={handleToggleMergeSeparator}

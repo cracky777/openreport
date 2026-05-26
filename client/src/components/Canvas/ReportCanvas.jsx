@@ -23,7 +23,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, refreshKind, mergeCorners }) {
   const nodeRef = useRef(null);
   const [showSql, setShowSql] = useState(false);
   const WidgetType = WIDGET_TYPES[widget.type];
@@ -71,10 +71,12 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
     borderBottomRightRadius: mc ? _r(mc.br) : _baseRadius,
     borderBottomLeftRadius: mc ? _r(mc.bl) : _baseRadius,
     border: isSelected
-      ? '2px solid var(--accent-primary)'
+      ? '1px solid var(--accent-primary)'
       : (_hasBorder ? `1px solid ${_borderColor}` : 'none'),
     boxShadow: [
-      isSelected ? '0 0 0 3px rgba(124,58,237,0.15)' : null,
+      // Light "selected" halo — a single faded violet ring instead of the
+      // earlier 3px solid-violet glow which felt too heavy on the canvas.
+      isSelected ? '0 0 0 1px rgba(124,58,237,0.18)' : null,
       buildShadowCSS(widget.config?.shadow),
       !isSelected && !widget.config?.shadow?.enabled && _hasBorder ? '0 1px 3px rgba(0,0,0,0.05)' : null,
     ].filter(Boolean).join(', ') || 'none',
@@ -164,27 +166,42 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           />
         </div>
 
-        {/* Loading spinner + Cancel button. The cancel aborts the in-flight
-            fetch so the user isn't stuck with a permanent spinner on a slow
-            query. */}
+        {/* Loading spinner doubles as a Cancel button. The rotating ring
+            colour reflects the kind of fetch that's actually in flight
+            (cyan = planner / cache path, violet = live source query),
+            read off `widget._loadingKind` which is stamped at fetch
+            kick-off so it stays accurate per-cycle (a cross-filter
+            after a cache rebuild reads 'cache' here, NOT 'live').
+            An X icon (red) sits permanently centred on the spinner so
+            the cancel affordance is visible without requiring a hover —
+            click anywhere on the spinning circle to abort the in-flight
+            SQL. Placed at top-left so it doesn't fight with the SQL /
+            Refresh buttons that live in the top-right of selected widgets. */}
         {widget._loading && (
-          <div style={{ position: 'absolute', top: 6, right: 38, zIndex: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
-            <div style={spinnerStyle} />
-            {!readOnly && onCancelFetch && (
+          <div style={{ position: 'absolute', top: 6, left: 6, zIndex: 11 }}>
+            {!readOnly && onCancelFetch ? (
               <button
                 onClick={(e) => { e.stopPropagation(); onCancelFetch(); }}
                 title="Cancel query"
                 style={{
+                  position: 'relative', width: 18, height: 18, padding: 0,
+                  border: 'none', background: 'transparent', cursor: 'pointer',
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  height: 22, padding: '0 8px', borderRadius: 11,
-                  fontSize: 11, fontWeight: 500,
-                  background: 'var(--bg-panel)', color: 'var(--state-danger)',
-                  border: '1px solid var(--state-danger)', cursor: 'pointer',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                 }}
               >
-                Cancel
+                <span style={{
+                  ...spinnerStyle,
+                  borderTopColor: widget._loadingKind === 'live' ? 'var(--accent-primary)' : 'var(--accent-cyan)',
+                }} />
+                <TbX size={12} style={{
+                  position: 'absolute', color: 'var(--state-danger)',
+                }} />
               </button>
+            ) : (
+              <div style={{
+                ...spinnerStyle,
+                borderTopColor: widget._loadingKind === 'live' ? 'var(--accent-primary)' : 'var(--accent-cyan)',
+              }} />
             )}
           </div>
         )}
@@ -380,6 +397,12 @@ export default function ReportCanvas({
   interactionsRule,
   onCancelFetch,
   onRefreshWidget,
+  // Last triggered refresh type — colours each loading widget's spinner
+  // so the user can tell at a glance whether the load is a live-source
+  // refetch ('live' → violet) or a post-rebuild planner refetch ('cache'
+  // → cyan). Other fetch causes (cross-filter, drill, binding edit) keep
+  // the previous kind set by the user's last explicit refresh trigger.
+  refreshKind,
   // Merge the selected widget with a neighbour (called by the on-canvas
   // magnet affordance). No-op in read-only.
   onMergeWith,
@@ -649,6 +672,7 @@ export default function ReportCanvas({
               onToggleCrossFilter={onToggleCrossFilter}
               onCancelFetch={onCancelFetch}
               onRefreshWidget={onRefreshWidget}
+              refreshKind={refreshKind}
               mergeCorners={mergedGidById[item.i]
                 ? mergeCorners(item, mergeGroups[mergedGidById[item.i]] || [])
                 : null}
