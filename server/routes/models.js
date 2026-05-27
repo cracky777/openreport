@@ -3,7 +3,11 @@ const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const { createConnection } = require('../utils/dbConnector');
-const { resolveIntervalColumns } = require('../utils/columnTypeResolver');
+const {
+  resolveIntervalColumns,
+  extractColumnRefsFromExpression,
+  preWrapIntervalRefs,
+} = require('../utils/columnTypeResolver');
 const { canAccessReport } = require('./reports');
 const { getQueryTimeoutMs } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
@@ -740,14 +744,40 @@ router.post('/:id/query', async (req, res) => {
   // EXTRACT(EPOCH …) — no model re-save required. Only fills gaps; an
   // explicit user override always wins.
   try {
+    // Probe EVERY measure column regardless of existing columnTypes entries.
+    // The user-set override is a best-effort interpretation hint — but for
+    // an INTERVAL column the source type wins absolutely: Postgres refuses
+    // to CAST(interval AS NUMERIC), so a stale 'decimal' / 'number' override
+    // (e.g. set manually before the probe knew the column was interval)
+    // would crash every SUM/AVG on it. We force type='interval' for any
+    // column the catalog confirms is interval, overriding the user's choice.
     const intervalProbe = (allMeasures || [])
-      .filter((m) => m && m.table && m.column && m.column !== '*'
-        && !columnTypes[`${m.table}.${m.column}`])
+      .filter((m) => m && m.table && m.column && m.column !== '*')
       .map((m) => ({ table: m.table, column: m.column }));
+    // Also probe columns referenced INSIDE custom-expression measures —
+    // otherwise an interval column that appears only in a custom expression
+    // (no structured measure on it) wouldn't get its dataType resolved, and
+    // the preWrapIntervalRefs pass below couldn't know to wrap it.
+    const seenProbeKey = new Set(
+      intervalProbe.map((c) => `${c.table}.${c.column}`),
+    );
+    for (const m of allMeasures || []) {
+      if (m && m.aggregation === 'custom' && m.expression) {
+        for (const ref of extractColumnRefsFromExpression(m.expression)) {
+          const key = `${ref.table}.${ref.column}`;
+          if (!seenProbeKey.has(key)) {
+            seenProbeKey.add(key);
+            intervalProbe.push(ref);
+          }
+        }
+      }
+    }
     if (intervalProbe.length) {
       const intervalSet = await resolveIntervalColumns(datasource, intervalProbe);
       for (const key of intervalSet) {
-        if (!columnTypes[key]) columnTypes[key] = { type: 'interval' };
+        // Force type='interval' but preserve any other fields the user set
+        // on the entry (e.g. format hints).
+        columnTypes[key] = { ...(columnTypes[key] || {}), type: 'interval' };
       }
     }
   } catch (e) {
@@ -1257,12 +1287,16 @@ router.post('/:id/query', async (req, res) => {
         } catch (e) {
           return res.status(400).json({ error: e.message });
         }
+        // Detect tables BEFORE wrapping interval refs — the wrap inserts the
+        // exact same column ref inside EXTRACT(EPOCH FROM …) so includes()
+        // still matches, but routing pre-wrap is cleaner.
         const allFieldsForLookup = [...allDimensions, ...allMeasures.filter((x) => x.table)];
         for (const field of allFieldsForLookup) {
           if (inlinedExpression.includes(field.column) || inlinedExpression.includes(field.table)) {
             tablesUsed.add(field.table);
           }
         }
+        inlinedExpression = preWrapIntervalRefs(inlinedExpression, columnTypes, dbType);
       }
       overrideMeasureInfos.push({
         index: selectParts.length,
@@ -1290,6 +1324,9 @@ router.post('/:id/query', async (req, res) => {
           } catch (e) {
             return res.status(400).json({ error: e.message });
           }
+          // Pre-wrap interval-column refs so CAST AS NUMERIC inside the
+          // aggregate doesn't blow up on an interval-typed column.
+          inlined = preWrapIntervalRefs(inlined, columnTypes, dbType);
           // Wrap each top-level aggregate's argument in `CASE WHEN <rules>
           // THEN <arg> END`. Paren-aware so an inlined CASE WHEN containing
           // `IN (...)` doesn't break the matcher. Composes with the NUMERIC
@@ -1344,6 +1381,9 @@ router.post('/:id/query', async (req, res) => {
       } catch (e) {
         return res.status(400).json({ error: e.message });
       }
+      // Pre-wrap interval-column refs (EXTRACT EPOCH) so the NUMERIC cast
+      // below doesn't try CAST(interval AS NUMERIC) — illegal in PG.
+      inlined = preWrapIntervalRefs(inlined, columnTypes, dbType);
       // Custom SQL expression - force NUMERIC inside aggregates to avoid integer division truncation
       // SUM(col) becomes SUM((col)::NUMERIC) so division preserves decimals.
       // Paren-aware so a CASE WHEN ... IN (..) inside an aggregate doesn't
@@ -1656,7 +1696,12 @@ router.post('/:id/query', async (req, res) => {
     const innerWhere = [...keptWhere, ...ruleClauses];
     let innerAgg;
     if (measure.aggregation === 'custom' && measure.expression) {
-      innerAgg = applyNumericCast(inlinedExpr || measure.expression);
+      // Pre-wrap interval refs even on the fallback path (when inlinedExpr
+      // wasn't pre-computed) — applyNumericCast will fail on raw interval
+      // columns otherwise.
+      const exprForCast = inlinedExpr
+        || preWrapIntervalRefs(measure.expression, columnTypes, dbType);
+      innerAgg = applyNumericCast(exprForCast);
     } else if (measure.aggregation === 'count' || (measure.column === '*' && !measure.table)) {
       innerAgg = 'COUNT(*)';
     } else if (measure.table && measure.column) {
