@@ -221,12 +221,18 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
     const applyRange = (start, end) => {
       setDateFrom(start || '');
       setDateTo(end || '');
-      if (!start && !end) { setSelected([]); onFilterChange?.([]); return; }
+      // Wait for BOTH endpoints before propagating to other widgets — a
+      // partial range (only From or only To) would otherwise cross-filter
+      // the rest of the report on the half-bound side every time the user
+      // picks one date, well before they've finished defining the range.
+      // Clear the cross-filter while the range is incomplete so consumers
+      // see the full dataset until the user commits both dates.
+      if (!start || !end) { setSelected([]); onFilterChange?.([]); return; }
       const filtered = values.filter((v) => {
         const d = new Date(v);
         if (isNaN(d)) return false;
-        if (start && d < new Date(start)) return false;
-        if (end && d > new Date(end + 'T23:59:59')) return false;
+        if (d < new Date(start)) return false;
+        if (d > new Date(end + 'T23:59:59')) return false;
         return true;
       });
       setSelected(filtered);
@@ -267,8 +273,15 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
           }}>
             <MiniCalendar
               value={calendarTarget === 'from' ? startDate : endDate}
-              min={calendarTarget === 'to' && startDate ? startDate : toInputDate(minDate)}
-              max={calendarTarget === 'from' && endDate ? endDate : toInputDate(maxDate)}
+              // Only enforce From ≤ To. Previously the calendar was ALSO
+              // capped by the slicer's data min/max — but if the user picks
+              // a From beyond the data's max (or the data only spans a
+              // narrow window), the To calendar's max < min and every cell
+              // ends up disabled / un-clickable. The user has no way out.
+              // Drop the data-range cap; an out-of-range pick just filters
+              // to an empty result, which is the correct semantic.
+              min={calendarTarget === 'to' && startDate ? startDate : undefined}
+              max={calendarTarget === 'from' && endDate ? endDate : undefined}
               rangeStart={startDate} rangeEnd={endDate}
               onChange={(v) => {
                 if (calendarTarget === 'from') {

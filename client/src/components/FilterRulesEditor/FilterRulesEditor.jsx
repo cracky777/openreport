@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import DimensionMultiSelect from '../PropertyPanel/DimensionMultiSelect';
 
 const VALUELESS_OPS = new Set(['is_empty', 'is_not_empty']);
@@ -46,12 +47,26 @@ function opsForType(t, isMeasure) {
  */
 export default function FilterRulesEditor({ model, modelId, rules, onChange, styles }) {
   const wf = Array.isArray(rules) ? rules : [];
-  const updateRule = (idx, patch) => {
-    const next = [...wf];
-    next[idx] = { ...next[idx], ...patch };
+  // Ref mirror of the latest rules array. Lets updateRule read the CURRENT
+  // rule slot at call time rather than the snapshot the inline handler closed
+  // over at render. Matters for between-date inputs: picking From then To
+  // before the parent re-renders would otherwise have the second update
+  // clobber the first (each call computing its patch from the same stale wf).
+  const wfRef = useRef(wf);
+  wfRef.current = wf;
+  // updateRule accepts either an object patch or a function `(currentRule)
+  // => patch`. The function form is what the between-date inputs use so each
+  // input can compute its patch from the LATEST sibling slot value rather
+  // than a closure-captured one.
+  const updateRule = (idx, patchOrFn) => {
+    const arr = wfRef.current;
+    const next = [...arr];
+    const cur = next[idx] || {};
+    const patch = typeof patchOrFn === 'function' ? patchOrFn(cur) : patchOrFn;
+    next[idx] = { ...cur, ...patch };
     onChange(next);
   };
-  const removeRule = (idx) => onChange(wf.filter((_, i) => i !== idx));
+  const removeRule = (idx) => onChange(wfRef.current.filter((_, i) => i !== idx));
 
   const inputStyle = styles?.inputStyle || {
     width: '100%', padding: '8px 10px', border: '1px solid var(--border-default)',
@@ -114,7 +129,40 @@ export default function FilterRulesEditor({ model, modelId, rules, onChange, sty
                 onChange={(values) => updateRule(i, { values })}
               />
             )}
-            {isBetween && (
+            {isBetween && t === 'date' && (
+              // Native <input type="date"> ignores `placeholder` and has a
+              // ~150 px minimum usable width (the calendar icon needs room).
+              // Two side-by-side flex inputs in the narrow PropertyPanel get
+              // squeezed below that threshold → the calendar widget renders
+              // broken. Stack vertically with visible From / To labels.
+              //
+              // Each handler uses the FUNCTION form of updateRule so it reads
+              // the sibling slot from the LATEST committed rule (via wfRef)
+              // rather than a stale closure — picking From then To in quick
+              // succession otherwise risks the To onChange clobbering the
+              // From update because both handlers captured the same `f`.
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div>
+                  <div style={{ ...labelStyle, marginBottom: 2 }}>From</div>
+                  <input type="date" value={(f.values || [])[0] ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      updateRule(i, (cur) => ({ values: [v, (cur?.values || [])[1] ?? ''] }));
+                    }}
+                    style={{ ...inputStyle, marginBottom: 0 }} />
+                </div>
+                <div>
+                  <div style={{ ...labelStyle, marginBottom: 2 }}>To</div>
+                  <input type="date" value={(f.values || [])[1] ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      updateRule(i, (cur) => ({ values: [(cur?.values || [])[0] ?? '', v] }));
+                    }}
+                    style={{ ...inputStyle, marginBottom: 0 }} />
+                </div>
+              </div>
+            )}
+            {isBetween && t !== 'date' && (
               <div style={{ display: 'flex', gap: 4 }}>
                 <input type={inputType} value={(f.values || [])[0] ?? ''}
                   onChange={(e) => updateRule(i, { values: [e.target.value, (f.values || [])[1] ?? ''] })}
