@@ -34,8 +34,11 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
   const isAutoHeight = widget.type === 'table' && widget.config?.autoHeight;
   const h = isAutoHeight ? 'auto' : (item.h || 300);
   const titleHeight = widget.config?.title ? 30 : 0;
-  // Filter widgets use tighter padding (4px vs 8px) for a more compact look
-  const contentPadding = widget.type === 'filter' ? 2 : 8;
+  // Filter widgets use tighter padding (4px vs 8px) for a more compact look.
+  // Text widgets get zero so the configured alignment (left / centre / right
+  // and top / middle / bottom) actually reaches the widget's outer edges
+  // instead of being inset by an invisible 8 px frame.
+  const contentPadding = widget.type === 'filter' ? 2 : (widget.type === 'text' ? 0 : 8);
   const paddingTotal = contentPadding * 2;
   const contentWidth = Math.max(50, (typeof w === 'number' ? w : 400) - paddingTotal);
   const contentHeight = Math.max(50, (typeof h === 'number' ? h : 300) - titleHeight - paddingTotal);
@@ -50,11 +53,17 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
     const cc = widget.config?.colorCondition;
     const cond = cc?.enabled ? evaluateColorCondition(cc, widget.data?._colorValue) : null;
     if (cond) return cond;
-    return widget.config?.transparentBg
+    // Image widgets default to a transparent background (same fallback as
+    // filter / slicer widgets) so the uploaded image sits on the canvas
+    // without an opaque white panel framing it.
+    const defaultTransparent = widget.type === 'filter' || widget.type === 'image';
+    return (widget.config?.transparentBg ?? defaultTransparent)
       ? 'transparent'
-      : (buildGradientCSS(widget.config?.gradientBg) || widget.config?.backgroundColor || (widget.type === 'filter' ? 'transparent' : 'var(--bg-panel)'));
+      : (buildGradientCSS(widget.config?.gradientBg) || widget.config?.backgroundColor || 'var(--bg-panel)');
   })();
-  const _hasBorder = widget.config?.borderEnabled !== false;
+  // Border off by default for image widgets — let the picture be the picture;
+  // every other widget keeps "border on" as the default chrome.
+  const _hasBorder = widget.config?.borderEnabled ?? (widget.type !== 'image');
   const _borderColor = widget.config?.borderColor || 'var(--border-default)';
   const _baseRadius = (widget.type === 'shape' && widget.config?.shape === 'round')
     ? '50%' : (widget.config?.borderRadius ?? 8);
@@ -153,6 +162,11 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             columnOrder={widget.dataBinding?.columnOrder}
             onLoadMore={widget.type === 'table' ? () => onLoadMore?.(item.i) : undefined}
             onConfigUpdate={onWidgetUpdate ? (key, val) => onWidgetUpdate(item.i, { ...widget, config: { ...widget.config, [key]: val } }) : undefined}
+            // Parallel to onConfigUpdate but writes into widget.data — used
+            // by TextWidget's inline editor so the typed text round-trips
+            // into history (and so the same component renders read-only in
+            // the Viewer, which doesn't wire this prop).
+            onDataUpdate={onWidgetUpdate ? (key, val) => onWidgetUpdate(item.i, { ...widget, data: { ...widget.data, [key]: val } }) : undefined}
             onFilterChange={widget.type === 'filter' && onSlicerFilter ? (vals) => {
               const dimName = widget.dataBinding?.selectedDimensions?.[0];
               if (dimName) onSlicerFilter(item.i, dimName, vals);

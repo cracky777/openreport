@@ -83,7 +83,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
     );
   }
 
-  const hasWidget = widgetId && widget && widget.type !== 'text';
+  // Widgets without any data binding hide all the binding-related sections
+  // (field wells, measures, filterRules editor, etc.). The data-panel header
+  // still renders so the user can navigate to the underlying model.
+  const hasWidget = widgetId && widget && !['text', 'image', 'shape'].includes(widget.type);
   const binding = hasWidget ? (widget.dataBinding || {}) : {};
   const selectedDims = binding.selectedDimensions || [];
   const groupBy = binding.groupBy || [];

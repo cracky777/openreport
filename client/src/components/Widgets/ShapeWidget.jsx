@@ -13,12 +13,21 @@ export default function ShapeWidget({ config, data }) {
 
   if (shape === 'line') {
     const thickness = config?.lineThickness ?? 2;
+    const rotation = config?.lineRotation ?? 0;
     return (
-      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center' }}>
+      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'visible' }}>
         <div style={{
           width: '100%',
           height: thickness,
           backgroundColor: conditionalColor || config?.lineColor || '#6d28d9',
+          // Rotate around the line's own centre. The outer flex centres the
+          // line first so a 45° / 90° rotation keeps it visually inside the
+          // widget's bounding box; the box itself doesn't grow with the
+          // rotated line, so a near-vertical line in a wide-but-shallow
+          // shape may visually extend beyond the box — give the shape a
+          // taller bounding rectangle (resize on the canvas) if needed.
+          transform: rotation ? `rotate(${rotation}deg)` : undefined,
+          transformOrigin: 'center center',
         }} />
       </div>
     );

@@ -6,7 +6,7 @@ import TablePropertySections from './TablePropertySections';
 import DimensionMultiSelect from './DimensionMultiSelect';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
 import FontPicker from '../FontPicker/FontPicker';
-import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase, TbPencil } from 'react-icons/tb';
+import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase, TbPencil, TbAlignLeft, TbAlignCenter, TbAlignRight, TbLayoutAlignTop, TbLayoutAlignMiddle, TbLayoutAlignBottom } from 'react-icons/tb';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
 import { parseIntOrNull, parseFloatOrNull } from '../../utils/input';
 import api from '../../utils/api';
@@ -576,6 +576,65 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
         );
       })()}
 
+      {/* Image widget — section pinned to the top because the URL / upload
+          is the primary action for this widget type. No field wells / no
+          Filters apply: an image has no data binding. */}
+      {widget.type === 'image' && (
+        <Section title="Image" sectionState={sections}>
+          <Field label="URL">
+            <input type="text" value={widget.config?.url || ''} placeholder="https://…"
+              onChange={(e) => updateConfig('url', e.target.value)}
+              style={{ ...inputStyle, marginBottom: 0 }} />
+          </Field>
+          {/* Upload button — OSS only. Cloud builds set
+              VITE_OPENREPORT_CLOUD=1 at build time; Vite then strips this
+              block as dead code. Users on the cloud edition must paste a
+              web URL above (their own CDN, S3, image host, etc.). */}
+          {!import.meta.env.VITE_OPENREPORT_CLOUD && (
+            <Field label="Upload">
+              <input type="file" accept="image/*"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const form = new FormData();
+                  form.append('image', file);
+                  try {
+                    const res = await api.post('/images', form, {
+                      headers: { 'Content-Type': 'multipart/form-data' },
+                    });
+                    if (res.data?.url) updateConfig('url', res.data.url);
+                  } catch (err) {
+                    alert(err.response?.data?.error || 'Upload failed');
+                  } finally {
+                    e.target.value = '';
+                  }
+                }}
+                style={{ ...inputStyle, marginBottom: 0, padding: 2 }} />
+            </Field>
+          )}
+          <Field label="Fit">
+            <select value={widget.config?.fit || 'contain'}
+              onChange={(e) => updateConfig('fit', e.target.value)}
+              style={{ ...inputStyle, marginBottom: 0 }}>
+              <option value="contain">Contain (no crop)</option>
+              <option value="cover">Cover (crop to fill)</option>
+              <option value="fill">Fill (stretch)</option>
+              <option value="none">None (original size)</option>
+            </select>
+          </Field>
+          <Field label="Alt text">
+            <input type="text" value={widget.config?.alt || ''} placeholder="Image description"
+              onChange={(e) => updateConfig('alt', e.target.value)}
+              style={{ ...inputStyle, marginBottom: 0 }} />
+          </Field>
+          <Field label="Border radius">
+            <input type="number" min={0} max={64} value={widget.config?.borderRadius ?? ''} placeholder="0"
+              onChange={(e) => updateConfig('borderRadius', parseIntOrNull(e.target.value))}
+              style={{ ...inputStyle, width: 60 }} />
+          </Field>
+        </Section>
+      )}
+
       {/* Field wells - drag & drop zones.
           Frame-merge controls moved onto the canvas (magnet for merge,
           broken-magnet + separator toggle at the seam mid-point). */}
@@ -753,7 +812,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       })()}
 
       {/* ── Per-widget filters (in/not in/comparisons/between/top-N) ── */}
-      {widget.type !== 'filter' && widget.type !== 'text' && widget.type !== 'shape' && (() => {
+      {widget.type !== 'filter' && widget.type !== 'text' && widget.type !== 'shape' && widget.type !== 'image' && (() => {
         const wf = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
         const setWF = (next) => updateBinding({ widgetFilters: next });
         const addFilter = (fieldName, isMeasure) => {
@@ -790,7 +849,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
         </Field>
       </Section>
 
-      {widget.type !== 'text' && widget.type !== 'shape' && (
+      {widget.type !== 'text' && widget.type !== 'shape' && widget.type !== 'image' && (
         <Section title="Data" sectionState={sections}>
           {widget.type === 'scorecard' && (
             <>
@@ -879,11 +938,15 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
 
       {/* ── Container ── */}
       <Section title="Container" sectionState={sections}>
+        {/* Image widgets default to no border + transparent bg so an
+            uploaded image sits directly on the canvas without the panel
+            chrome around it; every other widget keeps the default of
+            "1 px border, opaque bg" so the visual stands out. */}
         <Field label="Show border">
-          <input type="checkbox" checked={widget.config?.borderEnabled ?? true}
+          <input type="checkbox" checked={widget.config?.borderEnabled ?? (widget.type !== 'image')}
             onChange={(e) => updateConfig('borderEnabled', e.target.checked)} />
         </Field>
-        {(widget.config?.borderEnabled ?? true) && (
+        {(widget.config?.borderEnabled ?? (widget.type !== 'image')) && (
           <>
             <Field label="Border color">
               <ColorInput value={widget.config?.borderColor || '#e2e8f0'}
@@ -896,10 +959,10 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             onChange={(e) => updateConfig('borderRadius', parseIntOrNull(e.target.value))} />
         </Field>
         <Field label="Transparent bg">
-          <input type="checkbox" checked={widget.config?.transparentBg ?? false}
+          <input type="checkbox" checked={widget.config?.transparentBg ?? (widget.type === 'image')}
             onChange={(e) => updateConfig('transparentBg', e.target.checked)} />
         </Field>
-        {!(widget.config?.transparentBg) && (
+        {!(widget.config?.transparentBg ?? (widget.type === 'image')) && (
           <>
             <Field label="Gradient">
               <input type="checkbox" checked={widget.config?.gradientBg?.enabled ?? false}
@@ -1539,6 +1602,14 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 <RangeInput min={1} max={20} value={widget.config?.lineThickness ?? 2}
                   onChange={(e) => updateConfig('lineThickness', parseIntOrNull(e.target.value))} suffix="px" />
               </Field>
+              {/* Rotation 0-360°. ShapeWidget applies the same value via
+                  CSS `transform: rotate(...)` on the inner line div so a
+                  diagonal / vertical line is doable without changing the
+                  widget's outer bounding box. */}
+              <Field label="Rotation" vertical>
+                <RangeInput min={0} max={360} value={widget.config?.lineRotation ?? 0}
+                  onChange={(e) => updateConfig('lineRotation', parseIntOrNull(e.target.value))} suffix="°" />
+              </Field>
             </>
           )}
           {widget.config?.shape === 'arrow' && (
@@ -1579,9 +1650,9 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
       )}
 
       {widget.type === 'text' && (
+        // The text body itself is edited inline on the widget (double-click
+        // it on the canvas). The panel only holds the appearance knobs.
         <Section title="Content" sectionState={sections}>
-          <textarea value={widget.data?.text || ''} onChange={(e) => updateData('text', e.target.value)}
-            rows={4} style={{ ...inputStyle, resize: 'vertical' }} placeholder="Enter text..." />
           <Field label="Font size">
             <input type="number" min={10} max={72} value={widget.config?.fontSize ?? ''} placeholder="16"
               onChange={(e) => updateConfig('fontSize', parseIntOrNull(e.target.value))}
@@ -1591,65 +1662,47 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <FontPicker value={widget.config?.fontFamily}
               onChange={(v) => updateConfig('fontFamily', v)} />
           </Field>
-        </Section>
-      )}
-
-      {widget.type === 'image' && (
-        <Section title="Image" sectionState={sections}>
-          <Field label="URL">
-            <input type="text" value={widget.config?.url || ''} placeholder="https://…"
-              onChange={(e) => updateConfig('url', e.target.value)}
-              style={{ ...inputStyle, marginBottom: 0 }} />
+          <Field label="Color">
+            <ColorInput value={widget.config?.color || '#334155'}
+              onChange={(v) => updateConfig('color', v)} />
           </Field>
-          {/* Upload button — OSS only. Cloud builds set
-              VITE_OPENREPORT_CLOUD=1 at build time; Vite then strips this
-              block as dead code. Users on the cloud edition must paste a
-              web URL above (their own CDN, S3, image host, etc.). */}
-          {!import.meta.env.VITE_OPENREPORT_CLOUD && (
-            <Field label="Upload">
-              <input type="file" accept="image/*"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  const form = new FormData();
-                  form.append('image', file);
-                  try {
-                    const res = await api.post('/images', form, {
-                      headers: { 'Content-Type': 'multipart/form-data' },
-                    });
-                    if (res.data?.url) updateConfig('url', res.data.url);
-                  } catch (err) {
-                    alert(err.response?.data?.error || 'Upload failed');
-                  } finally {
-                    e.target.value = '';
-                  }
-                }}
-                style={{ ...inputStyle, marginBottom: 0, padding: 2 }} />
-            </Field>
-          )}
-          <Field label="Fit">
-            <select value={widget.config?.fit || 'contain'}
-              onChange={(e) => updateConfig('fit', e.target.value)}
-              style={{ ...inputStyle, marginBottom: 0 }}>
-              <option value="contain">Contain (no crop)</option>
-              <option value="cover">Cover (crop to fill)</option>
-              <option value="fill">Fill (stretch)</option>
-              <option value="none">None (original size)</option>
-            </select>
+          <Field label="Bold">
+            <input type="checkbox" checked={!!widget.config?.bold}
+              onChange={(e) => updateConfig('bold', e.target.checked)} />
           </Field>
-          <Field label="Alt text">
-            <input type="text" value={widget.config?.alt || ''} placeholder="Image description"
-              onChange={(e) => updateConfig('alt', e.target.value)}
-              style={{ ...inputStyle, marginBottom: 0 }} />
+          <Field label="Italic">
+            <input type="checkbox" checked={!!widget.config?.italic}
+              onChange={(e) => updateConfig('italic', e.target.checked)} />
           </Field>
-          <Field label="Border radius">
-            <input type="number" min={0} max={64} value={widget.config?.borderRadius ?? ''} placeholder="0"
-              onChange={(e) => updateConfig('borderRadius', parseIntOrNull(e.target.value))}
+          <Field label="Padding">
+            <input type="number" min={0} max={64} value={widget.config?.padding ?? ''} placeholder="8"
+              onChange={(e) => updateConfig('padding', parseIntOrNull(e.target.value))}
               style={{ ...inputStyle, width: 60 }} />
           </Field>
+          {/* Alignment — icon button groups, no labels. Values are flex
+              keywords so they apply directly to the display container;
+              TextWidget maps them to textAlign for the edit-mode textarea.
+              Default 'center' (matches TextWidget's display fallback). */}
+          <AlignButtonGroup
+            value={widget.config?.textAlign || 'center'}
+            onChange={(v) => updateConfig('textAlign', v)}
+            options={[
+              { v: 'flex-start', Icon: TbAlignLeft, title: 'Align left' },
+              { v: 'center', Icon: TbAlignCenter, title: 'Align center' },
+              { v: 'flex-end', Icon: TbAlignRight, title: 'Align right' },
+            ]}
+          />
+          <AlignButtonGroup
+            value={widget.config?.verticalAlign || 'center'}
+            onChange={(v) => updateConfig('verticalAlign', v)}
+            options={[
+              { v: 'flex-start', Icon: TbLayoutAlignTop, title: 'Align top' },
+              { v: 'center', Icon: TbLayoutAlignMiddle, title: 'Align middle' },
+              { v: 'flex-end', Icon: TbLayoutAlignBottom, title: 'Align bottom' },
+            ]}
+          />
         </Section>
       )}
-
 
       {widget.type === 'line' && (
         <Section title="Options" sectionState={sections}>
@@ -2034,6 +2087,38 @@ function SubSection({ label, children }) {
       <div style={subSectionStyle}>
         {children}
       </div>
+    </div>
+  );
+}
+
+// Small icon-button toggle row. Used by the text widget's alignment
+// controls — three icons in a row, the active one highlighted with the
+// panel's "active" surface colour. No Field wrapper so it sits flush
+// without a leading label column; the icons are self-documenting and
+// each carries a title for accessibility.
+function AlignButtonGroup({ value, onChange, options }) {
+  return (
+    <div style={{ display: 'flex', gap: 2, marginBottom: 6, justifyContent: 'flex-start' }}>
+      {options.map(({ v, Icon, title }) => {
+        const active = value === v;
+        return (
+          <button key={v} type="button" title={title}
+            onClick={() => onChange(v)}
+            style={{
+              border: '1px solid var(--border-default)',
+              background: active ? 'var(--bg-active)' : 'transparent',
+              color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
+              padding: '4px 8px',
+              borderRadius: 4,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+            <Icon size={16} />
+          </button>
+        );
+      })}
     </div>
   );
 }

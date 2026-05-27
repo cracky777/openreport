@@ -91,14 +91,30 @@ export default function FilterRulesEditor({ model, modelId, rules, onChange, sty
         const isBetween = f.op === 'between';
         const isTopBottom = f.op === 'top_n' || f.op === 'bottom_n';
         const inputType = (t === 'date') ? 'date' : (t === 'number' ? 'number' : 'text');
+        // Prefer the human label (model.dimensions[].label / measures[].label)
+        // when defined; otherwise fall back to the last dotted segment of the
+        // canonical field id ("schema.table.column" → "column"). The full id
+        // is kept in the `title` so a hover reveals the path. Avoids the
+        // truncated "nyukom_app…" the user couldn't read in the narrow card.
+        const def = f.isMeasure
+          ? (model?.measures || []).find((m) => m.name === f.field)
+          : (model?.dimensions || []).find((d) => d.name === f.field);
+        const displayName = def?.label
+          || (typeof f.field === 'string' ? f.field.split('.').pop() : String(f.field));
+        // Same colour key as the DropZone chips so the field stays visually
+        // tied to its kind in every panel: measures green (#16a34a), dims
+        // accent-primary. The "measure" / "dimension" word becomes redundant
+        // once the colour carries that signal, so it goes — the field name
+        // gets the full row width back.
+        const fieldColor = f.isMeasure ? '#16a34a' : 'var(--accent-primary)';
         return (
           <div key={i} style={cardStyle}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
-                {f.field}
-              </span>
-              <span style={{ fontSize: 9, color: 'var(--text-disabled)', textTransform: 'uppercase' }}>
-                {f.isMeasure ? 'measure' : t}
+              <span
+                title={f.field}
+                style={{ fontSize: 12, fontWeight: 600, color: fieldColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}
+              >
+                {displayName}
               </span>
               <button onClick={() => removeRule(i)} title="Remove filter"
                 style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 4px', color: 'var(--text-disabled)', fontSize: 14, lineHeight: 1 }}
