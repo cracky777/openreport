@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
+import { useCalcWizard } from '../../hooks/useCalcWizard';
+import { useFieldEdit } from '../../hooks/useFieldEdit';
 import { createPortal } from 'react-dom';
 import { TbChevronDown } from 'react-icons/tb';
 import api from '../../utils/api';
@@ -25,26 +27,33 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
     return true;
   };
   const [status, setStatus] = useState(null);
-  // Unified measure-creation wizard. One form covers:
-  //   - simple aggregation (SUM/AVG/COUNT/MIN/MAX on a column)
-  //   - custom SQL expression
-  //   - optional filter context (CASE WHEN inside the aggregate)
+  // Measure-creation wizard state (10 useStates + a SQL-sync useEffect)
+  // and the field-edit panel state (4 useStates + a SQL-sync useEffect).
+  // Both kept their original returned names so the JSX below uses them
+  // exactly as before; the actual implementation lives in the hooks.
+  // One form covers simple aggregation (SUM/AVG/COUNT/MIN/MAX on a
+  // column) / custom SQL expression / optional CASE WHEN filter context.
   // Stored under `_calc.<label>` regardless of shape — the server only
   // looks at the measure's fields (aggregation/expression/filterRules) to
   // decide what SQL to emit.
-  const [showCalcForm, setShowCalcForm] = useState(false);
-  const [calcLabel, setCalcLabel] = useState('');
-  const [calcAggregation, setCalcAggregation] = useState('sum');
-  const [calcField, setCalcField] = useState(''); // "table::column"
-  const [calcExpr, setCalcExpr] = useState('');
-  const [calcFilterEnabled, setCalcFilterEnabled] = useState(false);
-  const [calcRules, setCalcRules] = useState([]);
-  const [calcOverride, setCalcOverride] = useState(false);
-  const [calcSaving, setCalcSaving] = useState(false);
-  const [editingField, setEditingField] = useState(null); // measure name being edited
-  const [editForm, setEditForm] = useState({});
-  const [editingDim, setEditingDim] = useState(null); // dimension name being edited
-  const [dimEditForm, setDimEditForm] = useState({});
+  const {
+    showCalcForm, setShowCalcForm,
+    calcLabel, setCalcLabel,
+    calcAggregation, setCalcAggregation,
+    calcField, setCalcField,
+    calcExpr, setCalcExpr,
+    calcFilterEnabled, setCalcFilterEnabled,
+    calcRules, setCalcRules,
+    calcOverride, setCalcOverride,
+    calcSaving, setCalcSaving,
+    calcBareExpr, setCalcBareExpr,
+  } = useCalcWizard();
+  const {
+    editingField, setEditingField,
+    editForm, setEditForm,
+    editingDim, setEditingDim,
+    dimEditForm, setDimEditForm,
+  } = useFieldEdit();
   // Inline-accordion mount points: the (large) edit-panel JSX stays where
   // it is in the tree and is portaled into a placeholder rendered right
   // under the active row, so it visually belongs to the clicked field.
@@ -54,54 +63,6 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   // Date Table is collapsed by default — only the main date column is shown,
   // the per-period extension dims (year, month, weekday, …) appear when opened.
   const [dateTableOpen, setDateTableOpen] = useState(false);
-
-  // Bare expression for create form's Custom-SQL mode — what the user
-  // actually typed, before any CASE WHEN wrap from the filter toggle.
-  const [calcBareExpr, setCalcBareExpr] = useState('');
-
-  // Keep the create-form SQL editor in sync with the wizard inputs. Always
-  // regenerates the editor (including CASE WHEN wrap when a filter is on,
-  // even in Custom SQL mode). The bare expression is the canonical source
-  // for custom mode; structured modes generate the SQL fully from
-  // aggregation/column.
-  useEffect(() => {
-    if (!showCalcForm) return;
-    const [table, column] = (calcAggregation === 'count')
-      ? ['', '*']
-      : (calcAggregation === 'custom' ? ['', ''] : (calcField || '').split('::'));
-    const sql = buildMeasureSql({
-      aggregation: calcAggregation,
-      table: table || '',
-      column: column || '',
-      filterRules: calcFilterEnabled ? calcRules : null,
-      overrideFilters: calcOverride,
-      expression: calcBareExpr,
-    });
-    setCalcExpr(sql);
-  }, [showCalcForm, calcAggregation, calcField, calcFilterEnabled, calcRules, calcOverride, calcBareExpr]);
-
-  // Auto-sync for the edit panel. Same idea as the create form — regenerate
-  // the editor from state, including the CASE WHEN wrap. Uses
-  // `editForm.bareExpression` as the canonical un-wrapped expression for
-  // custom-mode measures.
-  useEffect(() => {
-    if (!editingField) return;
-    const [table, column] = (editForm.aggregation === 'count')
-      ? ['', '*']
-      : (editForm.aggregation === 'custom' ? ['', ''] : (editForm.field || '').split('::'));
-    const sql = buildMeasureSql({
-      aggregation: editForm.aggregation,
-      table: table || '',
-      column: column || '',
-      filterRules: editForm.filterEnabled ? editForm.filterRules : null,
-      overrideFilters: editForm.overrideFilters,
-      expression: editForm.bareExpression || '',
-    });
-    if (sql !== editForm.expression) {
-      setEditForm((prev) => ({ ...prev, expression: sql }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingField, editForm.aggregation, editForm.field, editForm.filterEnabled, editForm.filterRules, editForm.overrideFilters, editForm.bareExpression]);
 
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
@@ -1657,122 +1618,6 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
       )}
     </div>
   );
-}
-
-// Paren-aware aggregate transform — client port of the server helper.
-// Walks the expression and applies `transform(fn, arg)` to each top-level
-// SUM/AVG/MIN/MAX/COUNT call, tracking paren depth and string literals so
-// a CASE WHEN containing `IN (...)` doesn't break the matcher.
-function transformAggregates(expression, fns, transform) {
-  if (!expression) return expression;
-  const s = String(expression);
-  const fnRegex = new RegExp(`^(${fns.join('|')})\\(`, 'i');
-  let out = '';
-  let i = 0;
-  while (i < s.length) {
-    if (s[i] === "'") {
-      const end = s.indexOf("'", i + 1);
-      if (end === -1) { out += s.slice(i); break; }
-      out += s.slice(i, end + 1);
-      i = end + 1;
-      continue;
-    }
-    const prev = i > 0 ? s[i - 1] : '';
-    const atBoundary = !/[A-Za-z0-9_]/.test(prev);
-    const m = atBoundary ? s.slice(i).match(fnRegex) : null;
-    if (!m) { out += s[i]; i++; continue; }
-    const fn = m[1];
-    let depth = 1;
-    let j = i + m[0].length;
-    let inStr = false;
-    while (j < s.length && depth > 0) {
-      const ch = s[j];
-      if (inStr) {
-        if (ch === "'") inStr = false;
-      } else if (ch === "'") {
-        inStr = true;
-      } else if (ch === '(') {
-        depth++;
-      } else if (ch === ')') {
-        depth--;
-        if (depth === 0) break;
-      }
-      j++;
-    }
-    if (depth !== 0) { out += s[i]; i++; continue; }
-    const arg = s.slice(i + m[0].length, j);
-    out += transform(fn, arg);
-    i = j + 1;
-  }
-  return out;
-}
-
-// Synthesize the SQL of a measure from its structured fields. Used by the
-// wizard to keep the SQL editor in sync with the user's choices. The
-// expression always comes through here so the user actually SEES what the
-// server will run — including the CASE WHEN wrap when a filter is active,
-// even for custom-expression measures.
-function buildMeasureSql({ aggregation, table, column, filterRules, overrideFilters, expression }) {
-  const hasFilter = Array.isArray(filterRules) && filterRules.length > 0;
-  const fmtVal = (v) => {
-    if (v == null) return 'NULL';
-    if (Array.isArray(v)) return v.map(fmtVal).join(', ');
-    if (typeof v === 'number' || /^-?\d+(\.\d+)?$/.test(String(v))) return String(v);
-    return `'${String(v).replace(/'/g, "''")}'`;
-  };
-  const renderRule = (r) => {
-    if (!r || !r.field || !r.op) return null;
-    const f = `"${r.field}"`;
-    const list = Array.isArray(r.values) ? r.values : (Array.isArray(r.value) ? r.value : null);
-    switch (r.op) {
-      case 'in': return list?.length ? `${f} IN (${list.map(fmtVal).join(', ')})` : null;
-      case 'not_in': return list?.length ? `${f} NOT IN (${list.map(fmtVal).join(', ')})` : null;
-      case 'eq': return `${f} = ${fmtVal(r.value)}`;
-      case 'neq': return `${f} <> ${fmtVal(r.value)}`;
-      case 'gt': return `${f} > ${fmtVal(r.value)}`;
-      case 'gte': return `${f} >= ${fmtVal(r.value)}`;
-      case 'lt': return `${f} < ${fmtVal(r.value)}`;
-      case 'lte': return `${f} <= ${fmtVal(r.value)}`;
-      case 'between': return list?.length === 2 ? `${f} BETWEEN ${fmtVal(list[0])} AND ${fmtVal(list[1])}` : null;
-      case 'contains': return `${f} LIKE '%${String(r.value).replace(/'/g, "''")}%'`;
-      case 'not_contains': return `${f} NOT LIKE '%${String(r.value).replace(/'/g, "''")}%'`;
-      case 'starts_with': return `${f} LIKE '${String(r.value).replace(/'/g, "''")}%'`;
-      case 'ends_with': return `${f} LIKE '%${String(r.value).replace(/'/g, "''")}'`;
-      case 'is_empty': return `(${f} IS NULL OR ${f} = '')`;
-      case 'is_not_empty': return `(${f} IS NOT NULL AND ${f} <> '')`;
-      default: return null;
-    }
-  };
-  const whenSql = hasFilter ? filterRules.map(renderRule).filter(Boolean).join(' AND ') : '';
-
-  // Custom expression: optionally wrap each aggregate inside the expression
-  // with CASE WHEN — same shape as what the server's transformAggregates
-  // produces at query time.
-  if (aggregation === 'custom') {
-    const bare = expression || '';
-    if (hasFilter && whenSql && !overrideFilters) {
-      return transformAggregates(
-        bare,
-        ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT'],
-        (fn, arg) => `${fn}(CASE WHEN ${whenSql} THEN ${arg} END)`,
-      );
-    }
-    if (hasFilter && whenSql && overrideFilters) {
-      return `(SELECT ${bare}\n FROM <model>\n WHERE <visual filters except override fields>\n   AND ${whenSql})`;
-    }
-    return bare;
-  }
-  // Structured path: synthesize <AGG>(col) or <AGG>(CASE WHEN ... THEN col END)
-  const isCount = aggregation === 'count' || (column === '*' && !table);
-  const colExpr = isCount ? null : (table && column ? `"${table}"."${column}"` : null);
-  const aggFn = isCount ? 'COUNT' : (aggregation || 'sum').toUpperCase();
-  const baseAgg = isCount ? 'COUNT(*)' : `${aggFn}(${colExpr || 'col'})`;
-  if (!hasFilter || !whenSql) return baseAgg;
-  if (overrideFilters) {
-    return `(SELECT ${baseAgg}\n FROM <model>\n WHERE <visual filters except override fields>\n   AND ${whenSql})`;
-  }
-  const inner = isCount ? '1' : colExpr;
-  return `${aggFn}(CASE WHEN ${whenSql}\n     THEN ${inner} END)`;
 }
 
 function FieldSection({ label, children, style }) {
