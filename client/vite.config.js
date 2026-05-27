@@ -16,6 +16,16 @@ export default defineConfig({
         timeout: 10 * 60 * 1000,        // 10 min — client-side socket timeout
         proxyTimeout: 10 * 60 * 1000,   // 10 min — upstream response timeout
       },
+      // Uploaded image binaries are served by Express's static middleware
+      // at `/uploads/images/...` (see server/index.js). Without this proxy
+      // the browser requests them off the Vite dev server (port 5173),
+      // which doesn't know about them → 404 → ImageWidget's onError fires
+      // and hides the <img>, leaving a white widget. In prod a single
+      // Express serves both API and static so this never bites.
+      '/uploads': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
     },
   },
 })
