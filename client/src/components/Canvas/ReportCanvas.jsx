@@ -26,6 +26,11 @@ function buildShadowCSS(s) {
 const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, refreshKind, mergeCorners }) {
   const nodeRef = useRef(null);
   const [showSql, setShowSql] = useState(false);
+  // Hover state for the in-flight cancel button — the X icon is hidden
+  // by default so the spinner reads as "loading" rather than "error";
+  // surfacing it only on hover keeps the cancel affordance discoverable
+  // without the red glyph competing with the rotating ring at rest.
+  const [cancelHover, setCancelHover] = useState(false);
   const WidgetType = WIDGET_TYPES[widget.type];
   if (!WidgetType) return null;
 
@@ -186,16 +191,18 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             read off `widget._loadingKind` which is stamped at fetch
             kick-off so it stays accurate per-cycle (a cross-filter
             after a cache rebuild reads 'cache' here, NOT 'live').
-            An X icon (red) sits permanently centred on the spinner so
-            the cancel affordance is visible without requiring a hover —
-            click anywhere on the spinning circle to abort the in-flight
-            SQL. Placed at top-left so it doesn't fight with the SQL /
-            Refresh buttons that live in the top-right of selected widgets. */}
+            The red X cancel glyph is shown only when the user hovers
+            the spinner — at rest the widget reads "loading", on hover
+            it offers the cancel affordance. Placed at top-left so it
+            doesn't fight with the SQL / Refresh buttons in the top-right
+            of selected widgets. */}
         {widget._loading && (
           <div style={{ position: 'absolute', top: 6, left: 6, zIndex: 11 }}>
             {!readOnly && onCancelFetch ? (
               <button
                 onClick={(e) => { e.stopPropagation(); onCancelFetch(); }}
+                onMouseEnter={() => setCancelHover(true)}
+                onMouseLeave={() => setCancelHover(false)}
                 title="Cancel query"
                 style={{
                   position: 'relative', width: 18, height: 18, padding: 0,
@@ -207,9 +214,11 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
                   ...spinnerStyle,
                   borderTopColor: widget._loadingKind === 'live' ? 'var(--accent-primary)' : 'var(--accent-cyan)',
                 }} />
-                <TbX size={12} style={{
-                  position: 'absolute', color: 'var(--state-danger)',
-                }} />
+                {cancelHover && (
+                  <TbX size={12} style={{
+                    position: 'absolute', color: 'var(--state-danger)',
+                  }} />
+                )}
               </button>
             ) : (
               <div style={{

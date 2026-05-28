@@ -1271,24 +1271,34 @@ export default function Editor() {
           const code = err?.response?.data?.code || null;
           const timeoutMs = err?.response?.data?.timeoutMs || null;
           return { wId, data: { _error: msg, _errorCode: code, _errorTimeoutMs: timeoutMs, _rowCount: 0 } };
+        }).then(({ wId, data }) => {
+          // Land each widget's data INDEPENDENTLY as soon as its own
+          // query resolves — previously every widget was held back until
+          // the slowest one in the batch settled (single `Promise.all`
+          // → one final `setSilent`), so a 10 s outlier blocked an
+          // otherwise 100 ms dashboard from rendering. Per-widget commit
+          // means fast visuals paint immediately; the slow one fills in
+          // when it's ready. React 18 batches the setSilent calls that
+          // share a tick so a wave of fast widgets still resolves with a
+          // single render.
+          if (controller.signal.aborted) return { wId, data: null };
+          history.setSilent((prev) => {
+            if (!prev.widgets?.[wId]) return prev;
+            return {
+              ...prev,
+              widgets: { ...prev.widgets, [wId]: { ...prev.widgets[wId], _loading: false, data: data || {} } },
+            };
+          });
+          return { wId, data };
         });
       });
 
-      // Wait for ALL to complete, then batch update (silent — data fetch is not undoable)
-      Promise.all(promises).then((results) => {
-        // The fetch fired — the loading flags will be replaced below, no need
-        // for the cleanup safety net to revert them.
+      // Outer await: just teardown the request-scoped flags once all
+      // widgets have settled. Per-widget data already landed via the
+      // per-promise commit above — no batched widget update here.
+      Promise.all(promises).then(() => {
         pendingLoadingRef.current = null;
         if (controller.signal.aborted) { setRefreshing(false); return; }
-        history.setSilent((prev) => {
-          const next = { ...prev, widgets: { ...prev.widgets } };
-          results.forEach(({ wId, data }) => {
-            if (next.widgets[wId]) {
-              next.widgets[wId] = { ...next.widgets[wId], _loading: false, data: data || {} };
-            }
-          });
-          return next;
-        });
         setRefreshing(false);
       });
     }, 150);
