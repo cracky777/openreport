@@ -148,13 +148,31 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
     return values.filter((v) => String(v).toLowerCase().includes(search.toLowerCase()));
   }, [values, search]);
 
+  // Dropdown mode: snapshot of `selected` at the moment the dropdown
+  // OPENED. Used by sortedValues below so the row a user just ticked
+  // doesn't jump to the top mid-interaction — selections stay in place
+  // until they close + reopen the dropdown, at which point the new
+  // snapshot puts the freshly selected rows at the top. Other slicer
+  // modes (list, buttons, range) keep the live-sort behaviour: the rows
+  // are always visible, so the bubble-to-top on click is harmless.
+  const [frozenSelected, setFrozenSelected] = useState(selected);
+  useEffect(() => {
+    // Capture on open; skip on close so the snapshot survives outside
+    // the open window without churn — only the next open overwrites it.
+    if (dropdownOpen) setFrozenSelected(selected);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dropdownOpen]);
+  const selectedForOrder = (dropdownOpen && slicerStyle === 'dropdown')
+    ? frozenSelected
+    : selected;
+
   // Sort: dates chronologically, then selected values bubble to the top
   const sortedValues = useMemo(() => {
     const base = isDate
       ? [...filteredValues].sort((a, b) => new Date(a) - new Date(b))
       : filteredValues;
-    if (!selected || selected.length === 0) return base;
-    const selectedSet = new Set(selected.map(String));
+    if (!selectedForOrder || selectedForOrder.length === 0) return base;
+    const selectedSet = new Set(selectedForOrder.map(String));
     const sel = [];
     const rest = [];
     for (const v of base) {
@@ -162,7 +180,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
       else rest.push(v);
     }
     return [...sel, ...rest];
-  }, [filteredValues, isDate, selected]);
+  }, [filteredValues, isDate, selectedForOrder]);
 
   // Cap rendered rows so high-cardinality dimensions don't lock up the page.
   // Selected values are sorted to the top by sortedValues, so they survive the
