@@ -1265,7 +1265,89 @@ router.post('/:id/query', async (req, res) => {
   // a correlated subquery, deferred to a follow-up.
   const overrideMeasureInfos = [];
 
+  // DIM-ONLY measure detection. A measure whose only column reference is
+  // on a DIM table (not a real fact in the join graph) is emitted as a
+  // scalar subquery that runs against that dim alone, with only the
+  // visual's WHERE clauses targeting that same dim. Cross-table filters
+  // are dropped — otherwise the regular SELECT path would force a JOIN
+  // through the bridge fact and `COUNT(dim.col)` would count fact rows
+  // instead of dim rows (observed: `COUNT("d_date"."nom_mois")` jumped
+  // from 1 to N appels per date when a destinataire filter forced the
+  // f_appel_entrant_fin join). The subquery is uncorrelated (constant
+  // per outer row) — for a scorecard this is exactly the value; for a
+  // grouped chart the constant repeats across groups, which is the
+  // honest "this measure isn't grouped by anything from another table"
+  // semantic.
+  //
+  // Real-facts detection: a `*`-side join target that NEVER appears as a
+  // `from_table` is a real fact. Anything else (incl. snowflake dim
+  // children that ARE `*` but also parent a fact via their own join)
+  // counts as a dim. Mirrors `factConformedDimTables` in rollupBuilder.
+  const realFacts = (() => {
+    const list = Array.isArray(allJoins) ? allJoins : [];
+    const fromTables = new Set();
+    const manyTables = new Set();
+    for (const j of list) {
+      if (!j || !j.from_table || !j.to_table) continue;
+      fromTables.add(j.from_table);
+      const c = j.cardinality || {};
+      if (c.to === '*' || (!c.from && !c.to)) manyTables.add(j.to_table);
+      if (c.from === '*') manyTables.add(j.from_table);
+    }
+    return new Set([...manyTables].filter((t) => !fromTables.has(t)));
+  })();
+  // Primary table for the measure — the dim table that owns its column.
+  // For a custom expression we accept the dim-only treatment only if
+  // every quoted column reference points at the SAME table; multi-table
+  // refs need the join graph and stay on the regular path.
+  const measurePrimaryTable = (m) => {
+    if (m.table) return m.table;
+    if (m.aggregation === 'custom' && m.expression) {
+      // Defer to the regular path when the expression embeds `${ref}`
+      // markers — the inliner may pull in another measure that lives on
+      // a different table, which our extraction-based detection here
+      // can't see. Single-table custom expressions with no refs are the
+      // safe sweet spot.
+      if (String(m.expression).includes('${')) return null;
+      const refs = extractColumnRefsFromExpression(m.expression);
+      const tables = new Set(refs.map((r) => r.table).filter(Boolean));
+      if (tables.size === 1) return [...tables][0];
+    }
+    return null;
+  };
+  const dimOnlyMeasureInfos = [];
+
   selectedMeasures.forEach((m) => {
+    // Dim-only fast path. Skip the normal selectParts emission AND skip
+    // the `tablesUsed.add` — the dim is queried by the scalar subquery
+    // independently, so adding it here would needlessly force the join
+    // graph to thread through it (and bring along the cross-table
+    // filters whose inflation we're avoiding in the first place).
+    // Bail out for measures that carry their own pipeline (filterRules,
+    // override mode, custom-with-refs); those go through the dedicated
+    // paths below.
+    const primaryTable = measurePrimaryTable(m);
+    // RLS gate: the dim-only subquery is independent of the outer WHERE
+    // and would silently bypass an RLS clause (the clause references the
+    // RLS table, which the subquery's FROM doesn't include). For
+    // RLS-restricted users we fall through to the regular structured
+    // path so the outer WHERE enforces it — the measure may be
+    // fact-inflated but it's never leaky. Owners/admins (rlsApplies =
+    // false) get the clean subquery path.
+    const isDimOnlyCandidate = primaryTable
+      && !realFacts.has(primaryTable)
+      && !(Array.isArray(m.filterRules) && m.filterRules.length > 0)
+      && !rlsApplies;
+    if (isDimOnlyCandidate) {
+      dimOnlyMeasureInfos.push({
+        index: selectParts.length,
+        m,
+        primaryTable,
+        label: m.label || m.name,
+      });
+      selectParts.push(null);
+      return;
+    }
     if (m.table) tablesUsed.add(m.table);
     // Override-mode filtered measure: register tables referenced by its
     // filterRules so the JOIN graph picks them up, then push a placeholder
@@ -1730,6 +1812,59 @@ router.post('/:id/query', async (req, res) => {
     return subSql;
   };
 
+  // Fill in dim-only measure placeholders. Each becomes a scalar subquery
+  // that runs against the measure's primary dim table alone, with only
+  // the visual's WHERE clauses whose field lives on that SAME table.
+  // RLS / untagged clauses are dropped here too — the dim-only subquery
+  // is a scope-restricted lookup; security still applies via the outer
+  // query's WHERE for the rest of the SELECT. (If the dim itself is
+  // RLS-controlled, the model should mark it RLS via a different
+  // mechanism; we don't have one today and counts on a public dim are
+  // fine.)
+  for (const info of dimOnlyMeasureInfos) {
+    const { m, index, primaryTable, label } = info;
+    const sameTableWhere = whereParts
+      .filter((w) => {
+        if (!w.field) return false;
+        const d = allDimensions.find((dd) => dd.name === w.field);
+        return d && d.table === primaryTable;
+      })
+      .map((w) => w.sql);
+    let innerAgg;
+    if (m.aggregation === 'custom' && m.expression) {
+      let inlined;
+      try {
+        inlined = inlineMeasureRefs(m.expression);
+      } catch (e) {
+        return res.status(400).json({ error: e.message });
+      }
+      inlined = preWrapIntervalRefs(inlined, columnTypes, dbType);
+      innerAgg = applyNumericCast(inlined);
+    } else if (m.aggregation === 'count' || (m.column === '*' && !m.table)) {
+      innerAgg = 'COUNT(*)';
+    } else if (m.table && m.column) {
+      const rawCol = quoteCol(m.table, m.column, dbType);
+      const ovType = getOverrideType(m.table, m.column, columnTypes);
+      const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
+        ? castToNumber(rawCol, dbType, ovType)
+        : rawCol;
+      innerAgg = `${normalizeAggregation(m.aggregation).toUpperCase()}(${colExpr})`;
+      const isInterval = String(m.dataType || '').toLowerCase() === 'interval'
+        || ovType === 'interval';
+      const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
+      if (isInterval && supportsExtractEpoch) {
+        innerAgg = `EXTRACT(EPOCH FROM ${innerAgg})`;
+      }
+    } else {
+      innerAgg = 'NULL';
+    }
+    let subSql = `SELECT ${innerAgg} FROM ${quoteTable(primaryTable, dbType)}`;
+    if (sameTableWhere.length > 0) {
+      subSql += ` WHERE ${sameTableWhere.join(' AND ')}`;
+    }
+    selectParts[index] = `(${subSql}) AS ${quoteIdent(label, dbType)}`;
+  }
+
   // Fill in override-mode filtered measure placeholders. Each becomes a
   // scalar subquery that re-runs the same FROM/JOIN graph, drops the
   // visual's WHERE clauses on the override fields, and applies the
@@ -1765,18 +1900,32 @@ router.post('/:id/query', async (req, res) => {
 
   __mark('SQL parts assembled (selectParts, whereParts, joins, etc.)');
   const useDistinct = distinct || (selectedDimensions.length > 0 && selectedMeasures.length === 0);
-  let sql = `SELECT ${useDistinct ? 'DISTINCT ' : ''}${selectParts.join(', ')} FROM ${fromClause}`;
-
-  if (whereParts.length > 0) {
-    sql += ` WHERE ${whereParts.map((w) => w.sql).join(' AND ')}`;
-  }
-
-  if (groupByParts.length > 0 && selectedMeasures.length > 0) {
-    sql += ` GROUP BY ${groupByParts.join(', ')}`;
-  }
-
-  if (havingParts.length > 0 && selectedMeasures.length > 0) {
-    sql += ` HAVING ${havingParts.join(' AND ')}`;
+  // Dim-only short-circuit. When EVERY selected measure was emitted as a
+  // dim-only scalar subquery AND there are no grain dims to GROUP BY, the
+  // outer FROM/JOIN/WHERE is just CPU waste: it forces a cartesian over
+  // whatever bridge fact the join graph picked first to connect the
+  // filter-only dim tables — and that "first fact" choice is arbitrary
+  // (BFS adjacency order), so two equivalent visuals could route through
+  // different facts. The subqueries are independent constants either way,
+  // so drop the outer query entirely and emit a bare `SELECT (subq),...`
+  // — no FROM, no WHERE, no GROUP BY. Returns one row, the scalars.
+  const allMeasuresDimOnly = selectedMeasures.length > 0
+    && dimOnlyMeasureInfos.length === selectedMeasures.length;
+  const dimOnlyShortCircuit = allMeasuresDimOnly && selectedDimensions.length === 0;
+  let sql;
+  if (dimOnlyShortCircuit) {
+    sql = `SELECT ${selectParts.join(', ')}`;
+  } else {
+    sql = `SELECT ${useDistinct ? 'DISTINCT ' : ''}${selectParts.join(', ')} FROM ${fromClause}`;
+    if (whereParts.length > 0) {
+      sql += ` WHERE ${whereParts.map((w) => w.sql).join(' AND ')}`;
+    }
+    if (groupByParts.length > 0 && selectedMeasures.length > 0) {
+      sql += ` GROUP BY ${groupByParts.join(', ')}`;
+    }
+    if (havingParts.length > 0 && selectedMeasures.length > 0) {
+      sql += ` HAVING ${havingParts.join(' AND ')}`;
+    }
   }
 
   const MAX_ROWS = 1000000;
