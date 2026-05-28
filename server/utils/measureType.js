@@ -206,6 +206,46 @@ function detectCountDistinct(expression) {
   };
 }
 
+// ─── Trivial single-aggregate fast path ────────────────────────────────
+// A custom-mode expression that is JUST one of `SUM/AVG/MIN/MAX(col_ref)`
+// or `COUNT(*)`, with nothing wrapping it. Lets the rollup builder treat
+// the custom measure as the structurally-equivalent aggregation so the
+// usual simple/avg decomposition kicks in, instead of bailing to
+// decomposeAsExpression (which needs `${ref}` placeholders and would
+// return non-decomposable for these). COUNT(col) is deliberately NOT
+// matched — the structured 'count' path emits COUNT(*), which would
+// silently change the semantic of an explicit COUNT("col").
+const TRIVIAL_AGG_RE = /^\s*(SUM|AVG|MIN|MAX|COUNT)\s*\(\s*([\s\S]+?)\s*\)\s*$/i;
+function detectTrivialAggregate(expression) {
+  if (!expression || typeof expression !== 'string') return null;
+  const m = expression.match(TRIVIAL_AGG_RE);
+  if (!m) return null;
+  const agg = m[1].toUpperCase();
+  const arg = m[2].trim();
+  if (agg === 'COUNT') {
+    if (arg === '*') return { agg: 'count', table: '', column: '*' };
+    // COUNT("col") would be ambiguous against the structured `count`
+    // path (= COUNT(*)). Skip; user can still write the structured
+    // measure if they want COUNT-of-column.
+    return null;
+  }
+  // Reuse the same shape check the COUNT(DISTINCT …) helper uses: arg
+  // must be a sequence of double-quoted idents joined by `.`, nothing
+  // else (no nested function call, no arithmetic).
+  const PART_RE = /^"((?:[^"]|"")*)"(?:\s*\.\s*"((?:[^"]|"")*)")*$/;
+  if (!PART_RE.test(arg)) return null;
+  const parts = [];
+  const re = /"((?:[^"]|"")*)"/g;
+  let p;
+  while ((p = re.exec(arg)) !== null) parts.push(p[1].replace(/""/g, '"'));
+  if (parts.length < 1) return null;
+  return {
+    agg: agg.toLowerCase(),
+    column: parts[parts.length - 1],
+    table: parts.length > 1 ? parts.slice(0, -1).join('.') : '',
+  };
+}
+
 // ─── General expression decomposer ─────────────────────────────────────
 // Any custom expression whose ${refs} are ALL additive can be re-computed
 // from the component sums at any grain. We:
@@ -529,9 +569,7 @@ function decomposeMeasure(measure, allMeasures) {
   if (!measure) return null;
   const simple = additiveTypeForMeasure(measure, allMeasures);
   if (simple) return { type: 'simple', innerType: simple };
-  // AVG decomposes to SUM + COUNT of the same column. Trivial expressions
-  // like `aggregation: 'custom'` with `AVG(col)` aren't recognised here —
-  // users should use `aggregation: 'avg'` in the model for those.
+  // AVG decomposes to SUM + COUNT of the same column.
   if (measure.aggregation === 'avg' && measure.column) {
     // Carry dataType so the synthetic SUM component gets the SAME
     // interval→EXTRACT(EPOCH) treatment models.js applies to a normal
@@ -539,6 +577,33 @@ function decomposeMeasure(measure, allMeasures) {
     // SUM(interval) → not coercible to a number → atom stored NULL →
     // AVG broken.
     return { type: 'avg', column: measure.column, table: measure.table || '', dataType: measure.dataType };
+  }
+  // Custom-mode trivial single-aggregate fast path. A user who writes
+  // `AVG("schema"."table"."col")` or `SUM("table"."col")` in custom mode
+  // wanted the equivalent of the structured aggregation, but the rest of
+  // the decomposer used to bail to decomposeAsExpression (which needs
+  // `${ref}` placeholders) → spec=null → rollup MISS → every fetch goes
+  // live. Detect the pattern here and re-enter as the equivalent
+  // structured measure so the AVG/SUM/MIN/MAX decomposition kicks in.
+  // COUNT(*) is treated like aggregation:'count' (COUNT(*) at SQL time);
+  // COUNT(col) is NOT promoted — the structured 'count' path emits
+  // COUNT(*), changing the semantic the user wrote.
+  if (measure.aggregation === 'custom') {
+    const triv = detectTrivialAggregate(measure.expression);
+    if (triv) {
+      // Re-enter with a virtual structured measure carrying the same
+      // identity (name/label/dataType) so the recursive call lands on
+      // the structured path above (simple / avg). NOT cached — the
+      // re-entry is cheap and avoids mutating the stored measure.
+      const virtual = {
+        ...measure,
+        aggregation: triv.agg,
+        table: triv.table || measure.table,
+        column: triv.column,
+      };
+      const spec = decomposeMeasure(virtual, allMeasures);
+      if (spec) return spec;
+    }
   }
   // Ratio of two additive (or recursively decomposable) measures.
   if (measure.aggregation === 'custom') {

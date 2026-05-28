@@ -381,7 +381,7 @@ function planRollupsForModel(modelId) {
       dateColumn = mr.date_column || '';
     }
   } catch { /* model row missing */ }
-  const { conformed: factConformed } = factConformedDimTables(modelJoins);
+  const { conformed: factConformed, facts: realFacts } = factConformedDimTables(modelJoins);
   // `_date.*` date-part extras live on the model's date table.
   const dateTable = dateColumn ? dateColumn.split('.').slice(0, -1).join('.') : '';
 
@@ -451,6 +451,17 @@ function planRollupsForModel(modelId) {
     // Partition the report's measures by their fact table. Single-fact
     // measures group under that fact; 0- or multi-fact measures are
     // dropped from rollups (fallback to live query at runtime).
+    //
+    // Dim-only measures (the "fact" returned by factsForMeasure is a
+    // DIM table, not a real fact) are ALSO dropped here. Building a
+    // rollup for them would force a cross-table JOIN through a bridge
+    // fact whenever the consolidated grain includes another dim, which
+    // inflates COUNT-type aggregates by the fact-row cardinality (a
+    // `COUNT("d_date"."nom_mois")` becomes `COUNT(appel × d_date)`
+    // instead of `COUNT(d_date rows)`). The live /query path joins
+    // only what's needed and stays correct — so we MISS to it every
+    // time and skip caching this kind of measure. Cheap to add, no
+    // wrong numbers from the cache.
     const factGroups = new Map(); // factTable -> [effective measure names]
     for (const mn of reportMeasures) {
       const def = measureByNameEff.get(mn);
@@ -458,6 +469,7 @@ function planRollupsForModel(modelId) {
       const facts = factsForMeasure(def, measureDefsEff);
       if (facts.length !== 1) continue; // cross-fact / unresolved → not rolled up
       const f = facts[0];
+      if (!realFacts.has(f)) continue; // dim-only measure → live always
       if (!factGroups.has(f)) factGroups.set(f, []);
       factGroups.get(f).push(mn);
     }
