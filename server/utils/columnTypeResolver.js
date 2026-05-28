@@ -63,17 +63,27 @@ async function resolveIntervalColumns(datasource, cols) {
         const ck = `${datasource.id}::${table}`;
         try {
           const rows = await conn.getColumns(table);
+          // Only cache when we actually got rows back. Empty results (and
+          // outright failures, see catch below) leave the cache slot
+          // unset so the NEXT /query retries — a transient PG hiccup at
+          // process start used to poison the cache with an empty Map and
+          // pin every subsequent query to "no interval columns known" for
+          // the rest of the process's life (observed: a column the user
+          // KNEW was interval came back as nothing, every SUM/AVG crashed
+          // with "cannot cast type interval to numeric" until restart).
+          if (!Array.isArray(rows) || rows.length === 0) continue;
           const m = new Map();
-          for (const r of rows || []) {
+          for (const r of rows) {
             if (r && r.column_name != null) {
               m.set(String(r.column_name), String(r.data_type || '').toLowerCase());
             }
           }
           _schemaCache.set(ck, m);
         } catch (e) {
-          // Per-table failure → cache an empty map so we don't re-hit the
-          // DB every query for a table we can't introspect.
-          _schemaCache.set(ck, new Map());
+          // Per-table failure → leave the cache slot empty so we retry
+          // on the next /query. A transient failure (timeout, dropped
+          // connection at boot) used to be cached as an empty Map and
+          // then pin every subsequent probe to "no interval columns".
           console.warn('[columnType] getColumns failed for', table, '-', e.message);
         }
       }
