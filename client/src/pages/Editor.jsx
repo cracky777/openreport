@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import ReportCanvas from '../components/Canvas/ReportCanvas';
 import Toolbar from '../components/Toolbar/Toolbar';
@@ -120,6 +120,7 @@ function buildSnapshot(title, settings, pagesArr) {
 export default function Editor() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { getThemeVars } = useTheme();
 
   const [report, setReport] = useState(null);
@@ -863,6 +864,32 @@ export default function Editor() {
     if (st.timer) clearTimeout(st.timer);
     if (st.trickle) clearInterval(st.trickle);
   }, []);
+
+  // `?freshImport=1` is set by the Dashboard import flow. On the first
+  // render where widgets are actually loaded, walk every filter widget
+  // and force its distinct-values fetch — the imported bundle strips
+  // `data.values` so slicers come up empty, and the standard refetch
+  // effect skips them while their `selectedDimensions` look unchanged.
+  // Clearing the URL param after firing prevents a re-fire on later
+  // edits, undo / redo, or page navigations.
+  const freshImportFiredRef = useRef(false);
+  useEffect(() => {
+    if (freshImportFiredRef.current) return;
+    if (searchParams.get('freshImport') !== '1') return;
+    const widgets = history.state.widgets || {};
+    const slicerIds = Object.entries(widgets)
+      .filter(([, w]) => w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0])
+      .map(([wId]) => wId);
+    if (slicerIds.length === 0) return; // wait for the report to load
+    freshImportFiredRef.current = true;
+    for (const wId of slicerIds) refreshSlicerRef.current?.(wId);
+    // Strip the param without touching anything else (preserveAll on
+    // setSearchParams isn't a thing, so re-create the URLSearchParams
+    // minus our key).
+    const next = new URLSearchParams(searchParams);
+    next.delete('freshImport');
+    setSearchParams(next, { replace: true });
+  }, [history.state.widgets, searchParams, setSearchParams]);
 
   // On mount, check whether the server is already rebuilding this report's
   // cache (user clicked rebuild then F5'd / navigated away and back). If

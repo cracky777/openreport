@@ -422,7 +422,14 @@ export default function Dashboard() {
       const newId = res.data.report?.id;
       setImportBundle(null);
       setImportModelId('');
-      if (newId) navigate(`/edit/${newId}`);
+      // `freshImport=1` tells the Editor's first-mount effect to force-
+      // refresh every filter widget once. Without it, slicers stay empty
+      // until the user manually clicks Refresh — the imported bundle
+      // strips per-widget `data.values` (slicer rows) and the normal
+      // refetch effect skips them while `selectedDimensions` is
+      // unchanged. Param is consumed and cleared on the first run so
+      // subsequent edits stay normal.
+      if (newId) navigate(`/edit/${newId}?freshImport=1`);
     } catch (err) {
       setImportError(err.response?.data?.error || err.message);
     } finally {
@@ -1493,18 +1500,46 @@ export default function Dashboard() {
                       }}
                     >{report.title}</h3>
                     {report.model_name && (
-                      <p style={{ fontSize: 12, color: 'var(--accent-primary)', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={report.model_name}>
-                        {report.model_name}
-                      </p>
+                      // Flex row so the long model name still truncates with
+                      // an ellipsis while the edit pencil stays visible on
+                      // the right. Pencil only renders when the user has
+                      // edit rights AND the report carries a model_id (the
+                      // workspaces list endpoint includes it — see
+                      // server/routes/workspaces.js).
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4, minWidth: 0 }}>
+                        <span
+                          style={{
+                            fontSize: 12, color: 'var(--accent-primary)',
+                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                            minWidth: 0, flex: '0 1 auto',
+                          }}
+                          title={report.model_name}
+                        >{report.model_name}</span>
+                        {canEdit && report.model_id && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); navigate(`/models/${report.model_id}`); }}
+                            title="Edit model"
+                            style={{
+                              background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
+                              color: 'var(--accent-primary)', opacity: 0.55, transition: 'opacity 0.12s',
+                              display: 'inline-flex', alignItems: 'center', flexShrink: 0,
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.55'; }}
+                          >
+                            <TbPencil size={12} />
+                          </button>
+                        )}
+                      </div>
                     )}
                     {typeof report.fileSize === 'number' && (
                       <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
                         {formatFileSize(report.fileSize)}
                       </p>
                     )}
-                    <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Edit update {new Date(report.updated_at).toLocaleString()}</p>
+                    <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Last edit {new Date(report.updated_at).toLocaleString()}</p>
                     {cardCacheStats[report.id]?.builtAt && (
-                      <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Data update {new Date(cardCacheStats[report.id].builtAt).toLocaleString()}</p>
+                      <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Last refresh {new Date(cardCacheStats[report.id].builtAt).toLocaleString()}</p>
                     )}
                   </div>
                   <div style={{ padding: '8px 20px 14px', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
