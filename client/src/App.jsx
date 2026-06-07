@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import Login from './pages/Login';
@@ -26,34 +26,45 @@ function PublicRoute({ children }) {
   return user ? <Navigate to="/" /> : children;
 }
 
-function App() {
+// Root layout hosts the cross-route providers. The data router (required
+// by `useBlocker` for the editor's unsaved-changes guard) builds its
+// route tree outside React, so providers can't wrap RouterProvider the
+// way they did <BrowserRouter>. Putting them in a layout route nests
+// every route under them via <Outlet />.
+function RootLayout() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
-          <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-          <Route path="/edit/:id" element={<PrivateRoute><Editor /></PrivateRoute>} />
-          <Route path="/datasources" element={<PrivateRoute><Datasources /></PrivateRoute>} />
-          <Route path="/models" element={<PrivateRoute><Models /></PrivateRoute>} />
-          <Route path="/models/:id" element={<PrivateRoute><ModelEditor /></PrivateRoute>} />
-          <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
-          <Route path="/view/:id" element={<Viewer />} />
-          <Route path="/verify" element={<Verify />} />
-          {/* Cloud-edition routes — empty array in the OSS build. */}
-          {(cloudRoutes || []).map((r) => (
-            <Route
-              key={r.path}
-              path={r.path}
-              element={r.requiresAuth ? <PrivateRoute>{r.element}</PrivateRoute> : r.element}
-            />
-          ))}
-        </Routes>
-      </BrowserRouter>
+        <Outlet />
       </AuthProvider>
     </ThemeProvider>
   );
+}
+
+const router = createBrowserRouter([
+  {
+    element: <RootLayout />,
+    children: [
+      { path: '/login', element: <PublicRoute><Login /></PublicRoute> },
+      { path: '/', element: <PrivateRoute><Dashboard /></PrivateRoute> },
+      { path: '/edit/:id', element: <PrivateRoute><Editor /></PrivateRoute> },
+      { path: '/datasources', element: <PrivateRoute><Datasources /></PrivateRoute> },
+      { path: '/models', element: <PrivateRoute><Models /></PrivateRoute> },
+      { path: '/models/:id', element: <PrivateRoute><ModelEditor /></PrivateRoute> },
+      { path: '/admin', element: <PrivateRoute><Admin /></PrivateRoute> },
+      { path: '/view/:id', element: <Viewer /> },
+      { path: '/verify', element: <Verify /> },
+      // Cloud-edition routes — empty array in the OSS build.
+      ...(cloudRoutes || []).map((r) => ({
+        path: r.path,
+        element: r.requiresAuth ? <PrivateRoute>{r.element}</PrivateRoute> : r.element,
+      })),
+    ],
+  },
+]);
+
+function App() {
+  return <RouterProvider router={router} />;
 }
 
 export default App;

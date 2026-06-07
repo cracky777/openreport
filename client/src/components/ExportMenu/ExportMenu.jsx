@@ -119,14 +119,24 @@ export default function ExportMenu({
   };
 
   // Strip per-widget data snapshots — they bypass RLS and aren't portable
-  // across accounts. The importer re-queries widgets against their own model.
+  // across accounts. The importer re-queries widgets against their own
+  // model. EXCEPT for text widgets, where `widget.data.text` IS the
+  // user-authored body (text widgets have no data binding, so there's
+  // nothing to re-query on import). Stripping it would land every text
+  // block on the imported report reset to "Double-click to edit".
+  // Server-side `cleanWidgets` in /reports/import mirrors this so a
+  // bundle exported elsewhere still preserves the text on import.
   const stripWidgetData = (map) => {
     if (!map || typeof map !== 'object') return map;
     const out = {};
     for (const [id, w] of Object.entries(map)) {
       if (w && typeof w === 'object') {
         const { data: _d, ...rest } = w;
-        out[id] = rest;
+        if (w.type === 'text' && _d && typeof _d.text === 'string') {
+          out[id] = { ...rest, data: { text: _d.text } };
+        } else {
+          out[id] = rest;
+        }
       } else {
         out[id] = w;
       }

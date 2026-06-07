@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useBlocker } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import ReportCanvas from '../components/Canvas/ReportCanvas';
 import Toolbar from '../components/Toolbar/Toolbar';
@@ -120,7 +120,6 @@ function buildSnapshot(title, settings, pagesArr) {
 export default function Editor() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const { getThemeVars } = useTheme();
 
   const [report, setReport] = useState(null);
@@ -397,11 +396,31 @@ export default function Editor() {
     const dims = w.dataBinding?.selectedDimensions || [];
     return dims.length > 1;
   }, []);
+  // Source of truth for "what level is this widget actually showing right
+  // now" is the fetched data's `_dimName` — NOT `drillPath.length`. Those
+  // two can fall out of sync: an imported report preserves `drillPath` on
+  // the widget root (the export only strips `data`), so a chart that
+  // shipped with a stale `drillPath=[{nom_mois, X}]` re-renders at the
+  // top level after the post-import auto-refresh (because we capped the
+  // raw drillPath in widgetQueryPayload, or because the saved data was
+  // fetched at level 0). The click would then route through
+  // cross-filter instead of drill-down because `path.length >= dims-1`.
+  // Reading `data._dimName` matches the bar widget's own click resolution
+  // (it passes the displayed dim back via `onDataClick`), so the two
+  // sides agree on which level we are.
+  const getDisplayedDimIndex = useCallback((w) => {
+    const dims = w?.dataBinding?.selectedDimensions || [];
+    if (dims.length === 0) return 0;
+    const displayed = w?.data?._dimName;
+    if (displayed && dims.includes(displayed)) return dims.indexOf(displayed);
+    const path = Array.isArray(w?.drillPath) ? w.drillPath : [];
+    return Math.min(path.length, dims.length - 1);
+  }, []);
   const isWidgetAtLeaf = useCallback((w) => {
     const dims = w?.dataBinding?.selectedDimensions || [];
-    const path = Array.isArray(w?.drillPath) ? w.drillPath : [];
-    return path.length >= Math.max(0, dims.length - 1);
-  }, []);
+    if (dims.length <= 1) return true;
+    return getDisplayedDimIndex(w) >= dims.length - 1;
+  }, [getDisplayedDimIndex]);
   // Marks a refetch as drill-scoped: the next fetch effect run reads this and
   // narrows toFetch to the drilling widget only, so other visuals stay put.
   // (Cross-filter at leaf level still propagates via reportFilters as before.)
@@ -445,8 +464,22 @@ export default function Editor() {
     setRefreshCounter((n) => n + 1);
   }, [history, slicerSelections]);
   const handleDrillDown = useCallback((widgetId, dim, value) => {
-    applyDrillMutation(widgetId, (cur) => [...cur, { dim, value }]);
-  }, [applyDrillMutation]);
+    applyDrillMutation(widgetId, (cur) => {
+      // Trim any drillPath entries beyond the actually displayed level
+      // before pushing the new one. A stale drillPath (longer than the
+      // displayed level — typical after import preserves the original
+      // drill state but the chart re-renders at a higher level) would
+      // otherwise let the click land at an out-of-sync position: pushing
+      // onto a 1-entry path when the chart shows level 0 gives a 2-entry
+      // path that immediately reads as "at leaf" → next click would
+      // cross-filter instead of drilling further. Truncating first
+      // re-bases the path on what the user actually sees.
+      const w = widgetsRef.current?.[widgetId];
+      const displayedIdx = getDisplayedDimIndex(w);
+      const trimmed = Array.isArray(cur) ? cur.slice(0, displayedIdx) : [];
+      return [...trimmed, { dim, value }];
+    });
+  }, [applyDrillMutation, getDisplayedDimIndex]);
   const handleDrillUp = useCallback((widgetId) => {
     applyDrillMutation(widgetId, (cur) => cur.slice(0, -1));
   }, [applyDrillMutation]);
@@ -865,31 +898,83 @@ export default function Editor() {
     if (st.trickle) clearInterval(st.trickle);
   }, []);
 
-  // `?freshImport=1` is set by the Dashboard import flow. On the first
-  // render where widgets are actually loaded, walk every filter widget
-  // and force its distinct-values fetch — the imported bundle strips
-  // `data.values` so slicers come up empty, and the standard refetch
-  // effect skips them while their `selectedDimensions` look unchanged.
-  // Clearing the URL param after firing prevents a re-fire on later
-  // edits, undo / redo, or page navigations.
-  const freshImportFiredRef = useRef(false);
+  // Refs used by the initial-refresh effect AND the one-shot auto-save
+  // effect immediately below. Declared together so the order stays
+  // obvious and a future refactor can't accidentally split them.
+  const initialRefreshFiredRef = useRef(false);
+  const postImportAutoSavePendingRef = useRef(false);
+  const prevRefreshingRef = useRef(false);
+
+  // Auto-fire the "Refresh live query" toolbar action once per browser
+  // tab session for a report whose widgets arrive without data — typical
+  // for a freshly-imported report (the importer strips per-widget result
+  // rows so the bundle stays portable across accounts). We detect this
+  // by looking for any data-binding widget missing its `_fetchedBinding`
+  // marker.
+  //
+  // The `_fetchedBinding` marker lives only in `history.state` (memory),
+  // never persisted to the server — so without the sessionStorage gate,
+  // F5 on an imported-but-unsaved report would trigger the auto-refresh
+  // every reload (the server keeps returning the stripped widgets the
+  // import wrote). sessionStorage scopes the one-shot to a single tab
+  // session, surviving F5 and intra-tab navigation. Reopening the report
+  // in a new tab re-fires once there, which is the correct behaviour:
+  // a new tab can't see the previous tab's in-memory fetched state.
   useEffect(() => {
-    if (freshImportFiredRef.current) return;
-    if (searchParams.get('freshImport') !== '1') return;
-    const widgets = history.state.widgets || {};
-    const slicerIds = Object.entries(widgets)
-      .filter(([, w]) => w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0])
-      .map(([wId]) => wId);
-    if (slicerIds.length === 0) return; // wait for the report to load
-    freshImportFiredRef.current = true;
-    for (const wId of slicerIds) refreshSlicerRef.current?.(wId);
-    // Strip the param without touching anything else (preserveAll on
-    // setSearchParams isn't a thing, so re-create the URLSearchParams
-    // minus our key).
-    const next = new URLSearchParams(searchParams);
-    next.delete('freshImport');
-    setSearchParams(next, { replace: true });
-  }, [history.state.widgets, searchParams, setSearchParams]);
+    if (initialRefreshFiredRef.current) return;
+    if (!model?.id || !id) return;
+    const key = `openreport.autoRefreshed.${id}`;
+    let alreadyAutoRefreshed = false;
+    try { alreadyAutoRefreshed = sessionStorage.getItem(key) === '1'; } catch {}
+    if (alreadyAutoRefreshed) {
+      initialRefreshFiredRef.current = true;
+      return;
+    }
+    const wids = history.state.widgets || {};
+    const anyUnfetched = Object.values(wids).some((w) => {
+      if (!w || w.type === 'filter' || w.type === 'text'
+          || w.type === 'image' || w.type === 'shape') return false;
+      const b = w.dataBinding || {};
+      const hasMeas = w.type === 'scatter' ? !!(b.scatterMeasures?.x && b.scatterMeasures?.y)
+        : w.type === 'combo' ? (b.comboBarMeasures?.length > 0 || b.comboLineMeasures?.length > 0)
+        : b.selectedMeasures?.length > 0;
+      const hasBinding = b.selectedDimensions?.length > 0 || hasMeas;
+      return hasBinding && !w.data?._fetchedBinding;
+    });
+    if (!anyUnfetched) return;
+    initialRefreshFiredRef.current = true;
+    try { sessionStorage.setItem(key, '1'); } catch {}
+    // Arm the one-shot auto-save: when THIS refresh finishes (refreshing
+    // flips back to false), persist the fetched widget data so subsequent
+    // F5s don't re-trigger the auto-refresh path and the user doesn't
+    // need to remember to click Save. Cleared as soon as it fires —
+    // later manual refreshes won't auto-save.
+    postImportAutoSavePendingRef.current = true;
+    // Defer to the next macrotask so the rest of the mount-time state
+    // (setReportFilters from the widgets→filters sync effect, settings
+    // load, etc.) has committed first. Without this, handleRefresh
+    // bumps refreshCounter mid-mount and the main fetch effect's
+    // setTimeout(150ms) gets repeatedly cleared by the cleanup running
+    // on each subsequent state-driven re-render — the actual fetches
+    // only fire once the cascade settles, which can take seconds. The
+    // toolbar-button path doesn't see this because it's clicked from a
+    // stable state.
+    setTimeout(() => handleRefresh(), 0);
+  }, [id, model?.id, history.state.widgets, handleRefresh]);
+
+  // One-shot auto-save after the post-import refresh settles. Watches
+  // `refreshing` for a true→false edge and, if the post-import flag is
+  // armed, calls handleSave once and clears the flag. Any subsequent
+  // manual refresh leaves `postImportAutoSavePendingRef` false, so it's
+  // a no-op for normal refreshes.
+  useEffect(() => {
+    const wasRefreshing = prevRefreshingRef.current;
+    prevRefreshingRef.current = refreshing;
+    if (wasRefreshing && !refreshing && postImportAutoSavePendingRef.current) {
+      postImportAutoSavePendingRef.current = false;
+      handleSave();
+    }
+  }, [refreshing]);
 
   // On mount, check whether the server is already rebuilding this report's
   // cache (user clicked rebuild then F5'd / navigated away and back). If
@@ -1119,6 +1204,7 @@ export default function Editor() {
     // cache_built_at. If yes, also cascade. The stamp is recorded by
     // refreshSlicer on every successful fetch, so subsequent renders
     // without a new rebuild see a match → no extra refresh.
+    //
     const reportCacheBuiltAt = report?.cache_built_at || null;
     const slicersHaveStaleCache = !!reportCacheBuiltAt
       && Object.values(currentWidgets).some((w) =>
@@ -2058,6 +2144,74 @@ export default function Editor() {
     }
   };
 
+  // Unsaved-changes guard. Same comparison the toolbar already uses to
+  // grey out the Save button — current snapshot vs. last-saved snapshot
+  // — but lifted to the component scope so both the browser-close
+  // (beforeunload) and the in-app navigation (useBlocker) paths can
+  // reuse it. Snapshot serialises title + settings + every page's
+  // layout/widgets, so any meaningful edit shows up as dirty.
+  const isReportDirty = useCallback(() => {
+    const curPage = pages[currentPageIdx];
+    const pagesData = { ...pagesDataRef.current };
+    if (curPage) pagesData[curPage.id] = { layout, widgets };
+    const pagesForSnapshot = pages.map((p) => ({
+      id: p.id, name: p.name,
+      layout: pagesData[p.id]?.layout || [],
+      widgets: pagesData[p.id]?.widgets || {},
+    }));
+    return buildSnapshot(title, settings, pagesForSnapshot) !== savedSnapshotRef.current;
+  }, [pages, currentPageIdx, layout, widgets, title, settings]);
+
+  // F5 / close tab / close window — browsers force their own native
+  // confirmation (we can't customise the wording or add a Save button;
+  // any non-empty returnValue triggers it). `beforeunload` only fires
+  // when the page is about to unload, so a stale handler isn't an issue.
+  useEffect(() => {
+    const handler = (e) => {
+      const dirty = isReportDirty();
+      // DEBUG — remove once verified
+      console.log('[DEBUG-beforeunload] fired, dirty=', dirty);
+      if (!dirty) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    // DEBUG — remove once verified
+    console.log('[DEBUG-beforeunload] handler registered');
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isReportDirty]);
+
+  // In-app navigation (clicking the workspace logo, a Dashboard link,
+  // another report card from the toolbar's report picker, …). React
+  // Router v7's `useBlocker` intercepts the transition; we render a
+  // custom modal with Save / Discard / Cancel below. Only blocks when
+  // the destination pathname actually changes — staying on the same
+  // editor (filter pane toggles, page swaps via search params, …)
+  // shouldn't trigger the prompt.
+  const navBlocker = useBlocker(({ currentLocation, nextLocation }) => {
+    const dirty = isReportDirty();
+    const pathChanged = currentLocation.pathname !== nextLocation.pathname;
+    // DEBUG — remove once verified
+    console.log('[DEBUG-blocker] decide', { from: currentLocation.pathname, to: nextLocation.pathname, dirty, pathChanged, block: dirty && pathChanged });
+    return dirty && pathChanged;
+  });
+  // DEBUG — remove once verified
+  useEffect(() => {
+    console.log('[DEBUG-blocker] state changed', navBlocker.state);
+  }, [navBlocker.state]);
+  const [savingFromBlocker, setSavingFromBlocker] = useState(false);
+  const confirmSaveAndLeave = async () => {
+    setSavingFromBlocker(true);
+    try {
+      await handleSave();
+    } finally {
+      setSavingFromBlocker(false);
+      navBlocker.proceed?.();
+    }
+  };
+  const confirmDiscardAndLeave = () => navBlocker.proceed?.();
+  const cancelLeave = () => navBlocker.reset?.();
+
   if (loading) {
     return <div style={{ padding: 40, color: 'var(--text-disabled)' }}>Loading report...</div>;
   }
@@ -2121,18 +2275,7 @@ export default function Editor() {
             />
           );
         })()}
-        isReportDirty={() => {
-          // Compute the current snapshot (includes the currently-edited page + all cached pages)
-          const curPage = pages[currentPageIdx];
-          const pagesData = { ...pagesDataRef.current };
-          if (curPage) pagesData[curPage.id] = { layout, widgets };
-          const pagesForSnapshot = pages.map((p) => ({
-            id: p.id, name: p.name,
-            layout: pagesData[p.id]?.layout || [],
-            widgets: pagesData[p.id]?.widgets || {},
-          }));
-          return buildSnapshot(title, settings, pagesForSnapshot) !== savedSnapshotRef.current;
-        }}
+        isReportDirty={isReportDirty}
       />
       <ReportFilterBar
         model={model}
@@ -2294,6 +2437,63 @@ export default function Editor() {
           backgroundColor: saveMsg === 'Saved' ? 'var(--state-success)' : 'var(--state-danger)', color: '#fff',
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)', animation: 'fadeIn 0.2s',
         }}>{saveMsg === 'Saved' ? '✓ Report saved' : '✗ Save failed'}</div>
+      )}
+      {navBlocker.state === 'blocked' && (
+        <div
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000,
+          }}
+          onClick={cancelLeave}
+        >
+          <div
+            style={{
+              background: 'var(--bg-panel)', borderRadius: 10, padding: 20,
+              minWidth: 380, maxWidth: 480,
+              boxShadow: '0 10px 30px rgba(15,23,42,0.25)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>
+              Unsaved changes
+            </h3>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+              You have unsaved changes on this report. Do you want to save them before leaving?
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                className="btn-hover"
+                onClick={cancelLeave}
+                disabled={savingFromBlocker}
+                style={{
+                  padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 6,
+                  background: 'transparent', color: 'var(--text-muted)',
+                  border: '1px solid var(--border-default)', cursor: 'pointer',
+                }}
+              >Cancel</button>
+              <button
+                className="btn-hover"
+                onClick={confirmDiscardAndLeave}
+                disabled={savingFromBlocker}
+                style={{
+                  padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 6,
+                  background: 'transparent', color: 'var(--state-danger)',
+                  border: '1px solid var(--state-danger)', cursor: 'pointer',
+                }}
+              >Leave without saving</button>
+              <button
+                className="btn-hover btn-hover-primary"
+                onClick={confirmSaveAndLeave}
+                disabled={savingFromBlocker}
+                style={{
+                  padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6,
+                  background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
+                }}
+              >{savingFromBlocker ? 'Saving…' : 'Save and leave'}</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -363,11 +363,16 @@ export default function Viewer() {
       // Clear the saved (owner-snapshot) widget data immediately so the viewer
       // never sees unfiltered rows during the brief moment before the RLS-aware
       // refetch resolves. The widgets will render their loading state instead.
-      // Text widgets aren't refetched, so we leave them untouched.
+      // Object-only widget types (text / image / shape) never refetch, so
+      // marking them loading would strand them on the spinner forever — the
+      // fetch loop's `toFetch` filter (below) excludes them, so the
+      // _loading=true flag we'd set here is never cleared. Leave them
+      // untouched.
+      const NON_DATA_TYPES = new Set(['text', 'image', 'shape']);
       setWidgets((prev) => {
         const next = {};
         for (const [wId, w] of Object.entries(prev || {})) {
-          if (!w || w.type === 'text') {
+          if (!w || NON_DATA_TYPES.has(w.type)) {
             next[wId] = w;
           } else {
             next[wId] = { ...w, data: undefined, _loading: true };

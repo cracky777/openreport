@@ -136,14 +136,24 @@ router.post('/import', requireAuth, (req, res) => {
   const title = (src.title ? `${src.title} (imported)` : 'Imported report').slice(0, 200);
   const layout = Array.isArray(src.layout) ? src.layout : [];
   // Strip any cached widget data from the bundle — viewers re-query against
-  // their own model going forward, subject to their RLS.
+  // their own model going forward, subject to their RLS. EXCEPT for the
+  // text widget: its body is persisted as `widget.data.text` (the only
+  // "user-authored" payload that lives on `.data` rather than on
+  // `.config`), and stripping it would land the imported report with
+  // every text block reset to "Double-click to edit". Keep `data.text`
+  // explicitly; everything else under `.data` (cached rows, _fetched*
+  // markers, etc.) goes.
   const cleanWidgets = (map) => {
     if (!map || typeof map !== 'object') return {};
     const out = {};
     for (const [wId, w] of Object.entries(map)) {
       if (w && typeof w === 'object') {
         const { data: _d, ...rest } = w;
-        out[wId] = rest;
+        if (w.type === 'text' && _d && typeof _d.text === 'string') {
+          out[wId] = { ...rest, data: { text: _d.text } };
+        } else {
+          out[wId] = rest;
+        }
       }
     }
     return out;

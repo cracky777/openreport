@@ -422,14 +422,10 @@ export default function Dashboard() {
       const newId = res.data.report?.id;
       setImportBundle(null);
       setImportModelId('');
-      // `freshImport=1` tells the Editor's first-mount effect to force-
-      // refresh every filter widget once. Without it, slicers stay empty
-      // until the user manually clicks Refresh — the imported bundle
-      // strips per-widget `data.values` (slicer rows) and the normal
-      // refetch effect skips them while `selectedDimensions` is
-      // unchanged. Param is consumed and cleared on the first run so
-      // subsequent edits stay normal.
-      if (newId) navigate(`/edit/${newId}?freshImport=1`);
+      // The Editor auto-detects empty slicers on first mount and fires
+      // refreshSlicer for them, so no cross-page signal is needed —
+      // see `slicersNeverFetched` in Editor.jsx's main fetch effect.
+      if (newId) navigate(`/edit/${newId}`);
     } catch (err) {
       setImportError(err.response?.data?.error || err.message);
     } finally {

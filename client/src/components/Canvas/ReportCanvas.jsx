@@ -195,9 +195,18 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             the spinner — at rest the widget reads "loading", on hover
             it offers the cancel affordance. Placed at top-left so it
             doesn't fight with the SQL / Refresh buttons in the top-right
-            of selected widgets. */}
+            of selected widgets.
+            When the widget is drilled (`_drillDepth > 0`), the drill
+            up/reset toolbar also lands at top-left — slide the spinner
+            down underneath it so the two don't overlap and the user can
+            still see the loading state during a drill refetch. */}
         {widget._loading && (
-          <div style={{ position: 'absolute', top: 6, left: 6, zIndex: 11 }}>
+          <div style={{
+            position: 'absolute',
+            top: widget.data?._drillDepth > 0 ? 32 : 6,
+            left: 6,
+            zIndex: 11,
+          }}>
             {!readOnly && onCancelFetch ? (
               <button
                 onClick={(e) => { e.stopPropagation(); onCancelFetch(); }}
