@@ -642,6 +642,14 @@ router.post('/:id/query', async (req, res) => {
   let {
     dimensionNames, measureNames, limit, offset, filters, widgetFilters,
     distinct, measureAggOverrides, sqlOnly,
+    // X-grain HAVING — when the client visual has a legend (groupBy) and
+    // applies a measure filter, the user expects "filter X values whose
+    // TOTAL (across all legend slices) passes the test", not "filter
+    // each (X × legend) cell independently". This array names the X-axis
+    // dims; when set, measure filters (HAVING-style + top_n / bottom_n)
+    // get routed through an IN-subquery aggregated at the X grain
+    // instead of HAVING at the (X × legend) grain.
+    havingGrainDims,
     // Optional: client-generated UUID. When set, the server registers the
     // running query in inFlightQueries so a sibling POST /cancel-query
     // request can abort it via the dialect's native cancel mechanism.
@@ -1045,6 +1053,7 @@ router.post('/:id/query', async (req, res) => {
         measureAggOverrides: measureAggOverrides || {},
         filters: filters || {},
         widgetFilters: Array.isArray(widgetFilters) ? widgetFilters : [],
+        havingGrainDims,
         allDimensions,
         allMeasures,
         limit,
@@ -1124,30 +1133,58 @@ router.post('/:id/query', async (req, res) => {
   // `field` is the dimension name (or null for non-dim clauses like RLS).
   const whereParts = [];
   if (filters && typeof filters === 'object') {
-    for (const [dimName, values] of Object.entries(filters)) {
-      if (!Array.isArray(values) || values.length === 0) continue;
+    for (const [dimName, raw] of Object.entries(filters)) {
+      // Range-shape: `{ op: 'between', value: [start, end] }` — emitted by
+      // widgetQueryPayload when the slicer style is dateRange / dateBetween
+      // or dateCalendar+between. Routes to a clean BETWEEN clause instead
+      // of the discrete-list IN that would otherwise materialise.
+      const isRange = raw && typeof raw === 'object' && !Array.isArray(raw)
+        && raw.op === 'between' && Array.isArray(raw.value) && raw.value.length === 2;
+      const values = isRange ? null : raw;
+      if (!isRange && (!Array.isArray(values) || values.length === 0)) continue;
       const dimDef = allDimensions.find((d) => d.name === dimName);
-      if (dimDef) {
-        tablesUsed.add(dimDef.table);
-        const col = quoteCol(dimDef.table, dimDef.column, dbType);
-        if (dimDef.datePart) {
-          // Drill-down on a date-part dim — filter against the same
-          // EXTRACT/YEAR(...) expression used in SELECT. Type-aware IN
-          // emits a numeric `IN (2024)` for num_year etc. instead of
-          // wrapping a CAST around the EXTRACT.
-          const expr = buildDatePartExpr(dimDef, dbType, columnTypes);
-          const clause = buildInList(expr, effectiveDimType(dimDef), values, dbType);
-          if (clause) whereParts.push({ field: dimName, sql: clause });
-        } else if (dimDef.type === 'date') {
+      if (!dimDef) continue;
+      tablesUsed.add(dimDef.table);
+      const col = quoteCol(dimDef.table, dimDef.column, dbType);
+      if (isRange) {
+        const [startVal, endVal] = raw.value;
+        if (dimDef.type === 'date') {
           const fmt = getDateFormat(dimDef.table, dimDef.column, columnTypes);
-          const escaped = values.map((v) => quoteLiteral(v, dbType)).join(', ');
-          whereParts.push({ field: dimName, sql: `${castToDate(col, dbType, fmt)} IN (${escaped})` });
+          whereParts.push({
+            field: dimName,
+            sql: `${castToDate(col, dbType, fmt)} BETWEEN ${quoteLiteral(startVal, dbType)} AND ${quoteLiteral(endVal, dbType)}`,
+          });
+        } else if (dimDef.datePart) {
+          const expr = buildDatePartExpr(dimDef, dbType, columnTypes);
+          whereParts.push({
+            field: dimName,
+            sql: `${expr} BETWEEN ${quoteLiteral(startVal, dbType)} AND ${quoteLiteral(endVal, dbType)}`,
+          });
         } else {
-          // Type-aware IN — string columns compared without a CAST so the
-          // engine can hit the index, numeric columns compared as numbers.
-          const clause = buildInList(col, effectiveDimType(dimDef), values, dbType);
-          if (clause) whereParts.push({ field: dimName, sql: clause });
+          whereParts.push({
+            field: dimName,
+            sql: `${col} BETWEEN ${quoteLiteral(startVal, dbType)} AND ${quoteLiteral(endVal, dbType)}`,
+          });
         }
+        continue;
+      }
+      if (dimDef.datePart) {
+        // Drill-down on a date-part dim — filter against the same
+        // EXTRACT/YEAR(...) expression used in SELECT. Type-aware IN
+        // emits a numeric `IN (2024)` for num_year etc. instead of
+        // wrapping a CAST around the EXTRACT.
+        const expr = buildDatePartExpr(dimDef, dbType, columnTypes);
+        const clause = buildInList(expr, effectiveDimType(dimDef), values, dbType);
+        if (clause) whereParts.push({ field: dimName, sql: clause });
+      } else if (dimDef.type === 'date') {
+        const fmt = getDateFormat(dimDef.table, dimDef.column, columnTypes);
+        const escaped = values.map((v) => quoteLiteral(v, dbType)).join(', ');
+        whereParts.push({ field: dimName, sql: `${castToDate(col, dbType, fmt)} IN (${escaped})` });
+      } else {
+        // Type-aware IN — string columns compared without a CAST so the
+        // engine can hit the index, numeric columns compared as numbers.
+        const clause = buildInList(col, effectiveDimType(dimDef), values, dbType);
+        if (clause) whereParts.push({ field: dimName, sql: clause });
       }
     }
   }
@@ -1503,7 +1540,16 @@ router.post('/:id/query', async (req, res) => {
       selectParts.push(`${rawCol} AS ${quoteIdent(m.label || m.name, dbType)}`);
       groupByParts.push(rawCol);
     } else if (m.aggregation === 'count') {
-      selectParts.push(`COUNT(*) AS ${quoteIdent(m.label || m.name, dbType)}`);
+      // COUNT(*) when no column is specified (or the legacy '*' sentinel),
+      // COUNT(table.column) — non-null count — when a column was picked
+      // in the measure wizard. The wizard now lets the user choose
+      // either; for backwards-compat existing measures that came in
+      // with `column='*'` or no table keep the COUNT(*) shape.
+      if (m.table && m.column && m.column !== '*') {
+        selectParts.push(`COUNT(${quoteCol(m.table, m.column, dbType)}) AS ${quoteIdent(m.label || m.name, dbType)}`);
+      } else {
+        selectParts.push(`COUNT(*) AS ${quoteIdent(m.label || m.name, dbType)}`);
+      }
     } else {
       // Wrap the column in CAST when the user has overridden it to a numeric
       // type — otherwise SUM/AVG on a text column (e.g. nvarchar storing
@@ -1532,60 +1578,117 @@ router.post('/:id/query', async (req, res) => {
   });
 
   // Apply per-widget MEASURE filters as HAVING clauses, now that aggregation
-  // expressions are known. Skips custom expressions (not yet supported in HAVING).
+  // expressions are known. Custom-expression measures route through the same
+  // SELECT-path pipeline (inlineMeasureRefs → preWrapIntervalRefs →
+  // applyNumericCast) so HAVING / top_n / bottom_n operate on EXACTLY the
+  // same SQL expression the visual renders.
+  //
+  // X-grain HAVING (line/column charts with a legend): when the client
+  // sends `havingGrainDims` (the X-axis dims only, post-drill), measure
+  // filters are routed into `xGrainHavingParts` / `xGrainTopN` instead.
+  // The post-loop block downstream wraps these in an IN-subquery that
+  // aggregates at the X grain — so "Top 10 countries by revenue" keeps
+  // ALL years of each top country, instead of trimming to top 10
+  // (country, year) cells. The drill case works naturally because
+  // `havingGrainDims` reflects the currently-displayed level only.
   let topNOverride = null; // { aggExpr, n, direction: 'DESC' | 'ASC' }
+  const xGrainHavingParts = [];
+  let xGrainTopN = null; // { aggExpr, n, direction }
+  const useXGrainHaving = Array.isArray(havingGrainDims)
+    && havingGrainDims.length > 0
+    && Array.isArray(dimensionNames)
+    && havingGrainDims.length < dimensionNames.length;
   for (const f of measureFiltersDeferred) {
     const measDef = allMeasures.find((mm) => mm.name === f.field);
     if (!measDef) continue;
-    if (measDef.aggregation === 'custom') continue; // unsupported for now
-    // The HAVING must aggregate with the SAME function the visual uses.
-    // The SELECT path applies the per-widget aggregation override
-    // (measureAggOverrides) when building selectedMeasures, so a measure
-    // shown as AVG on the widget must be filtered as AVG too — not the
-    // measure's base aggregation (which would emit SUM here while the
-    // SELECT emits AVG, comparing the filter against the wrong number).
-    const effAggH = (measureAggOverrides && measureAggOverrides[f.field]
-      && measDef.aggregation !== 'custom')
-      ? measureAggOverrides[f.field]
-      : measDef.aggregation;
-    // Same numeric-cast logic as the SELECT path so HAVING references the
-    // exact same expression.
-    const rawColH = (measDef.table && measDef.column)
-      ? quoteCol(measDef.table, measDef.column, dbType)
-      : null;
-    const ovTypeH = getOverrideType(measDef.table, measDef.column, columnTypes);
-    const colExprH = rawColH && (ovTypeH === 'integer' || ovTypeH === 'decimal' || ovTypeH === 'number')
-      ? castToNumber(rawColH, dbType, ovTypeH)
-      : rawColH;
-    const baseAggExpr = effAggH === 'count'
-      ? 'COUNT(*)'
-      : (colExprH
-          ? `${normalizeAggregation(effAggH).toUpperCase()}(${colExprH})`
-          : null);
-    if (!baseAggExpr) continue;
-    // Mirror the SELECT path: `interval` aggregates need EXTRACT(EPOCH …)
-    // so HAVING comparisons are against a number rather than an interval.
-    // PG + DuckDB share the syntax; BigQuery falls back to the row post-
-    // processor (and HAVING on intervals there is rare anyway).
-    const isIntervalH = String(measDef.dataType || '').toLowerCase() === 'interval'
-      || ovTypeH === 'interval';
-    const supportsExtractEpochH = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
-    const aggExpr = (isIntervalH && supportsExtractEpochH && effAggH !== 'count')
-      ? `EXTRACT(EPOCH FROM ${baseAggExpr})`
-      : baseAggExpr;
-    if (measDef.table) tablesUsed.add(measDef.table);
-    // Top N / Bottom N — these aren't WHERE/HAVING clauses; they override
-    // ORDER BY and LIMIT after aggregation. First top/bottom filter wins.
-    if ((f.op === 'top_n' || f.op === 'bottom_n')) {
-      if (topNOverride) continue;
+    let aggExpr; // set below — used as ORDER BY / HAVING expression
+    if (measDef.aggregation === 'custom') {
+      if (!measDef.expression) continue;
+      let inlined;
+      try {
+        inlined = inlineMeasureRefs(measDef.expression);
+      } catch {
+        continue;
+      }
+      inlined = preWrapIntervalRefs(inlined, columnTypes, dbType);
+      aggExpr = `(${applyNumericCast(inlined)})`;
+      // Pull tables referenced by the inlined expression into the JOIN
+      // graph — same logic the SELECT path uses at line 1477. Without
+      // this, a HAVING that references a table not otherwise selected
+      // would emit SQL with an unresolved alias.
+      const allFieldsForLookup = [...allDimensions, ...allMeasures.filter((x) => x.table)];
+      for (const field of allFieldsForLookup) {
+        if (inlined.includes(field.column) || inlined.includes(field.table)) {
+          tablesUsed.add(field.table);
+        }
+      }
+    } else {
+      // The HAVING must aggregate with the SAME function the visual uses.
+      // The SELECT path applies the per-widget aggregation override
+      // (measureAggOverrides) when building selectedMeasures, so a measure
+      // shown as AVG on the widget must be filtered as AVG too — not the
+      // measure's base aggregation (which would emit SUM here while the
+      // SELECT emits AVG, comparing the filter against the wrong number).
+      const effAggH = (measureAggOverrides && measureAggOverrides[f.field]
+        && measDef.aggregation !== 'custom')
+        ? measureAggOverrides[f.field]
+        : measDef.aggregation;
+      // Same numeric-cast logic as the SELECT path so HAVING references the
+      // exact same expression.
+      const rawColH = (measDef.table && measDef.column)
+        ? quoteCol(measDef.table, measDef.column, dbType)
+        : null;
+      const ovTypeH = getOverrideType(measDef.table, measDef.column, columnTypes);
+      const colExprH = rawColH && (ovTypeH === 'integer' || ovTypeH === 'decimal' || ovTypeH === 'number')
+        ? castToNumber(rawColH, dbType, ovTypeH)
+        : rawColH;
+      // Mirror the SELECT path: COUNT becomes COUNT(table.column) when a
+      // column is bound on the measure (non-'*' sentinel), otherwise the
+      // classic COUNT(*). HAVING must use the same expression the visual
+      // displays, so this matches the COUNT branch in the SELECT loop above.
+      const baseAggExpr = effAggH === 'count'
+        ? ((measDef.table && measDef.column && measDef.column !== '*')
+            ? `COUNT(${quoteCol(measDef.table, measDef.column, dbType)})`
+            : 'COUNT(*)')
+        : (colExprH
+            ? `${normalizeAggregation(effAggH).toUpperCase()}(${colExprH})`
+            : null);
+      if (!baseAggExpr) continue;
+      // Mirror the SELECT path: `interval` aggregates need EXTRACT(EPOCH …)
+      // so HAVING comparisons are against a number rather than an interval.
+      // PG + DuckDB share the syntax; BigQuery falls back to the row post-
+      // processor (and HAVING on intervals there is rare anyway).
+      const isIntervalH = String(measDef.dataType || '').toLowerCase() === 'interval'
+        || ovTypeH === 'interval';
+      const supportsExtractEpochH = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
+      aggExpr = (isIntervalH && supportsExtractEpochH && effAggH !== 'count')
+        ? `EXTRACT(EPOCH FROM ${baseAggExpr})`
+        : baseAggExpr;
+      if (measDef.table) tablesUsed.add(measDef.table);
+    }
+
+    // Top N / Bottom N — without legend, override ORDER BY + LIMIT
+    // directly. With legend (useXGrainHaving), bucket into xGrainTopN so
+    // the post-loop IN-subquery wraps it.
+    if (f.op === 'top_n' || f.op === 'bottom_n') {
       const n = parseInt(f.value, 10);
-      if (Number.isFinite(n) && n > 0) {
+      if (!Number.isFinite(n) || n <= 0) continue;
+      if (useXGrainHaving) {
+        if (!xGrainTopN) {
+          xGrainTopN = { aggExpr, n, direction: f.op === 'top_n' ? 'DESC' : 'ASC' };
+        }
+      } else if (!topNOverride) {
         topNOverride = { aggExpr, n, direction: f.op === 'top_n' ? 'DESC' : 'ASC' };
       }
       continue;
     }
+
+    // Comparator (>, <, =, between, is_null, …) — route to x-grain bucket
+    // when legend is present, otherwise emit as a regular HAVING.
     const clause = buildScalarClause(aggExpr, f.op, f.value, f.values, false);
-    if (clause) havingParts.push(clause);
+    if (!clause) continue;
+    if (useXGrainHaving) xGrainHavingParts.push(clause);
+    else havingParts.push(clause);
   }
 
   // RLS WHERE injection: must be added after all dim/measure tables are registered
@@ -1895,6 +1998,57 @@ router.post('/:id/query', async (req, res) => {
           selectParts[j] = selectParts[j].split(placeholder).join(replacement);
         }
       }
+    }
+  }
+
+  // X-grain HAVING — build the IN-subquery now that fromClause + whereParts
+  // are finalised (RLS injected, JOIN graph closed). The subquery shape:
+  //   SELECT <x dims> FROM <same FROM> WHERE <same WHERE>
+  //   GROUP BY <x dims> HAVING <x-grain havings>
+  //   [ORDER BY <x-grain topN expr> <dir> [NULLS LAST] LIMIT <n>]
+  // and we push `<x dim cols> IN (<subSql>)` onto whereParts so the outer
+  // query keeps the (X × legend) grain but only for X values that passed
+  // the X-grain test. We capture whereParts BEFORE pushing the IN clause
+  // so the subquery sees the unmodified WHERE — no self-referential loop.
+  // Single-dim case uses `col IN (subSelect)`; multi-dim uses row-value
+  // `(col1, col2) IN (subSelect)`, which works on PG / MySQL / DuckDB /
+  // BigQuery; MSSQL doesn't support it and would fall through to a no-op
+  // unless we ever expand to EXISTS. For now the typical case (one
+  // active X axis, possibly drilled) hits the single-dim branch.
+  if (useXGrainHaving && (xGrainHavingParts.length > 0 || xGrainTopN)) {
+    const grainDimDefs = havingGrainDims
+      .map((n) => allDimensions.find((d) => d.name === n))
+      .filter((d) => d && d.table && d.column);
+    if (grainDimDefs.length === havingGrainDims.length && grainDimDefs.length > 0) {
+      for (const d of grainDimDefs) tablesUsed.add(d.table);
+      const dimColExprs = grainDimDefs.map((d) => quoteCol(d.table, d.column, dbType));
+      const capturedWhere = whereParts.length > 0
+        ? ` WHERE ${whereParts.map((w) => w.sql).join(' AND ')}`
+        : '';
+      const subSelect = dimColExprs.join(', ');
+      const subGroupBy = dimColExprs.join(', ');
+      const subHaving = xGrainHavingParts.length > 0
+        ? ` HAVING ${xGrainHavingParts.join(' AND ')}`
+        : '';
+      let subOrderLimit = '';
+      if (xGrainTopN) {
+        const supportsNullsLast = dbType === 'postgres' || dbType === 'duckdb' || dbType === 'bigquery';
+        if (dbType === 'mysql') {
+          subOrderLimit = ` ORDER BY ${xGrainTopN.aggExpr} IS NULL, ${xGrainTopN.aggExpr} ${xGrainTopN.direction}`;
+        } else if (supportsNullsLast) {
+          subOrderLimit = ` ORDER BY ${xGrainTopN.aggExpr} ${xGrainTopN.direction} NULLS LAST`;
+        } else {
+          subOrderLimit = ` ORDER BY ${xGrainTopN.aggExpr} ${xGrainTopN.direction}`;
+        }
+        if (dbType === 'mssql' || dbType === 'azure_sql') {
+          subOrderLimit += ` OFFSET 0 ROWS FETCH NEXT ${xGrainTopN.n} ROWS ONLY`;
+        } else {
+          subOrderLimit += ` LIMIT ${xGrainTopN.n}`;
+        }
+      }
+      const subSql = `SELECT ${subSelect} FROM ${fromClause}${capturedWhere} GROUP BY ${subGroupBy}${subHaving}${subOrderLimit}`;
+      const inLhs = dimColExprs.length === 1 ? dimColExprs[0] : `(${dimColExprs.join(', ')})`;
+      whereParts.push({ field: null, sql: `${inLhs} IN (${subSql})` });
     }
   }
 

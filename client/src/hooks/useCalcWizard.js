@@ -29,9 +29,15 @@ export function useCalcWizard() {
 
   useEffect(() => {
     if (!showCalcForm) return;
-    const [table, column] = (calcAggregation === 'count')
-      ? ['', '*']
-      : (calcAggregation === 'custom' ? ['', ''] : (calcField || '').split('::'));
+    // COUNT now accepts an optional column: when the user picks one the
+    // preview should render `COUNT(table.column)` (non-null count of that
+    // field); when left blank we keep the COUNT(*) sentinel so existing
+    // behaviour and saved measures stay unchanged.
+    const [table, column] = (calcAggregation === 'custom')
+      ? ['', '']
+      : (calcAggregation === 'count'
+          ? (calcField ? calcField.split('::') : ['', '*'])
+          : (calcField || '').split('::'));
     const sql = buildMeasureSql({
       aggregation: calcAggregation,
       table: table || '',

@@ -109,15 +109,25 @@ export function buildMeasureSql({ aggregation, table, column, filterRules, overr
     }
     return bare;
   }
-  // Structured path: synthesize <AGG>(col) or <AGG>(CASE WHEN ... THEN col END)
-  const isCount = aggregation === 'count' || (column === '*' && !table);
-  const colExpr = isCount ? null : (table && column ? `"${table}"."${column}"` : null);
-  const aggFn = isCount ? 'COUNT' : (aggregation || 'sum').toUpperCase();
-  const baseAgg = isCount ? 'COUNT(*)' : `${aggFn}(${colExpr || 'col'})`;
+  // Structured path: synthesize <AGG>(col) or <AGG>(CASE WHEN ... THEN col END).
+  // COUNT is special-cased twice: a column-less COUNT renders `COUNT(*)` (legacy
+  // shape, also matched by the `column='*' && !table` sentinel from old saves),
+  // and a column-bound COUNT renders `COUNT(table.column)` — non-null count of
+  // that column. The latter accepts any column type (text / date / number).
+  const isCountStar = (aggregation === 'count' && (!table || !column || column === '*'))
+    || (column === '*' && !table);
+  const colExpr = (table && column && column !== '*') ? `"${table}"."${column}"` : null;
+  const aggFn = (aggregation === 'count') ? 'COUNT' : (aggregation || 'sum').toUpperCase();
+  const baseAgg = isCountStar
+    ? 'COUNT(*)'
+    : `${aggFn}(${colExpr || 'col'})`;
   if (!hasFilter || !whenSql) return baseAgg;
   if (overrideFilters) {
     return `(SELECT ${baseAgg}\n FROM <model>\n WHERE <visual filters except override fields>\n   AND ${whenSql})`;
   }
-  const inner = isCount ? '1' : colExpr;
+  // CASE WHEN wrap: COUNT(*) → COUNT(CASE WHEN ... THEN 1 END) (count of
+  // matching rows); COUNT(col) → COUNT(CASE WHEN ... THEN col END) (count
+  // of matching non-null values of col). Other aggs wrap the column.
+  const inner = isCountStar ? '1' : colExpr;
   return `${aggFn}(CASE WHEN ${whenSql}\n     THEN ${inner} END)`;
 }

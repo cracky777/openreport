@@ -18,9 +18,14 @@ export function useFieldEdit() {
 
   useEffect(() => {
     if (!editingField) return;
-    const [table, column] = (editForm.aggregation === 'count')
-      ? ['', '*']
-      : (editForm.aggregation === 'custom' ? ['', ''] : (editForm.field || '').split('::'));
+    // Same column-aware COUNT rule as the create wizard: honour the picked
+    // column when set, fall back to the COUNT(*) sentinel only when blank.
+    // See useCalcWizard.js for the matching create-side logic.
+    const [table, column] = (editForm.aggregation === 'custom')
+      ? ['', '']
+      : (editForm.aggregation === 'count'
+          ? (editForm.field ? editForm.field.split('::') : ['', '*'])
+          : (editForm.field || '').split('::'));
     const sql = buildMeasureSql({
       aggregation: editForm.aggregation,
       table: table || '',

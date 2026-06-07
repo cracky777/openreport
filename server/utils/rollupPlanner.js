@@ -194,6 +194,7 @@ async function tryServeFromRollup(opts) {
     measureAggOverrides = {},
     filters = {},
     widgetFilters = [],
+    havingGrainDims,
     allDimensions = [],
     allMeasures = [],
     limit,
@@ -203,6 +204,20 @@ async function tryServeFromRollup(opts) {
   if (rlsApplies) return { hit: false, reason: 'rls-restricted' };
   const mid = modelId || (model && model.id);
   if (!mid) return { hit: false, reason: 'no-model' };
+  // X-grain HAVING (bar/line/combo with legend + measure filter) needs the
+  // measure-filter to be evaluated at the X-axis grain, not the full
+  // (X × legend) grain that the visual returns. The planner's in-memory
+  // HAVING below applies to recomposed rows AT THE REQUESTED GRAIN — it
+  // has no notion of "filter at a coarser grain than the result". Rather
+  // than re-implement it here we bail when x-grain is requested and let
+  // the live SQL path emit its proper IN-subquery. Bumping x-grain into
+  // the planner is a worthwhile follow-up but it's a non-trivial extension
+  // of the recompose-and-filter pipeline.
+  if (Array.isArray(havingGrainDims)
+      && havingGrainDims.length > 0
+      && havingGrainDims.length < (dimensionNames || []).length) {
+    return { hit: false, reason: 'x-grain-having-unsupported' };
+  }
 
   // Split widgetFilters: the global portion (field+op matches a report
   // global-filter rule — the client already applied this widget's

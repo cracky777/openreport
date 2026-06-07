@@ -294,6 +294,30 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           ? [...widgetFilters, { field: topNMeasure, op: 'top_n', value: topNValue, isMeasure: true }]
           : widgetFilters;
 
+        // X-grain HAVING — mirror widgetQueryPayload.js. When the visual has
+        // BOTH an X-axis dim AND a legend (grpBy) AND at least one measure
+        // filter, the server should route HAVING / top_n through an IN
+        // subquery aggregated at the X grain only. DataPanel fires its own
+        // payloads (it doesn't call buildWidgetQueryPayload), so this logic
+        // must be duplicated here — otherwise the auto-refresh fired on
+        // every binding edit (drag-drop, filter rule tweak) would emit the
+        // wrong HAVING grain even though the toolbar Refresh button (which
+        // goes through Editor's main fetch effect) emits the correct one.
+        const X_GRAIN_HAVING_TYPES_LOCAL = ['bar', 'line', 'combo', 'area'];
+        const HAVING_OPS_LOCAL = new Set([
+          'top_n', 'bottom_n',
+          'eq', 'neq', 'gt', 'gte', 'lt', 'lte',
+          'between', 'is_null', 'is_not_null',
+        ]);
+        const havingFiltersPresentLocal = Array.isArray(widgetFilters)
+          && widgetFilters.some((f) => f && f.isMeasure && HAVING_OPS_LOCAL.has(f.op));
+        const havingGrainDimsLocal = (
+          X_GRAIN_HAVING_TYPES_LOCAL.includes(capturedWidget.type)
+          && grpBy.length > 0
+          && effectiveDims.length > 0
+          && havingFiltersPresentLocal
+        ) ? effectiveDims : undefined;
+
         // Main query (skipped when only colour-by-measure is bound, e.g. for shape/text widgets)
         const mainQid = hasMainBinding ? newQueryId() : null;
         const mainPromise = hasMainBinding
@@ -310,6 +334,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               limit: isFilterWidget ? 1000 : (capturedWidget.config?.dataLimit || 1000),
               filters: mergedFiltersLocal,
               widgetFilters: sanitizeWidgetFilters(widgetFiltersWithTopN),
+              ...(havingGrainDimsLocal ? { havingGrainDims: havingGrainDimsLocal } : {}),
               distinct: isFilterWidget || undefined,
               reportId,
               bypassCache: refreshTriggered,
@@ -795,9 +820,15 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               </select>
               {calcAggregation !== 'custom' && (
                 <select value={calcField} onChange={(e) => setCalcField(e.target.value)}
-                  style={{ ...calcInputStyle, flex: 1, marginBottom: 0 }}
-                  disabled={calcAggregation === 'count'}>
-                  <option value="">{calcAggregation === 'count' ? '— count(*)' : '— pick a column —'}</option>
+                  style={{ ...calcInputStyle, flex: 1, marginBottom: 0 }}>
+                  <option value="">{calcAggregation === 'count' ? '— count(*) — all rows' : '— pick a column —'}</option>
+                  {/* COUNT accepts any column type (text / date / number — it
+                      counts non-null values regardless), so widen the picker
+                      to include dimensions too. SUM / AVG / MIN / MAX stay
+                      numeric-only by listing model.measures. */}
+                  {calcAggregation === 'count' && (model.dimensions || []).filter((d) => d.table && d.column).map((d) => (
+                    <option key={'d::' + d.name} value={`${d.table}::${d.column}`}>{d.label || d.column}</option>
+                  ))}
                   {(model.measures || []).filter((mm) => mm.table && mm.column && mm.aggregation !== 'custom').map((mm) => (
                     <option key={mm.name} value={`${mm.table}::${mm.column}`}>{mm.label || mm.column}</option>
                   ))}
@@ -879,9 +910,14 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   setCalcSaving(true);
                   try {
                     const measName = `_calc.${calcLabel.replace(/\s+/g, '_').toLowerCase()}`;
+                    // COUNT now accepts an optional column. When the user
+                    // picks one, persist it like any other agg (table+col);
+                    // when left blank, fall back to the COUNT(*) sentinel.
                     const [table, column] = (calcAggregation === 'custom')
                       ? ['', '']
-                      : (calcAggregation === 'count' ? ['', '*'] : calcField.split('::'));
+                      : (calcAggregation === 'count'
+                          ? (calcField ? calcField.split('::') : ['', '*'])
+                          : calcField.split('::'));
                     // Save the BARE expression (un-wrapped) + filterRules
                     // separately. The server's intersection / override
                     // branch applies the CASE WHEN at query time. The
@@ -1026,9 +1062,14 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   {editForm.aggregation !== 'custom' && (
                     <select value={editForm.field}
                       onChange={(e) => setEditForm({ ...editForm, field: e.target.value })}
-                      style={{ ...editInput, flex: 1 }}
-                      disabled={editForm.aggregation === 'count'}>
-                      <option value="">{editForm.aggregation === 'count' ? '— count(*)' : '— pick a column —'}</option>
+                      style={{ ...editInput, flex: 1 }}>
+                      <option value="">{editForm.aggregation === 'count' ? '— count(*) — all rows' : '— pick a column —'}</option>
+                      {/* See wizard: COUNT accepts any column, so we show
+                          dimensions on top of measures. Other aggregations
+                          stay measure-only (numeric). */}
+                      {editForm.aggregation === 'count' && (model.dimensions || []).filter((d) => d.table && d.column).map((d) => (
+                        <option key={'d::' + d.name} value={`${d.table}::${d.column}`}>{d.label || d.column}</option>
+                      ))}
                       {(model.measures || []).filter((mm) => mm.table && mm.column && mm.aggregation !== 'custom').map((mm) => (
                         <option key={mm.name} value={`${mm.table}::${mm.column}`}>{mm.label || mm.column}</option>
                       ))}
@@ -1225,8 +1266,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                         },
                       };
                     } else {
+                      // Same column-aware COUNT rule as the wizard above:
+                      // honour the picked column when set, fall back to the
+                      // COUNT(*) sentinel only when the user left it blank.
                       const [tbl, col] = editForm.aggregation === 'count'
-                        ? ['', '*']
+                        ? (editForm.field ? editForm.field.split('::') : ['', '*'])
                         : (editForm.field || '').split('::');
                       patch = {
                         label: editForm.label,

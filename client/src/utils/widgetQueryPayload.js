@@ -126,6 +126,39 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
   const targetFilters = filterForTarget(wId, baseFilters, currentWidgets, crossHighlight);
   const mergedFilters = { ...targetFilters, ...drillFilters };
 
+  // Range-type date slicers (`dateRange`, `dateBetween`, and `dateCalendar`
+  // with `dateCalendarMode === 'between'`) materialise their picked range
+  // into the discrete list of dates that actually exist in the data — so
+  // the server sees a giant `WHERE date IN ('2026-04-01', '2026-04-02', …)`
+  // even when the user expressed an interval. Rewrite those entries to
+  // the range shape `{ op: 'between', value: [min, max] }` so the server
+  // emits a clean BETWEEN clause instead. We touch only `mergedFilters`
+  // — the upstream `reportFilters` map keeps its array form so other
+  // consumers (slicer `activeSelection`, snapshot diff, …) keep working.
+  const rangeSlicerDims = new Set();
+  for (const w of Object.values(currentWidgets || {})) {
+    if (w?.type !== 'filter') continue;
+    const dim = w.dataBinding?.selectedDimensions?.[0];
+    if (!dim) continue;
+    const style = w.config?.slicerStyle;
+    const isBetweenStyle = style === 'dateRange'
+      || style === 'dateBetween'
+      || (style === 'dateCalendar' && w.config?.dateCalendarMode === 'between');
+    if (isBetweenStyle) rangeSlicerDims.add(dim);
+  }
+  if (rangeSlicerDims.size > 0) {
+    for (const k of Object.keys(mergedFilters)) {
+      if (!rangeSlicerDims.has(k)) continue;
+      const arr = mergedFilters[k];
+      if (!Array.isArray(arr) || arr.length === 0) continue;
+      // ISO date strings sort lexically the same as chronologically.
+      // Non-ISO date formats would need Date-coerced comparison, but
+      // every date slicer in this codebase emits ISO via toLocalInputDate.
+      const sorted = [...arr].map((x) => String(x)).sort();
+      mergedFilters[k] = { op: 'between', value: [sorted[0], sorted[sorted.length - 1]] };
+    }
+  }
+
   // Filter widget handling. In Viewer ('distinct' mode) filter widgets
   // fetch a distinct values list for their bound dim, ignoring report
   // filters (so the slicer doesn't filter itself) and capped at 1000.
@@ -188,6 +221,48 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
     ...reportExtras,
   };
 
+  // X-grain HAVING — when the visual has a legend/groupBy dimension AND
+  // at least one widget-level measure filter, the user-intended filter
+  // is "keep the X-axis values whose AGGREGATE (across all legend slices)
+  // passes the predicate", not "keep each (X × legend) cell that passes
+  // independently". Pass the X-axis dims (post drill) to the server so
+  // it can route those filters through an IN-subquery aggregated at the
+  // X grain instead of a HAVING at the full (X × legend) grain.
+  //
+  // Restricted to bar / line / combo / area for now — pie and treemap
+  // don't expose a separate legend axis in this codebase (their grpBy
+  // is the only dim), so the X-grain and legend grain are identical.
+  // Drillable widgets work transparently: `dims` is already the active
+  // drill level (set above), so the IN-subquery aggregates at exactly
+  // the level the visual currently shows.
+  const X_GRAIN_HAVING_TYPES = ['bar', 'line', 'combo', 'area'];
+  // Op aliases match buildScalarClause in server/routes/models.js
+  // (eq/neq/gt/gte/lt/lte) — NOT the human-readable symbols (=/!=/>/etc.).
+  // Missing this mapping was why an early version of this check silently
+  // never set havingGrainDims.
+  const HAVING_OPS = new Set([
+    'top_n', 'bottom_n',
+    'eq', 'neq', 'gt', 'gte', 'lt', 'lte',
+    'between', 'is_null', 'is_not_null',
+  ]);
+  // Look at BOTH widget-own filters AND report-level rules — a measure
+  // filter set in the global Settings filter bar arrives via
+  // `reportLevelFilters`, NOT `binding.widgetFilters`, and should still
+  // trigger x-grain routing for the bar/line/combo widget it applies to.
+  const allMeasureFilterSources = [
+    ...(Array.isArray(reportLevelFilters) ? reportLevelFilters : []),
+    ...(Array.isArray(binding.widgetFilters) ? binding.widgetFilters : []),
+  ];
+  const havingFiltersPresent = allMeasureFilterSources.some(
+    (f) => f && f.isMeasure && HAVING_OPS.has(f.op)
+  );
+  const havingGrainDims = (
+    X_GRAIN_HAVING_TYPES.includes(widget.type)
+    && grpBy.length > 0
+    && dims.length > 0
+    && havingFiltersPresent
+  ) ? dims : undefined;
+
   const mainQueryBody = hasMainBinding ? {
     dimensionNames: allDims,
     measureNames,
@@ -195,6 +270,7 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
     limit: queryLimit,
     filters: queryFilters,
     widgetFilters: sanitizeWidgetFilters(widgetFiltersWithTopN),
+    ...(havingGrainDims ? { havingGrainDims } : {}),
     ...(useFilterWidgetDistinct ? { distinct: true } : {}),
     ...(mainQueryId ? { queryId: mainQueryId } : {}),
     ...commonExtras,
