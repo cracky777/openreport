@@ -21,6 +21,10 @@ export default function Viewer() {
   const widgetsRef = useRef({});
   widgetsRef.current = widgets;
   const [reportFilters, setReportFilters] = useState({});
+  // Mirror ref — consumed by pageSwitchHandler so the saved page-state
+  // snapshot reflects the latest reportFilters after async page transitions.
+  const reportFiltersRef = useRef({});
+  reportFiltersRef.current = reportFilters;
   // Effective model = model + report-scoped extras/overrides (Editor
   // parity — see Editor.jsx effectiveModel). The Viewer used the RAW
   // model to resolve response columns, so any widget bound to a
@@ -99,6 +103,35 @@ export default function Viewer() {
   const [pages, setPages] = useState([]);
   const [currentPageIdx, setCurrentPageIdx] = useState(0);
   const pageStateRef = useRef({}); // { [pageIdx]: { widgets, reportFilters, crossHighlight } }
+  // Hoisted page-switch — shared by the navigation rail AND the multi-page
+  // PDF export loop. Inline-arrow versions captured the closure at render
+  // time, which was fine for the rail (always uses the most recent render)
+  // but ExportMenu calls it across an async loop where the closure must
+  // see the just-committed widgets/filters; we read those via the refs
+  // populated above so each call uses current state.
+  const pageSwitchHandler = useCallback((idx) => {
+    if (idx === currentPageIdx) return;
+    pageStateRef.current[currentPageIdx] = {
+      widgets: widgetsRef.current,
+      reportFilters: reportFiltersRef.current,
+      slicerSelections,
+      crossHighlight: crossHighlightRef.current,
+    };
+    const saved = pageStateRef.current[idx];
+    setCurrentPageIdx(idx);
+    skipNextRefetch.current = true;
+    if (saved) {
+      setWidgets(saved.widgets);
+      setReportFilters(saved.reportFilters);
+      setSlicerSelections(saved.slicerSelections || {});
+      setCrossHighlight(saved.crossHighlight);
+    } else {
+      setWidgets(pages[idx]?.widgets || {});
+      setReportFilters({});
+      setSlicerSelections({});
+      setCrossHighlight(null);
+    }
+  }, [currentPageIdx, pages, slicerSelections]);
 
   // Print mode — used by the server-side scheduler renderer. The URL is
   // /view/:id?print=1&page=<idx>. In this mode we strip the toolbar, the
@@ -576,6 +609,9 @@ export default function Viewer() {
             report={report}
             widgets={widgets}
             canvasRef={canvasRef}
+            pages={pages}
+            currentPageIdx={currentPageIdx}
+            onSwitchPage={pageSwitchHandler}
             buttonStyle={toolBtnSmall}
           />
           <button onClick={toggleFullscreen} style={toolBtnSmall} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
@@ -594,24 +630,7 @@ export default function Viewer() {
             editMode={false}
             pages={pages}
             currentPageIdx={currentPageIdx}
-            onSwitch={(idx) => {
-              if (idx === currentPageIdx) return;
-              pageStateRef.current[currentPageIdx] = { widgets, reportFilters, slicerSelections, crossHighlight };
-              const saved = pageStateRef.current[idx];
-              setCurrentPageIdx(idx);
-              skipNextRefetch.current = true;
-              if (saved) {
-                setWidgets(saved.widgets);
-                setReportFilters(saved.reportFilters);
-                setSlicerSelections(saved.slicerSelections || {});
-                setCrossHighlight(saved.crossHighlight);
-              } else {
-                setWidgets(pages[idx].widgets || {});
-                setReportFilters({});
-                setSlicerSelections({});
-                setCrossHighlight(null);
-              }
-            }}
+            onSwitch={pageSwitchHandler}
             config={report?.settings?.pageNav}
           />
         )}

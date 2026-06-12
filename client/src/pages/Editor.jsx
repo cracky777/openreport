@@ -1477,7 +1477,21 @@ export default function Editor() {
     setTimeout(unpinCanvas, PAGES_COLUMN_TRANSITION_MS);
   }, [pinCanvas, unpinCanvas]);
 
-  // Switch page: save current, load target
+  // Switch page: save current, load target.
+  //
+  // Slicer filters are page-scoped, but `reportFilters` is global state
+  // (it's used by every widget's fetch payload). The widgets→reportFilters
+  // sync effect later in this file preserves any reportFilters entry whose
+  // dim isn't managed by a CURRENT-page slicer — fine for URL / cross-
+  // filter sources, but it also preserved page-1 slicer entries when the
+  // user navigated to a page-2 that has no slicer on that dim. Net effect:
+  // a slicer set on page 1 silently filtered every widget on page 2.
+  //
+  // Wiping reportFilters + slicerSelections + crossHighlight on every
+  // switch breaks that leak — the slicer's own selectedValues stay on
+  // `widget.config`, so when the user navigates back to page 1 the
+  // widgets effect rebuilds the same reportFilters map from the visible
+  // slicers, preserving the user's selection on its home page.
   const switchPage = useCallback((idx) => {
     if (idx === currentPageIdx) return;
     const curPage = pages[currentPageIdx];
@@ -1489,6 +1503,9 @@ export default function Editor() {
     const targetPage = pages[idx];
     const targetData = pagesDataRef.current[targetPage.id] || { layout: [], widgets: {} };
     history.set(targetData);
+    setReportFilters({});
+    setSlicerSelections({});
+    setCrossHighlight(null);
   }, [currentPageIdx, pages, history, setSelectedWidget]);
 
   const addPage = useCallback(() => {
@@ -2270,6 +2287,9 @@ export default function Editor() {
               widgets={widgets}
               canvasRef={canvasRef}
               onBeforeCapture={() => setSelectedWidget(null)}
+              pages={pages}
+              currentPageIdx={currentPageIdx}
+              onSwitchPage={switchPage}
               variant="toolbar"
               allowRawExport
             />
