@@ -19,16 +19,12 @@ export function applyTopN(items, options = {}) {
   // Sort indices by value desc to find the top N
   const indexed = items.map((it, i) => ({ idx: i, value: Number(it?.value) || 0 }));
   indexed.sort((a, b) => b.value - a.value);
+  const rest = indexed.slice(limit);
   const keepSet = new Set(indexed.slice(0, limit).map((x) => x.idx));
 
   let othersValue = 0;
-  let othersCount = 0;
-  for (const { idx, value } of indexed) {
-    if (!keepSet.has(idx)) {
-      othersValue += value;
-      othersCount += 1;
-    }
-  }
+  for (const { value } of rest) othersValue += value;
+  const othersCount = rest.length;
 
   let kept;
   if (keepOriginalOrder) {

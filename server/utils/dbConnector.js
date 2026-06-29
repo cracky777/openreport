@@ -1,16 +1,13 @@
-const { Pool } = require('pg');
+const { Pool, Client } = require('pg');
 const mysql = require('mysql2/promise');
 
 // Process-wide DuckDB cache. One open file lock per path — concurrent
 // callers share the same resolved Database instance, and concurrent
 // FIRST-time callers share the in-flight open promise so the file is
 // only opened once even under burst load.
-//
-// Previously lived on `globalThis._duckdbInstances` / `_duckdbPromises`
-// — promoted to module-local Maps so the cache is testable (require()
-// caching gives module-singleton semantics already) and to drop a
-// readable globalThis red flag. The graceful-shutdown path in
-// `server/index.js` walks them via `closeAllDuckDB()`.
+// Module-local (not globalThis) so the cache is testable — require()
+// caching already gives module-singleton semantics. The graceful-shutdown
+// path in `server/index.js` walks them via `closeAllDuckDB()`.
 const _duckdbInstances = new Map();
 const _duckdbPromises = new Map();
 
@@ -120,7 +117,6 @@ function createConnection(datasource) {
         // Use a one-shot pg.Client (NOT the shared pool) so a refresh
         // burst that fires N cancels at once doesn't eat N slots out
         // of the main query pool and starve incoming visual queries.
-        const { Client } = require('pg');
         const cancelClient = new Client(pgConfig);
         try {
           await cancelClient.connect();

@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB_TYPES, GAUGE_SUB_TYPES, OBJECT_SUB_TYPES } from '../Widgets';
+
+// Widget types whose flyout just adds the base type with the chosen sub-type.
+const SUB_TYPE_MENUS = { bar: BAR_SUB_TYPES, line: LINE_SUB_TYPES, combo: COMBO_SUB_TYPES, gauge: GAUGE_SUB_TYPES };
 import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbTrash, TbDownload, TbHandClick, TbFilter, TbToggleLeft, TbToggleRightFilled } from 'react-icons/tb';
 import { useCustomVisuals } from '../../hooks/useCustomVisuals';
 
@@ -255,40 +258,12 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                   <WidgetTooltip text={`Add ${label}`} show={hoverKey === type} />
 
                   {/* Sub-type dropdowns */}
-                  {openMenu === type && type === 'bar' && (
+                  {openMenu === type && SUB_TYPE_MENUS[type] && (
                     <div style={dropdownStyle}><div style={dropdownInner}>
-                      {BAR_SUB_TYPES.map((st) => {
+                      {SUB_TYPE_MENUS[type].map((st) => {
                         const StIcon = st.icon;
                         return (
-                          <button key={st.value} onClick={() => handleAddWithSubType('bar', st.value)} style={dropdownItem}
-                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
-                            <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
-                          </button>
-                        );
-                      })}
-                    </div></div>
-                  )}
-                  {openMenu === type && type === 'line' && (
-                    <div style={dropdownStyle}><div style={dropdownInner}>
-                      {LINE_SUB_TYPES.map((st) => {
-                        const StIcon = st.icon;
-                        return (
-                          <button key={st.value} onClick={() => handleAddWithSubType('line', st.value)} style={dropdownItem}
-                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
-                            <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
-                          </button>
-                        );
-                      })}
-                    </div></div>
-                  )}
-                  {openMenu === type && type === 'combo' && (
-                    <div style={dropdownStyle}><div style={dropdownInner}>
-                      {COMBO_SUB_TYPES.map((st) => {
-                        const StIcon = st.icon;
-                        return (
-                          <button key={st.value} onClick={() => handleAddWithSubType('combo', st.value)} style={dropdownItem}
+                          <button key={st.value} onClick={() => handleAddWithSubType(type, st.value)} style={dropdownItem}
                             onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                             onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
                             <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
@@ -303,20 +278,6 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                         const StIcon = st.icon;
                         return (
                           <button key={st.value} onClick={() => { onAddWidget(st.value); setOpenMenu(null); }} style={dropdownItem}
-                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
-                            <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
-                          </button>
-                        );
-                      })}
-                    </div></div>
-                  )}
-                  {openMenu === type && type === 'gauge' && (
-                    <div style={dropdownStyle}><div style={dropdownInner}>
-                      {GAUGE_SUB_TYPES.map((st) => {
-                        const StIcon = st.icon;
-                        return (
-                          <button key={st.value} onClick={() => handleAddWithSubType('gauge', st.value)} style={dropdownItem}
                             onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                             onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
                             <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}

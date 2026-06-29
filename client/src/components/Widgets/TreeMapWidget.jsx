@@ -67,6 +67,7 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
     }
 
     const isDur = isDurationCol(data._measureLabel, data._durationColumns);
+    const total = items.reduce((s, it) => s + (it.value || 0), 0) || 1;
     const buildLabel = (params) => {
       const val = isDur && typeof params.value === 'number'
         ? formatDuration(params.value)
@@ -75,21 +76,20 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
       if (dataLabelContent === 'value') return String(val);
       if (dataLabelContent === 'nameValue') return `${params.name}\n${val}`;
       if (dataLabelContent === 'percent' && params.treePathInfo) {
-        const total = items.reduce((s, it) => s + (it.value || 0), 0) || 1;
         const pct = ((params.value / total) * 100).toFixed(1);
         return `${pct}%`;
       }
       return params.name;
     };
 
-    const treeData = items.map((it, i) => ({
+    const treeData = items.map((it) => ({
       name: it.name,
       value: it.value,
       _isOthers: it._isOthers,
       itemStyle: {
         color: it._isOthers
           ? OTHERS_COLOR
-          : (useGradient ? getValueColor(it.value) : getColor(it.name, i)),
+          : (useGradient ? getValueColor(it.value) : getColor(it.name)),
         borderColor: showBorder ? borderColor : 'transparent',
         borderWidth: showBorder ? borderWidth : 0,
         opacity: highlightValue && it.name !== highlightValue ? 0.3 : 1,
@@ -102,7 +102,6 @@ export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeig
         appendToBody: true,
         formatter: (params) => {
           const v = isDur && typeof params.value === 'number' ? formatDuration(params.value) : formatNumber(params.value, fmt);
-          const total = items.reduce((s, it) => s + (it.value || 0), 0) || 1;
           const pct = ((params.value / total) * 100).toFixed(1);
           return `${params.marker} ${params.name}: <b>${v}</b> (${pct}%)`;
         },

@@ -83,11 +83,11 @@ export default memo(function MiniCalendar({ value, onChange, min, max, rangeStar
       if (!selected) return false;
       return selected.getFullYear() === year && selected.getMonth() === month && selected.getDate() === day;
     };
+    const rs = rangeStart ? new Date(rangeStart) : null;
+    const re = rangeEnd ? new Date(rangeEnd) : null;
     const isInRange = (day) => {
-      if (!day || !rangeStart || !rangeEnd) return false;
+      if (!day || !rs || !re) return false;
       const d = new Date(year, month, day);
-      const rs = new Date(rangeStart);
-      const re = new Date(rangeEnd);
       return d > rs && d < re;
     };
     const isRangeEdge = (day) => {

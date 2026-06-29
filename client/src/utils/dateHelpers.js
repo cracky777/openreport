@@ -20,6 +20,8 @@ const DAY_ORDER = {
   'lundi': 1, 'mardi': 2, 'mercredi': 3, 'jeudi': 4, 'vendredi': 5, 'samedi': 6, 'dimanche': 7,
 };
 
+const NUMERIC_DATE_PARTS = new Set(['num_year', 'num_month', 'num_week', 'num_day_of_week']);
+
 /**
  * Check if a dimension is date-related (date type or date part).
  */
@@ -57,7 +59,7 @@ export function sortDateLabels(labels, values, datePart) {
       return (DAY_ORDER[la] || 99) - (DAY_ORDER[lb] || 99);
     }
     // Numeric parts (year, month number, week, day of week)
-    if (['num_year', 'num_month', 'num_week', 'num_day_of_week'].includes(datePart)) {
+    if (NUMERIC_DATE_PARTS.has(datePart)) {
       return (Number(labels[a]) || 0) - (Number(labels[b]) || 0);
     }
     // Full date — parse as date

@@ -106,10 +106,9 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
         radius: config?.donut ? ['30%', '65%'] : '65%',
         center: ['50%', '50%'],
         data: visibleItems.map((it) => {
-          const colorIdx = data.items.findIndex((orig) => orig.name === it.name);
           const color = it._isOthers
             ? OTHERS_COLOR
-            : (useGradient ? getValueColor(it.value) : getColor(it.name, colorIdx >= 0 ? colorIdx : 0));
+            : (useGradient ? getValueColor(it.value) : getColor(it.name));
           return {
             ...it,
             itemStyle: {

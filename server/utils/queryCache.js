@@ -77,9 +77,7 @@ function buildKey({ datasourceId, sql, rlsContext }) {
 function get(opts) {
   if (!isQueryCacheEnabled()) return null;
   const key = buildKey(opts);
-  const entry = cache.get(key);
-  if (!entry) return null;
-  return entry;
+  return cache.get(key) ?? null;
 }
 
 function set(opts, payload) {

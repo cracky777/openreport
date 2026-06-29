@@ -28,11 +28,11 @@ export default function ScorecardWidget({ data, config }) {
   const rawValue = typeof data.value === 'number'
     ? data.value
     : parseFloat(String(data.value).replace(',', '.').replace(/[^\d.-]/g, ''));
-  const displayValue = !isNaN(rawValue)
-    ? (isDuration ? formatDuration(rawValue) : (fmt ? formatNumber(rawValue, fmt) : rawValue.toLocaleString()))
-    : String(data.value ?? '');
-
   const fmtNum = (v) => (isDuration ? formatDuration(v) : (fmt ? formatNumber(v, fmt) : v.toLocaleString()));
+
+  const displayValue = !isNaN(rawValue)
+    ? fmtNum(rawValue)
+    : String(data.value ?? '');
 
   // ─── N-1 comparison lines ─────────────────────────────────────────
   // Each toggle that's on contributes a "line" with its own styling

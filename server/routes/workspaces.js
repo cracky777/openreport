@@ -126,9 +126,15 @@ router.delete('/:id', requireAuth, (req, res) => {
   // so they keep a workspace_id (custom visuals etc. require one).
   const { ensurePersonalWorkspace } = require('../utils/personalWorkspace');
   const reports = db.prepare('SELECT id, user_id FROM reports WHERE workspace_id = ?').all(req.params.id);
+  const moveReport = db.prepare('UPDATE reports SET workspace_id = ? WHERE id = ?');
+  const personalWsByUser = new Map();
   for (const r of reports) {
-    const personalWs = ensurePersonalWorkspace(r.user_id);
-    db.prepare('UPDATE reports SET workspace_id = ? WHERE id = ?').run(personalWs, r.id);
+    let personalWs = personalWsByUser.get(r.user_id);
+    if (personalWs === undefined) {
+      personalWs = ensurePersonalWorkspace(r.user_id);
+      personalWsByUser.set(r.user_id, personalWs);
+    }
+    moveReport.run(personalWs, r.id);
   }
   db.prepare('DELETE FROM workspaces WHERE id = ?').run(req.params.id);
   res.json({ message: 'Deleted' });

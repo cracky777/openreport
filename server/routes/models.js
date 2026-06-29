@@ -30,6 +30,15 @@ const { deriveJoinKeyword } = require('../utils/sqlBuilder/joins');
 const { tablesReachableFrom, getAllowedRlsKeys } = require('../utils/rls');
 const { parseModel } = require('../db/modelRow');
 
+// Drivers expose columns with different shapes: { column_name }, { name },
+// or plain strings. Normalise any getColumns() result into a Set of names.
+function columnNameSet(cols) {
+  return new Set((cols || []).map((c) => {
+    if (typeof c === 'string') return c;
+    return c?.column_name ?? c?.name ?? c?.Name ?? c?.COLUMN_NAME ?? '';
+  }).filter(Boolean));
+}
+
 // Hook for cloud edition to override the global query-timeout with a
 // workspace/org-scoped value. Default in OSS just returns the global
 // admin setting. Cloud installs `cloudHooks.resolveQueryTimeoutMs(req)`
@@ -215,11 +224,7 @@ router.get('/:id/validate', requireAuth, async (req, res) => {
       if (!availableTables.has(tableName)) { columnsCache.set(tableName, null); return null; }
       try {
         const cols = await conn.getColumns(tableName);
-        // Drivers expose columns with different shapes: { column_name }, { name }, or plain strings
-        const set = new Set((cols || []).map((c) => {
-          if (typeof c === 'string') return c;
-          return c?.column_name ?? c?.name ?? c?.Name ?? c?.COLUMN_NAME ?? '';
-        }).filter(Boolean));
+        const set = columnNameSet(cols);
         columnsCache.set(tableName, set);
         return set;
       } catch (e) {
@@ -340,10 +345,7 @@ router.get('/:id/rls/rows', requireAuth, async (req, res) => {
   try {
     conn = createConnection(datasource);
     const cols = await conn.getColumns(table);
-    const colSet = new Set((cols || []).map((c) => {
-      if (typeof c === 'string') return c;
-      return c?.column_name ?? c?.name ?? c?.Name ?? c?.COLUMN_NAME ?? '';
-    }).filter(Boolean));
+    const colSet = columnNameSet(cols);
 
     if (!colSet.has(primaryKey)) return res.status(400).json({ error: `Primary key column "${primaryKey}" not found in table` });
 
@@ -433,10 +435,7 @@ router.post('/:id/validate-column-type', requireAuth, async (req, res) => {
   try {
     conn = createConnection(datasource);
     const cols = await conn.getColumns(table);
-    const colSet = new Set((cols || []).map((c) => {
-      if (typeof c === 'string') return c;
-      return c?.column_name ?? c?.name ?? c?.Name ?? c?.COLUMN_NAME ?? '';
-    }).filter(Boolean));
+    const colSet = columnNameSet(cols);
     if (!colSet.has(column)) return res.status(400).json({ error: `Column "${column}" not found in table` });
 
     const SAMPLE = 100000;
@@ -462,14 +461,12 @@ router.post('/:id/validate-column-type', requireAuth, async (req, res) => {
       if (s == null) return NaN;
       const str = String(s).trim();
       if (!str) return NaN;
-      // Try as-is first (handles dot decimals + plain integers)
       const direct = Number(str);
       if (Number.isFinite(direct)) return direct;
       // Fallback: French-style comma decimal — replace ALL commas with dots
       // (we tolerate a single decimal mark; multi-comma values are unusual
       // here, e.g. thousands grouping is rare in raw column data).
-      const withDot = Number(str.replace(/,/g, '.'));
-      return withDot;
+      return Number(str.replace(/,/g, '.'));
     };
 
     const checks = {
@@ -549,10 +546,7 @@ router.post('/:id/detect-cardinality', requireAuth, async (req, res) => {
     // Defensive: column must exist on the table (also blocks SQL injection
     // through the column name since we splice it into the query string).
     const cols = await conn.getColumns(table);
-    const colSet = new Set((cols || []).map((c) => {
-      if (typeof c === 'string') return c;
-      return c?.column_name ?? c?.name ?? c?.Name ?? c?.COLUMN_NAME ?? '';
-    }).filter(Boolean));
+    const colSet = columnNameSet(cols);
     if (!colSet.has(column)) return res.status(400).json({ error: `Column "${column}" not found in table` });
 
     const SAMPLE = 1000;
@@ -1333,6 +1327,23 @@ router.post('/:id/query', async (req, res) => {
     }
     return new Set([...manyTables].filter((t) => !fromTables.has(t)));
   })();
+  // Tables that actually participate in the join graph. The dim-only
+  // treatment only makes sense for a table reached THROUGH a join — that's
+  // the only place threading the graph would inflate the aggregate. A
+  // table that joins to nothing (a single-table model, or a standalone
+  // table) can't fan out, so its measures must aggregate normally via
+  // GROUP BY. Without this guard a single-table model has an empty
+  // `realFacts` set, so every measure was wrongly treated dim-only and
+  // emitted as an uncorrelated `(SELECT SUM(col) FROM t)` — repeating the
+  // grand total across every group instead of the per-group sum.
+  const joinedTables = (() => {
+    const s = new Set();
+    for (const j of (Array.isArray(allJoins) ? allJoins : [])) {
+      if (j && j.from_table) s.add(j.from_table);
+      if (j && j.to_table) s.add(j.to_table);
+    }
+    return s;
+  })();
   // Primary table for the measure — the dim table that owns its column.
   // For a custom expression we accept the dim-only treatment only if
   // every quoted column reference points at the SAME table; multi-table
@@ -1354,6 +1365,11 @@ router.post('/:id/query', async (req, res) => {
   };
   const dimOnlyMeasureInfos = [];
 
+  // Field list used by every "which tables does this inlined expression touch?"
+  // scan below. Depends only on the model shape, so build it once instead of
+  // rebuilding the spread+filter inside each custom/filtered-measure branch.
+  const allFieldsForLookup = [...allDimensions, ...allMeasures.filter((x) => x.table)];
+
   selectedMeasures.forEach((m) => {
     // Dim-only fast path. Skip the normal selectParts emission AND skip
     // the `tablesUsed.add` — the dim is queried by the scalar subquery
@@ -1372,6 +1388,7 @@ router.post('/:id/query', async (req, res) => {
     // fact-inflated but it's never leaky. Owners/admins (rlsApplies =
     // false) get the clean subquery path.
     const isDimOnlyCandidate = primaryTable
+      && joinedTables.has(primaryTable)
       && !realFacts.has(primaryTable)
       && !(Array.isArray(m.filterRules) && m.filterRules.length > 0)
       && !rlsApplies;
@@ -1409,7 +1426,6 @@ router.post('/:id/query', async (req, res) => {
         // Detect tables BEFORE wrapping interval refs — the wrap inserts the
         // exact same column ref inside EXTRACT(EPOCH FROM …) so includes()
         // still matches, but routing pre-wrap is cleaner.
-        const allFieldsForLookup = [...allDimensions, ...allMeasures.filter((x) => x.table)];
         for (const field of allFieldsForLookup) {
           if (inlinedExpression.includes(field.column) || inlinedExpression.includes(field.table)) {
             tablesUsed.add(field.table);
@@ -1462,7 +1478,6 @@ router.post('/:id/query', async (req, res) => {
           );
           selectParts.push(`(${rewritten}) AS ${quoteIdent(m.label || m.name, dbType)}`);
           // Register tables referenced by the inlined expression
-          const allFieldsForLookup = [...allDimensions, ...allMeasures.filter((x) => x.table)];
           for (const field of allFieldsForLookup) {
             if (inlined.includes(field.column) || inlined.includes(field.table)) {
               tablesUsed.add(field.table);
@@ -1510,7 +1525,6 @@ router.post('/:id/query', async (req, res) => {
       const numericExpr = applyNumericCast(inlined);
       selectParts.push(`(${numericExpr}) AS ${quoteIdent(m.label || m.name, dbType)}`);
       // Extract table references from the INLINED expression for joins
-      const allFieldsForLookup = [...allDimensions, ...allMeasures.filter((x) => x.table)];
       for (const field of allFieldsForLookup) {
         if (inlined.includes(field.column) || inlined.includes(field.table)) {
           tablesUsed.add(field.table);
@@ -1616,7 +1630,6 @@ router.post('/:id/query', async (req, res) => {
       // graph — same logic the SELECT path uses at line 1477. Without
       // this, a HAVING that references a table not otherwise selected
       // would emit SQL with an unresolved alias.
-      const allFieldsForLookup = [...allDimensions, ...allMeasures.filter((x) => x.table)];
       for (const field of allFieldsForLookup) {
         if (inlined.includes(field.column) || inlined.includes(field.table)) {
           tablesUsed.add(field.table);
@@ -1715,6 +1728,125 @@ router.post('/:id/query', async (req, res) => {
     }
   }
 
+  // ── Multi-fact fan-out fix ────────────────────────────────────────────
+  // When a visual combines measures from ≥2 different fact tables, joining
+  // the raw facts to a shared dimension fans out rows (each f1 row × each
+  // matching f2 row) and inflates the SUMs. The rollup cache already avoids
+  // this — one pre-aggregated subquery per fact, then FULL JOIN USING the
+  // grain (see rollupPlanner.js `subFor`). Mirror that on the live path:
+  // aggregate each fact independently at the requested grain, then FULL JOIN
+  // the per-fact results on the dimension aliases (CROSS JOIN for a grainless
+  // scorecard). Strictly gated to the clean common case; anything exotic
+  // (custom/HLL/override/filtered measures, x-grain HAVING, measure
+  // HAVING/TopN, RLS, distinct, or a dim/filter not conformed to every fact)
+  // falls back to the existing single-query path below, unchanged.
+  let multiFactBody = null;
+  {
+    const SIMPLE_AGGS = new Set(['sum', 'avg', 'min', 'max', 'count']);
+    const factsInvolved = [...new Set(
+      selectedMeasures.filter((m) => m.table && realFacts.has(m.table)).map((m) => m.table),
+    )];
+    const allMeasuresSimpleFact = selectedMeasures.length > 0 && selectedMeasures.every((m) =>
+      m.table && realFacts.has(m.table)
+      && SIMPLE_AGGS.has(String(m.aggregation || '').toLowerCase())
+      && !m.expression
+      && !(Array.isArray(m.filterRules) && m.filterRules.length > 0)
+      && !m.overrideFilters);
+    const eligible = factsInvolved.length >= 2
+      && allMeasuresSimpleFact
+      && !rlsApplies
+      && !distinct
+      && !topNOverride
+      && havingParts.length === 0
+      && measureFiltersDeferred.length === 0
+      && (!Array.isArray(havingGrainDims) || havingGrainDims.length === 0)
+      && dimOnlyMeasureInfos.length === 0;
+    if (eligible) {
+      const dimInfoOf = (d) => ({
+        expr: d.datePart ? buildDatePartExpr(d, dbType, columnTypes) : quoteCol(d.table, d.column, dbType),
+        alias: quoteIdent(d.label || d.name, dbType),
+      });
+      const dimInfos = selectedDimensions.map(dimInfoOf);
+      const dimSelects = dimInfos.map((x) => `${x.expr} AS ${x.alias}`);
+      const dimExprs = dimInfos.map((x) => x.expr);
+      const dimAliases = dimInfos.map((x) => x.alias);
+      // Per-fact aggregate select — mirrors the normal-aggregation branch of
+      // the SELECT loop above (CAST override + interval EXTRACT EPOCH).
+      const measureSelectOf = (m) => {
+        const alias = quoteIdent(m.label || m.name, dbType);
+        const rawCol = quoteCol(m.table, m.column, dbType);
+        const agg = String(m.aggregation || '').toLowerCase();
+        if (agg === 'count') {
+          const e = (m.table && m.column && m.column !== '*') ? `COUNT(${rawCol})` : 'COUNT(*)';
+          return { sql: `${e} AS ${alias}`, alias };
+        }
+        const ovType = getOverrideType(m.table, m.column, columnTypes);
+        const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
+          ? castToNumber(rawCol, dbType, ovType) : rawCol;
+        const aggExpr = `${normalizeAggregation(m.aggregation).toUpperCase()}(${colExpr})`;
+        const isInterval = String(m.dataType || '').toLowerCase() === 'interval' || ovType === 'interval';
+        const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
+        const finalExpr = (isInterval && supportsExtractEpoch) ? `EXTRACT(EPOCH FROM ${aggExpr})` : aggExpr;
+        return { sql: `${finalExpr} AS ${alias}`, alias };
+      };
+      // Every per-fact subquery must join the grain dims AND any dim
+      // referenced by a WHERE filter (report / widget / cross-filter), so
+      // the filters apply inside each fact's aggregation.
+      const filterDimTables = whereParts
+        .filter((w) => w.field)
+        .map((w) => { const d = allDimensions.find((x) => x.name === w.field); return d ? d.table : null; })
+        .filter(Boolean);
+      const neededDimTables = [...new Set([...selectedDimensions.map((d) => d.table), ...filterDimTables])];
+      // FROM <fact> JOIN <needed dims…>, rooted at the fact (mirrors the main
+      // traversal). Returns null if a needed table can't be connected to this
+      // fact → the fact isn't conformed to that dim → fall back entirely.
+      const buildFactFrom = (fact) => {
+        let from = quoteTable(fact, dbType);
+        const added = new Set([fact]);
+        const remaining = neededDimTables.filter((t) => t !== fact);
+        while (remaining.length > 0) {
+          let pickedIdx = -1; let pickedJoin = null;
+          for (let i = 0; i < remaining.length; i++) {
+            const t = remaining[i];
+            const j = allJoins.find((jj) => (jj.from_table === t && added.has(jj.to_table))
+              || (jj.to_table === t && added.has(jj.from_table)));
+            if (j) { pickedIdx = i; pickedJoin = j; break; }
+          }
+          if (pickedIdx < 0) return null;
+          const t = remaining.splice(pickedIdx, 1)[0];
+          const jt = deriveJoinKeyword(pickedJoin);
+          from += ` ${jt} JOIN ${quoteTable(t, dbType)} ON ${quoteCol(pickedJoin.from_table, pickedJoin.from_column, dbType)} = ${quoteCol(pickedJoin.to_table, pickedJoin.to_column, dbType)}`;
+          added.add(t);
+        }
+        return from;
+      };
+      const whereSql = whereParts.length > 0 ? ` WHERE ${whereParts.map((w) => w.sql).join(' AND ')}` : '';
+      const groupSql = dimExprs.length > 0 ? ` GROUP BY ${dimExprs.join(', ')}` : '';
+      const subs = [];
+      const measureAliases = [];
+      let ok = true;
+      for (const fact of factsInvolved) {
+        const from = buildFactFrom(fact);
+        if (!from) { ok = false; break; }
+        const fMeasures = selectedMeasures.filter((m) => m.table === fact);
+        const mSel = fMeasures.map(measureSelectOf);
+        mSel.forEach((x) => measureAliases.push(x.alias));
+        subs.push(`SELECT ${[...dimSelects, ...mSel.map((x) => x.sql)].join(', ')} FROM ${from}${whereSql}${groupSql}`);
+      }
+      if (ok && subs.length >= 2) {
+        const wrapped = subs.map((s, i) => `(${s}) g${i}`);
+        const joiner = dimAliases.length > 0
+          ? (acc, cur) => `${acc} FULL JOIN ${cur} USING (${dimAliases.join(', ')})`
+          : (acc, cur) => `${acc} CROSS JOIN ${cur}`;
+        const joined = wrapped.reduce((acc, cur, i) => (i === 0 ? cur : joiner(acc, cur)));
+        multiFactBody = {
+          sql: `SELECT ${[...dimAliases, ...measureAliases].join(', ')} FROM ${joined}`,
+          orderByAlias: dimAliases.length > 0 ? dimAliases[0] : null,
+        };
+      }
+    }
+  }
+
   // Build FROM + JOINs. Greedy traversal of the join graph: start with the
   // most "fact-like" table (the one appearing with cardinality "*" on the
   // most joins), then keep pulling in any remaining table that has a
@@ -1734,7 +1866,8 @@ router.post('/:id/query', async (req, res) => {
     }
     // Stable sort: highest fact score first, original index as tie-breaker
     // so two equal-score tables keep their original relative order.
-    tableList.sort((a, b) => (factScore[b] - factScore[a]) || (Array.from(tablesUsed).indexOf(a) - Array.from(tablesUsed).indexOf(b)));
+    const origOrder = new Map(tableList.map((t, i) => [t, i]));
+    tableList.sort((a, b) => (factScore[b] - factScore[a]) || (origOrder.get(a) - origOrder.get(b)));
   }
   // Snowflake bridging: when a referenced table has no direct join to the
   // root (e.g. filter on `d_entite` while the query SELECTs from
@@ -2069,6 +2202,10 @@ router.post('/:id/query', async (req, res) => {
   let sql;
   if (dimOnlyShortCircuit) {
     sql = `SELECT ${selectParts.join(', ')}`;
+  } else if (multiFactBody) {
+    // Per-fact aggregate-then-join body (no outer WHERE/GROUP BY/HAVING —
+    // each per-fact subquery already carries them). ORDER BY / LIMIT below.
+    sql = multiFactBody.sql;
   } else {
     sql = `SELECT ${useDistinct ? 'DISTINCT ' : ''}${selectParts.join(', ')} FROM ${fromClause}`;
     if (whereParts.length > 0) {
@@ -2106,7 +2243,10 @@ router.post('/:id/query', async (req, res) => {
     }
   } else {
     // Stable ordering: ORDER BY the first dimension to keep consistent colors across refetches
-    if (groupByParts.length > 0) {
+    if (multiFactBody) {
+      // Outer query exposes dim aliases (not the dim exprs), so order by alias.
+      if (multiFactBody.orderByAlias) sql += ` ORDER BY ${multiFactBody.orderByAlias}`;
+    } else if (groupByParts.length > 0) {
       sql += ` ORDER BY ${groupByParts[0]}`;
     } else if (selectParts.length > 0) {
       sql += ` ORDER BY 1`;

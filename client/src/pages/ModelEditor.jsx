@@ -468,6 +468,11 @@ export default function ModelEditor() {
     if (tableColumns[t]) schemaTablesData[t] = tableColumns[t];
   });
 
+  // Index broken refs by "kind name" so per-row lookups in the dimension/measure
+  // tables are O(1) instead of scanning brokenRefs for every rendered row.
+  const brokenRefByKey = new Map();
+  brokenRefs.forEach((r) => { if (r.name) brokenRefByKey.set(`${r.kind}\u0000${r.name}`, r); });
+
   const filteredTables = tableSearch
     ? allTables.filter((t) => t.toLowerCase().includes(tableSearch.toLowerCase()))
     : allTables;
@@ -805,7 +810,7 @@ export default function ModelEditor() {
                   </thead>
                   <tbody>
                     {dimensions.map((d) => {
-                      const broken = brokenRefs.find((r) => r.kind === 'dimension' && r.name === d.name);
+                      const broken = brokenRefByKey.get(`dimension\u0000${d.name}`);
                       return (
                       <tr key={d.name} style={broken ? { background: 'var(--state-warning-soft)' } : undefined} title={broken ? (broken.issue === 'missing_table' ? `Table "${broken.table}" not found` : broken.issue === 'missing_column' ? `Column "${broken.column}" missing in "${broken.table}"` : broken.issue) : undefined}>
                         <td style={tdStyle}>{broken && <span style={{ marginRight: 4 }}>⚠️</span>}{d.table}</td>
@@ -941,7 +946,7 @@ export default function ModelEditor() {
                   </thead>
                   <tbody>
                     {measures.map((m) => {
-                      const broken = brokenRefs.find((r) => r.kind === 'measure' && r.name === m.name);
+                      const broken = brokenRefByKey.get(`measure\u0000${m.name}`);
                       return (
                       <tr key={m.name} style={broken ? { background: 'var(--state-warning-soft)' } : undefined} title={broken ? (broken.issue === 'missing_table' ? `Table "${broken.table}" not found` : broken.issue === 'missing_column' ? `Column "${broken.column}" missing in "${broken.table}"` : broken.issue) : undefined}>
                         <td style={tdStyle}>{broken && <span style={{ marginRight: 4 }}>⚠️</span>}{m.aggregation === 'custom' ? <span style={{ color: 'var(--accent-primary)', fontSize: 11 }}>SQL</span> : m.table}</td>
@@ -1094,18 +1099,6 @@ const editableInputStyle = {
   fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box',
   background: 'var(--bg-panel)', cursor: 'text',
   transition: 'border-color 0.12s',
-};
-const editableHintStyle = {
-  display: 'flex', alignItems: 'center', gap: 8,
-  fontSize: 12, color: 'var(--text-muted)',
-  padding: '8px 12px', marginBottom: 10, borderRadius: 6,
-  background: 'var(--accent-primary-soft)', border: '1px dashed var(--accent-primary)',
-};
-const editableTagStyle = {
-  fontSize: 9, fontWeight: 700, textTransform: 'uppercase',
-  padding: '1px 5px', borderRadius: 3,
-  background: 'var(--accent-primary-soft)', color: 'var(--accent-primary)',
-  letterSpacing: 0.3,
 };
 const badge = { padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 };
 const removeBtn = {

@@ -70,21 +70,24 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
               { value: 'actual', label: 'Actual size' },
               { value: 'fitToWidth', label: 'Fit to width' },
               { value: 'fitToPage', label: 'Fit to page' },
-            ].map((mode) => (
-              <button
-                key={mode.value}
-                onClick={() => update('viewMode', mode.value)}
-                style={{
-                  ...presetBtn,
-                  background: (settings.viewMode || 'fitToWidth') === mode.value ? 'var(--bg-active)' : 'var(--bg-panel)',
-                  borderColor: (settings.viewMode || 'fitToWidth') === mode.value ? 'var(--accent-primary)' : 'var(--border-default)',
-                  color: (settings.viewMode || 'fitToWidth') === mode.value ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                  fontWeight: (settings.viewMode || 'fitToWidth') === mode.value ? 600 : 400,
-                }}
-              >
-                {mode.label}
-              </button>
-            ))}
+            ].map((mode) => {
+              const active = (settings.viewMode || 'fitToWidth') === mode.value;
+              return (
+                <button
+                  key={mode.value}
+                  onClick={() => update('viewMode', mode.value)}
+                  style={{
+                    ...presetBtn,
+                    background: active ? 'var(--bg-active)' : 'var(--bg-panel)',
+                    borderColor: active ? 'var(--accent-primary)' : 'var(--border-default)',
+                    color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                    fontWeight: active ? 600 : 400,
+                  }}
+                >
+                  {mode.label}
+                </button>
+              );
+            })}
           </div>
         </Section>
 

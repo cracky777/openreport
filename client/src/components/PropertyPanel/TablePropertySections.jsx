@@ -410,8 +410,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
   );
 }
 
-function ConditionalFormatEditor({ rules, onChange, inputStyle, Field, SubSection, ColorInput: CI }) {
-  const ColorInput = CI || (({ value, onChange: oc }) => <input type="color" value={value} onChange={(e) => oc(e.target.value)} />);
+function ConditionalFormatEditor({ rules, onChange, inputStyle, Field, SubSection, ColorInput }) {
   const addRule = (type) => {
     const defaults = {
       dataBar: { type: 'dataBar', dataBarColor: '#7c3aed', dataBarBgColor: '#f5f3ff' },
@@ -433,12 +432,10 @@ function ConditionalFormatEditor({ rules, onChange, inputStyle, Field, SubSectio
       {rules.map((rule, i) => (
         <SubSection key={i} label={`${rule.type} #${i + 1}`}>
           {rule.type === 'dataBar' && (
-            <>
-              <Field label="Bar color">
-                <ColorInput value={rule.dataBarColor || '#7c3aed'}
-                  onChange={(v) => updateRule(i, 'dataBarColor', v)} />
-              </Field>
-            </>
+            <Field label="Bar color">
+              <ColorInput value={rule.dataBarColor || '#7c3aed'}
+                onChange={(v) => updateRule(i, 'dataBarColor', v)} />
+            </Field>
           )}
           {rule.type === 'colorScale' && (
             <>

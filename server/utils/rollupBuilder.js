@@ -373,12 +373,16 @@ function planRollupsForModel(modelId) {
   let modelRowDims = [];
   let modelJoins = [];
   let dateColumn = '';
+  // Model measures are the same for every report on this model; parse the
+  // DB row once and let loadMeasureDefs merge each report's extras over it.
+  let modelMeasureDefs = [];
   try {
-    const mr = db.prepare('SELECT dimensions, joins, date_column FROM models WHERE id = ?').get(modelId);
+    const mr = db.prepare('SELECT dimensions, joins, date_column, measures FROM models WHERE id = ?').get(modelId);
     if (mr) {
       try { modelRowDims = JSON.parse(mr.dimensions || '[]'); } catch { /* malformed */ }
       try { modelJoins = JSON.parse(mr.joins || '[]'); } catch { /* malformed */ }
       dateColumn = mr.date_column || '';
+      modelMeasureDefs = safeParse(mr.measures, []);
     }
   } catch { /* model row missing */ }
   const { conformed: factConformed, facts: realFacts } = factConformedDimTables(modelJoins);
@@ -392,7 +396,7 @@ function planRollupsForModel(modelId) {
     try { settings = JSON.parse(r.settings || '{}'); } catch { /* malformed */ }
     const extras = reportExtras(settings);
     const reportFilters = Array.isArray(settings.reportFilters) ? settings.reportFilters : [];
-    const { defs: measureDefs, byName: measureByName } = loadMeasureDefs(modelId, extras);
+    const { defs: measureDefs, byName: measureByName } = loadMeasureDefs(modelId, extras, modelMeasureDefs);
     // Model + report dimension defs — comparePeriod needs them (N-1
     // detection) and dimTableOf needs them (conformed-grain filtering).
     const modelDims = [...modelRowDims, ...(extras.extraDimensions || [])];
@@ -693,9 +697,12 @@ function buildNameLabelMaps(modelId, extras) {
 // report extraMeasures, with measureOverrides shallow-merged) — the
 // same set /query resolves. Used to decompose each output measure into
 // its additive component columns.
-function loadMeasureDefs(modelId, extras) {
-  const model = db.prepare('SELECT measures FROM models WHERE id = ?').get(modelId);
-  let defs = model ? safeParse(model.measures, []) : [];
+function loadMeasureDefs(modelId, extras, preloadedDefs) {
+  let defs = preloadedDefs;
+  if (defs === undefined) {
+    const model = db.prepare('SELECT measures FROM models WHERE id = ?').get(modelId);
+    defs = model ? safeParse(model.measures, []) : [];
+  }
   defs = Array.isArray(defs) ? defs.slice() : [];
   const ex = extras || {};
   const ov = ex.measureOverrides || {};
@@ -1244,23 +1251,26 @@ function getManifest({ modelId, orgId }) {
      WHERE model_id = ? AND (organization_id IS ? OR organization_id = ?)
      ORDER BY built_at DESC NULLS LAST`
   ).all(modelId, orgId || null, orgId || null);
-  return rows.map((r) => ({
-    id: r.id,
-    modelId: r.model_id,
-    organizationId: r.organization_id,
-    storageMode: r.storage_mode,
-    grainHash: r.grain_hash,
-    grainDims: safeJSON(r.grain_dims, []),
-    measures: safeJSON(r.measures, { outputs: [], atoms: [] }),
-    measureNames: (safeJSON(r.measures, { outputs: [] }).outputs || []).map((o) => o.name),
-    baseFilters: safeJSON(r.base_filters, []),
-    baseFilterHash: r.base_filter_hash,
-    factTable: r.fact_table,
-    tableName: r.table_name,
-    builtAt: r.built_at,
-    rowCount: r.row_count,
-    bytes: r.bytes,
-  }));
+  return rows.map((r) => {
+    const measures = safeJSON(r.measures, { outputs: [], atoms: [] });
+    return {
+      id: r.id,
+      modelId: r.model_id,
+      organizationId: r.organization_id,
+      storageMode: r.storage_mode,
+      grainHash: r.grain_hash,
+      grainDims: safeJSON(r.grain_dims, []),
+      measures,
+      measureNames: (measures.outputs || []).map((o) => o.name),
+      baseFilters: safeJSON(r.base_filters, []),
+      baseFilterHash: r.base_filter_hash,
+      factTable: r.fact_table,
+      tableName: r.table_name,
+      builtAt: r.built_at,
+      rowCount: r.row_count,
+      bytes: r.bytes,
+    };
+  });
 }
 
 // Drops every base-filter variant of a grain (the HTTP route is keyed by

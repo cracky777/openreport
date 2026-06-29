@@ -253,17 +253,13 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
           }
           return Math.max(count, 1);
         });
-        const seriesNonZeroIndex = seriesData.map((s, si) => {
-          return labels.map((_, li) => {
-            const val = s.values[sortedIndices[li]] || 0;
-            if (val === 0) return -1;
-            let idx = 0;
-            for (let j = 0; j < si; j++) {
-              if ((seriesData[j].values[sortedIndices[li]] || 0) !== 0) idx++;
-            }
-            return idx;
-          });
-        });
+        const runningNonZero = labels.map(() => 0);
+        const seriesNonZeroIndex = seriesData.map((s) =>
+          labels.map((_, li) => {
+            if ((s.values[sortedIndices[li]] || 0) === 0) return -1;
+            return runningNonZero[li]++;
+          })
+        );
 
         for (let i = 0; i < seriesData.length; i++) {
           const s = seriesData[i];
@@ -401,13 +397,20 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
         }
       } else {
         // Stacked bars: standard ECharts series
+        let categoryTotals = null;
+        if (subType === 'stacked100') {
+          categoryTotals = sortedIndices.map((idx) => {
+            let total = 0;
+            for (const sr of seriesData) total += sr.values[idx] || 0;
+            return total;
+          });
+        }
         for (let i = 0; i < seriesData.length; i++) {
           const s = seriesData[i];
           let values = sortedIndices.map((idx) => s.values[idx] || 0);
           if (subType === 'stacked100') {
             values = values.map((val, vi) => {
-              let total = 0;
-              for (const sr of seriesData) total += sr.values[sortedIndices[vi]] || 0;
+              const total = categoryTotals[vi];
               return total > 0 ? Math.round((val / total) * 10000) / 100 : 0;
             });
           }

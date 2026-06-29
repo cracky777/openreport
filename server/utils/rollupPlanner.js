@@ -147,9 +147,8 @@ function numericHavingMatch(rawVal, op, value, values) {
         case 'gt':  return n > t;
         case 'gte': return n >= t;
         case 'lt':  return n < t;
-        case 'lte': return n <= t;
+        default:    return n <= t; // lte
       }
-      return false;
     }
     case 'between': {
       const list = Array.isArray(values) ? values : (Array.isArray(value) ? value : null);
@@ -327,10 +326,7 @@ async function tryServeFromRollup(opts) {
     const allowed = fgu.size > 0
       ? new Set(runtimeFilterDims.filter((d) => fgu.has(d)))
       : new Set(runtimeFilterDims);
-    const grainDims = [...new Set([
-      ...dimensionNames,
-      ...runtimeFilterDims.filter((d) => allowed.has(d)),
-    ])];
+    const grainDims = [...new Set([...dimensionNames, ...allowed])];
     const rollup = rollupBuilder.findBestRollup({
       modelId: mid, grainDims, baseFilterHash, factTable, orgId,
     });
@@ -463,14 +459,10 @@ async function tryServeFromRollup(opts) {
   // Atom column names are globally unique (measure names / AVG aliases),
   // so after the join they're referenceable unqualified. USING coalesces
   // the dim columns automatically.
-  const dimLabels = dimensionNames.map((dn) => {
-    const d = allDimensions.find((x) => x.name === dn);
-    return (d && d.label) || dn;
-  });
-  const finalDimSelects = dimensionNames.map((dn) => {
-    const d = allDimensions.find((x) => x.name === dn);
-    return `${qIdent(dn)} AS ${qIdent((d && d.label) || dn)}`;
-  });
+  const labelByName = new Map(allDimensions.map((x) => [x.name, x.label]));
+  const labelFor = (dn) => labelByName.get(dn) || dn;
+  const dimLabels = dimensionNames.map(labelFor);
+  const finalDimSelects = dimensionNames.map((dn) => `${qIdent(dn)} AS ${qIdent(labelFor(dn))}`);
   const finalAtomSelects = [];
   for (const g of groups) for (const a of g.atoms) finalAtomSelects.push(qIdent(a.col));
 

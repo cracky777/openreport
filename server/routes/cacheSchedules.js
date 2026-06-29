@@ -19,7 +19,6 @@ const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const cacheSchedules = require('../utils/cacheSchedules');
 const cacheScheduler = require('../utils/cacheScheduler');
-const fs = require('fs');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
 const rollupDuckDB = require('../utils/rollupDuckDB');

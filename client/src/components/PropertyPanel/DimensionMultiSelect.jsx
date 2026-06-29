@@ -90,7 +90,8 @@ export default function DimensionMultiSelect({ modelId, fieldName, selectedValue
   };
 
   const sel = new Set((selectedValues || []).map(String));
-  const filtered = options.filter((o) => !query || o.toLowerCase().includes(query.toLowerCase()));
+  const q = query.toLowerCase();
+  const filtered = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
   const toggle = (val) => {
     const next = new Set(sel);
     if (next.has(val)) next.delete(val); else next.add(val);

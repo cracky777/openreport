@@ -2738,7 +2738,7 @@ const cardMenuItem = {
 
 // Lightweight modal styles for the report card actions (rename / move /
 // history). Prefixed `actionModal*` to avoid colliding with the older
-// `modalOverlay` / `modalCard` further down (used by the create-report wizard).
+// `modalOverlay` further down (used by the create-report wizard).
 const actionModalBackdrop = {
   position: 'fixed', inset: 0, zIndex: 1000,
   background: 'rgba(15,23,42,0.35)',
@@ -2830,7 +2830,6 @@ function formatFileSize(bytes) {
 const inputStyle = { width: '100%', padding: '8px 10px', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box', background: 'var(--bg-panel)', color: 'var(--text-primary)' };
 const labelStyle = { display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4, fontWeight: 500 };
 const modalOverlay = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 };
-const modalCard = { backgroundColor: 'var(--bg-panel)', borderRadius: 12, padding: 24, width: 400, maxWidth: '90vw', boxShadow: 'var(--shadow-lg)', color: 'var(--text-primary)' };
 const sourceCard = {
   flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
   padding: '20px 12px', border: '1px solid var(--border-default)', borderRadius: 8, background: 'var(--bg-panel)',

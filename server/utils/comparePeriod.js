@@ -36,7 +36,7 @@ function isYearLikeDim(dimDef) {
   if (dimDef.datePart === 'num_year') return true;
   if (dimDef.type === 'integer' || dimDef.type === 'number') {
     const hay = `${dimDef.label || ''} ${dimDef.name || ''} ${dimDef.column || ''}`.toLowerCase();
-    if (/(^|[^a-z])(year|annee|année|anio|anno|yr|jahr)([^a-z]|$)/.test(hay)) return true;
+    return /(^|[^a-z])(year|annee|année|anio|anno|yr|jahr)([^a-z]|$)/.test(hay);
   }
   return false;
 }
@@ -57,8 +57,12 @@ function shiftFiltersForN1(filters, dimensions) {
   if (!filters || typeof filters !== 'object') return {};
   const out = {};
   for (const [k, v] of Object.entries(filters)) {
+    if (!Array.isArray(v) || v.length === 0) {
+      out[k] = v;
+      continue;
+    }
     const dimDef = findDim(k, dimensions);
-    if (Array.isArray(v) && v.length > 0 && (isYearLikeDim(dimDef) || isFullDateDim(dimDef))) {
+    if (isYearLikeDim(dimDef) || isFullDateDim(dimDef)) {
       out[k] = v.map((x) => {
         const s = shiftValue(x, dimDef);
         return s == null ? x : s;

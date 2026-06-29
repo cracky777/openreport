@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 
 const SQL_FUNCTIONS = ['SUM', 'AVG', 'COUNT', 'MIN', 'MAX', 'NULLIF', 'COALESCE', 'CASE WHEN', 'DISTINCT', 'ROUND'];
@@ -40,36 +40,39 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
   //   - dim/meas: insert the raw "table"."column"
   //   - calc: insert `${name}` so the server's inliner expands it to the
   //     referenced measure's expression at query time
-  const allFields = [];
-  if (model) {
-    for (const d of (model.dimensions || [])) {
-      const table = d.table.includes('.') ? `"${d.table.split('.').join('"."')}"` : `"${d.table}"`;
-      allFields.push({
-        label: d.label || d.column,
-        insert: `${table}."${d.column}"`,
-        source: `${d.table}.${d.column}`,
-        type: 'dim',
-      });
-    }
-    for (const m of (model.measures || [])) {
-      if (m.aggregation === 'custom') {
-        allFields.push({
-          label: m.label || m.name,
-          insert: `\${${m.name}}`,
-          source: m.name,
-          type: 'calc',
-        });
-      } else if (m.column && m.column !== '*') {
-        const table = m.table.includes('.') ? `"${m.table.split('.').join('"."')}"` : `"${m.table}"`;
-        allFields.push({
-          label: m.label || m.column,
-          insert: `${table}."${m.column}"`,
-          source: `${m.table}.${m.column}`,
-          type: 'meas',
+  const allFields = useMemo(() => {
+    const fields = [];
+    if (model) {
+      for (const d of (model.dimensions || [])) {
+        const table = d.table.includes('.') ? `"${d.table.split('.').join('"."')}"` : `"${d.table}"`;
+        fields.push({
+          label: d.label || d.column,
+          insert: `${table}."${d.column}"`,
+          source: `${d.table}.${d.column}`,
+          type: 'dim',
         });
       }
+      for (const m of (model.measures || [])) {
+        if (m.aggregation === 'custom') {
+          fields.push({
+            label: m.label || m.name,
+            insert: `\${${m.name}}`,
+            source: m.name,
+            type: 'calc',
+          });
+        } else if (m.column && m.column !== '*') {
+          const table = m.table.includes('.') ? `"${m.table.split('.').join('"."')}"` : `"${m.table}"`;
+          fields.push({
+            label: m.label || m.column,
+            insert: `${table}."${m.column}"`,
+            source: `${m.table}.${m.column}`,
+            type: 'meas',
+          });
+        }
+      }
     }
-  }
+    return fields;
+  }, [model]);
 
   // Extract the word being typed at cursor position
   const getWordAtCursor = (text, pos) => {

@@ -100,11 +100,8 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
       const csvPath = file.path + '.csv';
       fs.writeFileSync(csvPath, csvContent, 'utf-8');
       const csvPathFwd = csvPath.replace(/\\/g, '/');
-      importSQL = `CREATE TABLE "${tableName}" AS SELECT * FROM read_csv_auto('${csvPathFwd}', header=true, sample_size=-1)`;
-      // Clean up temp CSV after import
-      await dbInstance.run(importSQL);
+      await dbInstance.run(`CREATE TABLE "${tableName}" AS SELECT * FROM read_csv_auto('${csvPathFwd}', header=true, sample_size=-1)`);
       try { fs.unlinkSync(csvPath); } catch { /* ignore */ }
-      importSQL = null; // Already executed
     } else if (ext === '.parquet') {
       importSQL = `CREATE TABLE "${tableName}" AS SELECT * FROM read_parquet('${filePath}')`;
     } else if (ext === '.json') {
@@ -119,13 +116,7 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
     const countResult = await dbInstance.all(`SELECT COUNT(*) as cnt FROM "${tableName}"`);
     const rowCount = Number(countResult[0]?.cnt || 0);
 
-    // Get columns info (convert any BigInt values)
-    const columnsRaw = await dbInstance.all(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${tableName}' ORDER BY ordinal_position`);
-    const columns = columnsRaw.map((c) => {
-      const obj = {};
-      for (const [k, v] of Object.entries(c)) obj[k] = typeof v === 'bigint' ? Number(v) : v;
-      return obj;
-    });
+    const columns = await dbInstance.all(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${tableName}' ORDER BY ordinal_position`);
 
     await dbInstance.close();
 

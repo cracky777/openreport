@@ -11,6 +11,8 @@ import { useTheme } from '../hooks/useTheme';
 import PagesColumn from '../components/PagesColumn/PagesColumn';
 import ExportMenu from '../components/ExportMenu/ExportMenu';
 
+const DRILLABLE_TYPES = ['bar', 'line', 'combo', 'pie', 'treemap'];
+
 export default function Viewer() {
   const { id } = useParams();
   const { getThemeVars } = useTheme();
@@ -299,7 +301,6 @@ export default function Viewer() {
   }, []);
 
   // Drill-down helpers
-  const DRILLABLE_TYPES = ['bar', 'line', 'combo', 'pie', 'treemap'];
   const isWidgetDrillable = useCallback((w) => {
     if (!w || !DRILLABLE_TYPES.includes(w.type)) return false;
     const dims = w.dataBinding?.selectedDimensions || [];
@@ -662,18 +663,6 @@ export default function Viewer() {
     </div>
   );
 }
-
-const toolbarStyle = {
-  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  padding: '8px 20px', backgroundColor: 'var(--bg-panel)', borderBottom: '1px solid var(--border-default)',
-  flexShrink: 0,
-};
-
-const toolBtn = {
-  padding: '6px 8px', border: '1px solid var(--border-default)', borderRadius: 6,
-  background: 'var(--bg-panel)', cursor: 'pointer', display: 'flex', alignItems: 'center',
-  color: 'var(--text-secondary)',
-};
 
 const toolBtnSmall = {
   padding: '4px 6px', border: '1px solid var(--border-default)', borderRadius: 4,

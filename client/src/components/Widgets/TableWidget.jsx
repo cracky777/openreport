@@ -21,20 +21,22 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
     // columnOrder contains field names like "table.col", columns contains labels like "col"
     // Match by suffix: columnOrder entry ends with the column label
     const colIndices = [];
+    const used = new Set();
     const newCols = [];
     // Build a mapping: for each columnOrder entry, find matching column index
     for (const orderName of columnOrder) {
       const parts = orderName.split('.');
       const suffix = parts[parts.length - 1].replace(/_sum$|_avg$|_count$|_min$|_max$/, '');
-      const idx = rawColumns.findIndex((c, i) => !colIndices.includes(i) && c === suffix);
+      const idx = rawColumns.findIndex((c, i) => !used.has(i) && c === suffix);
       if (idx !== -1) {
+        used.add(idx);
         colIndices.push(idx);
         newCols.push(rawColumns[idx]);
       }
     }
     // Add remaining columns not in columnOrder
     rawColumns.forEach((c, i) => {
-      if (!colIndices.includes(i)) { colIndices.push(i); newCols.push(c); }
+      if (!used.has(i)) { colIndices.push(i); newCols.push(c); }
     });
     const newRows = rawRows.map((row) => colIndices.map((i) => row[i]));
     return { columns: newCols, rows: newRows };
@@ -104,6 +106,13 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
     });
     return cache;
   }, [rows, columns, tc.columns]);
+
+  // Lookup set for interval-typed measures so per-cell / per-total checks
+  // don't re-scan the duration-columns array on every cell render.
+  const durationCols = useMemo(
+    () => new Set(Array.isArray(data?._durationColumns) ? data._durationColumns : []),
+    [data?._durationColumns],
+  );
 
   // Scroll handler for infinite mode
   const handleScroll = useCallback(() => {
@@ -326,7 +335,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                     // server flattens INTERVAL values to a number) — format
                     // them as a duration ("1h", "30min", "45s") rather than
                     // showing the raw second count.
-                    const isDurationCol = Array.isArray(data?._durationColumns) && data._durationColumns.includes(col);
+                    const isDurationCol = durationCols.has(col);
 
                     // Format
                     const nf = vs.numberFormat || {};
@@ -399,7 +408,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                   const fn = getColumnTotalFn(tc, col);
                   const val = computeTotal(sortedRows, ci, fn);
                   const fmt = data._measureFormats?.[col];
-                  const isDurationCol = Array.isArray(data?._durationColumns) && data._durationColumns.includes(col);
+                  const isDurationCol = durationCols.has(col);
                   const display = typeof val === 'number'
                     ? (isDurationCol ? formatDuration(val) : (fmt ? formatNumber(val, fmt) : val.toLocaleString()))
                     : val;

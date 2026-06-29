@@ -22,7 +22,6 @@ import { shiftFiltersForN1, shiftWidgetFiltersForN1, hasShiftableFilterForN1 } f
 import { buildWidgetQueryPayload } from '../utils/widgetQueryPayload';
 import { buildWidgetData } from '../utils/widgetDataBuilder';
 
-// Convert data between widget formats
 function convertData(data, fromType, toType) {
   if (!data || Object.keys(data).length === 0) return data;
 

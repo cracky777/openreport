@@ -12,6 +12,14 @@ const STORAGE_KEY = 'openreport.pagesColumn.collapsed';
 const TRANSITION_DURATION_MS = 120;
 export const PAGES_COLUMN_TRANSITION_MS = TRANSITION_DURATION_MS + 40; // small buffer for the canvas pin
 
+// Default state colors when no per-page override exists. Theme-aware via CSS vars.
+const STATE_DEFAULTS = {
+  default: { bg: 'transparent',         text: 'var(--text-muted)' },
+  hover:   { bg: 'var(--bg-subtle)',    text: 'var(--accent-primary)' },
+  active:  { bg: 'var(--bg-active)',    text: 'var(--accent-primary)' },
+  pressed: { bg: 'var(--bg-active)',    text: 'var(--accent-primary)' },
+};
+
 export default function PagesColumn({
   pages,
   currentPageIdx,
@@ -61,14 +69,6 @@ export default function PagesColumn({
   const fontFamily = c.fontFamily || 'inherit';
   const buttonSize = c.buttonSize || 32;
 
-  // Default state colors when no per-page override exists. Theme-aware via CSS vars.
-  const STATE_DEFAULTS = {
-    default: { bg: 'transparent',         text: 'var(--text-muted)' },
-    hover:   { bg: 'var(--bg-subtle)',    text: 'var(--accent-primary)' },
-    active:  { bg: 'var(--bg-active)',    text: 'var(--accent-primary)' },
-    pressed: { bg: 'var(--bg-active)',    text: 'var(--accent-primary)' },
-  };
-
   // Resolve a per-page per-state value. The pageIcons map can hold:
   //  - legacy string (treated as { default: { image: <string> } })
   //  - legacy { default: '<url>', hover: '<url>', ... } shape (each value treated as image)
@@ -97,6 +97,14 @@ export default function PagesColumn({
   const showHeader = !!(c.title || c.logo);
   const width = isSinglePageEdit ? SINGLE_PAGE_WIDTH : (isCollapsed ? COLLAPSED_WIDTH : blockWidth);
   const titleColor = 'var(--text-primary)';
+
+  // Page-list vertical alignment as a 0-100 grow ratio shared by both flex spacers.
+  // Accept both legacy string values ('top' | 'center' | 'bottom') and new numeric (0-100).
+  const alignRaw = c.pagesAlignment;
+  const alignPos = typeof alignRaw === 'number' ? Math.max(0, Math.min(100, alignRaw))
+    : alignRaw === 'center' ? 50
+    : alignRaw === 'bottom' ? 100
+    : 0;
 
   // Single-page edit mode: minimal column with a vertical "Pages" label and the add button.
   if (isSinglePageEdit) {
@@ -220,15 +228,7 @@ export default function PagesColumn({
           flexDirection: 'column',
           minHeight: 0,
         }}>
-          {(() => {
-            // Accept both legacy string values ('top' | 'center' | 'bottom') and new numeric (0-100).
-            const raw = c.pagesAlignment;
-            const pos = typeof raw === 'number' ? Math.max(0, Math.min(100, raw))
-              : raw === 'center' ? 50
-              : raw === 'bottom' ? 100
-              : 0;
-            return <div style={{ flexGrow: pos, flexShrink: 1, minHeight: 0 }} />;
-          })()}
+          <div style={{ flexGrow: alignPos, flexShrink: 1, minHeight: 0 }} />
           <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
           {pages.map((page, idx) => {
             const active = idx === currentPageIdx;
@@ -315,14 +315,7 @@ export default function PagesColumn({
             );
           })}
           </div>
-          {(() => {
-            const raw = c.pagesAlignment;
-            const pos = typeof raw === 'number' ? Math.max(0, Math.min(100, raw))
-              : raw === 'center' ? 50
-              : raw === 'bottom' ? 100
-              : 0;
-            return <div style={{ flexGrow: 100 - pos, flexShrink: 1, minHeight: 0 }} />;
-          })()}
+          <div style={{ flexGrow: 100 - alignPos, flexShrink: 1, minHeight: 0 }} />
         </div>
 
         {/* Floating edit controls — only in edit mode.

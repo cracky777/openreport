@@ -62,13 +62,13 @@ export function shiftFiltersForN1(filters, dimensions) {
   if (!filters || typeof filters !== 'object') return {};
   const out = {};
   for (const [k, v] of Object.entries(filters)) {
+    if (!Array.isArray(v) || v.length === 0) { out[k] = v; continue; }
     const dimDef = findDim(k, dimensions);
-    if (Array.isArray(v) && v.length > 0 && (isYearLikeDim(dimDef) || isFullDateDim(dimDef))) {
-      const next = v.map((x) => {
+    if (isYearLikeDim(dimDef) || isFullDateDim(dimDef)) {
+      out[k] = v.map((x) => {
         const s = shiftValue(x, dimDef);
         return s == null ? x : s;
       });
-      out[k] = next;
     } else {
       out[k] = v;
     }

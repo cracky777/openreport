@@ -125,21 +125,20 @@ function extractColumnRefsFromExpression(expression) {
   // Match 3-part first, then 2-part separately so the 2-part regex doesn't
   // also fire on the last two segments of a 3-part match.
   const seen = new Set();
+  // Byte ranges covered by a 3-part match, so the 2-part scan below can skip
+  // the last two segments of a 3-part ref instead of re-matching them.
+  const taken = new Set();
   const re3 = /"([^"]+)"\."([^"]+)"\."([^"]+)"/g;
   let m;
   while ((m = re3.exec(s)) !== null) {
+    for (let i = m.index; i < m.index + m[0].length; i++) taken.add(i);
     const table = `${m[1]}.${m[2]}`;
     const column = m[3];
     const key = `${table}.${column}`;
     if (!seen.has(key)) { seen.add(key); refs.push({ table, column }); }
   }
-  // For 2-part, scan and skip positions that overlap a 3-part match (rough
-  // but cheap — the cost of a false positive is just an extra probe call).
-  const taken = new Set();
-  const re3check = /"[^"]+"\."[^"]+"\."[^"]+"/g;
-  while ((m = re3check.exec(s)) !== null) {
-    for (let i = m.index; i < m.index + m[0].length; i++) taken.add(i);
-  }
+  // For 2-part, skip positions that overlap a 3-part match (rough but cheap —
+  // the cost of a false positive is just an extra probe call).
   const re2 = /"([^"]+)"\."([^"]+)"/g;
   while ((m = re2.exec(s)) !== null) {
     if (taken.has(m.index)) continue;

@@ -22,11 +22,12 @@ function ensurePersonalWorkspace(userId) {
 // Custom visuals can then attach to a real workspace_id even for "solo" use.
 function backfillPersonalWorkspaces() {
   const users = db.prepare('SELECT id FROM users').all();
+  const rehome = db.prepare(
+    'UPDATE reports SET workspace_id = ? WHERE user_id = ? AND workspace_id IS NULL'
+  );
   for (const u of users) {
     const wsId = ensurePersonalWorkspace(u.id);
-    db.prepare(
-      'UPDATE reports SET workspace_id = ? WHERE user_id = ? AND workspace_id IS NULL'
-    ).run(wsId, u.id);
+    rehome.run(wsId, u.id);
   }
 }
 

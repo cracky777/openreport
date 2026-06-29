@@ -240,7 +240,7 @@ export default function ReportFilterBar({ model, rules, onChange, onRefresh, vis
             </span>
           );
         })}
-        {wf.filter((r) => !r.__isNew).length === 0 && (
+        {visibleCount === 0 && (
           <span style={{ fontSize: 11, color: 'var(--text-disabled)', fontStyle: 'italic' }}>
             No filters — click + to add
           </span>

@@ -157,7 +157,7 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
       table: tableName,
       primaryKey,
       rules: { ...rules, [rowKey]: [...list, pattern] },
-      enabled: shouldAutoEnable ? true : wasEnabled,
+      enabled: shouldAutoEnable || wasEnabled,
     });
     setNewPattern((s) => ({ ...s, [rowKey]: '' }));
   };
@@ -232,155 +232,153 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
         {/* Primary key + rows — visible whenever the dialog is open so the
             user can prep the config (PK + patterns) before flipping the
             enable toggle. Persisting changes while disabled is intentional. */}
-        {(
-          <>
-            <div style={{ padding: 12, borderBottom: '1px solid var(--border-default)' }}>
-              <div style={fieldRow}>
-                <span style={fieldLabel}>RLS value</span>
-                <select
-                  value={primaryKey}
-                  onChange={(e) => setPK(e.target.value)}
-                  style={inputStyle}
-                >
-                  <option value="">— Select column —</option>
-                  {(tableColumns || []).map((c) => (
-                    <option key={c.column_name} value={c.column_name}>{c.column_name}</option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-disabled)', marginTop: 4 }}>
-                Column that identifies each row when matching access rules.
-              </div>
+        <>
+          <div style={{ padding: 12, borderBottom: '1px solid var(--border-default)' }}>
+            <div style={fieldRow}>
+              <span style={fieldLabel}>RLS value</span>
+              <select
+                value={primaryKey}
+                onChange={(e) => setPK(e.target.value)}
+                style={inputStyle}
+              >
+                <option value="">— Select column —</option>
+                {(tableColumns || []).map((c) => (
+                  <option key={c.column_name} value={c.column_name}>{c.column_name}</option>
+                ))}
+              </select>
             </div>
+            <div style={{ fontSize: 11, color: 'var(--text-disabled)', marginTop: 4 }}>
+              Column that identifies each row when matching access rules.
+            </div>
+          </div>
 
-            <div style={{ padding: '10px 12px', flex: 1, overflowY: 'auto', minHeight: 0 }}>
-              {!primaryKey && (
-                <div style={emptyHintStyle}>Pick an RLS value column to load the rows.</div>
-              )}
-              {primaryKey && loading && (
-                <div style={emptyHintStyle}>Loading rows…</div>
-              )}
-              {primaryKey && error && (
-                <div style={{ ...emptyHintStyle, color: 'var(--state-danger)' }}>Error: {error}</div>
-              )}
-              {primaryKey && !loading && !error && rows && (
-                <div>
-                  <div style={legendStyle}>
-                    Add one or several patterns per row. A user is granted access to a row when their
-                    email matches any of the patterns. Use <code>*</code> as a wildcard
-                    (e.g. <code>*@openreport.io</code>, <code>*admin*</code>, <code>alice@*</code>).
+          <div style={{ padding: '10px 12px', flex: 1, overflowY: 'auto', minHeight: 0 }}>
+            {!primaryKey && (
+              <div style={emptyHintStyle}>Pick an RLS value column to load the rows.</div>
+            )}
+            {primaryKey && loading && (
+              <div style={emptyHintStyle}>Loading rows…</div>
+            )}
+            {primaryKey && error && (
+              <div style={{ ...emptyHintStyle, color: 'var(--state-danger)' }}>Error: {error}</div>
+            )}
+            {primaryKey && !loading && !error && rows && (
+              <div>
+                <div style={legendStyle}>
+                  Add one or several patterns per row. A user is granted access to a row when their
+                  email matches any of the patterns. Use <code>*</code> as a wildcard
+                  (e.g. <code>*@openreport.io</code>, <code>*admin*</code>, <code>alice@*</code>).
+                </div>
+                <div style={{ marginBottom: 6, position: 'relative' }}>
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder={`Search by ${primaryKey}…`}
+                    style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', fontSize: 11 }}
+                  />
+                  <span style={{
+                    position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
+                    fontSize: 10, color: 'var(--text-disabled)',
+                  }}>
+                    {rows.length}{truncated ? '+' : ''} rows
+                  </span>
+                </div>
+                {rows.length === 0 && search.trim() && (
+                  <div style={emptyHintStyle}>No row matches "{search}".</div>
+                )}
+                {rows.length === 0 && !search.trim() && (
+                  <div style={emptyHintStyle}>No rows in this table.</div>
+                )}
+                {truncated && (
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6, padding: '4px 6px', background: 'var(--bg-subtle)', borderRadius: 3 }}>
+                    Showing the first 1000 matches. Refine the search to narrow down further.
                   </div>
-                  <div style={{ marginBottom: 6, position: 'relative' }}>
-                    <input
-                      type="text"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder={`Search by ${primaryKey}…`}
-                      style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', fontSize: 11 }}
-                    />
-                    <span style={{
-                      position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
-                      fontSize: 10, color: 'var(--text-disabled)',
-                    }}>
-                      {rows.length}{truncated ? '+' : ''} rows
-                    </span>
-                  </div>
-                  {rows.length === 0 && search.trim() && (
-                    <div style={emptyHintStyle}>No row matches "{search}".</div>
-                  )}
-                  {rows.length === 0 && !search.trim() && (
-                    <div style={emptyHintStyle}>No rows in this table.</div>
-                  )}
-                  {truncated && (
-                    <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6, padding: '4px 6px', background: 'var(--bg-subtle)', borderRadius: 3 }}>
-                      Showing the first 1000 matches. Refine the search to narrow down further.
-                    </div>
-                  )}
-                  {rows.map((row) => {
-                    const key = String(row[primaryKey]);
-                    const patterns = rules[key] || [];
-                    const draft = newPattern[key] || '';
-                    return (
-                      <div key={key} style={rowItemStyle}>
-                        <div style={rowKeyStyle}>{key}</div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-                            {patterns.length === 0 && (
-                              <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>No rule — nobody can see this row.</span>
-                            )}
-                            {patterns.map((p, i) => (
-                              <span key={`${p}-${i}`} style={chipStyle}>
-                                {p}
-                                <button
-                                  type="button"
-                                  className="btn-hover btn-hover-danger"
-                                  onClick={(e) => { e.stopPropagation(); removePattern(key, i); }}
-                                  style={chipRemoveStyle}
-                                  title="Remove pattern"
-                                ><TbTrash size={10} style={{ pointerEvents: 'none' }} /></button>
-                              </span>
-                            ))}
-                          </div>
-                          <div style={{ display: 'flex', gap: 4, position: 'relative' }}>
-                            <input
-                              type="text"
-                              value={draft}
-                              onChange={(e) => {
-                                setNewPattern((s) => ({ ...s, [key]: e.target.value }));
-                                setActiveRowKey(key);
-                              }}
-                              onFocus={() => setActiveRowKey(key)}
-                              onBlur={() => setTimeout(() => setActiveRowKey((cur) => cur === key ? null : cur), 150)}
-                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addPattern(key); } }}
-                              placeholder="email or pattern"
-                              style={{ ...inputStyle, flex: 1, fontSize: 11 }}
-                            />
-                            {draft.trim() && (
+                )}
+                {rows.map((row) => {
+                  const key = String(row[primaryKey]);
+                  const patterns = rules[key] || [];
+                  const draft = newPattern[key] || '';
+                  return (
+                    <div key={key} style={rowItemStyle}>
+                      <div style={rowKeyStyle}>{key}</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                          {patterns.length === 0 && (
+                            <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>No rule — nobody can see this row.</span>
+                          )}
+                          {patterns.map((p, i) => (
+                            <span key={`${p}-${i}`} style={chipStyle}>
+                              {p}
                               <button
                                 type="button"
-                                className="btn-hover btn-hover-accent"
-                                onMouseDown={(e) => e.preventDefault()} /* keep input focused so onBlur doesn't race */
-                                onClick={(e) => { e.stopPropagation(); addPattern(key); }}
-                                style={addBtnStyle}
-                                title="Add pattern"
-                              >
-                                <TbPlus size={12} style={{ pointerEvents: 'none' }} />
-                              </button>
-                            )}
-                            {activeRowKey === key && suggestions.length > 0 && (
-                              <div style={suggestionDropdownStyle}>
-                                {suggestions.map((u) => (
-                                  <div
-                                    key={u.id}
-                                    onMouseDown={(e) => {
-                                      // Use onMouseDown so this fires before the input's onBlur
-                                      // (which would otherwise hide the dropdown before our click registers).
-                                      e.preventDefault();
-                                      setNewPattern((s) => ({ ...s, [key]: u.email }));
-                                      setSuggestions([]);
-                                    }}
-                                    style={suggestionItemStyle}
-                                  >
-                                    <span style={{ fontFamily: 'monospace' }}>{u.email}</span>
-                                    {u.display_name && (
-                                      <span style={{ fontSize: 10, color: 'var(--text-disabled)', marginLeft: 6 }}>
-                                        {u.display_name}
-                                      </span>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                                className="btn-hover btn-hover-danger"
+                                onClick={(e) => { e.stopPropagation(); removePattern(key, i); }}
+                                style={chipRemoveStyle}
+                                title="Remove pattern"
+                              ><TbTrash size={10} style={{ pointerEvents: 'none' }} /></button>
+                            </span>
+                          ))}
+                        </div>
+                        <div style={{ display: 'flex', gap: 4, position: 'relative' }}>
+                          <input
+                            type="text"
+                            value={draft}
+                            onChange={(e) => {
+                              setNewPattern((s) => ({ ...s, [key]: e.target.value }));
+                              setActiveRowKey(key);
+                            }}
+                            onFocus={() => setActiveRowKey(key)}
+                            onBlur={() => setTimeout(() => setActiveRowKey((cur) => cur === key ? null : cur), 150)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addPattern(key); } }}
+                            placeholder="email or pattern"
+                            style={{ ...inputStyle, flex: 1, fontSize: 11 }}
+                          />
+                          {draft.trim() && (
+                            <button
+                              type="button"
+                              className="btn-hover btn-hover-accent"
+                              onMouseDown={(e) => e.preventDefault()} /* keep input focused so onBlur doesn't race */
+                              onClick={(e) => { e.stopPropagation(); addPattern(key); }}
+                              style={addBtnStyle}
+                              title="Add pattern"
+                            >
+                              <TbPlus size={12} style={{ pointerEvents: 'none' }} />
+                            </button>
+                          )}
+                          {activeRowKey === key && suggestions.length > 0 && (
+                            <div style={suggestionDropdownStyle}>
+                              {suggestions.map((u) => (
+                                <div
+                                  key={u.id}
+                                  onMouseDown={(e) => {
+                                    // Use onMouseDown so this fires before the input's onBlur
+                                    // (which would otherwise hide the dropdown before our click registers).
+                                    e.preventDefault();
+                                    setNewPattern((s) => ({ ...s, [key]: u.email }));
+                                    setSuggestions([]);
+                                  }}
+                                  style={suggestionItemStyle}
+                                >
+                                  <span style={{ fontFamily: 'monospace' }}>{u.email}</span>
+                                  {u.display_name && (
+                                    <span style={{ fontSize: 10, color: 'var(--text-disabled)', marginLeft: 6 }}>
+                                      {u.display_name}
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </>
-        )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
       </div>
     </div>
   );

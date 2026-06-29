@@ -8,9 +8,7 @@ export function calcLabelRotation(labels, chartWidth, isHorizontalBar = false) {
   // Estimate available width per label
   const widthPerLabel = (chartWidth || 400) / labels.length;
 
-  // Estimate max label length in characters
-  const lengths = labels.map((l) => String(l || '').length);
-  const maxLabelLen = lengths.length > 0 ? Math.max(...lengths) : 0;
+  const maxLabelLen = Math.max(...labels.map((l) => String(l || '').length));
   if (maxLabelLen === 0) return 0;
 
   // Approximate pixel width per character (depends on font size ~12px)

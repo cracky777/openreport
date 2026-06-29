@@ -115,6 +115,21 @@ router.get('/settings', requireAdmin, (req, res) => {
       } catch { /* skip malformed */ }
     }
   } catch { /* table missing on a fresh install */ }
+
+  // Rollup manifest totals + on-disk store size, read once and shared by
+  // both rollupStorage and the back-compat preAggCacheStats below.
+  let rollupCount = 0;
+  let rollupRows = 0;
+  try {
+    const r = db.prepare('SELECT COUNT(*) AS c, COALESCE(SUM(row_count),0) AS rws FROM rollups').get();
+    rollupCount = r.c || 0;
+    rollupRows = r.rws || 0;
+  } catch { /* table missing on a fresh DB pre-migration */ }
+  let rollupBytes = 0;
+  try {
+    rollupBytes = require('../utils/rollupDuckDB').totalStoreBytes();
+  } catch { /* file not created yet (no rollups built) */ }
+
   res.json({
     queryTimeoutMs: getQueryTimeoutMs(),
     queryTimeoutMinMs: QUERY_TIMEOUT_MIN_MS,
@@ -130,33 +145,10 @@ router.get('/settings', requireAdmin, (req, res) => {
     // LOCAL DISK storage (one embedded DuckDB file per model), not RAM.
     // `bytes` is the summed on-disk size of every model store; `rollups`/
     // `rows` are the manifest totals across every model.
-    rollupStorage: (() => {
-      let rollups = 0;
-      let rows = 0;
-      try {
-        const r = db.prepare('SELECT COUNT(*) AS c, COALESCE(SUM(row_count),0) AS rws FROM rollups').get();
-        rollups = r.c || 0;
-        rows = r.rws || 0;
-      } catch { /* table missing on a fresh DB pre-migration */ }
-      let bytes = 0;
-      try {
-        bytes = require('../utils/rollupDuckDB').totalStoreBytes();
-      } catch { /* file not created yet (no rollups built) */ }
-      return { mode: 'duckdb-local', rollups, rows, bytes };
-    })(),
+    rollupStorage: { mode: 'duckdb-local', rollups: rollupCount, rows: rollupRows, bytes: rollupBytes },
     // Back-compat: QueryCacheControl still reads preAggStats.size for the
     // rollup entry count. Bytes = real disk size of the rollup store.
-    preAggCacheStats: (() => {
-      let rollups = 0;
-      try {
-        rollups = db.prepare('SELECT COUNT(*) AS c FROM rollups').get().c || 0;
-      } catch { /* pre-migration */ }
-      let bytes = 0;
-      try {
-        bytes = require('../utils/rollupDuckDB').totalStoreBytes();
-      } catch { /* not built yet */ }
-      return { enabled: true, ttlMs: 0, size: rollups, bytes };
-    })(),
+    preAggCacheStats: { enabled: true, ttlMs: 0, size: rollupCount, bytes: rollupBytes },
     storage: {
       uploadedFileCount,
       uploadedBytes: totalUploadedBytes,

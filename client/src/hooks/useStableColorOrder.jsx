@@ -17,9 +17,11 @@ export function useStableColorOrder(namesKey, names) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [namesKey]);
   useEffect(() => { orderRef.current = merged; }, [merged]);
-  const getStableIdx = (name) => {
-    const idx = merged.indexOf(name);
-    return idx >= 0 ? idx : 0;
-  };
+  const indexByName = useMemo(() => {
+    const m = new Map();
+    merged.forEach((n, i) => m.set(n, i));
+    return m;
+  }, [merged]);
+  const getStableIdx = (name) => indexByName.get(name) ?? 0;
   return { getStableIdx, order: merged };
 }

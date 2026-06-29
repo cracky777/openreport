@@ -131,8 +131,6 @@ export default function SchemaCanvas({
     const pos = positions[tableName];
     if (!pos) return { x: 0, y: 0 };
     const cols = getVisibleColumns(tableName);
-    const allCols = sortedTables[tableName] || [];
-    // Check visible first, then all (for hidden columns in joins)
     let colIndex = cols.findIndex((c) => c.column_name === columnName);
     if (colIndex === -1) {
       // Column might be hidden - use last visible row position
@@ -141,7 +139,7 @@ export default function SchemaCanvas({
     const y = pos.y + HEADER_HEIGHT + TYPE_BAR_HEIGHT + colIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
     const x = side === 'right' ? pos.x + TABLE_WIDTH : pos.x;
     return { x, y };
-  }, [positions, sortedTables, getVisibleColumns]);
+  }, [positions, getVisibleColumns]);
 
   // Table drag
   const handleTableMouseDown = (e, tableName) => {
@@ -237,9 +235,8 @@ export default function SchemaCanvas({
         let bestDist = SNAP_DISTANCE;
 
         // Find the closest column dot to the drop point
-        for (const [tName, cols] of Object.entries(tables)) {
+        for (const tName of Object.keys(tables)) {
           if (!positions[tName]) continue;
-          const sortedCols = cols; // already sorted in parent
           const visibleCols = getVisibleColumns(tName);
           for (const col of visibleCols) {
             // Check both left and right dots
@@ -382,8 +379,16 @@ export default function SchemaCanvas({
   // visible even if the column / table name was stored with subtle differences
   // (BOM, trailing whitespace, casing) compared to what the schema endpoint returns.
   const norm = (s) => String(s ?? '').trim().toLowerCase();
-  const isDimension = (table, col) => dimensions.some((d) => norm(d.table) === norm(table) && norm(d.column) === norm(col));
-  const isMeasure = (table, col) => measures.some((m) => norm(m.table) === norm(table) && norm(m.column) === norm(col));
+  const dimensionKeys = useMemo(
+    () => new Set(dimensions.map((d) => `${norm(d.table)}\u0000${norm(d.column)}`)),
+    [dimensions],
+  );
+  const measureKeys = useMemo(
+    () => new Set(measures.map((m) => `${norm(m.table)}\u0000${norm(m.column)}`)),
+    [measures],
+  );
+  const isDimension = (table, col) => dimensionKeys.has(`${norm(table)}\u0000${norm(col)}`);
+  const isMeasure = (table, col) => measureKeys.has(`${norm(table)}\u0000${norm(col)}`);
 
   return (
     <div
@@ -568,17 +573,14 @@ export default function SchemaCanvas({
               const color = isManyToMany ? '#dc2626' : isOneToOne ? '#0891b2' : '#7c3aed';
 
               // Anchor the cardinality markers along the curve, just inside
-              // each table edge. Bézier sampling: t=0.08 from start, t=0.92
-              // from end (close enough to the table without overlapping it).
-              const cubicAt = (p0, p1, p2, p3, t) => {
-                const u = 1 - t;
-                return u*u*u*p0 + 3*u*u*t*p1 + 3*u*t*t*p2 + t*t*t*p3;
-              };
+              // each table edge: t=0.08 from start, t=0.92 from end (close
+              // enough to the table without overlapping it). Reuses the
+              // bezierAt sampler defined above.
               const tStart = 0.08, tEnd = 0.92;
-              const fromMarkerX = cubicAt(from.x, midX, midX, to.x, tStart);
-              const fromMarkerY = cubicAt(from.y, c1y, c2y, to.y, tStart);
-              const toMarkerX = cubicAt(from.x, midX, midX, to.x, tEnd);
-              const toMarkerY = cubicAt(from.y, c1y, c2y, to.y, tEnd);
+              const fromMarkerX = bezierAt(from.x, midX, midX, to.x, tStart);
+              const fromMarkerY = bezierAt(from.y, c1y, c2y, to.y, tStart);
+              const toMarkerX = bezierAt(from.x, midX, midX, to.x, tEnd);
+              const toMarkerY = bezierAt(from.y, c1y, c2y, to.y, tEnd);
 
               const renderMarker = (cx, cy, value, side) => (
                 <g

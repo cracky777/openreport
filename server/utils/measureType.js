@@ -23,6 +23,8 @@
  * break the rollup for half the visuals.
  */
 
+const crypto = require('crypto');
+
 // Generic additive-aggregation detector for `aggregation: 'custom'`
 // measures. The mathematical contract:
 //
@@ -852,7 +854,7 @@ function sqlAggForAdditive(t) {
 // keeps the full alias (`_avg_<16hex>_sum`/`_count`) ~27 chars.
 function avgAliasBase(spec) {
   const key = `${spec.table || ''}.${spec.column}`;
-  const h = require('crypto').createHash('sha1').update(key).digest('hex').slice(0, 16);
+  const h = crypto.createHash('sha1').update(key).digest('hex').slice(0, 16);
   return `_avg_${h}`;
 }
 
@@ -864,7 +866,7 @@ function avgAliasBase(spec) {
 // mergeable across lg_k values).
 function hllAliasBase(spec) {
   const key = `${spec.table || ''}.${spec.column}|lgk=${spec.lgK || 12}`;
-  const h = require('crypto').createHash('sha1').update(key).digest('hex').slice(0, 16);
+  const h = crypto.createHash('sha1').update(key).digest('hex').slice(0, 16);
   return `_hll_${h}`;
 }
 

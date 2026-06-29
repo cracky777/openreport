@@ -122,14 +122,14 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
     };
 
     if (visibleSeries && visibleSeries.length > 0) {
+      const colTotals100 = subType === 'stackedArea100'
+        ? labels.map((_, vi) => visibleSeries.reduce((t, sr) => t + (sr.values[vi] || 0), 0))
+        : null;
       visibleSeries.forEach((s, i) => {
-        const origIdx = allSeriesForLegend ? allSeriesForLegend.findIndex((o) => o.name === s.name) : i;
-        const colorIdx = origIdx >= 0 ? origIdx : i;
         let values = sortedIndices.map((idx) => s.values[idx] || 0);
         if (subType === 'stackedArea100') {
           values = values.map((val, vi) => {
-            let total = 0;
-            for (const sr of visibleSeries) total += (sr.values[vi] || 0);
+            const total = colTotals100[vi];
             return total > 0 ? Math.round(((val || 0) / total) * 10000) / 100 : 0;
           });
         }
@@ -139,9 +139,9 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
           symbol: config?.lineSymbol ?? 'circle',
           symbolSize: config?.lineSymbolSize ?? 6,
           showSymbol: (config?.lineSymbol ?? 'circle') !== 'none',
-          lineStyle: { color: getColor(s.name, colorIdx) },
-          itemStyle: { color: getColor(s.name, colorIdx) },
-          areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15, color: getColor(s.name, colorIdx) } : undefined,
+          lineStyle: { color: getColor(s.name) },
+          itemStyle: { color: getColor(s.name) },
+          areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15, color: getColor(s.name) } : undefined,
           stack: isStacked ? 'total' : undefined,
           label: { ...labelOpts, formatter: (p) => {
             if (hideZeros && (p.value == null || p.value === 0)) return '';

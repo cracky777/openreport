@@ -93,7 +93,7 @@ router.put('/:id', requireAuth, (req, res) => {
   }
 
   // Empty password means "keep existing" — non-empty replaces it
-  const finalPassword = (dbPassword && dbPassword !== '') ? dbPassword : existing.db_password;
+  const finalPassword = dbPassword ? dbPassword : existing.db_password;
 
   db.prepare(`
     UPDATE datasources

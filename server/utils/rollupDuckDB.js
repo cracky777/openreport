@@ -230,11 +230,10 @@ async function insertRows(modelId, gen, tableName, columns, rows, orgId) {
   // expose it cleanly; chunked parameterised INSERTs are fast enough for
   // rollups (1k-100k rows in practice, not millions).
   const CHUNK = 1000;
+  const rowGroup = `(${columns.map(() => '?').join(', ')})`;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const slice = rows.slice(i, i + CHUNK);
-    const placeholders = slice
-      .map(() => `(${columns.map(() => '?').join(', ')})`)
-      .join(', ');
+    const placeholders = slice.map(() => rowGroup).join(', ');
     const params = [];
     for (const row of slice) {
       for (const col of columns) params.push(row[col] === undefined ? null : row[col]);

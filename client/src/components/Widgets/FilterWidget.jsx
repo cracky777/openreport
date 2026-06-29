@@ -145,7 +145,8 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
 
   const filteredValues = useMemo(() => {
     if (!search) return values;
-    return values.filter((v) => String(v).toLowerCase().includes(search.toLowerCase()));
+    const q = search.toLowerCase();
+    return values.filter((v) => String(v).toLowerCase().includes(q));
   }, [values, search]);
 
   // Dropdown mode: snapshot of `selected` at the moment the dropdown
@@ -723,12 +724,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
   );
 });
 
-function toInputDate(d) {
-  if (!d || isNaN(d)) return '';
-  return d.toISOString().split('T')[0];
-}
-
-// Same shape as `toInputDate` but uses LOCAL year/month/day instead of
+// Build a YYYY-MM-DD iso from LOCAL year/month/day instead of
 // UTC — matches the iso that MiniCalendar emits on a day click (which
 // is built from `viewDate.getFullYear() / getMonth() / getDate()`, i.e.
 // local). Using UTC here would shift the iso by a day in any timezone
@@ -772,10 +768,4 @@ const numInputStyle = {
 const dateInputStyle = {
   width: '100%', padding: '6px 8px', border: '1px solid var(--border-default)', borderRadius: 6,
   fontSize: 13, outline: 'none', boxSizing: 'border-box', color: 'var(--text-secondary)',
-};
-
-const calendarStyle = {
-  width: '100%', padding: '4px', border: '1px solid var(--border-default)', borderRadius: 6,
-  fontSize: 13, outline: 'none', boxSizing: 'border-box', color: 'var(--text-secondary)',
-  minHeight: 40,
 };

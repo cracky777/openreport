@@ -167,7 +167,7 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_rollups_org ON rollups (organization_id)
 // 'source' opts into materialising rollup tables INSIDE the source DB itself
 // (Looker PDT pattern), which requires the configured user to hold write
 // privileges on that database.
-try { db.exec("ALTER TABLE datasources ADD COLUMN rollup_storage TEXT NOT NULL DEFAULT 'duckdb'"); } catch { /* already exists */ }
+safeMigrate("ALTER TABLE datasources ADD COLUMN rollup_storage TEXT NOT NULL DEFAULT 'duckdb'");
 
 // Promote first user to admin if no admin exists
 const adminCount = db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'admin'").get();

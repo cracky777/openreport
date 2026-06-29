@@ -184,11 +184,11 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
   const colLevels = colDims.length > 0 ? flattenHeaderLevels(colTree, colDims.length) : [];
   const numMeasures = measures.length;
 
+  const durationCols = new Set(data?._durationColumns);
   const formatVal = (val, measure) => {
     if (val == null) return '';
     // Interval-typed measures arrive as EPOCH seconds → format as duration.
-    const isDurationCol = Array.isArray(data?._durationColumns) && data._durationColumns.includes(measure);
-    if (isDurationCol && typeof val === 'number') return formatDuration(val);
+    if (durationCols.has(measure) && typeof val === 'number') return formatDuration(val);
     const mAbbr = getMeasureConfig(measure, 'valueAbbreviation', valueAbbr);
     const abbr = abbreviateNumber(val, mAbbr);
     if (abbr != null) return abbr;
@@ -304,8 +304,8 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
   //   - for each grand-total measure: measure name (shares width)
   const leafColKeys = [
     'Rows',
-    ...colKeys.flatMap(() => measures.map((m) => m)),
-    ...(showGrandCol ? measures.map((m) => m) : []),
+    ...colKeys.flatMap(() => measures),
+    ...(showGrandCol ? measures : []),
   ];
   const anyExplicitWidth = leafColKeys.some((k) => widthFor(k));
 

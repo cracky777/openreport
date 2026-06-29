@@ -44,7 +44,6 @@ export function buildHeaderTree(keys) {
         node = { value: v, children: [], leafCount: 0 };
         level.push(node);
       }
-      if (d === vals.length - 1) node.leafCount = 1;
       level = node.children;
     }
   }

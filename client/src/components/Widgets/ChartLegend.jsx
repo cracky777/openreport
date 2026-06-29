@@ -39,12 +39,8 @@ export default memo(function ChartLegend({ items, position, onToggle, hiddenSeri
   const scroll = (direction) => {
     const el = listRef.current;
     if (!el) return;
-    const amount = isVertical ? 60 : 120;
-    if (isVertical) {
-      el.scrollBy({ top: direction * amount, behavior: 'smooth' });
-    } else {
-      el.scrollBy({ left: direction * amount, behavior: 'smooth' });
-    }
+    const delta = direction * (isVertical ? 60 : 120);
+    el.scrollBy({ [isVertical ? 'top' : 'left']: delta, behavior: 'smooth' });
   };
 
   const showArrows = canScrollBack || canScrollForward;
@@ -67,7 +63,6 @@ export default memo(function ChartLegend({ items, position, onToggle, hiddenSeri
           style={{
             ...arrowBtn,
             opacity: canScrollBack ? 1 : 0.2,
-            transform: isVertical ? 'rotate(0deg)' : 'rotate(0deg)',
           }}
         >
           {isVertical ? '▲' : '◀'}
@@ -87,7 +82,7 @@ export default memo(function ChartLegend({ items, position, onToggle, hiddenSeri
           flex: 1,
           minWidth: 0, minHeight: 0,
           alignItems: isVertical ? 'flex-start' : 'center',
-          justifyContent: isVertical ? 'flex-start' : 'flex-start',
+          justifyContent: 'flex-start',
         }}
       >
         {items.map((item) => {

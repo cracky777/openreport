@@ -93,7 +93,6 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
     return info.label && info.label !== qualified ? `${info.label} — ${qualified}` : qualified;
   };
 
-  // Detect if the current drag is from this zone (for visual only)
   const draggedField = dragIdx != null ? fields[dragIdx] : null;
 
   // Single-field zone already occupied → any external drop is a replace, not an insert.

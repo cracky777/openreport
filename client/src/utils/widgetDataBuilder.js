@@ -135,6 +135,10 @@ export function buildWidgetData({
       let barSeries = [];
       if (grpKey) {
         const ug = [...new Set(rows.map((r) => String(r[grpKey] ?? '')))].sort();
+        // Index by (axis, group) once so each cell is an O(1) lookup instead
+        // of a rows.find() scan. First-match wins, matching rows.find().
+        const byAxisGroup = new Map();
+        rows.forEach((r) => { const k = `${String(r[axisKey] ?? '')}\u0000${String(r[grpKey] ?? '')}`; if (!byAxisGroup.has(k)) byAxisGroup.set(k, r); });
         cbm.forEach((mn) => {
           const ml = gl(mn, effectiveModel?.measures);
           const mk = fk(ml);
@@ -143,13 +147,15 @@ export function buildWidgetData({
             barSeries.push({
               name: cbm.length === 1 ? gv : `${gv} - ${ml}`,
               values: labels.map((l) => {
-                const row = rows.find((r) => String(r[axisKey] ?? '') === l && String(r[grpKey] ?? '') === gv);
+                const row = byAxisGroup.get(`${l}\u0000${gv}`);
                 return row ? Number(row[mk]) || 0 : 0;
               }),
             });
           });
         });
       } else {
+        const byAxis = new Map();
+        rows.forEach((r) => { const k = String(r[axisKey] ?? ''); if (!byAxis.has(k)) byAxis.set(k, r); });
         cbm.forEach((mn) => {
           const ml = gl(mn, effectiveModel?.measures);
           const mk = fk(ml);
@@ -157,7 +163,7 @@ export function buildWidgetData({
           barSeries.push({
             name: ml,
             values: labels.map((l) => {
-              const row = rows.find((r) => String(r[axisKey] ?? '') === l);
+              const row = byAxis.get(l);
               return row ? Number(row[mk]) || 0 : 0;
             }),
           });
@@ -170,6 +176,8 @@ export function buildWidgetData({
       const lineRows = comboLineRes?.data?.rows;
       if (lineRows && grpBy.length > 0) {
         const lineKeys = lineRows.length > 0 ? Object.keys(lineRows[0]) : [];
+        const lineByAxis = new Map();
+        lineRows.forEach((r) => { const k = String(r[axisKey] ?? ''); if (!lineByAxis.has(k)) lineByAxis.set(k, r); });
         lineSeries = clm.map((mn) => {
           const ml = gl(mn, effectiveModel?.measures);
           const mk = lineKeys.includes(ml) ? ml : (lineKeys.includes(mn) ? mn : null);
@@ -177,19 +185,21 @@ export function buildWidgetData({
           return {
             name: ml,
             values: labels.map((l) => {
-              const row = lineRows.find((r) => String(r[axisKey] ?? '') === l);
+              const row = lineByAxis.get(l);
               return row ? Number(row[mk]) || 0 : 0;
             }),
           };
         }).filter(Boolean);
       } else {
+        const rowsByAxis = new Map();
+        rows.forEach((r) => { const k = String(r[axisKey] ?? ''); const b = rowsByAxis.get(k); if (b) b.push(r); else rowsByAxis.set(k, [r]); });
         lineSeries = clm.map((mn) => {
           const ml = gl(mn, effectiveModel?.measures);
           const mk = fk(ml);
           if (!mk) return null;
           return {
             name: ml,
-            values: labels.map((l) => rows.filter((r) => String(r[axisKey] ?? '') === l).reduce((s, r) => s + (Number(r[mk]) || 0), 0)),
+            values: labels.map((l) => (rowsByAxis.get(l) || []).reduce((s, r) => s + (Number(r[mk]) || 0), 0)),
           };
         }).filter(Boolean);
       }
@@ -257,12 +267,15 @@ export function buildWidgetData({
     const valueKey = keys[keys.length - 1];
     const ul = [...new Set(rows.map((r) => String(r[axisKey])))];
     const ug = [...new Set(rows.map((r) => String(r[groupKey])))];
+    // Index by (axis, group) once; first-match wins, matching rows.find().
+    const byAxisGroup = new Map();
+    rows.forEach((r) => { const k = `${String(r[axisKey])}\u0000${String(r[groupKey])}`; if (!byAxisGroup.has(k)) byAxisGroup.set(k, r); });
     newData = {
       labels: ul,
       series: ug.map((gv) => ({
         name: gv,
         values: ul.map((l) => {
-          const row = rows.find((r) => String(r[axisKey]) === l && String(r[groupKey]) === gv);
+          const row = byAxisGroup.get(`${l}\u0000${gv}`);
           return row ? Number(row[valueKey]) || 0 : 0;
         }),
       })),

@@ -100,29 +100,27 @@ export function getConditionalStyle(rules, value, colValues) {
   const style = {};
   const extraElements = [];
 
+  const nums = !isNaN(num) ? colValues.map((v) => parseFloat(v)).filter((n) => !isNaN(n)) : [];
+
   for (const rule of rules) {
     if (rule.type === 'colorScale' && !isNaN(num)) {
-      const nums = colValues.map((v) => parseFloat(v)).filter((n) => !isNaN(n));
       const min = rule.minValue != null ? rule.minValue : Math.min(...nums);
       const max = rule.maxValue != null ? rule.maxValue : Math.max(...nums);
       const pct = max > min ? Math.max(0, Math.min(1, (num - min) / (max - min))) : 0;
       style.backgroundColor = lerpColor(rule.minColor || '#dcfce7', rule.maxColor || '#dc2626', pct);
     }
     if (rule.type === 'dataBar' && !isNaN(num)) {
-      const nums = colValues.map((v) => parseFloat(v)).filter((n) => !isNaN(n));
       const max = Math.max(...nums, 1);
       const pct = Math.max(0, Math.min(100, (num / max) * 100));
       style.backgroundImage = `linear-gradient(to right, ${rule.dataBarColor || '#7c3aed'}20 ${pct}%, transparent ${pct}%)`;
     }
     if (rule.type === 'textColor' && !isNaN(num)) {
-      const nums = colValues.map((v) => parseFloat(v)).filter((n) => !isNaN(n));
       const min = rule.minValue != null ? rule.minValue : Math.min(...nums);
       const max = rule.maxValue != null ? rule.maxValue : Math.max(...nums);
       const pct = max > min ? Math.max(0, Math.min(1, (num - min) / (max - min))) : 0;
       style.color = lerpColor(rule.minColor || '#dc2626', rule.maxColor || '#16a34a', pct);
     }
     if (rule.type === 'icon' && !isNaN(num)) {
-      const nums = colValues.map((v) => parseFloat(v)).filter((n) => !isNaN(n));
       const low = rule.lowValue != null ? rule.lowValue : Math.min(...nums);
       const high = rule.highValue != null ? rule.highValue : Math.max(...nums);
       const mid = rule.midValue != null ? rule.midValue : (low + high) / 2;
@@ -136,18 +134,6 @@ export function getConditionalStyle(rules, value, colValues) {
     }
   }
   return { style, extraElements };
-}
-
-function evalCondition(val, op, threshold) {
-  switch (op) {
-    case '>': return val > threshold;
-    case '<': return val < threshold;
-    case '>=': return val >= threshold;
-    case '<=': return val <= threshold;
-    case '=': return val === threshold;
-    case '!=': return val !== threshold;
-    default: return false;
-  }
 }
 
 export function lerpColor(c1, c2, t) {

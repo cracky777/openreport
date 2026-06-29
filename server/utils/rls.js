@@ -39,9 +39,16 @@ function tablesReachableFrom(startTable, joins) {
 //   "alice*"                → emails starting with "alice"
 //   "*admin*"               → emails containing "admin"
 //   "*"                     → matches any authenticated user
+const regexCache = new Map();
 function patternToRegex(pattern) {
-  const escaped = String(pattern).replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`, 'i');
+  const key = String(pattern);
+  let re = regexCache.get(key);
+  if (!re) {
+    const escaped = key.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+    re = new RegExp(`^${escaped}$`, 'i');
+    regexCache.set(key, re);
+  }
+  return re;
 }
 
 function emailMatchesPattern(email, pattern) {

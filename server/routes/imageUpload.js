@@ -27,7 +27,7 @@ const storage = multer.diskStorage({
   // UUID-prefixed filename. Keeps the original extension so the browser
   // picks the right content type from the static-serve middleware.
   filename: (req, file, cb) => {
-    const ext = (path.extname(file.originalname || '') || '').toLowerCase();
+    const ext = path.extname(file.originalname || '').toLowerCase();
     cb(null, `${uuidv4()}${ext}`);
   },
 });
@@ -38,7 +38,7 @@ const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB — generous for a dashboard image
   fileFilter: (req, file, cb) => {
-    const ext = (path.extname(file.originalname || '') || '').toLowerCase();
+    const ext = path.extname(file.originalname || '').toLowerCase();
     if (!ALLOWED.has(ext)) {
       return cb(new Error(`Unsupported image type: ${ext}. Allowed: ${[...ALLOWED].join(', ')}`));
     }

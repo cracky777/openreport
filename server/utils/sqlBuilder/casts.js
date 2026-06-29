@@ -17,6 +17,19 @@
 const { quoteLiteral } = require('../sqlDialect');
 
 const NUMERIC_TYPES = new Set(['integer', 'decimal', 'number']);
+const BOOL_TRUE = new Set(['true', 't', 'yes', 'y', '1']);
+const BOOL_FALSE = new Set(['false', 'f', 'no', 'n', '0']);
+
+// strftime-style format codes shared by MySQL (STR_TO_DATE), BigQuery
+// (PARSE_DATE) and DuckDB (STRPTIME) — same tokens, different wrapping fn.
+const STRFTIME_FORMATS = {
+  iso: '%Y-%m-%d',
+  'dd/mm/yyyy': '%d/%m/%Y',
+  'mm/dd/yyyy': '%m/%d/%Y',
+  'dd-mm-yyyy': '%d-%m-%Y',
+  'dd.mm.yyyy': '%d.%m.%Y',
+  yyyymmdd: '%Y%m%d',
+};
 
 // Cast an expression to a string type using the dialect's expected keyword.
 // PostgreSQL / SQL Server / DuckDB accept VARCHAR; MySQL refuses VARCHAR
@@ -78,40 +91,19 @@ function castToDate(expr, dbType, fmt) {
   }
 
   if (dbType === 'mysql') {
-    const m = ({
-      iso: '%Y-%m-%d',
-      'dd/mm/yyyy': '%d/%m/%Y',
-      'mm/dd/yyyy': '%m/%d/%Y',
-      'dd-mm-yyyy': '%d-%m-%Y',
-      'dd.mm.yyyy': '%d.%m.%Y',
-      yyyymmdd: '%Y%m%d',
-    })[f];
+    const m = STRFTIME_FORMATS[f];
     if (m) return `STR_TO_DATE(${expr}, '${m}')`;
     return `CAST(${expr} AS DATE)`;
   }
 
   if (dbType === 'bigquery') {
-    const m = ({
-      iso: '%Y-%m-%d',
-      'dd/mm/yyyy': '%d/%m/%Y',
-      'mm/dd/yyyy': '%m/%d/%Y',
-      'dd-mm-yyyy': '%d-%m-%Y',
-      'dd.mm.yyyy': '%d.%m.%Y',
-      yyyymmdd: '%Y%m%d',
-    })[f];
+    const m = STRFTIME_FORMATS[f];
     if (m) return `PARSE_DATE('${m}', ${expr})`;
     return `CAST(${expr} AS DATE)`;
   }
 
   if (dbType === 'duckdb') {
-    const m = ({
-      iso: '%Y-%m-%d',
-      'dd/mm/yyyy': '%d/%m/%Y',
-      'mm/dd/yyyy': '%m/%d/%Y',
-      'dd-mm-yyyy': '%d-%m-%Y',
-      'dd.mm.yyyy': '%d.%m.%Y',
-      yyyymmdd: '%Y%m%d',
-    })[f];
+    const m = STRFTIME_FORMATS[f];
     if (m) return `CAST(STRPTIME(${expr}, '${m}') AS DATE)`;
     return `CAST(${expr} AS DATE)`;
   }
@@ -149,8 +141,8 @@ function literalsForType(values, dimType) {
     const out = [];
     for (const v of values) {
       const s = String(v).trim().toLowerCase();
-      if (['true', 't', 'yes', 'y', '1'].includes(s)) out.push('TRUE');
-      else if (['false', 'f', 'no', 'n', '0'].includes(s)) out.push('FALSE');
+      if (BOOL_TRUE.has(s)) out.push('TRUE');
+      else if (BOOL_FALSE.has(s)) out.push('FALSE');
       else return null;
     }
     return out;

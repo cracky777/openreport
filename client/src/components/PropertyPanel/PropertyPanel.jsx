@@ -203,7 +203,6 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
   };
 
   const removeFromZone = (sourceZone, fieldName) => {
-    if (!sourceZone) return;
     const updates = {};
     if (sourceZone === 'axis' || sourceZone === 'category' || sourceZone === 'filter' || sourceZone === 'rows') {
       updates.selectedDimensions = selectedDims.filter((d) => d !== fieldName);
@@ -2212,7 +2211,7 @@ function ColorInput({ value, onChange }) {
           padding: 0, flexShrink: 0,
         }}
       >
-        {isTransparent ? '∅' : '∅'}
+        ∅
       </button>
     </div>
   );
@@ -2232,7 +2231,6 @@ function CompareLineEditor({ title, checked, onToggle, style, defaultLabel, onSt
   // (which has minWidth:0 + overflow:hidden) and never get truncated by
   // the panel's narrow default width.
   const fillStyle = { ...inputStyle, width: '100%' };
-  const selectStyle = fillStyle;
   const textColorOn = s.textColorEnabled !== false; // back-compat: legacy `colorEnabled` falls back via the renderer
   // Value-kind icon defaults OFF (no sign means no implicit symbol);
   // delta kinds default ON to match the previous behavior.
@@ -2268,7 +2266,7 @@ function CompareLineEditor({ title, checked, onToggle, style, defaultLabel, onSt
         <div style={{ padding: '8px 10px 4px', borderTop: '1px solid var(--border-default)' }}>
           <Field label="Position">
             <select value={s.position || 'bottom'} onChange={(e) => update({ position: e.target.value })}
-              style={selectStyle}>
+              style={fillStyle}>
               <option value="bottom">Bottom</option>
               <option value="left">Left</option>
               <option value="right">Right</option>
@@ -2550,8 +2548,6 @@ const headerStyle = {
   gap: 8,
   marginBottom: 14, paddingBottom: 10, borderBottom: '1px solid var(--border-default)',
 };
-
-const radioRow = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' };
 
 const layerBtn = {
   color: 'var(--text-secondary)', background: 'var(--bg-panel)', border: '1px solid var(--border-default)',

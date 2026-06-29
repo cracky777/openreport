@@ -109,7 +109,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
         ref={nodeRef}
         onClick={(e) => {
           e.stopPropagation();
-          onSelect(item.i);
+          onSelect?.(item.i);
         }}
         style={{
           position: 'absolute',
@@ -207,34 +207,34 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             left: 6,
             zIndex: 11,
           }}>
-            {!readOnly && onCancelFetch ? (
-              <button
-                onClick={(e) => { e.stopPropagation(); onCancelFetch(); }}
-                onMouseEnter={() => setCancelHover(true)}
-                onMouseLeave={() => setCancelHover(false)}
-                title="Cancel query"
-                style={{
-                  position: 'relative', width: 18, height: 18, padding: 0,
-                  border: 'none', background: 'transparent', cursor: 'pointer',
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                <span style={{
-                  ...spinnerStyle,
-                  borderTopColor: widget._loadingKind === 'live' ? 'var(--accent-primary)' : 'var(--accent-cyan)',
-                }} />
-                {cancelHover && (
-                  <TbX size={12} style={{
-                    position: 'absolute', color: 'var(--state-danger)',
-                  }} />
-                )}
-              </button>
-            ) : (
-              <div style={{
+            {(() => {
+              const ringStyle = {
                 ...spinnerStyle,
                 borderTopColor: widget._loadingKind === 'live' ? 'var(--accent-primary)' : 'var(--accent-cyan)',
-              }} />
-            )}
+              };
+              return !readOnly && onCancelFetch ? (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onCancelFetch(); }}
+                  onMouseEnter={() => setCancelHover(true)}
+                  onMouseLeave={() => setCancelHover(false)}
+                  title="Cancel query"
+                  style={{
+                    position: 'relative', width: 18, height: 18, padding: 0,
+                    border: 'none', background: 'transparent', cursor: 'pointer',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <span style={ringStyle} />
+                  {cancelHover && (
+                    <TbX size={12} style={{
+                      position: 'absolute', color: 'var(--state-danger)',
+                    }} />
+                  )}
+                </button>
+              ) : (
+                <div style={ringStyle} />
+              );
+            })()}
           </div>
         )}
 

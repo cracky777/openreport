@@ -64,8 +64,9 @@ async function runOne(scheduleId) {
       orgId: null,
       log: process.env.ROLLUP_LOG !== '0',
     });
-    const status = (r.errors && r.errors.length > 0 && r.built === 0) ? 'error' : 'ok';
-    const note = (r.errors && r.errors.length > 0)
+    const hasErrors = r.errors && r.errors.length > 0;
+    const status = (hasErrors && r.built === 0) ? 'error' : 'ok';
+    const note = hasErrors
       ? r.errors.join(' | ').slice(0, 500)
       : `Built ${r.built}/${r.fired} rollup(s)`;
     cacheSchedules.recordRun(sched.id, status, note);

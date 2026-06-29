@@ -93,19 +93,16 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
     if (hasSeries) {
       seriesList = data.seriesGroups
         .filter((g) => !hiddenSeries.has(g.name))
-        .map((g, i) => {
-          const origIdx = data.seriesGroups.findIndex((o) => o.name === g.name);
-          return {
-            type: 'scatter',
-            name: g.name,
-            symbol: getSymbol(g.name),
-            data: buildData(g.points),
-            symbolSize: hasSize ? (val, params) => params.data?.symbolSize || symbolSize : symbolSize,
-            itemStyle: { color: getColor(g.name, origIdx >= 0 ? origIdx : i) },
-            emphasis: { disabled: true },
-            label: { show: showDataLabels, formatter: (p) => p.data._label || '', fontSize: config?.dataLabelFontSize ?? 10, fontFamily: dataLabelFontFamily, position: 'top', color: 'var(--text-secondary)' },
-          };
-        });
+        .map((g) => ({
+          type: 'scatter',
+          name: g.name,
+          symbol: getSymbol(g.name),
+          data: buildData(g.points),
+          symbolSize: hasSize ? (val, params) => params.data?.symbolSize || symbolSize : symbolSize,
+          itemStyle: { color: getColor(g.name) },
+          emphasis: { disabled: true },
+          label: { show: showDataLabels, formatter: (p) => p.data._label || '', fontSize: config?.dataLabelFontSize ?? 10, fontFamily: dataLabelFontFamily, position: 'top', color: 'var(--text-secondary)' },
+        }));
     } else {
       seriesList = [{
         type: 'scatter',
@@ -170,7 +167,7 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
     };
 
     const legendItems = hasSeries
-      ? data.seriesGroups.map((g, i) => ({ name: g.name, color: getColor(g.name, i) }))
+      ? data.seriesGroups.map((g) => ({ name: g.name, color: getColor(g.name) }))
       : [];
 
     return { option: opt, legendItems };

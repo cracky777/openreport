@@ -52,15 +52,16 @@ router.post('/register', registerLimiter, async (req, res) => {
 
   const id = uuidv4();
   const passwordHash = bcrypt.hashSync(password, 10);
+  const name = displayName || email.split('@')[0];
   // First user becomes admin
   const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get();
   const role = userCount.c === 0 ? 'admin' : 'viewer';
 
   db.prepare('INSERT INTO users (id, email, password_hash, display_name, role) VALUES (?, ?, ?, ?, ?)').run(
-    id, email, passwordHash, displayName || email.split('@')[0], role
+    id, email, passwordHash, name, role
   );
 
-  const user = { id, email, display_name: displayName || email.split('@')[0], role };
+  const user = { id, email, display_name: name, role };
 
   // Post-register hooks (cloud edition uses these to provision a personal
   // organization, send a verification email, and consume pending invitations).

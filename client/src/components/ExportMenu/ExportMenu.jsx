@@ -424,12 +424,15 @@ export default function ExportMenu({
   const exportRawJSON = async () => {
     setOpen(false);
     if (!report) return;
-    const cleanedPages = Array.isArray(report.pages)
-      ? await Promise.all(report.pages.map(async (p) => ({
-          ...p,
-          widgets: await embedLocalImages(stripWidgetData(p.widgets)),
-        })))
-      : null;
+    const [cleanedPages, cleanedWidgets] = await Promise.all([
+      Array.isArray(report.pages)
+        ? Promise.all(report.pages.map(async (p) => ({
+            ...p,
+            widgets: await embedLocalImages(stripWidgetData(p.widgets)),
+          })))
+        : Promise.resolve(null),
+      embedLocalImages(stripWidgetData(report.widgets || {})),
+    ]);
     const bundle = {
       format: EXPORT_FORMAT_VERSION,
       exportedAt: new Date().toISOString(),
@@ -438,7 +441,7 @@ export default function ExportMenu({
         model_id: report.model_id || null,
         model_name: report.model_name || null,
         layout: report.layout || [],
-        widgets: await embedLocalImages(stripWidgetData(report.widgets || {})),
+        widgets: cleanedWidgets,
         settings: report.settings || {},
         pages: cleanedPages,
       },

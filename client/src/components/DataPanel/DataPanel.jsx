@@ -12,12 +12,10 @@ import { computeBindingKey } from '../../utils/bindingKey';
 import { shiftFiltersForN1, shiftWidgetFiltersForN1, hasShiftableFilterForN1 } from '../../utils/comparePeriod';
 
 export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, reportId, cacheBuiltAt }) {
-  // Helper used by every action that previously mutated the model. Updates
-  // the report's `settings` JSON in-memory; the user's next Save persists it
-  // to /api/reports/:id. Returns false when the host didn't provide
-  // `onSettingsChange` — callers MUST treat that as a hard failure and
-  // refuse to fall back to model mutation. Touching the underlying model
-  // from the report editor is never the right behaviour.
+  // Patches the report's in-memory `settings` JSON (persisted on the next
+  // Save). Returns false when `onSettingsChange` is missing — callers must
+  // treat that as a hard failure and never fall back to mutating the model,
+  // which is wrong from the report editor.
   const updateSettings = (patch) => {
     if (typeof onSettingsChange !== 'function') {
       console.error('[DataPanel] onSettingsChange prop is missing — refusing to mutate the model. Action ignored.');
@@ -27,15 +25,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
     return true;
   };
   const [status, setStatus] = useState(null);
-  // Measure-creation wizard state (10 useStates + a SQL-sync useEffect)
-  // and the field-edit panel state (4 useStates + a SQL-sync useEffect).
-  // Both kept their original returned names so the JSX below uses them
-  // exactly as before; the actual implementation lives in the hooks.
-  // One form covers simple aggregation (SUM/AVG/COUNT/MIN/MAX on a
-  // column) / custom SQL expression / optional CASE WHEN filter context.
-  // Stored under `_calc.<label>` regardless of shape — the server only
-  // looks at the measure's fields (aggregation/expression/filterRules) to
-  // decide what SQL to emit.
+  // Measure-creation wizard + field-edit panel state live in the hooks
+  // below. One form covers simple aggregation (SUM/AVG/COUNT/MIN/MAX on a
+  // column), custom SQL, and an optional CASE WHEN filter context — all
+  // stored under `_calc.<label>`. The server decides the SQL purely from
+  // the measure's fields (aggregation/expression/filterRules).
   const {
     showCalcForm, setShowCalcForm,
     calcLabel, setCalcLabel,
@@ -519,6 +513,8 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
             let barSeries = [];
             if (grpKey) {
               const uniqueGroups = [...new Set(rows.map((r) => String(r[grpKey] ?? '')))].sort();
+              const rowByAxisGroup = new Map();
+              for (const r of rows) rowByAxisGroup.set(`${String(r[axisKey] ?? '')}\u0000${String(r[grpKey] ?? '')}`, r);
               cBarMeas.forEach((mn) => {
                 const measLabel = gl(mn, model.measures || []);
                 const measKey = fk(measLabel);
@@ -528,13 +524,15 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   barSeries.push({
                     name: seriesName,
                     values: labels.map((l) => {
-                      const row = rows.find((r) => String(r[axisKey] ?? '') === l && String(r[grpKey] ?? '') === gv);
+                      const row = rowByAxisGroup.get(`${l}\u0000${gv}`);
                       return row ? Number(row[measKey]) || 0 : 0;
                     }),
                   });
                 });
               });
             } else {
+              const rowByAxis = new Map();
+              for (const r of rows) rowByAxis.set(String(r[axisKey] ?? ''), r);
               cBarMeas.forEach((mn) => {
                 const measLabel = gl(mn, model.measures || []);
                 const measKey = fk(measLabel);
@@ -542,7 +540,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 barSeries.push({
                   name: measLabel,
                   values: labels.map((l) => {
-                    const row = rows.find((r) => String(r[axisKey] ?? '') === l);
+                    const row = rowByAxis.get(l);
                     return row ? Number(row[measKey]) || 0 : 0;
                   }),
                 });
@@ -550,6 +548,13 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
             }
 
             // Line series: aggregate across legend groups (one line per measure)
+            const rowsByAxis = new Map();
+            for (const r of rows) {
+              const k = String(r[axisKey] ?? '');
+              const bucket = rowsByAxis.get(k);
+              if (bucket) bucket.push(r);
+              else rowsByAxis.set(k, [r]);
+            }
             const lineSeries = cLineMeas.map((mn) => {
               const measLabel = gl(mn, model.measures || []);
               const measKey = fk(measLabel);
@@ -557,7 +562,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               return {
                 name: measLabel,
                 values: labels.map((l) => {
-                  const matchingRows = rows.filter((r) => String(r[axisKey] ?? '') === l);
+                  const matchingRows = rowsByAxis.get(l) || [];
                   return matchingRows.reduce((sum, r) => sum + (Number(r[measKey]) || 0), 0);
                 }),
               };
@@ -663,9 +668,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
             const uniqueLabels = [...new Set(rows.map((r) => String(r[axisKey])))];
             const uniqueGroups = [...new Set(rows.map((r) => String(r[groupKey])))];
 
+            const rowByLabelGroup = new Map();
+            for (const r of rows) rowByLabelGroup.set(`${String(r[axisKey])}\u0000${String(r[groupKey])}`, r);
             const series = uniqueGroups.map((groupVal) => {
               const values = uniqueLabels.map((label) => {
-                const row = rows.find((r) => String(r[axisKey]) === label && String(r[groupKey]) === groupVal);
+                const row = rowByLabelGroup.get(`${label}\u0000${groupVal}`);
                 return row ? Number(row[valueKey]) || 0 : 0;
               });
               return { name: groupVal, values };

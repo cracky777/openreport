@@ -14,21 +14,20 @@
  * that originates from a source widget which excludes the given target.
  */
 
-function findSourceForDim(dim, currentWidgets, crossHighlight) {
-  // Cross-highlight wins when active for that dim
-  if (crossHighlight?.dim === dim && crossHighlight?.widgetId) return crossHighlight.widgetId;
-  // Otherwise look for a filter widget bound to that dim (slicer)
-  for (const [wId, w] of Object.entries(currentWidgets || {})) {
-    if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0] === dim) return wId;
-  }
-  return null;
-}
-
 export function filterForTarget(targetId, baseFilters, currentWidgets, crossHighlight) {
   if (!baseFilters || typeof baseFilters !== 'object') return baseFilters;
   const out = { ...baseFilters };
+  // Index slicer widgets by their bound dim once, instead of re-scanning every
+  // widget for each filter dim. Cross-highlight still wins over a slicer.
+  const slicerByDim = {};
+  for (const [wId, w] of Object.entries(currentWidgets || {})) {
+    const dim = w?.type === 'filter' ? w.dataBinding?.selectedDimensions?.[0] : null;
+    if (dim && !(dim in slicerByDim)) slicerByDim[dim] = wId;
+  }
   for (const dim of Object.keys(out)) {
-    const sourceId = findSourceForDim(dim, currentWidgets, crossHighlight);
+    const sourceId = (crossHighlight?.dim === dim && crossHighlight?.widgetId)
+      ? crossHighlight.widgetId
+      : (slicerByDim[dim] || null);
     if (!sourceId) continue;
     if (sourceId === targetId) {
       // The widget that PROVIDES the filter doesn't apply it to itself.

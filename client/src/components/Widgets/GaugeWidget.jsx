@@ -59,7 +59,7 @@ export default memo(function GaugeWidget({ data, config, chartWidth, chartHeight
   const gaugeColor = gradientColor
     ?? (useOverColor ? (config?.gaugeOverColor || '#dc2626') : baseColor);
 
-  const isDur = isDurationCol(data._measureLabel, data._durationColumns);
+  const isDur = isDurationCol(data?._measureLabel, data?._durationColumns);
   const displayValue = useMemo(() => {
     if (!hasData) return '';
     if (isDur && !isNaN(value)) return formatDuration(value);
