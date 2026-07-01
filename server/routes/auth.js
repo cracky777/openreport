@@ -118,12 +118,55 @@ router.get('/me', requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
 
-// Search users by email (for autocomplete)
-router.get('/users/search', requireAuth, (req, res) => {
-  const q = req.query.q || '';
-  if (q.length < 2) return res.json({ users: [] });
-  const users = db.prepare("SELECT id, email, display_name FROM users WHERE email LIKE ? OR display_name LIKE ? LIMIT 10")
-    .all(`%${q}%`, `%${q}%`);
+// Autocomplete for user discovery (RLS assignment, workspace invites). To keep
+// it from being a bulk email-enumeration endpoint, a *partial* query only matches
+// users the caller already shares a workspace with; a *full email* query does an
+// exact lookup (so you can still invite someone new by typing their exact
+// address — which isn't enumeration). Rate-limited on top.
+const userSearchLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many searches. Try again in a few minutes.' },
+});
+
+// "Looks like a complete email" — cheap structural check (no backtracking-prone
+// regex): exactly one '@' not at the edges, with a '.' somewhere after it.
+const isFullEmail = (s) => {
+  const at = s.indexOf('@');
+  return at > 0 && at === s.lastIndexOf('@') && at < s.length - 1 && s.indexOf('.', at + 1) > at + 1;
+};
+
+// Workspaces the caller belongs to (owns or is a member of).
+const MY_WORKSPACES = `
+  SELECT id FROM workspaces WHERE owner_id = @me
+  UNION
+  SELECT workspace_id FROM workspace_members WHERE user_id = @me
+`;
+
+router.get('/users/search', requireAuth, userSearchLimiter, (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (q.length < 3) return res.json({ users: [] });
+
+  // Full email → exact lookup, allowed even for someone you don't share a
+  // workspace with (that's the "invite a new collaborator" path).
+  if (isFullEmail(q)) {
+    const user = db.prepare('SELECT id, email, display_name FROM users WHERE email = ? COLLATE NOCASE').get(q);
+    return res.json({ users: user ? [user] : [] });
+  }
+
+  // Partial query → only users who share a workspace with the caller.
+  const users = db.prepare(`
+    SELECT DISTINCT u.id, u.email, u.display_name
+    FROM users u
+    WHERE (u.email LIKE @like OR u.display_name LIKE @like)
+      AND (
+        u.id IN (SELECT user_id FROM workspace_members WHERE workspace_id IN (${MY_WORKSPACES}))
+        OR u.id IN (SELECT owner_id FROM workspaces WHERE id IN (${MY_WORKSPACES}))
+      )
+    LIMIT 10
+  `).all({ me: req.user.id, like: `%${q}%` });
   res.json({ users });
 });
 

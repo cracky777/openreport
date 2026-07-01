@@ -122,6 +122,19 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
         </>
       )}
 
+      {/* TLS verification is on by default; let on-prem servers with a
+          self-signed / internal-CA cert opt out (pg + mysql only). */}
+      {(form.dbType === 'postgres' || form.dbType === 'mysql') && (
+        <Field label="SSL">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
+            <input type="checkbox"
+              checked={!!form.extraConfig?.allowSelfSignedCert}
+              onChange={(e) => updateForm('extraConfig', { ...form.extraConfig, allowSelfSignedCert: e.target.checked })} />
+            Allow self-signed certificate (skip TLS verification)
+          </label>
+        </Field>
+      )}
+
       {/* BigQuery fields */}
       {form.dbType === 'bigquery' && (
         <>

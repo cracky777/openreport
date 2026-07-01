@@ -94,6 +94,11 @@ router.get('/:wsId/visuals/:visualId/icon', requireAuth, requireWorkspaceMember,
   const row = db.prepare('SELECT icon, icon_mime FROM custom_visuals WHERE workspace_id = ? AND visual_id = ?')
     .get(req.params.wsId, req.params.visualId);
   if (!row || !row.icon) return res.status(404).end();
+  // A user-supplied SVG can carry inline <script>; block script execution (for
+  // direct navigation / <object> embeds) and MIME sniffing without forcing a
+  // download, so icons still render via <img>.
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
   res.type(row.icon_mime || 'application/octet-stream').send(row.icon);
 });
 

@@ -119,10 +119,13 @@ export default memo(function CustomVisualWidget({ data, config, chartWidth, char
       if (e.source !== iframeRef.current?.contentWindow) return;
       if (m.type === 'loaded') {
         // Sandbox bridge is up — push the initial render payload
+        // Sandbox has no allow-same-origin → the iframe's origin is opaque
+        // ("null"). Target it explicitly instead of '*' so the payload can't
+        // leak if the frame ever gains a real origin.
         iframeRef.current?.contentWindow?.postMessage({
           source: 'or-cv-host', type: 'init',
           data, config, width: chartWidth, height: chartHeight,
-        }, '*');
+        }, 'null');
         stateRef.current.initSent = true;
       } else if (m.type === 'crossFilter' && onDataClick) {
         onDataClick(m.dim, m.value);
@@ -142,7 +145,7 @@ export default memo(function CustomVisualWidget({ data, config, chartWidth, char
     iframeRef.current?.contentWindow?.postMessage({
       source: 'or-cv-host', type: 'update',
       data, config, width: chartWidth, height: chartHeight,
-    }, '*');
+    }, 'null');
   }, [data, config, chartWidth, chartHeight]);
 
   if (!visualId || !bundleUrl) {

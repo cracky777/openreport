@@ -190,15 +190,22 @@ router.post('/:id/query', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'SQL query is required' });
   }
 
-  // Basic safety: only allow SELECT
-  if (!/^\s*SELECT\b/i.test(sql)) {
+  // Basic safety: a single SELECT only. Strip one optional trailing semicolon,
+  // then reject any remaining ';' — otherwise "SELECT 1; DROP TABLE x" would
+  // pass the SELECT-prefix check and run as two statements on multi-statement
+  // drivers.
+  const safeSql = sql.trim().replace(/;\s*$/, '');
+  if (!/^\s*SELECT\b/i.test(safeSql)) {
     return res.status(400).json({ error: 'Only SELECT queries are allowed' });
+  }
+  if (safeSql.includes(';')) {
+    return res.status(400).json({ error: 'Only a single statement is allowed' });
   }
 
   let conn;
   try {
     conn = createConnection(source);
-    const rows = await conn.query(sql);
+    const rows = await conn.query(safeSql);
     res.json({ rows, rowCount: rows.length });
   } catch (err) {
     res.status(500).json({ error: err.message });

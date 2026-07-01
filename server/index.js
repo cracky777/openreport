@@ -37,7 +37,10 @@ function buildCorsOrigin() {
   // work. Production stays strict via CORS_ORIGIN.
   if (process.env.NODE_ENV !== 'production') return true;
   const raw = process.env.CORS_ORIGIN;
-  if (!raw) return true;
+  // Production with no explicit allow-list → block cross-origin instead of
+  // reflecting every origin with credentials (session-theft vector). The
+  // bundled client is same-origin, so it's unaffected.
+  if (!raw) return false;
   const list = raw.split(',').map((s) => s.trim()).filter(Boolean);
   return list.length > 1 ? list : list[0];
 }
@@ -67,9 +70,18 @@ if (isProduction) app.set('trust proxy', 1);
 // the convenient default so first-time contributors can `npm run
 // dev` without configuring anything.
 const DEFAULT_SESSION_SECRET = 'dev-secret-change-me';
-if (isProduction && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === DEFAULT_SESSION_SECRET)) {
-  console.error('[startup] FATAL: SESSION_SECRET must be set to a non-default value in production. Refusing to start with the dev fallback (cookies + internal JWTs would be forgeable by anyone with the source).');
-  process.exit(1);
+// Every secret published in the OSS source / sample configs — treat all as unset.
+const WEAK_SESSION_SECRETS = new Set([
+  DEFAULT_SESSION_SECRET,              // index.js dev fallback
+  'change-this-to-a-random-secret',   // docker-compose.yml default
+  'change-me-to-a-random-string',     // .env.example
+]);
+if (isProduction) {
+  const secret = process.env.SESSION_SECRET || '';
+  if (!secret || WEAK_SESSION_SECRETS.has(secret) || secret.length < 16) {
+    console.error('[startup] FATAL: SESSION_SECRET must be a strong, non-default value (>= 16 chars) in production. Refusing to start — cookies + internal JWTs would be forgeable by anyone with the source.');
+    process.exit(1);
+  }
 }
 
 app.use(session({

@@ -38,6 +38,17 @@ function canAccessReport(report, user) {
   return false;
 }
 
+// Returns true if the user has access to the model, either directly (owner / global admin)
+// or indirectly through a report that uses the model (public or workspace-shared).
+function canAccessModel(model, user) {
+  if (!model) return false;
+  if (user && user.role === 'admin') return true;
+  if (user && user.id === model.user_id) return true;
+  // Check every report that uses this model — if the user can access any of them, they can use the model.
+  const reports = db.prepare('SELECT * FROM reports WHERE model_id = ?').all(model.id);
+  return reports.some((r) => canAccessReport(r, user));
+}
+
 // List reports for current user
 router.get('/', requireAuth, (req, res) => {
   const rows = db.prepare(`
@@ -200,6 +211,16 @@ router.post('/', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'A data model is required' });
   }
 
+  // Authorize the model BEFORE inserting — otherwise a low-privilege user could
+  // create a report on someone else's (RLS-protected) model and later persist
+  // custom-SQL measures against it. Checked here (pre-insert) so the not-yet-created
+  // report can't grant access to itself via canAccessModel.
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(modelId);
+  if (!model) return res.status(404).json({ error: 'Model not found' });
+  if (!canAccessModel(model, req.user)) {
+    return res.status(403).json({ error: 'Not authorized for this model' });
+  }
+
   // Bake in initial settings (e.g. createdTheme) at creation time
   const initialSettings = settings && typeof settings === 'object' ? JSON.stringify(settings) : '{}';
 
@@ -247,6 +268,15 @@ router.put('/:id', requireAuth, (req, res) => {
 
   if (!report) {
     return res.status(404).json({ error: 'Report not found' });
+  }
+
+  // Re-check model access on edit too. Authoritative gating of custom-SQL
+  // measure execution lives in models.js /query (model-owner/admin only); this
+  // is defense-in-depth so a report can't be repointed/edited against a model
+  // the caller has lost access to.
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(report.model_id);
+  if (model && !canAccessModel(model, req.user)) {
+    return res.status(403).json({ error: 'Not authorized for this model' });
   }
 
   const { title, layout, widgets, settings, is_public, live_mode, workspace_id, pages } = req.body;
@@ -393,3 +423,4 @@ router.delete('/:id', requireAuth, (req, res) => {
 
 module.exports = router;
 module.exports.canAccessReport = canAccessReport;
+module.exports.canAccessModel = canAccessModel;

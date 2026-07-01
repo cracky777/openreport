@@ -8,7 +8,7 @@ const {
   extractColumnRefsFromExpression,
   preWrapIntervalRefs,
 } = require('../utils/columnTypeResolver');
-const { canAccessReport } = require('./reports');
+const { canAccessReport, canAccessModel } = require('./reports');
 const { getQueryTimeoutMs } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
@@ -64,16 +64,8 @@ const router = express.Router();
 // Value: { cancel, userId } so we can refuse cancellation across users.
 const inFlightQueries = new Map();
 
-// Returns true if the user has access to the model, either directly (owner / global admin)
-// or indirectly through a report that uses the model (public or workspace-shared).
-function canAccessModel(model, user) {
-  if (!model) return false;
-  if (user && user.role === 'admin') return true;
-  if (user && user.id === model.user_id) return true;
-  // Check every report that uses this model — if the user can access any of them, they can use the model.
-  const reports = db.prepare('SELECT * FROM reports WHERE model_id = ?').all(model.id);
-  return reports.some((r) => canAccessReport(r, user));
-}
+// canAccessModel / canAccessReport live in ./reports (single source of truth
+// for report + model authorization) and are imported at the top of this file.
 
 // SQL helpers (castToString/castToDate/buildInList/buildDatePartExpr/…)
 // + RLS helpers used to live inline here — extracted to utils/sqlBuilder/
@@ -674,21 +666,32 @@ router.post('/:id/query', async (req, res) => {
   const userIsModelOwner = req.isAuthenticated() && req.user.id === model.user_id;
   const userIsAdmin = req.isAuthenticated() && req.user.role === 'admin';
   if (!userIsModelOwner && !userIsAdmin) {
+    // Load a report's *persisted* extras only when the caller can actually
+    // access that report — otherwise any model-reachable user could pull a
+    // private report's saved extras just by guessing its id.
+    let persisted = {};
     if (reportId) {
-      const report = db.prepare('SELECT settings FROM reports WHERE id = ?').get(String(reportId));
-      const persisted = report ? JSON.parse(report.settings || '{}') : {};
-      extraMeasures = Array.isArray(persisted.extraMeasures) ? persisted.extraMeasures : [];
-      extraDimensions = Array.isArray(persisted.extraDimensions) ? persisted.extraDimensions : [];
-      measureOverrides = (persisted.measureOverrides && typeof persisted.measureOverrides === 'object')
-        ? persisted.measureOverrides : {};
-      dimensionOverrides = (persisted.dimensionOverrides && typeof persisted.dimensionOverrides === 'object')
-        ? persisted.dimensionOverrides : {};
-    } else {
-      extraMeasures = [];
-      extraDimensions = [];
-      measureOverrides = {};
-      dimensionOverrides = {};
+      const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(String(reportId));
+      if (report && canAccessReport(report, req.user)) {
+        persisted = JSON.parse(report.settings || '{}');
+      }
     }
+    extraMeasures = Array.isArray(persisted.extraMeasures) ? persisted.extraMeasures : [];
+    extraDimensions = Array.isArray(persisted.extraDimensions) ? persisted.extraDimensions : [];
+    measureOverrides = (persisted.measureOverrides && typeof persisted.measureOverrides === 'object')
+      ? persisted.measureOverrides : {};
+    dimensionOverrides = (persisted.dimensionOverrides && typeof persisted.dimensionOverrides === 'object')
+      ? persisted.dimensionOverrides : {};
+    // Free-SQL (`aggregation: 'custom'` / raw `expression`) must originate from
+    // the model — which is owner-controlled — never from a report's saved
+    // extras/overrides: a report-scoped custom expression is arbitrary SQL and,
+    // for a non-owner (esp. anonymous viewers of a public report), a RLS-bypass
+    // vector. Strip it here; model-defined custom measures still run for everyone.
+    const isFreeSql = (x) => x && (x.aggregation === 'custom' || typeof x.expression === 'string');
+    extraMeasures = extraMeasures.filter((m) => !isFreeSql(m));
+    extraDimensions = extraDimensions.filter((d) => !isFreeSql(d));
+    for (const k of Object.keys(measureOverrides)) if (isFreeSql(measureOverrides[k])) delete measureOverrides[k];
+    for (const k of Object.keys(dimensionOverrides)) if (isFreeSql(dimensionOverrides[k])) delete dimensionOverrides[k];
   }
   // dimensionNames: ["orders.customer_name", "orders.status"]
   // measureNames: ["orders.total_amount_sum", "orders.count"]
@@ -1587,7 +1590,7 @@ router.post('/:id/query', async (req, res) => {
       const finalExpr = (isInterval && supportsExtractEpoch)
         ? `EXTRACT(EPOCH FROM ${aggExpr})`
         : aggExpr;
-      selectParts.push(`${finalExpr} AS "${m.label || m.name}"`);
+      selectParts.push(`${finalExpr} AS ${quoteIdent(m.label || m.name, dbType)}`);
     }
   });
 
@@ -2251,13 +2254,17 @@ router.post('/:id/query', async (req, res) => {
     } else if (selectParts.length > 0) {
       sql += ` ORDER BY 1`;
     }
-    const requestedLimit = Math.min(limit || 1000, MAX_ROWS);
+    // offset/limit arrive straight from the request body, and this route is
+    // reachable unauthenticated via public reports — coerce to bounded ints
+    // before interpolation (a raw `offset` is otherwise an injection vector).
+    const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 1000), MAX_ROWS);
+    const safeOffset = Math.max(0, parseInt(offset, 10) || 0);
     if (dbType === 'azure_sql' || dbType === 'mssql') {
-      sql += ` OFFSET ${offset || 0} ROWS FETCH NEXT ${requestedLimit} ROWS ONLY`;
+      sql += ` OFFSET ${safeOffset} ROWS FETCH NEXT ${safeLimit} ROWS ONLY`;
     } else {
-      sql += ` LIMIT ${requestedLimit}`;
-      if (offset) {
-        sql += ` OFFSET ${offset}`;
+      sql += ` LIMIT ${safeLimit}`;
+      if (safeOffset > 0) {
+        sql += ` OFFSET ${safeOffset}`;
       }
     }
   }

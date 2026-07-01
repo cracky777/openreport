@@ -70,7 +70,12 @@ function createConnection(datasource) {
       // five was tight as soon as a report had >5 widgets fetching at once.
       max: 20,
       connectionTimeoutMillis: 10_000,
-      ssl: db_type === 'azure_postgres' ? { rejectUnauthorized: true } : { rejectUnauthorized: false },
+      // Verify the server certificate by default; opt out per-datasource
+      // (extra_config.allowSelfSignedCert) for on-prem servers with a
+      // self-signed / internal-CA cert.
+      ssl: db_type === 'azure_postgres'
+        ? { rejectUnauthorized: true }
+        : { rejectUnauthorized: !extra.allowSelfSignedCert },
     };
     const pool = new Pool(pgConfig);
     // Prevent unhandled errors on idle clients (e.g. ECONNRESET) from crashing the Node process
@@ -165,7 +170,9 @@ function createConnection(datasource) {
     const mysqlConfig = {
       host, port: port || 3306, database: db_name, user: db_user, password: db_password,
       waitForConnections: true, connectionLimit: 20,
-      ssl: { rejectUnauthorized: false }, connectTimeout: 10_000,
+      // Verify the server certificate by default; opt out per-datasource
+      // (extra_config.allowSelfSignedCert) for self-signed / internal-CA certs.
+      ssl: { rejectUnauthorized: !extra.allowSelfSignedCert }, connectTimeout: 10_000,
     };
     let pool;
     const getPool = () => {

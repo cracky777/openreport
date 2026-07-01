@@ -10,7 +10,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - SESSION_SECRET=${SESSION_SECRET:-change-this-to-a-random-secret}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET required (generate: openssl rand -hex 32)}
     volumes:
       - app-data:/app/server/data
     networks:

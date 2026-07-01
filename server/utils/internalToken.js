@@ -20,13 +20,32 @@ const HEADER = 'x-or-internal-token';
 const SCOPE = 'cache_warm';
 const TTL_SECONDS = 5 * 60; // a warm pass shouldn't take longer than a few seconds; 5 min is plenty of headroom
 
-// Mirror of the session-store fallback in server/index.js — dev installs
-// without a .env still get a working internal token (sessions wouldn't
-// fail there either). In production the operator is expected to set
-// SESSION_SECRET; if they forget, the dev fallback is used and the
-// token-signed traffic is still self-consistent on a single instance.
-function getSecret() {
-  return process.env.SESSION_SECRET || 'dev-secret-change-me';
+// Dedicated secret, distinct from SESSION_SECRET so a leak of one can't forge
+// the other. Mandatory in every environment: these tokens bypass passport (on a
+// loopback-only basis), so we refuse to boot rather than run on a guessable or
+// shared value. Generate with: openssl rand -hex 32.
+function resolveSecret() {
+  const secret = process.env.INTERNAL_TOKEN_SECRET;
+  if (!secret || secret.length < 16) {
+    console.error('[startup] FATAL: INTERNAL_TOKEN_SECRET must be set to a strong value (>= 16 chars). Generate one with: openssl rand -hex 32');
+    process.exit(1);
+  }
+  if (secret === process.env.SESSION_SECRET) {
+    console.error('[startup] FATAL: INTERNAL_TOKEN_SECRET must differ from SESSION_SECRET.');
+    process.exit(1);
+  }
+  return secret;
+}
+const SECRET = resolveSecret();
+
+// A genuine in-process caller connects straight to the app socket on localhost.
+// Requests proxied in from nginx/Caddy also arrive on loopback but carry
+// X-Forwarded-* — treat those as external so a public request can never ride
+// the internal token.
+function isLoopbackRequest(req) {
+  if (req.headers['x-forwarded-for'] || req.headers['x-forwarded-host']) return false;
+  const ip = req.socket && req.socket.remoteAddress;
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
 }
 
 // `organizationId` is optional and ignored in OSS — it's only meaningful
@@ -38,12 +57,12 @@ function getSecret() {
 function sign({ userId, organizationId }) {
   const payload = { userId, scope: SCOPE };
   if (organizationId) payload.organizationId = organizationId;
-  return jwt.sign(payload, getSecret(), { expiresIn: TTL_SECONDS });
+  return jwt.sign(payload, SECRET, { expiresIn: TTL_SECONDS });
 }
 
 function verify(token) {
   try {
-    const payload = jwt.verify(token, getSecret());
+    const payload = jwt.verify(token, SECRET);
     if (payload.scope !== SCOPE) return null;
     if (!payload.userId) return null;
     return payload;
@@ -62,6 +81,8 @@ function middleware(req, res, next) {
   if (req.isAuthenticated && req.isAuthenticated()) return next();
   const token = req.headers[HEADER];
   if (!token) return next();
+  // Only in-process loopback callers may present this token.
+  if (!isLoopbackRequest(req)) return next();
   const payload = verify(token);
   if (!payload) return next();
   const user = db.prepare(
