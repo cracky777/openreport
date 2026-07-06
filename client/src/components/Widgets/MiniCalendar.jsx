@@ -1,5 +1,12 @@
 import { useState, useEffect, memo } from 'react';
 
+const _hs0 = { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1 };
+const _hs1 = { textAlign: 'center', fontSize: 9, color: 'var(--text-disabled)', fontWeight: 600, padding: 2 };
+const _hs2 = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4, padding: '4px 0' };
+const _hs3 = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4, padding: '4px 0' };
+const _hs4 = { fontSize: 11, userSelect: 'none' };
+const _hs5 = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, padding: '0 2px' };
+
 const DAYS = ['Lu', 'Ma', 'Me', 'Je', 'Ve', 'Sa', 'Di'];
 const MONTHS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 const MONTHS_SHORT = ['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
@@ -104,9 +111,9 @@ export default memo(function MiniCalendar({ value, onChange, min, max, rangeStar
     };
 
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1 }}>
+      <div style={_hs0}>
         {DAYS.map((d) => (
-          <div key={d} style={{ textAlign: 'center', fontSize: 9, color: 'var(--text-disabled)', fontWeight: 600, padding: 2 }}>{d}</div>
+          <div key={d} style={_hs1}>{d}</div>
         ))}
         {cells.map((day, i) => {
           const sel = isSelected(day) || isRangeEdge(day);
@@ -150,7 +157,7 @@ export default memo(function MiniCalendar({ value, onChange, min, max, rangeStar
       return selected.getFullYear() === year && selected.getMonth() === m;
     };
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4, padding: '4px 0' }}>
+      <div style={_hs2}>
         {MONTHS_SHORT.map((label, m) => {
           const disabled = isMonthDisabled(m);
           const sel = isMonthSelected(m);
@@ -200,7 +207,7 @@ export default memo(function MiniCalendar({ value, onChange, min, max, rangeStar
     const years = [];
     for (let y = decadeStart - 1; y <= decadeStart + 10; y++) years.push(y);
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4, padding: '4px 0' }}>
+      <div style={_hs3}>
         {years.map((y) => {
           const disabled = isYearDisabled(y);
           const sel = isYearSelected(y);
@@ -259,8 +266,8 @@ export default memo(function MiniCalendar({ value, onChange, min, max, rangeStar
   };
 
   return (
-    <div style={{ fontSize: 11, userSelect: 'none' }} onClick={(e) => e.stopPropagation()}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, padding: '0 2px' }}>
+    <div style={_hs4} onClick={(e) => e.stopPropagation()}>
+      <div style={_hs5}>
         <button type="button" onClick={onPrev} style={navBtn}>◀</button>
         <button
           type="button"

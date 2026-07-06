@@ -11,6 +11,45 @@ import { prepareGlobalRulesForWidget } from '../../utils/reportFilterRules';
 import { computeBindingKey } from '../../utils/bindingKey';
 import { shiftFiltersForN1, shiftWidgetFiltersForN1, hasShiftableFilterForN1 } from '../../utils/comparePeriod';
 
+const _hs0 = { marginBottom: 16 };
+const _hs1 = { fontSize: 12, color: 'var(--text-disabled)' };
+const _hs2 = { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 };
+const _hs3 = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' };
+const _hs4 = { padding: 6, background: 'var(--bg-active)', borderRadius: 4, marginBottom: 4, border: '1px solid var(--accent-primary-border)', maxHeight: '100%', overflow: 'auto' };
+const _hs5 = { display: 'flex', gap: 4, marginBottom: 4 };
+const _hs6 = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 };
+const _hs7 = { display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' };
+const _hs8 = { color: 'var(--text-disabled)', cursor: 'help' };
+const _hs9 = { marginTop: 6 };
+const _hs10 = { fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: 4 };
+const _hs11 = { display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 };
+const _hs12 = { fontSize: 11, padding: '2px 8px', border: '1px solid var(--border-default)', borderRadius: 3, background: 'var(--bg-panel)', cursor: 'pointer', color: 'var(--text-muted)' };
+const _hs13 = { fontSize: 11, fontWeight: 600, padding: '2px 8px', border: 'none', borderRadius: 3, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer' };
+const _hs14 = { display: 'flex', gap: 4, marginBottom: 4 };
+const _hs15 = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 };
+const _hs16 = { display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' };
+const _hs17 = { color: 'var(--text-disabled)', cursor: 'help' };
+const _hs18 = { marginTop: 6 };
+const _hs19 = { marginBottom: 6 };
+const _hs20 = { display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 };
+const _hs21 = { flex: 1 };
+const _hs22 = { marginBottom: 8, flexShrink: 0 };
+const _hs23 = {
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                marginBottom: 3, gap: 6,
+              };
+const _hs24 = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 };
+const _hs25 = { fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--state-warning-soft)', color: 'var(--state-warning)', fontWeight: 600, border: 'none', cursor: 'pointer' };
+const _hs26 = { border: '1px solid var(--border-default)', borderRadius: 4, maxHeight: 220, overflow: 'auto' };
+const _hs27 = { display: 'inline-block', width: 14, flexShrink: 0 };
+const _hs28 = { fontSize: 8, color: 'var(--text-disabled)', flexShrink: 0 };
+const _hs29 = { flex: '1 1 75%' };
+const _hs30 = { display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 };
+const _hs31 = { fontSize: 12, color: 'var(--text-disabled)', marginTop: 4 };
+const _hs32 = { fontSize: 11, marginTop: 4, color: 'var(--state-danger)' };
+const _hs33 = { fontSize: 12, color: 'var(--text-disabled)', marginTop: 8 };
+const _hs34 = { display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 3, fontWeight: 500, flexShrink: 0 };
+
 export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, reportId, cacheBuiltAt }) {
   // Patches the report's in-memory `settings` JSON (persisted on the next
   // Save). Returns false when `onSettingsChange` is missing — callers must
@@ -70,9 +109,9 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
 
   if (!model) {
     return (
-      <div style={{ marginBottom: 16 }}>
+      <div style={_hs0}>
         <div style={sectionTitle}>Data Source</div>
-        <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>No model linked to this report.</div>
+        <div style={_hs1}>No model linked to this report.</div>
       </div>
     );
   }
@@ -791,12 +830,12 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   const shortTable = (t) => t.includes('.') ? t.split('.').pop() : t;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div style={_hs2}>
       {/* Measures first — fixed height, does not shrink when editing.
           (The model name + edit link moved to the panel header in
           PropertyPanel's DataModelPanel so "Data" isn't shown twice.) */}
       <FieldSection label={
-        <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+        <span style={_hs3}>
           <span>Measures</span>
           <button onClick={() => setShowCalcForm(!showCalcForm)} style={addCalcBtnSmall}>+ Measure</button>
         </span>
@@ -807,11 +846,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               - Optional filter context (CASE WHEN inside the aggregate)
             Persists to settings.extraMeasures under `_calc.<label>`. */}
         {showCalcForm && (
-          <div style={{ padding: 6, background: 'var(--bg-active)', borderRadius: 4, marginBottom: 4, border: '1px solid var(--accent-primary-border)', maxHeight: '100%', overflow: 'auto' }}>
+          <div style={_hs4}>
             <input type="text" placeholder="Label" value={calcLabel}
               onChange={(e) => setCalcLabel(e.target.value)}
               style={{ ...calcInputStyle, marginBottom: 4 }} />
-            <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+            <div style={_hs5}>
               <select value={calcAggregation} onChange={(e) => setCalcAggregation(e.target.value)}
                 style={{ ...calcInputStyle, flex: '0 0 auto', width: 90, marginBottom: 0 }}>
                 <option value="sum">SUM</option>
@@ -838,7 +877,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 </select>
               )}
             </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>
+            <label style={_hs6}>
               <input type="checkbox" checked={calcFilterEnabled}
                 onChange={(e) => setCalcFilterEnabled(e.target.checked)} />
               <span>Add filter</span>
@@ -871,11 +910,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   </select>
                 )}
                 <FilterRulesEditor model={model} modelId={model?.id} rules={calcRules} onChange={setCalcRules} />
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
+                <label style={_hs7}>
                   <input type="checkbox" checked={calcOverride}
                     onChange={(e) => setCalcOverride(e.target.checked)} />
                   <span>Override report filters</span>
-                  <span title="When ON, this measure ignores the report-level filter on the fields it filters on." style={{ color: 'var(--text-disabled)', cursor: 'help' }}>ⓘ</span>
+                  <span title="When ON, this measure ignores the report-level filter on the fields it filters on." style={_hs8}>ⓘ</span>
                 </label>
               </>
             )}
@@ -886,8 +925,8 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   - clears the filter toggle so the typed SQL stands alone
                     (otherwise the wizard would re-wrap it on next render
                     and overwrite what the user just typed) */}
-            <div style={{ marginTop: 6 }}>
-              <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>SQL Expression</span>
+            <div style={_hs9}>
+              <span style={_hs10}>SQL Expression</span>
               <SqlExpressionInput value={calcExpr}
                 onChange={(v) => {
                   setCalcExpr(v);
@@ -897,11 +936,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 }}
                 model={model} />
             </div>
-            <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 }}>
+            <div style={_hs11}>
               <button onClick={() => {
                 setShowCalcForm(false); setCalcLabel(''); setCalcExpr(''); setCalcBareExpr(''); setCalcField('');
                 setCalcAggregation('sum'); setCalcFilterEnabled(false); setCalcRules([]); setCalcOverride(false);
-              }} style={{ fontSize: 11, padding: '2px 8px', border: '1px solid var(--border-default)', borderRadius: 3, background: 'var(--bg-panel)', cursor: 'pointer', color: 'var(--text-muted)' }}>Cancel</button>
+              }} style={_hs12}>Cancel</button>
               <button
                 disabled={
                   !calcLabel || calcSaving
@@ -958,7 +997,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   } catch (err) { console.error(err); }
                   finally { setCalcSaving(false); }
                 }}
-                style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', border: 'none', borderRadius: 3, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer' }}>
+                style={_hs13}>
                 {calcSaving ? '...' : 'Add'}
               </button>
             </div>
@@ -1051,7 +1090,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 model definition and shouldn't drift per-report). */}
             {m._source === 'report' ? (
               <>
-                <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                <div style={_hs14}>
                   <select value={editForm.aggregation}
                     onChange={(e) => setEditForm({ ...editForm, aggregation: e.target.value })}
                     style={{ ...editInput, flex: '0 0 auto', width: 90 }}>
@@ -1079,7 +1118,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                     </select>
                   )}
                 </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                <label style={_hs15}>
                   <input type="checkbox" checked={!!editForm.filterEnabled}
                     onChange={(e) => setEditForm({ ...editForm, filterEnabled: e.target.checked })} />
                   <span>Add filter</span>
@@ -1117,18 +1156,18 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                     <FilterRulesEditor model={model} modelId={model?.id}
                       rules={editForm.filterRules || []}
                       onChange={(rules) => setEditForm({ ...editForm, filterRules: rules })} />
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
+                    <label style={_hs16}>
                       <input type="checkbox" checked={!!editForm.overrideFilters}
                         onChange={(e) => setEditForm({ ...editForm, overrideFilters: e.target.checked })} />
                       <span>Override report filters</span>
-                      <span title="When ON, this measure ignores the report-level filter on the fields it filters on." style={{ color: 'var(--text-disabled)', cursor: 'help' }}>ⓘ</span>
+                      <span title="When ON, this measure ignores the report-level filter on the fields it filters on." style={_hs17}>ⓘ</span>
                     </label>
                   </>
                 )}
                 {/* SQL editor — ALWAYS visible. Auto-fills from the wizard
                     inputs above. Typing in here flips the aggregation to
                     'custom' so the user takes ownership of the SQL. */}
-                <div style={{ marginTop: 6 }}>
+                <div style={_hs18}>
                   <span style={editLabel}>SQL Expression</span>
                   <SqlExpressionInput value={editForm.expression || ''}
                     onChange={(v) => setEditForm({
@@ -1146,7 +1185,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               </>
             ) : (
               m.aggregation === 'custom' && (
-                <div style={{ marginBottom: 6 }}>
+                <div style={_hs19}>
                   <span style={editLabel}>SQL Expression</span>
                   <SqlExpressionInput value={editForm.expression}
                     onChange={(v) => setEditForm({ ...editForm, expression: v })} model={model} />
@@ -1190,7 +1229,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 style={{ ...editInput, width: 50 }} />
             </div>
 
-            <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 }}>
+            <div style={_hs20}>
               {m._source === 'report' && (
                 <>
                   <button
@@ -1226,7 +1265,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   >
                     ↑
                   </button>
-                  <span style={{ flex: 1 }} />
+                  <span style={_hs21} />
                 </>
               )}
               <button onClick={() => setEditingField(null)} style={editCancelBtn}>Close</button>
@@ -1359,14 +1398,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         if (!dateCol) return null;
         const dateParts = (model.dimensions || []).filter((d) => d.datePartOf === model.dateColumn);
         return (
-          <div style={{ marginBottom: 8, flexShrink: 0 }}>
+          <div style={_hs22}>
             <div
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                marginBottom: 3, gap: 6,
-              }}
+              style={_hs23}
             >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>
+              <span style={_hs24}>
                 📅 Date Table
               </span>
               <button
@@ -1379,10 +1415,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                     extraDimensions: currentExtras.filter((x) => x.datePartOf !== currentDateCol),
                   });
                 }}
-                style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--state-warning-soft)', color: 'var(--state-warning)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
+                style={_hs25}
               >✕ remove</button>
             </div>
-            <div style={{ border: '1px solid var(--border-default)', borderRadius: 4, maxHeight: 220, overflow: 'auto' }}>
+            <div style={_hs26}>
               {/* Main date column — always visible. The chevron lives here
                   because id_date is the field that decomposes into year /
                   month / weekday / … */}
@@ -1412,7 +1448,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                     <TbChevronDown size={14} />
                   </span>
                 ) : (
-                  <span style={{ display: 'inline-block', width: 14, flexShrink: 0 }} />
+                  <span style={_hs27} />
                 )}
                 <span style={dragHandle}>⠿</span>
                 <span style={{ ...truncatedLabel, fontWeight: 600 }} title={dateCol.label || dateCol.column}>{dateCol.label || dateCol.column}</span>
@@ -1433,7 +1469,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 >
                   <span style={dragHandle}>⠿</span>
                   <span style={{ ...truncatedLabel, fontSize: 11, color: 'var(--text-muted)' }} title={dp.label}>{dp.label}</span>
-                  <span style={{ fontSize: 8, color: 'var(--text-disabled)', flexShrink: 0 }}>{dp.datePart}</span>
+                  <span style={_hs28}>{dp.datePart}</span>
                 </div>
               ))}
             </div>
@@ -1443,7 +1479,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
 
       {/* Dimensions grouped by table */}
       {model.dimensions?.length > 0 && (
-        <FieldSection label="Dimensions" style={{ flex: '1 1 75%' }}>
+        <FieldSection label="Dimensions" style={_hs29}>
           <div style={listBoxLarge}>
             {(() => {
               // Group dimensions by table (exclude the active dateColumn)
@@ -1553,7 +1589,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   onChange={(e) => setDimEditForm({ ...dimEditForm, generateParts: e.target.checked })} />
               </div>
             )}
-            <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 }}>
+            <div style={_hs30}>
               {d._source === 'report' && (
                 <button
                   onClick={async () => {
@@ -1652,19 +1688,19 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
       })()}
 
       {model.dimensions?.length === 0 && model.measures?.length === 0 && (
-        <div style={{ fontSize: 12, color: 'var(--text-disabled)', marginTop: 4 }}>
+        <div style={_hs31}>
           This model has no dimensions or measures defined yet.
         </div>
       )}
 
       {status?.type === 'error' && (
-        <div style={{ fontSize: 11, marginTop: 4, color: 'var(--state-danger)' }}>
+        <div style={_hs32}>
           Error: {status.message}
         </div>
       )}
 
       {!widgetId && (
-        <div style={{ fontSize: 12, color: 'var(--text-disabled)', marginTop: 8 }}>Drag fields onto the widget config panel.</div>
+        <div style={_hs33}>Drag fields onto the widget config panel.</div>
       )}
     </div>
   );
@@ -1673,7 +1709,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
 function FieldSection({ label, children, style }) {
   return (
     <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', minHeight: 0, ...style }}>
-      <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 3, fontWeight: 500, flexShrink: 0 }}>{label}</label>
+      <label style={_hs34}>{label}</label>
       {children}
     </div>
   );

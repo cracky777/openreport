@@ -21,6 +21,9 @@ import {
   loadAllCuratedFonts,
 } from '../../utils/googleFonts';
 
+const _hs0 = { flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const _hs1 = { fontSize: 10, color: 'var(--text-muted)' };
+
 const DEFAULT_VALUE = 'System default';
 
 function buildGroups() {
@@ -104,10 +107,10 @@ export default function FontPicker({ value, onChange, style }) {
         onClick={() => setOpen((o) => !o)}
         style={{ ...triggerStyle, fontFamily: fontStack(current), ...style }}
       >
-        <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={_hs0}>
           {current}
         </span>
-        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>▾</span>
+        <span style={_hs1}>▾</span>
       </button>
       {open && pos && createPortal(
         <div

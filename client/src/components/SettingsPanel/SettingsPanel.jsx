@@ -3,6 +3,36 @@ import { TbCheck } from 'react-icons/tb';
 import { useTheme } from '../../hooks/useTheme';
 import { parseIntOrNull } from '../../utils/input';
 
+const _hs0 = { fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' };
+const _hs1 = { display: 'flex', flexDirection: 'column', gap: 4 };
+const _hs2 = { display: 'inline-flex', alignItems: 'center', gap: 8 };
+const _hs3 = { display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 };
+const _hs4 = { display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 };
+const _hs5 = { fontSize: 12, width: '100%' };
+const _hs6 = { marginTop: 8 };
+const _hs7 = { fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 };
+const _hs8 = { display: 'flex', gap: 6, marginTop: 6 };
+const _hs9 = { width: 80 };
+const _hs10 = { fontSize: 11, color: 'var(--text-disabled)', marginLeft: 4 };
+const _hs11 = {
+      marginBottom: 8,
+      border: '1px solid var(--border-default)',
+      borderRadius: 6,
+      overflow: 'hidden',
+    };
+const _hs12 = {
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '6px 10px',
+          background: 'var(--bg-subtle)',
+          cursor: 'pointer',
+          userSelect: 'none',
+        };
+const _hs13 = { fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' };
+const _hs14 = { padding: '8px 10px 4px' };
+const _hs15 = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 6 };
+const _hs16 = { fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', flexShrink: 0 };
+const _hs17 = { flexShrink: 1, minWidth: 0, overflow: 'hidden' };
+
 export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
   const { themes: availableThemes } = useTheme();
   const update = (key, value) => {
@@ -28,12 +58,12 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
     <div style={overlayStyle} onClick={onClose}>
       <div style={panelStyle} onClick={(e) => e.stopPropagation()}>
         <div style={headerStyle}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Settings</span>
+          <span style={_hs0}>Settings</span>
           <button onClick={onClose} style={closeBtn}>x</button>
         </div>
 
         <Section title="Report Theme">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={_hs1}>
             {Object.entries(availableThemes || {}).map(([key, t]) => {
               const active = settings?.theme?.key === key;
               return (
@@ -49,7 +79,7 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
                     transition: 'background 0.12s, border-color 0.12s',
                   }}
                 >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span style={_hs2}>
                     <span style={{
                       display: 'inline-block', width: 16, height: 16, borderRadius: 4,
                       background: t.vars?.['--bg-app'] || '#fff',
@@ -65,7 +95,7 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
         </Section>
 
         <Section title="View Mode">
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+          <div style={_hs3}>
             {[
               { value: 'actual', label: 'Actual size' },
               { value: 'fitToWidth', label: 'Fit to width' },
@@ -108,7 +138,7 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
               style={inputStyle}
             />
           </Field>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+          <div style={_hs4}>
             {[
               { label: '16:9', w: 1280, h: 720 },
               { label: '16:10', w: 1280, h: 800 },
@@ -185,18 +215,18 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
                   type="file"
                   accept="image/*"
                   onChange={handleImageUpload}
-                  style={{ fontSize: 12, width: '100%' }}
+                  style={_hs5}
                 />
               </Field>
               {settings.backgroundImage && (
-                <div style={{ marginTop: 8 }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Preview:</div>
+                <div style={_hs6}>
+                  <div style={_hs7}>Preview:</div>
                   <div style={{
                     width: '100%', height: 80, borderRadius: 4, border: '1px solid var(--border-default)',
                     backgroundImage: `url(${settings.backgroundImage})`,
                     backgroundSize: 'cover', backgroundPosition: 'center',
                   }} />
-                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                  <div style={_hs8}>
                     {['cover', 'contain', 'repeat'].map((mode) => (
                       <button
                         key={mode}
@@ -236,9 +266,9 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
               type="range" min={0} max={24}
               value={settings.borderRadius ?? 8}
               onChange={(e) => update('borderRadius', parseIntOrNull(e.target.value))}
-              style={{ width: 80 }}
+              style={_hs9}
             />
-            <span style={{ fontSize: 11, color: 'var(--text-disabled)', marginLeft: 4 }}>{settings.borderRadius ?? 8}px</span>
+            <span style={_hs10}>{settings.borderRadius ?? 8}px</span>
           </Field>
           <Field label="Shadow">
             <input
@@ -256,35 +286,24 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
 function Section({ title, children }) {
   const [open, setOpen] = useState(true);
   return (
-    <div style={{
-      marginBottom: 8,
-      border: '1px solid var(--border-default)',
-      borderRadius: 6,
-      overflow: 'hidden',
-    }}>
+    <div style={_hs11}>
       <div
         onClick={() => setOpen(!open)}
-        style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          padding: '6px 10px',
-          background: 'var(--bg-subtle)',
-          cursor: 'pointer',
-          userSelect: 'none',
-        }}
+        style={_hs12}
       >
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{title}</span>
+        <span style={_hs13}>{title}</span>
         <span style={{ fontSize: 10, color: 'var(--text-disabled)', transition: 'transform 0.15s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }}>▼</span>
       </div>
-      {open && <div style={{ padding: '8px 10px 4px' }}>{children}</div>}
+      {open && <div style={_hs14}>{children}</div>}
     </div>
   );
 }
 
 function Field({ label, children }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 6 }}>
-      <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', flexShrink: 0 }}>{label}</span>
-      <div style={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>{children}</div>
+    <div style={_hs15}>
+      <span style={_hs16}>{label}</span>
+      <div style={_hs17}>{children}</div>
     </div>
   );
 }

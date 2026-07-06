@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, memo } from 'react';
 
+const _hs0 = { width: '100%', height: '100%', border: 'none', background: 'transparent' };
+
 // Built-in template for the sandbox iframe. The bundle is injected as a regular
 // <script> tag, so the visual.js file just needs to call OpenReportRegisterVisual({...}).
 //
@@ -159,7 +161,7 @@ export default memo(function CustomVisualWidget({ data, config, chartWidth, char
     <iframe
       ref={iframeRef}
       sandbox="allow-scripts"
-      style={{ width: '100%', height: '100%', border: 'none', background: 'transparent' }}
+      style={_hs0}
       title={config?.visualName || 'Custom visual'}
     />
   );

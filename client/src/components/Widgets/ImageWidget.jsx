@@ -1,5 +1,7 @@
 import { TbPhoto } from 'react-icons/tb';
 
+const _hs0 = { fontSize: 11 };
+
 /**
  * Image widget — renders an <img> with the configured src + fit. The actual
  * URL lives in `config.url`; the property panel handles entry (paste a
@@ -23,7 +25,7 @@ export default function ImageWidget({ config }) {
         border: '2px dashed var(--border-default)',
       }}>
         <TbPhoto size={32} />
-        <div style={{ fontSize: 11 }}>Paste a URL in the properties panel</div>
+        <div style={_hs0}>Paste a URL in the properties panel</div>
       </div>
     );
   }

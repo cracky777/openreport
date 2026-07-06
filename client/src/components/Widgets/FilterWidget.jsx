@@ -3,6 +3,28 @@ import { createPortal } from 'react-dom';
 import MiniCalendar from './MiniCalendar';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
+const _hs0 = { fontSize: 10, color: 'var(--text-disabled)', display: 'block', marginBottom: 2 };
+const _hs1 = { fontSize: 12, color: 'var(--text-disabled)', paddingBottom: 6 };
+const _hs2 = { fontSize: 10, color: 'var(--text-disabled)', display: 'block', marginBottom: 2 };
+const _hs3 = { display: 'flex', justifyContent: 'flex-end', marginTop: 6, flexShrink: 0 };
+const _hs4 = { fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 };
+const _hs5 = { display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 };
+const _hs6 = { fontSize: 12, color: 'var(--text-secondary)' };
+const _hs7 = { fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 };
+const _hs8 = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 };
+const _hs9 = { fontSize: 10, color: 'var(--text-disabled)' };
+const _hs10 = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const _hs11 = { fontSize: 10, color: 'var(--text-disabled)', flexShrink: 0 };
+const _hs12 = { padding: '2px 10px', borderBottom: '1px solid #f1f5f9' };
+const _hs13 = { display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 };
+const _hs14 = { width: '100%', marginBottom: 4 };
+const _hs15 = { width: '100%' };
+const _hs16 = { display: 'flex', justifyContent: 'space-between', marginTop: 8, gap: 8 };
+const _hs17 = { color: 'var(--text-disabled)', fontSize: 12, alignSelf: 'center' };
+const _hs18 = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 };
+const _hs19 = { fontSize: 10, color: 'var(--text-disabled)' };
+const _hs20 = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+
 /**
  * Power BI-style Slicer widget.
  * Modes: list, dropdown, buttons, range, dateRange, dateBetween, dateRelative
@@ -260,15 +282,15 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
         {/* Date inputs */}
         <div style={{ display: 'flex', flexDirection: isHoriz ? 'row' : 'column', gap: 6, flexShrink: 0, alignItems: isHoriz ? 'flex-end' : 'stretch' }}>
           <div style={{ flex: isHoriz ? 1 : undefined }}>
-            <label style={{ fontSize: 10, color: 'var(--text-disabled)', display: 'block', marginBottom: 2 }}>From</label>
+            <label style={_hs0}>From</label>
             <input ref={fromRef} type="text" value={startDate ? formatDate(startDate) : ''}
               readOnly placeholder="Select date"
               onClick={() => setCalendarTarget(calendarTarget === 'from' ? null : 'from')}
               style={{ ...dateInputStyle, cursor: 'pointer', backgroundColor: calendarTarget === 'from' ? 'var(--bg-active)' : 'var(--bg-panel)' }} />
           </div>
-          {isHoriz && <span style={{ fontSize: 12, color: 'var(--text-disabled)', paddingBottom: 6 }}>→</span>}
+          {isHoriz && <span style={_hs1}>→</span>}
           <div style={{ flex: isHoriz ? 1 : undefined }}>
-            <label style={{ fontSize: 10, color: 'var(--text-disabled)', display: 'block', marginBottom: 2 }}>To</label>
+            <label style={_hs2}>To</label>
             <input ref={toRef} type="text" value={endDate ? formatDate(endDate) : ''}
               readOnly placeholder="Select date"
               onClick={() => setCalendarTarget(calendarTarget === 'to' ? null : 'to')}
@@ -310,7 +332,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
           document.body
         )}
         {(selectedCount > 0 || dateFrom || dateTo) && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6, flexShrink: 0 }}>
+          <div style={_hs3}>
             <button onClick={() => { setDateFrom(''); setDateTo(''); setSelected([]); onFilterChange?.([]); }}
               style={linkBtn}>Clear</button>
           </div>
@@ -357,9 +379,9 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
 
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 12, justifyContent: 'center', ...slicerFontStyle }}>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>Relative Date</div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Last</span>
+        <div style={_hs4}>Relative Date</div>
+        <div style={_hs5}>
+          <span style={_hs6}>Last</span>
           <input type="number" min={0} max={365} value={relValue}
             onChange={(e) => {
               const raw = e.target.value;
@@ -379,7 +401,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
             <option value="years">years</option>
           </select>
         </div>
-        <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 }}>
+        <div style={_hs7}>
           {selectedCount > 0
             ? `${selectedCount} date(s) from ${cutoffStr}`
             : `No dates found after ${cutoffStr}`}
@@ -516,8 +538,8 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
           }}
         />
         {footerText && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-            <span style={{ fontSize: 10, color: 'var(--text-disabled)' }}>{footerText}</span>
+          <div style={_hs8}>
+            <span style={_hs9}>{footerText}</span>
             {(selectedCount > 0 || betweenAnchor) && (
               <button onClick={clearAll} style={linkBtn}>Clear</button>
             )}
@@ -549,8 +571,8 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
             cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             fontSize, color: fontColor, backgroundColor: 'var(--bg-panel)',
           }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayText}</span>
-          <span style={{ fontSize: 10, color: 'var(--text-disabled)', flexShrink: 0 }}>{dropdownOpen ? '▲' : '▼'}</span>
+          <span style={_hs10}>{displayText}</span>
+          <span style={_hs11}>{dropdownOpen ? '▲' : '▼'}</span>
         </div>
         {dropdownOpen && createPortal(
           <div ref={dropdownPopupRef} onClick={(e) => e.stopPropagation()} style={{
@@ -564,7 +586,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
                 placeholder="Search..." style={{ ...searchInputStyle, margin: 6, width: 'calc(100% - 12px)' }} />
             )}
             {showSelectAll && multiSelect && (
-              <div style={{ padding: '2px 10px', borderBottom: '1px solid #f1f5f9' }}>
+              <div style={_hs12}>
                 <button onClick={handleSelectAll} style={linkBtn}>Select all</button>
               </div>
             )}
@@ -637,20 +659,20 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
 
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 12, justifyContent: 'center', ...slicerFontStyle }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+        <div style={_hs13}>
           <span>{rangeMin}</span><span>{rangeMax}</span>
         </div>
         <input type="range" min={min} max={max} value={rangeMin}
           onChange={(e) => { const v = Number(e.target.value); setSelected([v, rangeMax]); onFilterChange?.([v, rangeMax]); }}
-          style={{ width: '100%', marginBottom: 4 }} />
+          style={_hs14} />
         <input type="range" min={min} max={max} value={rangeMax}
           onChange={(e) => { const v = Number(e.target.value); setSelected([rangeMin, v]); onFilterChange?.([rangeMin, v]); }}
-          style={{ width: '100%' }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, gap: 8 }}>
+          style={_hs15} />
+        <div style={_hs16}>
           <input type="number" min={min} max={max} value={rangeMin}
             onChange={(e) => { const v = Number(e.target.value); setSelected([v, rangeMax]); onFilterChange?.([v, rangeMax]); }}
             style={{ ...numInputStyle, flex: 1 }} />
-          <span style={{ color: 'var(--text-disabled)', fontSize: 12, alignSelf: 'center' }}>—</span>
+          <span style={_hs17}>—</span>
           <input type="number" min={min} max={max} value={rangeMax}
             onChange={(e) => { const v = Number(e.target.value); setSelected([rangeMin, v]); onFilterChange?.([rangeMin, v]); }}
             style={{ ...numInputStyle, flex: 1 }} />
@@ -667,7 +689,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
           placeholder="Search..." style={searchInputStyle} />
       )}
       {showSelectAll && multiSelect && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <div style={_hs18}>
           <label style={{ ...listRowStyle, fontWeight: 500, fontSize }}>
             <input type="checkbox"
               checked={selected.length > 0}
@@ -679,7 +701,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
               style={{ marginRight: 6, accentColor: selectedColor }} />
             {selected.length === 0 ? 'Select all' : 'Clear all'}
           </label>
-          <span style={{ fontSize: 10, color: 'var(--text-disabled)' }}>
+          <span style={_hs19}>
             {selectedCount > 0 ? `${selectedCount} selected` : 'No filter'}
           </span>
         </div>
@@ -702,7 +724,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
               <input type={multiSelect ? 'checkbox' : 'radio'} checked={checked}
                 onChange={() => handleToggle(val)}
                 style={{ marginRight: 6, accentColor: selectedColor }} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={_hs20}>
                 {isDate ? formatDate(val) : String(val)}
               </span>
             </label>

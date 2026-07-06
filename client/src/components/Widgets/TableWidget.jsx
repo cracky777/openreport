@@ -9,6 +9,17 @@ import {
   computeTotal, getConditionalStyle,
 } from '../../utils/tableConfigHelpers';
 
+const _hs0 = { display: 'flex', flexDirection: 'column', height: '100%' };
+const _hs1 = { position: 'relative', paddingRight: 14 };
+const _hs2 = { position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--accent-primary)' };
+const _hs3 = {
+                          position: 'absolute', right: 0, top: 0, bottom: 0, width: 4,
+                          cursor: 'col-resize', zIndex: 5,
+                        };
+const _hs4 = { padding: 12, textAlign: 'center', color: 'var(--text-disabled)', fontSize: 12 };
+const _hs5 = { fontSize: 11, color: 'var(--text-muted)' };
+const _hs6 = { fontSize: 10, color: 'var(--text-disabled)', marginLeft: 8 };
+
 export default memo(function TableWidget({ data, config, columnOrder, onLoadMore, onConfigUpdate }) {
   const rawColumns = data?.columns;
   const rawRows = data?.rows;
@@ -173,7 +184,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
   const isFixedWidth = tc.columnWidthMode === 'fixed';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={_hs0}>
       <div
         ref={scrollRef}
         onScroll={handleScroll}
@@ -276,10 +287,10 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                         boxShadow: isFrozenCol ? '2px 0 4px rgba(0,0,0,0.06)' : undefined,
                       }}
                     >
-                      <span style={{ position: 'relative', paddingRight: 14 }}>
+                      <span style={_hs1}>
                         {displayName}
                         {sortCol === col && (
-                          <span style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--accent-primary)' }}>
+                          <span style={_hs2}>
                             {sortDir === 'asc' ? '▲' : '▼'}
                           </span>
                         )}
@@ -287,10 +298,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                       {/* Resize handle */}
                       <div
                         onMouseDown={(e) => handleResizeStart(e, col)}
-                        style={{
-                          position: 'absolute', right: 0, top: 0, bottom: 0, width: 4,
-                          cursor: 'col-resize', zIndex: 5,
-                        }}
+                        style={_hs3}
                       />
                     </th>
                   );
@@ -430,7 +438,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
 
         {/* Infinite scroll indicators */}
         {paginationMode === 'infinite' && loadingMore && (
-          <div style={{ padding: 12, textAlign: 'center', color: 'var(--text-disabled)', fontSize: 12 }}>
+          <div style={_hs4}>
             Loading more rows...
           </div>
         )}
@@ -446,7 +454,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
           >
             ◀
           </button>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+          <span style={_hs5}>
             {currentPage} / {totalPages}
           </span>
           <button
@@ -456,7 +464,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
           >
             ▶
           </button>
-          <span style={{ fontSize: 10, color: 'var(--text-disabled)', marginLeft: 8 }}>
+          <span style={_hs6}>
             {sortedRows.length} rows
           </span>
         </div>

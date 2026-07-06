@@ -2,6 +2,27 @@ import { useEffect, useState } from 'react';
 import { TbX, TbPlus, TbTrash, TbAlertTriangle } from 'react-icons/tb';
 import api from '../../utils/api';
 
+const _hs0 = { fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 };
+const _hs1 = { fontSize: 14, color: 'var(--text-primary)', fontWeight: 600, marginTop: 2 };
+const _hs2 = { padding: 12, borderBottom: '1px solid var(--border-default)' };
+const _hs3 = { padding: 12, borderBottom: '1px solid var(--border-default)' };
+const _hs4 = { fontSize: 11, color: 'var(--text-disabled)', marginTop: 4 };
+const _hs5 = { padding: '10px 12px', flex: 1, overflowY: 'auto', minHeight: 0 };
+const _hs6 = { marginBottom: 6, position: 'relative' };
+const _hs7 = {
+                    position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
+                    fontSize: 10, color: 'var(--text-disabled)',
+                  };
+const _hs8 = { fontSize: 10, color: 'var(--text-muted)', marginBottom: 6, padding: '4px 6px', background: 'var(--bg-subtle)', borderRadius: 3 };
+const _hs9 = { flex: 1 };
+const _hs10 = { display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 };
+const _hs11 = { fontSize: 11, color: 'var(--text-disabled)' };
+const _hs12 = { pointerEvents: 'none' };
+const _hs13 = { display: 'flex', gap: 4, position: 'relative' };
+const _hs14 = { pointerEvents: 'none' };
+const _hs15 = { fontFamily: 'monospace' };
+const _hs16 = { fontSize: 10, color: 'var(--text-disabled)', marginLeft: 6 };
+
 /**
  * Row-level security configuration dialog for a single table.
  *
@@ -186,14 +207,14 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
       <div style={panelStyle} onClick={(e) => e.stopPropagation()}>
         <div style={headerStyle}>
           <div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Row-level security</div>
-            <div style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 600, marginTop: 2 }}>{tableName}</div>
+            <div style={_hs0}>Row-level security</div>
+            <div style={_hs1}>{tableName}</div>
           </div>
           <button className="btn-hover" onClick={onClose} style={closeBtn}><TbX size={16} /></button>
         </div>
 
         {/* Current state + enable toggle */}
-        <div style={{ padding: 12, borderBottom: '1px solid var(--border-default)' }}>
+        <div style={_hs2}>
           {otherTable && (
             <div style={warnBox}>
               <TbAlertTriangle size={14} />
@@ -233,7 +254,7 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
             user can prep the config (PK + patterns) before flipping the
             enable toggle. Persisting changes while disabled is intentional. */}
         <>
-          <div style={{ padding: 12, borderBottom: '1px solid var(--border-default)' }}>
+          <div style={_hs3}>
             <div style={fieldRow}>
               <span style={fieldLabel}>RLS value</span>
               <select
@@ -247,12 +268,12 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
                 ))}
               </select>
             </div>
-            <div style={{ fontSize: 11, color: 'var(--text-disabled)', marginTop: 4 }}>
+            <div style={_hs4}>
               Column that identifies each row when matching access rules.
             </div>
           </div>
 
-          <div style={{ padding: '10px 12px', flex: 1, overflowY: 'auto', minHeight: 0 }}>
+          <div style={_hs5}>
             {!primaryKey && (
               <div style={emptyHintStyle}>Pick an RLS value column to load the rows.</div>
             )}
@@ -269,7 +290,7 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
                   email matches any of the patterns. Use <code>*</code> as a wildcard
                   (e.g. <code>*@openreport.io</code>, <code>*admin*</code>, <code>alice@*</code>).
                 </div>
-                <div style={{ marginBottom: 6, position: 'relative' }}>
+                <div style={_hs6}>
                   <input
                     type="text"
                     value={search}
@@ -277,10 +298,7 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
                     placeholder={`Search by ${primaryKey}…`}
                     style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', fontSize: 11 }}
                   />
-                  <span style={{
-                    position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
-                    fontSize: 10, color: 'var(--text-disabled)',
-                  }}>
+                  <span style={_hs7}>
                     {rows.length}{truncated ? '+' : ''} rows
                   </span>
                 </div>
@@ -291,7 +309,7 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
                   <div style={emptyHintStyle}>No rows in this table.</div>
                 )}
                 {truncated && (
-                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6, padding: '4px 6px', background: 'var(--bg-subtle)', borderRadius: 3 }}>
+                  <div style={_hs8}>
                     Showing the first 1000 matches. Refine the search to narrow down further.
                   </div>
                 )}
@@ -302,10 +320,10 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
                   return (
                     <div key={key} style={rowItemStyle}>
                       <div style={rowKeyStyle}>{key}</div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                      <div style={_hs9}>
+                        <div style={_hs10}>
                           {patterns.length === 0 && (
-                            <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>No rule — nobody can see this row.</span>
+                            <span style={_hs11}>No rule — nobody can see this row.</span>
                           )}
                           {patterns.map((p, i) => (
                             <span key={`${p}-${i}`} style={chipStyle}>
@@ -316,11 +334,11 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
                                 onClick={(e) => { e.stopPropagation(); removePattern(key, i); }}
                                 style={chipRemoveStyle}
                                 title="Remove pattern"
-                              ><TbTrash size={10} style={{ pointerEvents: 'none' }} /></button>
+                              ><TbTrash size={10} style={_hs12} /></button>
                             </span>
                           ))}
                         </div>
-                        <div style={{ display: 'flex', gap: 4, position: 'relative' }}>
+                        <div style={_hs13}>
                           <input
                             type="text"
                             value={draft}
@@ -343,7 +361,7 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
                               style={addBtnStyle}
                               title="Add pattern"
                             >
-                              <TbPlus size={12} style={{ pointerEvents: 'none' }} />
+                              <TbPlus size={12} style={_hs14} />
                             </button>
                           )}
                           {activeRowKey === key && suggestions.length > 0 && (
@@ -360,9 +378,9 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
                                   }}
                                   style={suggestionItemStyle}
                                 >
-                                  <span style={{ fontFamily: 'monospace' }}>{u.email}</span>
+                                  <span style={_hs15}>{u.email}</span>
                                   {u.display_name && (
-                                    <span style={{ fontSize: 10, color: 'var(--text-disabled)', marginLeft: 6 }}>
+                                    <span style={_hs16}>
                                       {u.display_name}
                                     </span>
                                   )}

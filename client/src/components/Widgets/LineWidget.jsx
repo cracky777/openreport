@@ -14,6 +14,8 @@ import { useEchartsInstance } from '../../hooks/useEchartsInstance';
 import WidgetEmptyState from './WidgetEmptyState';
 import { resolveZoneSorts } from '../../utils/chartSorts';
 
+const _hs0 = { flex: 1, minWidth: 0, minHeight: 0 };
+
 export default memo(function LineWidget({ data, config, chartWidth, onDataClick, highlightValue }) {
   const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
@@ -289,7 +291,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
       {showHtmlLegend && (legendPosition === 'top' || legendPosition === 'left') && (
         <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
       )}
-      <div ref={chartRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
+      <div ref={chartRef} style={_hs0} />
       {showHtmlLegend && (legendPosition === 'bottom' || legendPosition === 'right') && (
         <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
       )}

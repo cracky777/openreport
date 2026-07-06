@@ -1,6 +1,30 @@
 import { useState, useRef } from 'react';
 import { TbArrowsSort, TbSortAscending, TbSortDescending } from 'react-icons/tb';
 
+const _hs0 = { marginBottom: 10 };
+const _hs1 = { fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 };
+const _hs2 = { height: 2, background: 'var(--accent-primary)', borderRadius: 1, marginBottom: 2 };
+const _hs3 = { fontSize: 9, color: 'var(--text-disabled)', marginRight: 2 };
+const _hs4 = {
+                      fontSize: 8, fontWeight: 700, textTransform: 'uppercase',
+                      color: 'var(--state-success)', cursor: 'pointer', marginRight: 2,
+                      padding: '0 3px', borderRadius: 2, background: 'var(--state-success-soft)',
+                      flexShrink: 0, lineHeight: '14px', position: 'relative',
+                    };
+const _hs5 = { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const _hs6 = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, borderRadius: '50%', background: 'var(--state-danger)', color: 'var(--bg-panel)', fontSize: 9, fontWeight: 700, flexShrink: 0 };
+const _hs7 = {
+                  display: 'flex', flexWrap: 'wrap', gap: 2, padding: '3px 4px', background: 'var(--bg-subtle)',
+                  borderRadius: 4, border: '1px solid var(--border-default)', marginTop: 2,
+                };
+const _hs8 = { height: 2, background: 'var(--accent-primary)', borderRadius: 1 };
+const _hs9 = { fontSize: 11, color: 'var(--text-disabled)', padding: '4px 6px', pointerEvents: 'none' };
+const _hs10 = {
+            display: 'flex', justifyContent: 'flex-end', gap: 2,
+            marginTop: 4, paddingTop: 4, borderTop: '1px dashed var(--border-default)',
+          };
+const _hs11 = { fontSize: 9, color: 'var(--text-disabled)', alignSelf: 'center', marginRight: 4, textTransform: 'uppercase', fontWeight: 600 };
+
 const AGG_OPTIONS = [
   { value: 'sum', label: 'Sum' },
   { value: 'avg', label: 'Avg' },
@@ -101,8 +125,8 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
   const isHovering = dropIdx != null;
 
   return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>{label}</div>
+    <div style={_hs0}>
+      <div style={_hs1}>{label}</div>
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -139,7 +163,7 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
               onDragEnd={endItemDrag}
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDrop(i); }}
             >
-              {showBar && <div style={{ height: 2, background: 'var(--accent-primary)', borderRadius: 1, marginBottom: 2 }} />}
+              {showBar && <div style={_hs2} />}
               <span title={missing ? undefined : getTooltip(field)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 3,
@@ -151,32 +175,24 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
                   textDecoration: willBeReplaced ? 'line-through' : 'none',
                 }}
               >
-                <span style={{ fontSize: 9, color: 'var(--text-disabled)', marginRight: 2 }}>⠿</span>
+                <span style={_hs3}>⠿</span>
                 {/* Aggregation badge for measures */}
                 {!isDim && measureInfos?.[field] && measureInfos[field].aggregation !== 'custom' && onAggChange && (
                   <span
                     onClick={(e) => { e.stopPropagation(); setAggMenuField(aggMenuField === field ? null : field); }}
-                    style={{
-                      fontSize: 8, fontWeight: 700, textTransform: 'uppercase',
-                      color: 'var(--state-success)', cursor: 'pointer', marginRight: 2,
-                      padding: '0 3px', borderRadius: 2, background: 'var(--state-success-soft)',
-                      flexShrink: 0, lineHeight: '14px', position: 'relative',
-                    }}
+                    style={_hs4}
                     title="Click to change aggregation"
                   >
                     {measureInfos[field].aggregation || 'sum'}
                   </span>
                 )}
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{getDisplayName(field)}</span>
-                {missing && <span title="This field no longer exists in the data model" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, borderRadius: '50%', background: 'var(--state-danger)', color: 'var(--bg-panel)', fontSize: 9, fontWeight: 700, flexShrink: 0 }}>!</span>}
+                <span style={_hs5}>{getDisplayName(field)}</span>
+                {missing && <span title="This field no longer exists in the data model" style={_hs6}>!</span>}
                 <button onClick={() => onRemove(field)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: missing ? 'var(--state-danger)' : 'var(--text-disabled)', fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
               </span>
               {/* Aggregation dropdown menu */}
               {aggMenuField === field && (
-                <div style={{
-                  display: 'flex', flexWrap: 'wrap', gap: 2, padding: '3px 4px', background: 'var(--bg-subtle)',
-                  borderRadius: 4, border: '1px solid var(--border-default)', marginTop: 2,
-                }}>
+                <div style={_hs7}>
                   {AGG_OPTIONS.map((opt) => (
                     <button key={opt.value}
                       onClick={(e) => { e.stopPropagation(); onAggChange(field, opt.value); setAggMenuField(null); }}
@@ -195,22 +211,19 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
         })}
         {/* Drop indicator at end */}
         {!isReplaceMode && dropIdx === fields.length && !(draggedField && dragIdx === fields.length - 1) && (
-          <div style={{ height: 2, background: 'var(--accent-primary)', borderRadius: 1 }} />
+          <div style={_hs8} />
         )}
         {/* Empty zone placeholder */}
         {fields.length === 0 && dropIdx == null && (
-          <span style={{ fontSize: 11, color: 'var(--text-disabled)', padding: '4px 6px', pointerEvents: 'none' }}>
+          <span style={_hs9}>
             Drop {accepts?.includes('dimension') && accepts?.includes('measure') ? 'fields' : accepts?.includes('dimension') ? 'dimension' : 'measure'} here
           </span>
         )}
         {/* Per-zone sort controls. Only rendered when the parent provides a
             handler — this keeps non-sortable zones (filters, etc.) clean. */}
         {typeof onSortChange === 'function' && fields.length > 0 && (
-          <div style={{
-            display: 'flex', justifyContent: 'flex-end', gap: 2,
-            marginTop: 4, paddingTop: 4, borderTop: '1px dashed var(--border-default)',
-          }}>
-            <span style={{ fontSize: 9, color: 'var(--text-disabled)', alignSelf: 'center', marginRight: 4, textTransform: 'uppercase', fontWeight: 600 }}>Sort</span>
+          <div style={_hs10}>
+            <span style={_hs11}>Sort</span>
             {SORT_OPTIONS.map((opt) => {
               const Icon = opt.icon;
               const active = (sort || 'none') === opt.value;

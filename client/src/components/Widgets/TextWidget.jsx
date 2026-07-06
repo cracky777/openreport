@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
+const _hs0 = { opacity: 0.4, fontStyle: 'italic' };
+
 // Per-axis alignment values are stored using flex keywords so a single style
 // object can drive both the display container (`alignItems`/`justifyContent`)
 // and a CSS textAlign mapping for the edit-mode textarea. Centralised here so
@@ -129,7 +131,7 @@ export default function TextWidget({ data, config, onDataUpdate }) {
       style={baseStyle}
     >
       {text || (
-        <span style={{ opacity: 0.4, fontStyle: 'italic' }}>
+        <span style={_hs0}>
           {onDataUpdate ? 'Double-click to edit' : ''}
         </span>
       )}

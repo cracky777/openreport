@@ -14,6 +14,8 @@ import WidgetEmptyState from './WidgetEmptyState';
 import { resolveZoneSorts } from '../../utils/chartSorts';
 import { buildValueGradient } from '../../utils/chartGradient';
 
+const _hs0 = { flex: 1, minHeight: 0, minWidth: 0 };
+
 export default memo(function ComboWidget({ data, config, chartWidth, onDataClick, highlightValue }) {
   const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
@@ -475,7 +477,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
       {showLegend && legendItems.length > 0 && (legendPosition === 'top' || legendPosition === 'left') && (
         <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} />
       )}
-      <div ref={chartRef} style={{ flex: 1, minHeight: 0, minWidth: 0 }} />
+      <div ref={chartRef} style={_hs0} />
       {showLegend && legendItems.length > 0 && (legendPosition === 'bottom' || legendPosition === 'right') && (
         <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} />
       )}

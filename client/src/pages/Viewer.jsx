@@ -11,6 +11,17 @@ import { useTheme } from '../hooks/useTheme';
 import PagesColumn from '../components/PagesColumn/PagesColumn';
 import ExportMenu from '../components/ExportMenu/ExportMenu';
 
+const _hs0 = { padding: 60, textAlign: 'center', color: 'var(--state-danger)' };
+const _hs1 = { padding: 40, color: 'var(--text-disabled)' };
+const _hs2 = {
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '4px 10px', backgroundColor: 'var(--bg-panel)', borderBottom: '1px solid var(--border-default)',
+        flexShrink: 0,
+      };
+const _hs3 = { height: 22 };
+const _hs4 = { fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' };
+const _hs5 = { display: 'flex', alignItems: 'center', gap: 4 };
+
 const DRILLABLE_TYPES = ['bar', 'line', 'combo', 'pie', 'treemap'];
 
 export default function Viewer() {
@@ -579,10 +590,10 @@ export default function Viewer() {
 
 
   if (error) {
-    return <div style={{ padding: 60, textAlign: 'center', color: 'var(--state-danger)' }}>{error}</div>;
+    return <div style={_hs0}>{error}</div>;
   }
   if (!report) {
-    return <div style={{ padding: 40, color: 'var(--text-disabled)' }}>Loading...</div>;
+    return <div style={_hs1}>Loading...</div>;
   }
 
   return (
@@ -595,14 +606,10 @@ export default function Viewer() {
       backgroundColor: printMode ? 'transparent' : 'var(--bg-app)',
     }}>
       {/* Viewer toolbar — compact */}
-      <header className="no-print" style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '4px 10px', backgroundColor: 'var(--bg-panel)', borderBottom: '1px solid var(--border-default)',
-        flexShrink: 0,
-      }}>
-        <img src="/favicon.png" alt="Open Report" style={{ height: 22 }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>{report.title}</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      <header className="no-print" style={_hs2}>
+        <img src="/favicon.png" alt="Open Report" style={_hs3} />
+        <span style={_hs4}>{report.title}</span>
+        <div style={_hs5}>
           <button onClick={handleRefresh} disabled={refreshing} style={{ ...toolBtnSmall, opacity: refreshing ? 0.5 : 1, cursor: refreshing ? 'not-allowed' : 'pointer' }} title="Refresh all widgets">
             <TbRefresh size={14} style={{ animation: refreshing ? 'spin 0.8s linear infinite' : undefined }} />
           </button>

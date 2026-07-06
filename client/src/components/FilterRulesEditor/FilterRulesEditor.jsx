@@ -1,6 +1,11 @@
 import { useRef } from 'react';
 import DimensionMultiSelect from '../PropertyPanel/DimensionMultiSelect';
 
+const _hs0 = { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 };
+const _hs1 = { background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 4px', color: 'var(--text-disabled)', fontSize: 14, lineHeight: 1 };
+const _hs2 = { display: 'flex', flexDirection: 'column', gap: 4 };
+const _hs3 = { display: 'flex', gap: 4 };
+
 const VALUELESS_OPS = new Set(['is_empty', 'is_not_empty']);
 const LIST_OPS = new Set(['in', 'not_in']);
 
@@ -109,7 +114,7 @@ export default function FilterRulesEditor({ model, modelId, rules, onChange, sty
         const fieldColor = f.isMeasure ? '#16a34a' : 'var(--accent-primary)';
         return (
           <div key={i} style={cardStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+            <div style={_hs0}>
               <span
                 title={f.field}
                 style={{ fontSize: 12, fontWeight: 600, color: fieldColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}
@@ -117,7 +122,7 @@ export default function FilterRulesEditor({ model, modelId, rules, onChange, sty
                 {displayName}
               </span>
               <button onClick={() => removeRule(i)} title="Remove filter"
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 4px', color: 'var(--text-disabled)', fontSize: 14, lineHeight: 1 }}
+                style={_hs1}
                 onMouseEnter={(e) => e.currentTarget.style.color = 'var(--state-danger)'}
                 onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-disabled)'}>
                 ×
@@ -157,7 +162,7 @@ export default function FilterRulesEditor({ model, modelId, rules, onChange, sty
               // rather than a stale closure — picking From then To in quick
               // succession otherwise risks the To onChange clobbering the
               // From update because both handlers captured the same `f`.
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={_hs2}>
                 <div>
                   <div style={{ ...labelStyle, marginBottom: 2 }}>From</div>
                   <input type="date" value={(f.values || [])[0] ?? ''}
@@ -179,7 +184,7 @@ export default function FilterRulesEditor({ model, modelId, rules, onChange, sty
               </div>
             )}
             {isBetween && t !== 'date' && (
-              <div style={{ display: 'flex', gap: 4 }}>
+              <div style={_hs3}>
                 <input type={inputType} value={(f.values || [])[0] ?? ''}
                   onChange={(e) => updateRule(i, { values: [e.target.value, (f.values || [])[1] ?? ''] })}
                   style={{ ...inputStyle, marginBottom: 0, flex: 1, minWidth: 0 }} placeholder="From" />

@@ -4,6 +4,27 @@ import { TbDatabase, TbStack3 } from 'react-icons/tb';
 import api from '../utils/api';
 import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
 
+const _hs0 = { minHeight: '100vh', backgroundColor: 'var(--bg-app)' };
+const _hs1 = { flex: 1 };
+const _hs2 = { maxWidth: 800, margin: '0 auto', padding: '32px 20px' };
+const _hs3 = { fontSize: 16, fontWeight: 600, marginBottom: 16 };
+const _hs4 = { marginBottom: 12 };
+const _hs5 = { marginBottom: 12 };
+const _hs6 = { fontSize: 12, color: 'var(--state-danger)', marginTop: 4 };
+const _hs7 = { color: 'var(--accent-primary)', background: 'transparent', border: '1px solid transparent', cursor: 'pointer', fontSize: 12, padding: '2px 6px', borderRadius: 4 };
+const _hs8 = { marginBottom: 16 };
+const _hs9 = { display: 'flex', gap: 8, justifyContent: 'flex-end' };
+const _hs10 = { color: 'var(--text-disabled)', textAlign: 'center', marginTop: 60 };
+const _hs11 = { textAlign: 'center', marginTop: 80 };
+const _hs12 = { fontSize: 16, color: 'var(--text-muted)', marginBottom: 4 };
+const _hs13 = { fontSize: 13, color: 'var(--text-disabled)', marginBottom: 16 };
+const _hs14 = { display: 'flex', flexDirection: 'column', gap: 8 };
+const _hs15 = { cursor: 'pointer', flex: 1 };
+const _hs16 = { fontWeight: 600, color: 'var(--text-primary)', fontSize: 15 };
+const _hs17 = { fontSize: 13, color: 'var(--text-muted)', marginTop: 2 };
+const _hs18 = { fontSize: 12, color: 'var(--text-disabled)', marginTop: 2 };
+const _hs19 = { display: 'flex', gap: 8 };
+
 export default function Models() {
   const navigate = useNavigate();
   const [models, setModels] = useState([]);
@@ -39,25 +60,25 @@ export default function Models() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-app)' }}>
+    <div style={_hs0}>
       <header style={headerShellStyle}>
         <BackButton to="/" />
         <h1 style={{ ...headerTitleStyle, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           <TbStack3 size={20} color="var(--accent-primary)" />
           Data Models
         </h1>
-        <div style={{ flex: 1 }} />
+        <div style={_hs1} />
         <SecondaryButton onClick={() => navigate('/datasources')} title="Go to Data Sources">
           <TbDatabase size={16} />Data Sources
         </SecondaryButton>
         <PrimaryButton onClick={() => setShowForm(true)}>+ New Model</PrimaryButton>
       </header>
 
-      <main style={{ maxWidth: 800, margin: '0 auto', padding: '32px 20px' }}>
+      <main style={_hs2}>
         {showForm && (
           <div style={formCard}>
-            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>New Data Model</h2>
-            <div style={{ marginBottom: 12 }}>
+            <h2 style={_hs3}>New Data Model</h2>
+            <div style={_hs4}>
               <label style={labelStyle}>Name</label>
               <input
                 style={inputStyle}
@@ -66,7 +87,7 @@ export default function Models() {
                 placeholder="e.g. Sales Analysis"
               />
             </div>
-            <div style={{ marginBottom: 12 }}>
+            <div style={_hs5}>
               <label style={labelStyle}>Data Source</label>
               <select
                 style={inputStyle}
@@ -79,15 +100,15 @@ export default function Models() {
                 ))}
               </select>
               {datasources.length === 0 && (
-                <p style={{ fontSize: 12, color: 'var(--state-danger)', marginTop: 4 }}>
+                <p style={_hs6}>
                   No data sources configured.{' '}
-                  <button className="btn-hover btn-hover-accent" onClick={() => navigate('/datasources')} style={{ color: 'var(--accent-primary)', background: 'transparent', border: '1px solid transparent', cursor: 'pointer', fontSize: 12, padding: '2px 6px', borderRadius: 4 }}>
+                  <button className="btn-hover btn-hover-accent" onClick={() => navigate('/datasources')} style={_hs7}>
                     Add one first
                   </button>
                 </p>
               )}
             </div>
-            <div style={{ marginBottom: 16 }}>
+            <div style={_hs8}>
               <label style={labelStyle}>Description (optional)</label>
               <input
                 style={inputStyle}
@@ -96,7 +117,7 @@ export default function Models() {
                 placeholder="What does this model represent?"
               />
             </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <div style={_hs9}>
               <button className="btn-hover" onClick={() => setShowForm(false)} style={secondaryBtn}>Cancel</button>
               <button className="btn-hover btn-hover-primary" onClick={handleCreate} style={primaryBtn}>Create & Configure</button>
             </div>
@@ -104,27 +125,27 @@ export default function Models() {
         )}
 
         {loading ? (
-          <div style={{ color: 'var(--text-disabled)', textAlign: 'center', marginTop: 60 }}>Loading...</div>
+          <div style={_hs10}>Loading...</div>
         ) : models.length === 0 && !showForm ? (
-          <div style={{ textAlign: 'center', marginTop: 80 }}>
-            <p style={{ fontSize: 16, color: 'var(--text-muted)', marginBottom: 4 }}>No data models yet</p>
-            <p style={{ fontSize: 13, color: 'var(--text-disabled)', marginBottom: 16 }}>
+          <div style={_hs11}>
+            <p style={_hs12}>No data models yet</p>
+            <p style={_hs13}>
               Models define which tables, dimensions, and measures are available in your reports.
             </p>
             <button className="btn-hover btn-hover-primary" onClick={() => setShowForm(true)} style={primaryBtn}>Create your first model</button>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={_hs14}>
             {models.map((m) => (
               <div key={m.id} style={cardStyle}>
-                <div onClick={() => navigate(`/models/${m.id}`)} style={{ cursor: 'pointer', flex: 1 }}>
-                  <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 15 }}>{m.name}</div>
-                  <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>
+                <div onClick={() => navigate(`/models/${m.id}`)} style={_hs15}>
+                  <div style={_hs16}>{m.name}</div>
+                  <div style={_hs17}>
                     Source: {m.datasource_name} — Updated {new Date(m.updated_at).toLocaleDateString()}
                   </div>
-                  {m.description && <div style={{ fontSize: 12, color: 'var(--text-disabled)', marginTop: 2 }}>{m.description}</div>}
+                  {m.description && <div style={_hs18}>{m.description}</div>}
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={_hs19}>
                   <button className="btn-hover" onClick={() => navigate(`/models/${m.id}`)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px' }}>Edit</button>
                   <button className="btn-hover btn-hover-danger" onClick={() => handleDelete(m.id)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px', color: 'var(--state-danger)', borderColor: 'var(--state-danger)' }}>Delete</button>
                 </div>

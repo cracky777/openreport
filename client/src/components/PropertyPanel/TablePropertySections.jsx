@@ -3,6 +3,17 @@ import { setNestedValue } from '../../utils/tableConfigHelpers';
 import { parseIntOrNull, parseFloatOrNull } from '../../utils/input';
 import FontPicker from '../FontPicker/FontPicker';
 
+const _hs0 = { display: 'flex', gap: 2 };
+const _hs1 = { display: 'flex', gap: 2 };
+const _hs2 = { fontSize: 11, color: 'var(--text-disabled)', fontStyle: 'italic' };
+const _hs3 = { fontSize: 10, color: 'var(--state-danger)', background: 'transparent', border: '1px solid #fca5a5', borderRadius: 3, padding: '2px 6px', cursor: 'pointer', marginTop: 4 };
+const _hs4 = { display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 };
+const _hs5 = { fontSize: 10, padding: '3px 6px', border: '1px solid var(--border-default)', borderRadius: 3, background: 'var(--bg-panel)', cursor: 'pointer', color: 'var(--text-secondary)' };
+const _hs6 = { fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 };
+const _hs7 = { display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4 };
+const _hs8 = { position: 'relative' };
+const _hs9 = { width: 26, height: 26, border: '1px solid var(--border-default)', borderRadius: 3, padding: 1, cursor: 'pointer' };
+
 /**
  * Complete table configuration panel with per-column and global settings.
  */
@@ -93,7 +104,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
             onChange={(v) => update('header.bgColor', v)} />
         </Field>
         <Field label="Alignment">
-          <div style={{ display: 'flex', gap: 2 }}>
+          <div style={_hs0}>
             {[['left', 'L'], ['center', 'C'], ['right', 'R']].map(([v, l]) => (
               <button key={v} onClick={() => update('header.alignment', v)}
                 style={{ ...toggleBtn, background: get('header', 'alignment', 'left') === v ? '#7c3aed' : '#fff', color: get('header', 'alignment', 'left') === v ? '#fff' : '#475569' }}>
@@ -145,7 +156,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
             onChange={(v) => update('values.bgColor', v)} />
         </Field>
         <Field label="Alignment">
-          <div style={{ display: 'flex', gap: 2 }}>
+          <div style={_hs1}>
             {[['auto', 'Auto'], ['left', 'L'], ['center', 'C'], ['right', 'R']].map(([v, l]) => (
               <button key={v} onClick={() => update('values.alignment', v)}
                 style={{ ...toggleBtn, background: get('values', 'alignment', 'auto') === v ? '#7c3aed' : '#fff', color: get('values', 'alignment', 'auto') === v ? '#fff' : '#475569' }}>
@@ -391,7 +402,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
             />
           </>
         ) : (
-          <div style={{ fontSize: 11, color: 'var(--text-disabled)', fontStyle: 'italic' }}>Select a column above</div>
+          <div style={_hs2}>Select a column above</div>
         )}
       </Section>
 
@@ -504,16 +515,16 @@ function ConditionalFormatEditor({ rules, onChange, inputStyle, Field, SubSectio
             </>
           )}
           <button onClick={() => removeRule(i)}
-            style={{ fontSize: 10, color: 'var(--state-danger)', background: 'transparent', border: '1px solid #fca5a5', borderRadius: 3, padding: '2px 6px', cursor: 'pointer', marginTop: 4 }}>
+            style={_hs3}>
             Remove
           </button>
         </SubSection>
       ))}
 
-      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+      <div style={_hs4}>
         {['dataBar', 'colorScale', 'textColor', 'icon'].map((type) => (
           <button key={type} onClick={() => addRule(type)}
-            style={{ fontSize: 10, padding: '3px 6px', border: '1px solid var(--border-default)', borderRadius: 3, background: 'var(--bg-panel)', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+            style={_hs5}>
             + {type}
           </button>
         ))}
@@ -528,9 +539,9 @@ function IconLevelEditor({ label, icon, color, value, valuePlaceholder, onIconCh
   const [showPresets, setShowPresets] = useState(false);
   return (
     <div style={iconLevelStyle}>
-      <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>{label}</div>
-      <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4 }}>
-        <div style={{ position: 'relative' }}>
+      <div style={_hs6}>{label}</div>
+      <div style={_hs7}>
+        <div style={_hs8}>
           <button onClick={() => setShowPresets(!showPresets)}
             style={{ width: 30, height: 26, border: '1px solid var(--border-default)', borderRadius: 3, background: 'var(--bg-panel)', cursor: 'pointer', fontSize: 14, color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {icon}
@@ -550,7 +561,7 @@ function IconLevelEditor({ label, icon, color, value, valuePlaceholder, onIconCh
           )}
         </div>
         <ColorInput value={color} onChange={(v) => onColorChange(v)}
-          style={{ width: 26, height: 26, border: '1px solid var(--border-default)', borderRadius: 3, padding: 1, cursor: 'pointer' }} />
+          style={_hs9} />
         <input type="number" value={value ?? ''} placeholder={valuePlaceholder}
           onChange={(e) => onValueChange(e.target.value !== '' ? parseFloatOrNull(e.target.value) : null)}
           style={{ ...inputStyle, flex: 1, marginBottom: 0, fontSize: 11 }} />

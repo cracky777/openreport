@@ -8,6 +8,216 @@ import { useTheme } from '../hooks/useTheme';
 import { TopbarSwitcher, UserMenuExtras } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
 
+const _hs0 = { height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' };
+const _hs1 = { fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: -0.5, display: 'flex', alignItems: 'center', gap: 12 };
+const _hs2 = { height: 28 };
+const _hs3 = { display: 'flex', alignItems: 'center', gap: 6 };
+const _hs4 = { position: 'relative' };
+const _hs5 = { display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 8px 8px' };
+const _hs6 = { display: 'inline-flex', alignItems: 'center', gap: 8 };
+const _hs7 = { fontSize: 9, color: 'var(--text-muted)' };
+const _hs8 = { display: 'inline-flex', alignItems: 'center', gap: 8 };
+const _hs9 = { color: 'var(--accent-primary)' };
+const _hs10 = { flex: 1, display: 'flex', minHeight: 0 };
+const _hs11 = { padding: '12px 16px', fontWeight: 600, fontSize: 11, color: 'var(--text-disabled)', textTransform: 'uppercase' };
+const _hs12 = { flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const _hs13 = { fontSize: 10, color: 'var(--text-disabled)' };
+const _hs14 = { padding: '8px 12px' };
+const _hs15 = {
+                  display: 'flex', alignItems: 'center', gap: 2,
+                  padding: 3, background: 'var(--bg-subtle)',
+                  border: '1px solid var(--border-default)', borderRadius: 8,
+                };
+const _hs16 = {
+                      flex: 1, padding: '4px 8px', border: 'none', background: 'transparent',
+                      fontSize: 12, outline: 'none', color: 'var(--text-primary)', minWidth: 0,
+                    };
+const _hs17 = {
+                      width: 22, height: 22, padding: 0, border: 'none',
+                      borderRadius: 5, cursor: 'pointer',
+                      background: 'transparent', color: 'var(--text-muted)',
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'background 0.12s, color 0.12s',
+                    };
+const _hs18 = {
+                    display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                    padding: '8px 12px', border: '1px dashed var(--border-default)',
+                    borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 500,
+                    background: 'transparent', color: 'var(--text-muted)',
+                    textAlign: 'left', transition: 'border-color 0.12s, color 0.12s, background 0.12s',
+                  };
+const _hs19 = { flex: 1, overflow: 'auto', padding: '24px 32px' };
+const _hs20 = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 };
+const _hs21 = { display: 'flex', alignItems: 'center', gap: 12 };
+const _hs22 = {
+                    fontSize: 18, fontWeight: 600, color: 'var(--text-primary)',
+                    background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
+                    outline: 'none', borderRadius: 6, padding: '2px 8px', minWidth: 200,
+                  };
+const _hs23 = { fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' };
+const _hs24 = { display: 'flex', gap: 8 };
+const _hs25 = { display: 'none' };
+const _hs26 = { fontSize: 13, fontWeight: 600, marginBottom: 8 };
+const _hs27 = { fontSize: 11, color: 'var(--state-danger)', fontWeight: 600 };
+const _hs28 = { display: 'flex', gap: 4, alignItems: 'center' };
+const _hs29 = { padding: '2px 4px', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 11 };
+const _hs30 = { fontSize: 11, color: 'var(--text-muted)' };
+const _hs31 = { display: 'flex', gap: 4, marginTop: 8, position: 'relative' };
+const _hs32 = { flex: 1, position: 'relative' };
+const _hs33 = { width: '100%', padding: '4px 8px', border: '1px solid var(--border-default)', borderRadius: 4, fontSize: 12, outline: 'none', boxSizing: 'border-box' };
+const _hs34 = { position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 20, maxHeight: 150, overflow: 'auto' };
+const _hs35 = { padding: '6px 10px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f8fafc', display: 'flex', justifyContent: 'space-between' };
+const _hs36 = { fontWeight: 500 };
+const _hs37 = { color: 'var(--text-disabled)' };
+const _hs38 = { padding: '4px 6px', border: '1px solid var(--border-default)', borderRadius: 4, fontSize: 11 };
+const _hs39 = { padding: '4px 8px', border: 'none', borderRadius: 4, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center' };
+const _hs40 = { fontSize: 16, fontWeight: 600, marginBottom: 6 };
+const _hs41 = { fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 };
+const _hs42 = { marginBottom: 12 };
+const _hs43 = { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 };
+const _hs44 = { padding: 8, marginBottom: 12, background: 'var(--state-danger-soft)', color: '#dc2626', borderRadius: 6, fontSize: 13 };
+const _hs45 = { display: 'flex', justifyContent: 'flex-end', gap: 8 };
+const _hs46 = { padding: 10, marginBottom: 16, background: 'var(--state-danger-soft)', color: '#dc2626', borderRadius: 6, fontSize: 13 };
+const _hs47 = { fontSize: 16, fontWeight: 600, marginBottom: 6 };
+const _hs48 = { marginBottom: 12 };
+const _hs49 = { display: 'flex', gap: 10 };
+const _hs50 = { fontWeight: 600, fontSize: 13 };
+const _hs51 = { fontSize: 11, color: 'var(--text-disabled)' };
+const _hs52 = { fontWeight: 600, fontSize: 13 };
+const _hs53 = { fontSize: 11, color: 'var(--text-disabled)' };
+const _hs54 = { fontWeight: 600, fontSize: 13 };
+const _hs55 = { fontSize: 11, color: 'var(--text-disabled)' };
+const _hs56 = { display: 'flex', justifyContent: 'flex-end', marginTop: 16 };
+const _hs57 = { marginBottom: 16 };
+const _hs58 = { display: 'flex', gap: 8, justifyContent: 'space-between' };
+const _hs59 = { display: 'none' };
+const _hs60 = { color: 'var(--accent-primary)', fontSize: 14 };
+const _hs61 = { fontSize: 14, color: 'var(--text-secondary)', marginTop: 8 };
+const _hs62 = { fontSize: 12, color: 'var(--text-disabled)', marginTop: 4 };
+const _hs63 = { color: 'var(--state-danger)', fontSize: 12, marginBottom: 8 };
+const _hs64 = { display: 'flex', justifyContent: 'flex-start' };
+const _hs65 = { textAlign: 'center', color: 'var(--text-disabled)', marginTop: 60 };
+const _hs66 = { textAlign: 'center', color: 'var(--text-disabled)', marginTop: 60 };
+const _hs67 = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 };
+const _hs68 = { cursor: 'pointer', padding: 20, flex: 1, minWidth: 0 };
+const _hs69 = {
+                        fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4,
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      };
+const _hs70 = { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4, minWidth: 0 };
+const _hs71 = {
+                            fontSize: 12, color: 'var(--accent-primary)',
+                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                            minWidth: 0, flex: '0 1 auto',
+                          };
+const _hs72 = {
+                              background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
+                              color: 'var(--accent-primary)', opacity: 0.55, transition: 'opacity 0.12s',
+                              display: 'inline-flex', alignItems: 'center', flexShrink: 0,
+                            };
+const _hs73 = { fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 };
+const _hs74 = { fontSize: 12, color: 'var(--text-disabled)' };
+const _hs75 = { fontSize: 12, color: 'var(--text-disabled)' };
+const _hs76 = { padding: '8px 20px 14px', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
+const _hs77 = { position: 'relative', marginLeft: 'auto' };
+const _hs78 = { padding: '0 20px 12px' };
+const _hs79 = { fontSize: 11, color: 'var(--accent-primary)', marginBottom: 5 };
+const _hs80 = {
+                          padding: '0 20px 12px', fontSize: 11,
+                          color: 'var(--text-disabled)',
+                          cursor: 'pointer', textDecoration: 'underline',
+                          textDecorationColor: 'var(--border-default)',
+                          textDecorationStyle: 'dotted',
+                        };
+const _hs81 = { fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 };
+const _hs82 = { padding: 20, textAlign: 'center', color: 'var(--text-disabled)' };
+const _hs83 = { padding: 12, color: 'var(--state-danger)', fontSize: 13 };
+const _hs84 = { padding: 20, textAlign: 'center', color: 'var(--text-disabled)', fontSize: 13 };
+const _hs85 = { maxHeight: 360, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 6 };
+const _hs86 = { flex: 1, minWidth: 0 };
+const _hs87 = { fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+const _hs88 = { fontSize: 11, color: 'var(--text-muted)' };
+const _hs89 = {
+        position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 1000,
+      };
+const _hs90 = {
+          background: 'var(--bg-panel)', borderRadius: 8, padding: 20,
+          width: 'min(900px, 92vw)', maxHeight: '85vh', overflow: 'auto',
+          boxShadow: '0 16px 48px rgba(0,0,0,0.2)',
+        };
+const _hs91 = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 };
+const _hs92 = { fontSize: 14, fontWeight: 600, margin: 0 };
+const _hs93 = { color: 'var(--text-secondary)' };
+const _hs94 = { display: 'flex', alignItems: 'center', gap: 10 };
+const _hs95 = { background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--text-muted)' };
+const _hs96 = { fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 };
+const _hs97 = { color: 'var(--text-muted)', fontSize: 13 };
+const _hs98 = { color: 'var(--state-danger)', fontSize: 13 };
+const _hs99 = { display: 'flex', gap: 24, marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)', flexWrap: 'wrap', alignItems: 'center' };
+const _hs100 = {
+                fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5,
+                padding: '3px 8px', borderRadius: 4,
+                background: 'var(--bg-accent-soft)', color: 'var(--text-accent)',
+              };
+const _hs101 = { width: '100%', borderCollapse: 'collapse', fontSize: 12 };
+const _hs102 = { borderBottom: '1px solid var(--border-default)', textAlign: 'left', color: 'var(--text-muted)' };
+const _hs103 = { borderBottom: '1px solid var(--border-subtle)' };
+const _hs104 = { color: 'var(--text-disabled)' };
+const _hs105 = { color: 'var(--text-muted)', fontSize: 13 };
+const _hs106 = { padding: 20, textAlign: 'center', color: 'var(--text-disabled)' };
+const _hs107 = { padding: 12, color: 'var(--state-danger)', fontSize: 13 };
+const _hs108 = { padding: 24, textAlign: 'center', color: 'var(--text-disabled)', fontSize: 13, border: '1px dashed var(--border-default)', borderRadius: 6 };
+const _hs109 = { maxHeight: 320, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 6 };
+const _hs110 = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--border-default)' };
+const _hs111 = { flex: 1, minWidth: 0 };
+const _hs112 = { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 };
+const _hs113 = { background: 'var(--bg-subtle)', padding: '1px 6px', borderRadius: 3, fontFamily: 'monospace' };
+const _hs114 = { fontSize: 10, color: 'var(--text-disabled)', textTransform: 'uppercase', fontWeight: 700, background: 'var(--bg-subtle)', padding: '1px 6px', borderRadius: 3 };
+const _hs115 = { fontSize: 11, color: 'var(--text-muted)', marginTop: 2 };
+const _hs116 = { fontSize: 11, color: 'var(--state-danger)', marginTop: 3 };
+const _hs117 = { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 };
+const _hs118 = { fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 8 };
+const _hs119 = { color: 'var(--state-danger)', fontSize: 12, marginBottom: 10 };
+const _hs120 = { color: 'var(--text-muted)' };
+const _hs121 = { fontWeight: 600 };
+const _hs122 = { padding: 20, textAlign: 'center', color: 'var(--text-disabled)' };
+const _hs123 = { padding: 12, color: 'var(--state-danger)', fontSize: 13 };
+const _hs124 = { padding: 24, textAlign: 'center', color: 'var(--text-disabled)', fontSize: 13, border: '1px dashed var(--border-default)', borderRadius: 6 };
+const _hs125 = { maxHeight: 320, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 6 };
+const _hs126 = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--border-default)' };
+const _hs127 = { flex: 1, minWidth: 0 };
+const _hs128 = { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 };
+const _hs129 = { fontSize: 10, color: 'var(--text-disabled)', textTransform: 'uppercase', fontWeight: 700, background: 'var(--bg-subtle)', padding: '1px 6px', borderRadius: 3 };
+const _hs130 = { fontSize: 11, color: 'var(--text-muted)', marginTop: 2 };
+const _hs131 = { background: 'var(--bg-subtle)', padding: '1px 5px', borderRadius: 3 };
+const _hs132 = { fontSize: 11, color: 'var(--state-danger)', marginTop: 3 };
+const _hs133 = { animation: 'spin 0.9s linear infinite' };
+const _hs134 = { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 };
+const _hs135 = { fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 8 };
+const _hs136 = { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 };
+const _hs137 = { background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '6px 10px', fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer', whiteSpace: 'nowrap' };
+const _hs138 = { fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 12 };
+const _hs139 = { fontSize: 11, color: 'var(--text-muted)', marginTop: -2, marginBottom: 12 };
+const _hs140 = { fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 };
+const _hs141 = { color: 'var(--state-danger)', fontSize: 12, marginBottom: 10 };
+const _hs142 = { marginBottom: 6 };
+const _hs143 = {
+          fontSize: 12, color: 'var(--text-muted)', padding: '10px 12px',
+          border: '1px dashed var(--border-default)', borderRadius: 6, marginBottom: 6,
+        };
+const _hs144 = {
+          border: '1px solid var(--border-default)', borderRadius: 6,
+          padding: 10, marginBottom: 6, background: 'var(--bg-subtle)',
+        };
+const _hs145 = { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 };
+const _hs146 = { background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '4px 8px', fontSize: 11, color: 'var(--state-danger)', cursor: 'pointer' };
+const _hs147 = { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 };
+const _hs148 = { fontSize: 12, color: 'var(--text-muted)' };
+const _hs149 = { background: 'transparent', border: '1px solid transparent', color: 'var(--text-disabled)', fontSize: 16, cursor: 'pointer', padding: '0 6px', borderRadius: 4 };
+const _hs150 = { background: 'transparent', border: '1px dashed var(--border-default)', borderRadius: 4, padding: '4px 10px', fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer', marginTop: 4 };
+
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const { mode: themeMode, resolved: themeResolved, setMode: setThemeMode, themes: availableThemes } = useTheme();
@@ -974,14 +1184,14 @@ export default function Dashboard() {
   const wsName = selectedWs ? workspaces.find((w) => w.id === selectedWs)?.name || 'Workspace' : 'My Reports';
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' }}>
+    <div style={_hs0}>
       {/* Header */}
       <header style={headerStyle}>
-        <h1 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: -0.5, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img src={logoSrc} alt="Open Report" style={{ height: 28 }} />
+        <h1 style={_hs1}>
+          <img src={logoSrc} alt="Open Report" style={_hs2} />
           {TopbarSwitcher && <TopbarSwitcher />}
         </h1>
-        <nav style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <nav style={_hs3}>
           {(canEditOrg || user?.role === 'admin') && (
             <div style={navPillGroup}>
               {canEditOrg && (
@@ -1018,7 +1228,7 @@ export default function Dashboard() {
               )}
             </div>
           )}
-          <div ref={userMenuRef} style={{ position: 'relative' }}>
+          <div ref={userMenuRef} style={_hs4}>
             <button
               onClick={() => setUserMenuOpen((v) => !v)}
               style={userPillStyle}
@@ -1032,14 +1242,14 @@ export default function Dashboard() {
             {userMenuOpen && (
               <div style={userMenuDropdown}>
                 <div style={userMenuSectionLabel}>Theme</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 8px 8px' }}>
+                <div style={_hs5}>
                   {/* "System" follows the OS preference */}
                   <button className="btn-hover" onClick={() => setThemeMode('system')} style={themeRowBtn(themeMode === 'system')}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <span style={_hs6}>
                       <TbDeviceLaptop size={14} />
                       <span>System</span>
                     </span>
-                    {themeMode === 'system' && <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>auto</span>}
+                    {themeMode === 'system' && <span style={_hs7}>auto</span>}
                   </button>
                   {/* All themes from the JSON definition */}
                   {Object.entries(availableThemes).map(([key, theme]) => {
@@ -1047,7 +1257,7 @@ export default function Dashboard() {
                     const Icon = theme.kind === 'dark' ? TbMoon : TbSun;
                     return (
                       <button key={key} className="btn-hover" onClick={() => setThemeMode(key)} style={themeRowBtn(active)}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                        <span style={_hs8}>
                           <span style={{
                             width: 14, height: 14, borderRadius: 3,
                             background: theme.vars?.['--bg-app'] || '#fff',
@@ -1056,7 +1266,7 @@ export default function Dashboard() {
                           }} />
                           <span>{theme.label || key}</span>
                         </span>
-                        {active && <Icon size={12} style={{ color: 'var(--accent-primary)' }} />}
+                        {active && <Icon size={12} style={_hs9} />}
                       </button>
                     );
                   })}
@@ -1083,10 +1293,10 @@ export default function Dashboard() {
         </nav>
       </header>
 
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+      <div style={_hs10}>
         {/* Sidebar — Workspaces */}
         <div style={sidebarStyle}>
-          <div style={{ padding: '12px 16px', fontWeight: 600, fontSize: 11, color: 'var(--text-disabled)', textTransform: 'uppercase' }}>Workspaces</div>
+          <div style={_hs11}>Workspaces</div>
 
           <button onClick={() => setSelectedWs(null)}
             style={{ ...wsItemStyle, fontWeight: !selectedWs ? 700 : 400, background: !selectedWs ? 'var(--bg-active)' : 'transparent', color: !selectedWs ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>
@@ -1097,26 +1307,19 @@ export default function Dashboard() {
             <button key={ws.id} onClick={() => setSelectedWs(ws.id)}
               style={{ ...wsItemStyle, fontWeight: selectedWs === ws.id ? 700 : 400, background: selectedWs === ws.id ? 'var(--bg-active)' : 'transparent', color: selectedWs === ws.id ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>
               <TbFolder size={16} />
-              <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ws.name}</span>
-              <span style={{ fontSize: 10, color: 'var(--text-disabled)' }}>{ws.report_count}</span>
+              <span style={_hs12}>{ws.name}</span>
+              <span style={_hs13}>{ws.report_count}</span>
             </button>
           ))}
 
           {canEditOrg && (
-            <div style={{ padding: '8px 12px' }}>
+            <div style={_hs14}>
               {showCreateWs ? (
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 2,
-                  padding: 3, background: 'var(--bg-subtle)',
-                  border: '1px solid var(--border-default)', borderRadius: 8,
-                }}>
+                <div style={_hs15}>
                   <input
                     placeholder="Workspace name" value={newWsName}
                     onChange={(e) => setNewWsName(e.target.value)}
-                    style={{
-                      flex: 1, padding: '4px 8px', border: 'none', background: 'transparent',
-                      fontSize: 12, outline: 'none', color: 'var(--text-primary)', minWidth: 0,
-                    }}
+                    style={_hs16}
                     onKeyDown={(e) => e.key === 'Enter' && createWorkspace()} autoFocus
                   />
                   <button onClick={createWorkspace}
@@ -1133,13 +1336,7 @@ export default function Dashboard() {
                     }}>+</button>
                   <button onClick={() => { setShowCreateWs(false); setNewWsName(''); }}
                     title="Cancel"
-                    style={{
-                      width: 22, height: 22, padding: 0, border: 'none',
-                      borderRadius: 5, cursor: 'pointer',
-                      background: 'transparent', color: 'var(--text-muted)',
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      transition: 'background 0.12s, color 0.12s',
-                    }}
+                    style={_hs17}
                     onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; }}
                   >
@@ -1148,13 +1345,7 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <button onClick={() => setShowCreateWs(true)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                    padding: '8px 12px', border: '1px dashed var(--border-default)',
-                    borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 500,
-                    background: 'transparent', color: 'var(--text-muted)',
-                    textAlign: 'left', transition: 'border-color 0.12s, color 0.12s, background 0.12s',
-                  }}
+                  style={_hs18}
                   onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent-primary)'; e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.background = 'var(--bg-subtle)'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
                 >
@@ -1166,9 +1357,9 @@ export default function Dashboard() {
         </div>
 
         {/* Main content */}
-        <main style={{ flex: 1, overflow: 'auto', padding: '24px 32px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <main style={_hs19}>
+          <div style={_hs20}>
+            <div style={_hs21}>
               {editingWsName && selectedWs && wsUserRole === 'admin' ? (
                 <input
                   autoFocus
@@ -1179,14 +1370,10 @@ export default function Dashboard() {
                     if (e.key === 'Enter') saveWorkspaceName();
                     else if (e.key === 'Escape') setEditingWsName(false);
                   }}
-                  style={{
-                    fontSize: 18, fontWeight: 600, color: 'var(--text-primary)',
-                    background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
-                    outline: 'none', borderRadius: 6, padding: '2px 8px', minWidth: 200,
-                  }}
+                  style={_hs22}
                 />
               ) : (
-                <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{wsName}</h2>
+                <h2 style={_hs23}>{wsName}</h2>
               )}
               {selectedWs && (
                 <>
@@ -1214,12 +1401,12 @@ export default function Dashboard() {
               )}
             </div>
             {canEdit && (
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={_hs24}>
                 <input
                   ref={importFileRef}
                   type="file"
                   accept=".json,application/json"
-                  style={{ display: 'none' }}
+                  style={_hs25}
                   onChange={handleImportFile}
                 />
                 <button
@@ -1238,21 +1425,21 @@ export default function Dashboard() {
           {/* Members panel */}
           {showMembers && selectedWs && !wsIsPersonalOrg && wsCanSeeMembers && (
             <div style={membersPanel}>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Members</div>
+              <div style={_hs26}>Members</div>
               {wsOwner && (
                 <div style={memberRow}>
                   <span>{wsOwner.display_name || wsOwner.email}</span>
-                  <span style={{ fontSize: 11, color: 'var(--state-danger)', fontWeight: 600 }}>Owner</span>
+                  <span style={_hs27}>Owner</span>
                 </div>
               )}
               {wsMembers.map((m) => (
                 <div key={m.id} style={memberRow}>
                   <span>{m.display_name || m.email}</span>
-                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                  <div style={_hs28}>
                     {wsUserRole === 'admin' ? (
                       <>
                         <select value={m.role} onChange={(e) => updateMemberRole(m.id, e.target.value)}
-                          style={{ padding: '2px 4px', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 11 }}>
+                          style={_hs29}>
                           <option value="admin">Admin</option>
                           <option value="editor">Editor</option>
                           <option value="viewer">Viewer</option>
@@ -1260,40 +1447,40 @@ export default function Dashboard() {
                         <button className="btn-hover btn-hover-danger" onClick={() => removeMember(m.id)} style={{ ...iconBtn, padding: '2px 4px' }}><TbX size={12} /></button>
                       </>
                     ) : (
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{m.role}</span>
+                      <span style={_hs30}>{m.role}</span>
                     )}
                   </div>
                 </div>
               ))}
               {wsUserRole === 'admin' && (
-                <div style={{ display: 'flex', gap: 4, marginTop: 8, position: 'relative' }}>
-                  <div style={{ flex: 1, position: 'relative' }}>
+                <div style={_hs31}>
+                  <div style={_hs32}>
                     <input placeholder="Search user..." value={newMemberEmail}
                       onChange={(e) => searchUsers(e.target.value)}
                       onFocus={() => userSuggestions.length > 0 && setShowSuggestions(true)}
                       onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                      style={{ width: '100%', padding: '4px 8px', border: '1px solid var(--border-default)', borderRadius: 4, fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
+                      style={_hs33} />
                     {showSuggestions && userSuggestions.length > 0 && (
-                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 20, maxHeight: 150, overflow: 'auto' }}>
+                      <div style={_hs34}>
                         {userSuggestions.map((u) => (
                           <div key={u.id} onClick={() => selectSuggestion(u)}
-                            style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f8fafc', display: 'flex', justifyContent: 'space-between' }}
+                            style={_hs35}
                             onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-active)'}
                             onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
-                            <span style={{ fontWeight: 500 }}>{u.display_name || u.email.split('@')[0]}</span>
-                            <span style={{ color: 'var(--text-disabled)' }}>{u.email}</span>
+                            <span style={_hs36}>{u.display_name || u.email.split('@')[0]}</span>
+                            <span style={_hs37}>{u.email}</span>
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
                   <select value={newMemberRole} onChange={(e) => setNewMemberRole(e.target.value)}
-                    style={{ padding: '4px 6px', border: '1px solid var(--border-default)', borderRadius: 4, fontSize: 11 }}>
+                    style={_hs38}>
                     <option value="viewer">Viewer</option>
                     <option value="editor">Editor</option>
                     <option value="admin">Admin</option>
                   </select>
-                  <button className="btn-hover btn-hover-primary" onClick={addMember} style={{ padding: '4px 8px', border: 'none', borderRadius: 4, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center' }}>
+                  <button className="btn-hover btn-hover-primary" onClick={addMember} style={_hs39}>
                     <TbUserPlus size={14} />
                   </button>
                 </div>
@@ -1305,14 +1492,14 @@ export default function Dashboard() {
           {importBundle && (
             <div style={modalOverlay} onClick={cancelImport}>
               <div style={{ ...actionModalCard, width: 460 }} onClick={(e) => e.stopPropagation()}>
-                <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Import report</h3>
-                <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+                <h3 style={_hs40}>Import report</h3>
+                <p style={_hs41}>
                   Source: <strong>{importBundle.report?.title || 'Untitled'}</strong>
                   {importBundle.report?.model_name && (
                     <> &middot; originally bound to model <code>{importBundle.report.model_name}</code></>
                   )}
                 </p>
-                <div style={{ marginBottom: 12 }}>
+                <div style={_hs42}>
                   <label style={labelStyle}>Bind to data model</label>
                   <select
                     value={importModelId}
@@ -1322,16 +1509,16 @@ export default function Dashboard() {
                     <option value="">— pick one —</option>
                     {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                   </select>
-                  <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                  <p style={_hs43}>
                     Widgets will be re-queried against the model you pick. Field references in the bundle must match this model's dimensions and measures.
                   </p>
                 </div>
                 {importError && (
-                  <div style={{ padding: 8, marginBottom: 12, background: 'var(--state-danger-soft)', color: '#dc2626', borderRadius: 6, fontSize: 13 }}>
+                  <div style={_hs44}>
                     {importError}
                   </div>
                 )}
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <div style={_hs45}>
                   <button className="btn-hover" onClick={cancelImport} style={{ ...primaryBtn, background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border-default)' }}>Cancel</button>
                   <button className="btn-hover btn-hover-primary" onClick={submitImport} disabled={!importModelId || importing} style={primaryBtn}>
                     {importing ? 'Importing…' : 'Import'}
@@ -1343,7 +1530,7 @@ export default function Dashboard() {
 
           {/* Top-level import error (when file failed to parse before opening the modal) */}
           {importError && !importBundle && (
-            <div style={{ padding: 10, marginBottom: 16, background: 'var(--state-danger-soft)', color: '#dc2626', borderRadius: 6, fontSize: 13 }}>
+            <div style={_hs46}>
               {importError}
             </div>
           )}
@@ -1352,12 +1539,12 @@ export default function Dashboard() {
           {showCreate && (
             <div style={modalOverlay}>
               <div style={{ ...actionModalCard, width: 480 }}>
-                <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>New Report{selectedWs ? ` in ${wsName}` : ''}</h3>
+                <h3 style={_hs47}>New Report{selectedWs ? ` in ${wsName}` : ''}</h3>
 
                 {/* Title — always visible. Persisted through the database-connection
                     round trip via URL param so the user gets it back when they
                     return from the model editor. */}
-                <div style={{ marginBottom: 12 }}>
+                <div style={_hs48}>
                   <label style={labelStyle}>Title</label>
                   <input style={inputStyle} value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Report title" />
                 </div>
@@ -1366,26 +1553,26 @@ export default function Dashboard() {
                 {!createMode && (
                   <div>
                     <label style={{ ...labelStyle, marginBottom: 10 }}>Data source</label>
-                    <div style={{ display: 'flex', gap: 10 }}>
+                    <div style={_hs49}>
                       {models.length > 0 && (
                         <button className="btn-hover" onClick={() => setCreateMode('model')} style={sourceCard}>
                           <TbLayoutDashboard size={28} color="var(--accent-primary)" />
-                          <span style={{ fontWeight: 600, fontSize: 13 }}>Existing Model</span>
-                          <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>Use a data model already configured</span>
+                          <span style={_hs50}>Existing Model</span>
+                          <span style={_hs51}>Use a data model already configured</span>
                         </button>
                       )}
                       <button className="btn-hover" onClick={() => setCreateMode('file')} style={sourceCard}>
                         <TbUpload size={28} color="#16a34a" />
-                        <span style={{ fontWeight: 600, fontSize: 13 }}>Import File</span>
-                        <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>CSV, Excel, Parquet, JSON</span>
+                        <span style={_hs52}>Import File</span>
+                        <span style={_hs53}>CSV, Excel, Parquet, JSON</span>
                       </button>
                       <button className="btn-hover" onClick={() => setCreateMode('connection')} style={sourceCard}>
                         <TbDatabase size={28} color="#f59e0b" />
-                        <span style={{ fontWeight: 600, fontSize: 13 }}>Database</span>
-                        <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>Connect to a database</span>
+                        <span style={_hs54}>Database</span>
+                        <span style={_hs55}>Connect to a database</span>
                       </button>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                    <div style={_hs56}>
                       <button className="btn-hover" onClick={() => { setShowCreate(false); setCreateMode(null); }} style={secondaryBtn}>Cancel</button>
                     </div>
                   </div>
@@ -1394,14 +1581,14 @@ export default function Dashboard() {
                 {/* Step 2a: Choose existing model */}
                 {createMode === 'model' && (
                   <div>
-                    <div style={{ marginBottom: 16 }}>
+                    <div style={_hs57}>
                       <label style={labelStyle}>Model</label>
                       <select style={inputStyle} value={newModelId} onChange={(e) => setNewModelId(e.target.value)}>
                         <option value="">Select a model...</option>
                         {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                       </select>
                     </div>
-                    <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
+                    <div style={_hs58}>
                       <button className="btn-hover" onClick={() => setCreateMode(null)} style={secondaryBtn}>← Back</button>
                       <button className="btn-hover btn-hover-primary" onClick={handleCreate} disabled={!newModelId} style={{ ...primaryBtn, opacity: newModelId ? 1 : 0.5 }}>Create Report</button>
                     </div>
@@ -1411,7 +1598,7 @@ export default function Dashboard() {
                 {/* Step 2b: Upload file */}
                 {createMode === 'file' && (
                   <div>
-                    <input ref={createFileRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv" style={{ display: 'none' }}
+                    <input ref={createFileRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv" style={_hs59}
                       onChange={handleFileForReport} />
                     <div
                       onClick={() => !uploadingFile && createFileRef.current?.click()}
@@ -1424,17 +1611,17 @@ export default function Dashboard() {
                       onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border-strong)'}
                     >
                       {uploadingFile ? (
-                        <div style={{ color: 'var(--accent-primary)', fontSize: 14 }}>Importing data...</div>
+                        <div style={_hs60}>Importing data...</div>
                       ) : (
                         <>
                           <TbUpload size={32} color="var(--text-disabled)" />
-                          <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 8 }}>Click to select a file</div>
-                          <div style={{ fontSize: 12, color: 'var(--text-disabled)', marginTop: 4 }}>CSV, Excel, Parquet, JSON (max 500 Mo)</div>
+                          <div style={_hs61}>Click to select a file</div>
+                          <div style={_hs62}>CSV, Excel, Parquet, JSON (max 500 Mo)</div>
                         </>
                       )}
                     </div>
-                    {uploadError && <div style={{ color: 'var(--state-danger)', fontSize: 12, marginBottom: 8 }}>{uploadError}</div>}
-                    <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                    {uploadError && <div style={_hs63}>{uploadError}</div>}
+                    <div style={_hs64}>
                       <button className="btn-hover" onClick={() => { setCreateMode(null); setUploadError(''); }} style={secondaryBtn}>← Back</button>
                     </div>
                   </div>
@@ -1459,13 +1646,13 @@ export default function Dashboard() {
 
           {/* Reports grid */}
           {loading ? (
-            <div style={{ textAlign: 'center', color: 'var(--text-disabled)', marginTop: 60 }}>Loading...</div>
+            <div style={_hs65}>Loading...</div>
           ) : wsReports.length === 0 ? (
-            <div style={{ textAlign: 'center', color: 'var(--text-disabled)', marginTop: 60 }}>
+            <div style={_hs66}>
               No reports{selectedWs ? ' in this workspace' : ''}.
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+            <div style={_hs67}>
               {wsReports.map((report) => (
                 <div key={report.id} style={report.is_public ? { ...cardStyle, ...publicCardAccent } : cardStyle}>
                   {canEdit && (
@@ -1486,13 +1673,10 @@ export default function Dashboard() {
                     </button>
                   )}
                   <div onClick={() => window.open(`/view/${report.id}`, '_blank')}
-                    style={{ cursor: 'pointer', padding: 20, flex: 1, minWidth: 0 }}>
+                    style={_hs68}>
                     <h3
                       title={report.title}
-                      style={{
-                        fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4,
-                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                      }}
+                      style={_hs69}
                     >{report.title}</h3>
                     {report.model_name && (
                       // Flex row so the long model name still truncates with
@@ -1501,24 +1685,16 @@ export default function Dashboard() {
                       // edit rights AND the report carries a model_id (the
                       // workspaces list endpoint includes it — see
                       // server/routes/workspaces.js).
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4, minWidth: 0 }}>
+                      <div style={_hs70}>
                         <span
-                          style={{
-                            fontSize: 12, color: 'var(--accent-primary)',
-                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                            minWidth: 0, flex: '0 1 auto',
-                          }}
+                          style={_hs71}
                           title={report.model_name}
                         >{report.model_name}</span>
                         {canEdit && report.model_id && (
                           <button
                             onClick={(e) => { e.stopPropagation(); navigate(`/models/${report.model_id}`); }}
                             title="Edit model"
-                            style={{
-                              background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
-                              color: 'var(--accent-primary)', opacity: 0.55, transition: 'opacity 0.12s',
-                              display: 'inline-flex', alignItems: 'center', flexShrink: 0,
-                            }}
+                            style={_hs72}
                             onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
                             onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.55'; }}
                           >
@@ -1528,16 +1704,16 @@ export default function Dashboard() {
                       </div>
                     )}
                     {typeof report.fileSize === 'number' && (
-                      <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
+                      <p style={_hs73}>
                         {formatFileSize(report.fileSize)}
                       </p>
                     )}
-                    <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Last edit {new Date(report.updated_at).toLocaleString()}</p>
+                    <p style={_hs74}>Last edit {new Date(report.updated_at).toLocaleString()}</p>
                     {cardCacheStats[report.id]?.builtAt && (
-                      <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Last refresh {new Date(cardCacheStats[report.id].builtAt).toLocaleString()}</p>
+                      <p style={_hs75}>Last refresh {new Date(cardCacheStats[report.id].builtAt).toLocaleString()}</p>
                     )}
                   </div>
-                  <div style={{ padding: '8px 20px 14px', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={_hs76}>
                     <button onClick={() => window.open(`/view/${report.id}`, '_blank')} title="View" {...cardActionBtn('accent')}><TbEye size={16} /></button>
                     {canEdit && <button onClick={() => navigate(`/edit/${report.id}`)} title="Edit" {...cardActionBtn()}><TbEdit size={16} /></button>}
                     {canEdit && (() => {
@@ -1556,7 +1732,7 @@ export default function Dashboard() {
                       );
                     })()}
                     {canEdit && (
-                      <div style={{ position: 'relative', marginLeft: 'auto' }}
+                      <div style={_hs77}
                         ref={cardMenu === report.id ? cardMenuRef : null}>
                         <button
                           onClick={(e) => { e.stopPropagation(); setCardMenu(cardMenu === report.id ? null : report.id); }}
@@ -1676,9 +1852,9 @@ export default function Dashboard() {
                     if (warming) {
                       const pct = Math.max(0, Math.min(100, cardWarmingDisplayPct[report.id] ?? 0));
                       return (
-                        <div style={{ padding: '0 20px 12px' }}>
+                        <div style={_hs78}>
                           <div
-                            style={{ fontSize: 11, color: 'var(--accent-primary)', marginBottom: 5 }}
+                            style={_hs79}
                           >
                             Refreshing data…
                           </div>
@@ -1698,13 +1874,7 @@ export default function Dashboard() {
                     return (
                       <div
                         onClick={(e) => { e.stopPropagation(); openCacheInspect(report.id, report.title, report.workspace_id); }}
-                        style={{
-                          padding: '0 20px 12px', fontSize: 11,
-                          color: 'var(--text-disabled)',
-                          cursor: 'pointer', textDecoration: 'underline',
-                          textDecorationColor: 'var(--border-default)',
-                          textDecorationStyle: 'dotted',
-                        }}
+                        style={_hs80}
                         title="Click to see the rollup storage breakdown"
                       >
                         {cardCacheStats[report.id].rollupCount > 0
@@ -1766,26 +1936,26 @@ export default function Dashboard() {
         <div style={actionModalBackdrop} onClick={() => setHistoryModal(null)}>
           <div style={{ ...actionModalCard, minWidth: 460, maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
             <div style={actionModalTitle}>History — {historyModal.report.title}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+            <div style={_hs81}>
               The 20 most recent saves. Restoring a version saves the current state as a new entry first.
             </div>
             {historyModal.loading ? (
-              <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-disabled)' }}>Loading...</div>
+              <div style={_hs82}>Loading...</div>
             ) : historyModal.error ? (
-              <div style={{ padding: 12, color: 'var(--state-danger)', fontSize: 13 }}>{historyModal.error}</div>
+              <div style={_hs83}>{historyModal.error}</div>
             ) : historyModal.versions.length === 0 ? (
-              <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-disabled)', fontSize: 13 }}>
+              <div style={_hs84}>
                 No previous versions yet.
               </div>
             ) : (
-              <div style={{ maxHeight: 360, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 6 }}>
+              <div style={_hs85}>
                 {historyModal.versions.map((v) => (
                   <div key={v.id} style={historyRow}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div style={_hs86}>
+                      <div style={_hs87}>
                         {v.title}
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      <div style={_hs88}>
                         {new Date(v.saved_at).toLocaleString()} · {v.saved_by_name || v.saved_by_email || 'unknown'}
                       </div>
                     </div>
@@ -1901,25 +2071,17 @@ function CacheInspectorModal({ reportId, reportTitle, workspaceId, canManage, da
   return (
     <div
       onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 1000,
-      }}
+      style={_hs89}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{
-          background: 'var(--bg-panel)', borderRadius: 8, padding: 20,
-          width: 'min(900px, 92vw)', maxHeight: '85vh', overflow: 'auto',
-          boxShadow: '0 16px 48px rgba(0,0,0,0.2)',
-        }}
+        style={_hs90}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>
-            Cache breakdown — <span style={{ color: 'var(--text-secondary)' }}>{reportTitle || reportId.slice(0, 8)}</span>
+        <div style={_hs91}>
+          <h3 style={_hs92}>
+            Cache breakdown — <span style={_hs93}>{reportTitle || reportId.slice(0, 8)}</span>
           </h3>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={_hs94}>
             {canManage && workspaceId && (
               <button
                 onClick={handleClearWorkspace}
@@ -1935,24 +2097,20 @@ function CacheInspectorModal({ reportId, reportTitle, workspaceId, canManage, da
                 {clearing ? 'Clearing…' : 'Clear workspace cache'}
               </button>
             )}
-            <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--text-muted)' }}>×</button>
+            <button onClick={onClose} style={_hs95}>×</button>
           </div>
         </div>
         {clearMsg && (
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>{clearMsg}</div>
+          <div style={_hs96}>{clearMsg}</div>
         )}
 
-        {loading && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>}
-        {error && <div style={{ color: 'var(--state-danger)', fontSize: 13 }}>{error}</div>}
+        {loading && <div style={_hs97}>Loading…</div>}
+        {error && <div style={_hs98}>{error}</div>}
 
         {data && (
           <>
-            <div style={{ display: 'flex', gap: 24, marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)', flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{
-                fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5,
-                padding: '3px 8px', borderRadius: 4,
-                background: 'var(--bg-accent-soft)', color: 'var(--text-accent)',
-              }}>
+            <div style={_hs99}>
+              <span style={_hs100}>
                 {data.storageMode === 'source' ? 'Source DB' : 'Local disk (DuckDB)'}
               </span>
               <div>
@@ -1963,9 +2121,9 @@ function CacheInspectorModal({ reportId, reportTitle, workspaceId, canManage, da
             </div>
 
             {data.rollups?.length > 0 ? (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <table style={_hs101}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-default)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                  <tr style={_hs102}>
                     <th style={cellStyle} title="The dimensions this rollup is grouped by (display + drill + cross-filter + widget-own filter dims).">Dimensions (grain)</th>
                     <th style={{ ...cellStyle, textAlign: 'right' }}>#&nbsp;dims</th>
                     <th style={cellStyle} title="Measures recomposable from this rollup's stored additive components.">Measures</th>
@@ -1991,13 +2149,13 @@ function CacheInspectorModal({ reportId, reportTitle, workspaceId, canManage, da
                       : bf.map((f) => `${shortName(f.field)} (${(f.values || []).length})`).join(', ');
                     const built = r.builtAt ? new Date(r.builtAt).toLocaleString() : '—';
                     return (
-                      <tr key={r.grainHash} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                      <tr key={r.grainHash} style={_hs103}>
                         <td style={{ ...cellStyle, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }} title={dimsFull}>
                           {dimsShort}
                         </td>
                         <td style={{ ...cellStyle, textAlign: 'right' }}>{r.grainCount}</td>
                         <td style={{ ...cellStyle, maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={measFull}>
-                          {(r.measures || []).length} <span style={{ color: 'var(--text-disabled)' }}>({measShort || '—'})</span>
+                          {(r.measures || []).length} <span style={_hs104}>({measShort || '—'})</span>
                         </td>
                         <td style={{ ...cellStyle, maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: bf.length ? 'inherit' : 'var(--text-disabled)' }}
                             title={bf.length ? bf.map((f) => `${f.field} ${f.op} [${(f.values || []).join(', ')}]`).join('\n') : 'No global filter baked'}>
@@ -2012,7 +2170,7 @@ function CacheInspectorModal({ reportId, reportTitle, workspaceId, canManage, da
                 </tbody>
               </table>
             ) : (
-              <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+              <div style={_hs105}>
                 No cache built yet for this report's model — click Refresh to build it.
               </div>
             )}
@@ -2089,31 +2247,31 @@ function CacheScheduleModal({ modal, runningIds, onClose, onCreate, onToggle, on
         {!editing && (
           <>
             {loading ? (
-              <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-disabled)' }}>Loading...</div>
+              <div style={_hs106}>Loading...</div>
             ) : error ? (
-              <div style={{ padding: 12, color: 'var(--state-danger)', fontSize: 13 }}>{error}</div>
+              <div style={_hs107}>{error}</div>
             ) : schedules.length === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-disabled)', fontSize: 13, border: '1px dashed var(--border-default)', borderRadius: 6 }}>
+              <div style={_hs108}>
                 No schedules yet for this report.
               </div>
             ) : (
-              <div style={{ maxHeight: 320, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 6 }}>
+              <div style={_hs109}>
                 {schedules.map((s) => {
                   const isRunning = runningIds.has(s.id);
                   const human = formatCronHuman(s.cron_expression);
                   const isHuman = human !== s.cron_expression;
                   return (
-                    <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--border-default)' }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div key={s.id} style={_hs110}>
+                      <div style={_hs111}>
+                        <div style={_hs112}>
                           {isHuman
                             ? <span>{human}</span>
-                            : <code style={{ background: 'var(--bg-subtle)', padding: '1px 6px', borderRadius: 3, fontFamily: 'monospace' }}>{s.cron_expression}</code>}
+                            : <code style={_hs113}>{s.cron_expression}</code>}
                           {!s.enabled && (
-                            <span style={{ fontSize: 10, color: 'var(--text-disabled)', textTransform: 'uppercase', fontWeight: 700, background: 'var(--bg-subtle)', padding: '1px 6px', borderRadius: 3 }}>paused</span>
+                            <span style={_hs114}>paused</span>
                           )}
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                        <div style={_hs115}>
                           {s.timezone}
                           {s.last_run_at && (
                             <span style={{ color: s.last_run_status === 'error' ? 'var(--state-danger)' : 'var(--text-muted)' }}>
@@ -2122,7 +2280,7 @@ function CacheScheduleModal({ modal, runningIds, onClose, onCreate, onToggle, on
                           )}
                         </div>
                         {s.last_run_status === 'error' && s.last_error && (
-                          <div style={{ fontSize: 11, color: 'var(--state-danger)', marginTop: 3 }}>
+                          <div style={_hs116}>
                             {s.last_error}
                           </div>
                         )}
@@ -2200,7 +2358,7 @@ function CacheScheduleEditor({ onCancel, onSubmit }) {
   };
   return (
     <div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>
+      <div style={_hs117}>
         New schedule
       </div>
 
@@ -2211,7 +2369,7 @@ function CacheScheduleEditor({ onCancel, onSubmit }) {
         onChange={(e) => setTime(e.target.value)}
         style={{ ...actionModalInput, fontFamily: 'monospace', fontSize: 13 }}
       />
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 8 }}>
+      <div style={_hs118}>
         For multiple runs in a day, create one schedule per time slot.
       </div>
 
@@ -2222,7 +2380,7 @@ function CacheScheduleEditor({ onCancel, onSubmit }) {
         {TIMEZONE_OPTIONS.map((tzn) => <option key={tzn} value={tzn} />)}
       </datalist>
 
-      {err && <div style={{ color: 'var(--state-danger)', fontSize: 12, marginBottom: 10 }}>{err}</div>}
+      {err && <div style={_hs119}>{err}</div>}
 
       <div style={{ ...actionModalActions, justifyContent: 'space-between' }}>
         <button className="btn-hover" style={actionModalBtnSecondary} onClick={onCancel} disabled={submitting}>Cancel</button>
@@ -2257,40 +2415,40 @@ function ScheduleModal({ modal, runningIds, onClose, onStartCreate, onStartEdit,
                 ? ` — ${limits.currentSchedules ?? schedules.length}/${limits.maxSchedules} schedule${limits.maxSchedules === 1 ? '' : 's'} used`
                 : ' — unlimited schedules'}
               {limits.maxFiresPerDay != null && (
-                <span style={{ color: 'var(--text-muted)' }}>{` · max ${limits.maxFiresPerDay} send${limits.maxFiresPerDay === 1 ? '' : 's'}/day per schedule`}</span>
+                <span style={_hs120}>{` · max ${limits.maxFiresPerDay} send${limits.maxFiresPerDay === 1 ? '' : 's'}/day per schedule`}</span>
               )}
             </span>
-            {atQuota && <span style={{ fontWeight: 600 }}>Quota reached</span>}
+            {atQuota && <span style={_hs121}>Quota reached</span>}
           </div>
         )}
 
         {!isEditing && (
           <>
             {loading ? (
-              <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-disabled)' }}>Loading...</div>
+              <div style={_hs122}>Loading...</div>
             ) : error ? (
-              <div style={{ padding: 12, color: 'var(--state-danger)', fontSize: 13 }}>{error}</div>
+              <div style={_hs123}>{error}</div>
             ) : schedules.length === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-disabled)', fontSize: 13, border: '1px dashed var(--border-default)', borderRadius: 6 }}>
+              <div style={_hs124}>
                 No schedules yet for this report.
               </div>
             ) : (
-              <div style={{ maxHeight: 320, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 6 }}>
+              <div style={_hs125}>
                 {schedules.map((s) => (
-                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--border-default)' }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div key={s.id} style={_hs126}>
+                    <div style={_hs127}>
+                      <div style={_hs128}>
                         {s.name}
                         {!s.enabled && (
-                          <span style={{ fontSize: 10, color: 'var(--text-disabled)', textTransform: 'uppercase', fontWeight: 700, background: 'var(--bg-subtle)', padding: '1px 6px', borderRadius: 3 }}>paused</span>
+                          <span style={_hs129}>paused</span>
                         )}
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                      <div style={_hs130}>
                         {(() => {
                           const human = formatCronHuman(s.cron_expression);
                           return human !== s.cron_expression
                             ? <span>{human}</span>
-                            : <code style={{ background: 'var(--bg-subtle)', padding: '1px 5px', borderRadius: 3 }}>{s.cron_expression}</code>;
+                            : <code style={_hs131}>{s.cron_expression}</code>;
                         })()}
                         {' · '}
                         {s.recipients.length} recipient{s.recipients.length === 1 ? '' : 's'}
@@ -2301,7 +2459,7 @@ function ScheduleModal({ modal, runningIds, onClose, onStartCreate, onStartEdit,
                         )}
                       </div>
                       {s.last_run_status === 'error' && s.last_error && (
-                        <div style={{ fontSize: 11, color: 'var(--state-danger)', marginTop: 3 }}>
+                        <div style={_hs132}>
                           {s.last_error}
                         </div>
                       )}
@@ -2318,7 +2476,7 @@ function ScheduleModal({ modal, runningIds, onClose, onStartCreate, onStartEdit,
                           style={{ ...sendBtn.style, cursor: isRunning ? 'wait' : 'pointer', opacity: isRunning ? 0.7 : 1 }}
                         >
                           {isRunning
-                            ? <TbLoader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} />
+                            ? <TbLoader2 size={14} style={_hs133} />
                             : <TbPlayerPlay size={14} />}
                         </button>
                       );
@@ -2409,7 +2567,7 @@ function ScheduleEditor({ initial, dimensions, onCancel, onSubmit }) {
 
   return (
     <div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>
+      <div style={_hs134}>
         {isEdit ? 'Edit schedule' : 'New schedule'}
       </div>
 
@@ -2423,12 +2581,12 @@ function ScheduleEditor({ initial, dimensions, onCancel, onSubmit }) {
         onChange={(e) => setTime(e.target.value)}
         style={{ ...actionModalInput, fontFamily: 'monospace', fontSize: 13 }}
       />
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 8 }}>
+      <div style={_hs135}>
         For multiple sends in a day, create one schedule per time slot.
       </div>
 
       <label style={scheduleFieldLabel}>Timezone</label>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      <div style={_hs136}>
         <input
           list="schedule-timezones"
           value={form.timezone}
@@ -2440,7 +2598,7 @@ function ScheduleEditor({ initial, dimensions, onCancel, onSubmit }) {
           type="button"
           className="btn-hover"
           onClick={() => set('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}
-          style={{ background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '6px 10px', fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+          style={_hs137}
           title="Use my browser's timezone"
         >
           Use browser TZ
@@ -2480,7 +2638,7 @@ function ScheduleEditor({ initial, dimensions, onCancel, onSubmit }) {
         onChange={(e) => set('refreshTimeoutSeconds', e.target.value)}
         style={actionModalInput}
       />
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -10, marginBottom: 12 }}>
+      <div style={_hs138}>
         Maximum time the renderer waits for the report to refresh before generating the PDF. Bump this if you have slow queries (default 60s, range 30–600s). The renderer also forces an explicit refresh on top of the initial load.
       </div>
 
@@ -2490,7 +2648,7 @@ function ScheduleEditor({ initial, dimensions, onCancel, onSubmit }) {
         dimensions={dimensions || []}
         onChange={(next) => set('recipientRules', next)}
       />
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -2, marginBottom: 12 }}>
+      <div style={_hs139}>
         Optional. Each rule maps an email pattern (e.g. <code>*@paris.fr</code>) to filter overrides applied to the rendered PDF. Rules are evaluated in order; the first match wins. Recipients matching no rule receive the unfiltered report.
       </div>
 
@@ -2502,7 +2660,7 @@ function ScheduleEditor({ initial, dimensions, onCancel, onSubmit }) {
         />
         <span>Apply per-user data permissions (RLS)</span>
       </label>
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
+      <div style={_hs140}>
         When enabled, each recipient who is a member of this organization receives a PDF rendered under their own permissions. Recipients without an account fall back to the schedule creator's view.
       </div>
 
@@ -2511,7 +2669,7 @@ function ScheduleEditor({ initial, dimensions, onCancel, onSubmit }) {
         <span>Enabled</span>
       </label>
 
-      {err && <div style={{ color: 'var(--state-danger)', fontSize: 12, marginBottom: 10 }}>{err}</div>}
+      {err && <div style={_hs141}>{err}</div>}
 
       <div style={actionModalActions}>
         <button className="btn-hover" style={actionModalBtnSecondary} onClick={onCancel} disabled={submitting}>Cancel</button>
@@ -2572,26 +2730,20 @@ function RecipientRulesEditor({ rules, dimensions, onChange }) {
   };
 
   return (
-    <div style={{ marginBottom: 6 }}>
+    <div style={_hs142}>
       {Array.isArray(dimensions) && dimensions.length > 0 && (
         <datalist id={datalistId}>
           {dimensions.map((d) => <option key={d} value={d} />)}
         </datalist>
       )}
       {rules.length === 0 && (
-        <div style={{
-          fontSize: 12, color: 'var(--text-muted)', padding: '10px 12px',
-          border: '1px dashed var(--border-default)', borderRadius: 6, marginBottom: 6,
-        }}>
+        <div style={_hs143}>
           No rules. All recipients receive the unfiltered report.
         </div>
       )}
       {rules.map((rule, ri) => (
-        <div key={ri} style={{
-          border: '1px solid var(--border-default)', borderRadius: 6,
-          padding: 10, marginBottom: 6, background: 'var(--bg-subtle)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <div key={ri} style={_hs144}>
+          <div style={_hs145}>
             <input
               value={rule.pattern || ''}
               onChange={(e) => updateRule(ri, { pattern: e.target.value })}
@@ -2602,14 +2754,14 @@ function RecipientRulesEditor({ rules, dimensions, onChange }) {
               type="button"
               className="btn-hover btn-hover-danger"
               onClick={() => removeRule(ri)}
-              style={{ background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 4, padding: '4px 8px', fontSize: 11, color: 'var(--state-danger)', cursor: 'pointer' }}
+              style={_hs146}
               title="Remove rule"
             >
               Remove
             </button>
           </div>
           {Object.entries(rule.filters || {}).map(([col, vals], fi) => (
-            <div key={fi} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <div key={fi} style={_hs147}>
               <input
                 value={col}
                 onChange={(e) => setFilterColAt(ri, col, e.target.value)}
@@ -2617,7 +2769,7 @@ function RecipientRulesEditor({ rules, dimensions, onChange }) {
                 list={dimensions && dimensions.length > 0 ? datalistId : undefined}
                 style={{ ...actionModalInput, marginBottom: 0, flex: '0 0 40%', fontFamily: 'monospace', fontSize: 12 }}
               />
-              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>=</span>
+              <span style={_hs148}>=</span>
               <input
                 value={Array.isArray(vals) ? vals.join(', ') : vals || ''}
                 onChange={(e) => setFilterValAt(ri, col, e.target.value)}
@@ -2628,7 +2780,7 @@ function RecipientRulesEditor({ rules, dimensions, onChange }) {
                 type="button"
                 className="btn-hover btn-hover-danger"
                 onClick={() => removeFilterAt(ri, col)}
-                style={{ background: 'transparent', border: '1px solid transparent', color: 'var(--text-disabled)', fontSize: 16, cursor: 'pointer', padding: '0 6px', borderRadius: 4 }}
+                style={_hs149}
                 title="Remove filter"
               >
                 ×
@@ -2639,7 +2791,7 @@ function RecipientRulesEditor({ rules, dimensions, onChange }) {
             type="button"
             className="btn-hover btn-hover-accent"
             onClick={() => addFilterTo(ri)}
-            style={{ background: 'transparent', border: '1px dashed var(--border-default)', borderRadius: 4, padding: '4px 10px', fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer', marginTop: 4 }}
+            style={_hs150}
           >
             + Add filter
           </button>

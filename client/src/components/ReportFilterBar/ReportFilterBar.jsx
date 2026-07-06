@@ -3,6 +3,12 @@ import { createPortal } from 'react-dom';
 import { TbFilter, TbX, TbPlus, TbHandClick } from 'react-icons/tb';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
 
+const _hs0 = { color: 'var(--text-disabled)', flexShrink: 0 };
+const _hs1 = { fontSize: 11, color: 'var(--text-muted)', fontWeight: 500, flexShrink: 0 };
+const _hs2 = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 };
+const _hs3 = { fontSize: 11, color: 'var(--text-disabled)', fontStyle: 'italic' };
+const _hs4 = { flex: 1 };
+
 const VALUELESS = new Set(['is_empty', 'is_not_empty']);
 const OP_SYMBOL = {
   in: '=', not_in: '≠',
@@ -191,8 +197,8 @@ export default function ReportFilterBar({ model, rules, onChange, onRefresh, vis
 
   return (
     <div style={barStyle}>
-      <TbFilter size={14} style={{ color: 'var(--text-disabled)', flexShrink: 0 }} />
-      <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500, flexShrink: 0 }}>
+      <TbFilter size={14} style={_hs0} />
+      <span style={_hs1}>
         Report filters
       </span>
       <button
@@ -216,7 +222,7 @@ export default function ReportFilterBar({ model, rules, onChange, onRefresh, vis
               style={isInteractionsActive ? { ...chipStyle, ...chipStyleActiveInter } : chipStyle}
               title="Click to edit"
             >
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
+              <span style={_hs2}>
                 {ruleSummary(r, model)}
               </span>
               {onEditRuleInteractions && (
@@ -241,7 +247,7 @@ export default function ReportFilterBar({ model, rules, onChange, onRefresh, vis
           );
         })}
         {visibleCount === 0 && (
-          <span style={{ fontSize: 11, color: 'var(--text-disabled)', fontStyle: 'italic' }}>
+          <span style={_hs3}>
             No filters — click + to add
           </span>
         )}
@@ -308,7 +314,7 @@ export default function ReportFilterBar({ model, rules, onChange, onRefresh, vis
               <button type="button" onClick={discardDraft} style={discardBtnStyle} title="Cancel unsaved changes">
                 Cancel
               </button>
-              <div style={{ flex: 1 }} />
+              <div style={_hs4} />
               <button type="button" onClick={commitSave} style={saveBtnStyle} title="Save without refetching visuals (changes apply on next refresh)">
                 Save
               </button>

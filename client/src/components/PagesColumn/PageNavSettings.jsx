@@ -1,5 +1,52 @@
 import { useState } from 'react';
 
+const _hs0 = { fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' };
+const _hs1 = { display: 'flex', alignItems: 'center', gap: 6, width: 160 };
+const _hs2 = { flex: 1, minWidth: 0, accentColor: 'var(--accent-primary)' };
+const _hs3 = { fontSize: 11, color: 'var(--text-disabled)', minWidth: 36, textAlign: 'right', whiteSpace: 'nowrap', flexShrink: 0 };
+const _hs4 = { fontSize: 11, width: '100%' };
+const _hs5 = { marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 };
+const _hs6 = {
+                  width: 48, height: 48, objectFit: 'contain',
+                  border: '1px solid var(--border-default)', borderRadius: 4,
+                  background: 'var(--bg-subtle)',
+                };
+const _hs7 = {
+                    fontSize: 11, flex: 1, color: 'var(--text-secondary)',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  };
+const _hs8 = { padding: '6px 8px', borderTop: '1px solid var(--border-default)' };
+const _hs9 = { display: 'flex', gap: 4 };
+const _hs10 = { display: 'flex', gap: 2, marginBottom: 6, marginTop: 4 };
+const _hs11 = { display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 };
+const _hs12 = { fontSize: 11, flex: 1, color: 'var(--text-secondary)' };
+const _hs13 = { display: 'none' };
+const _hs14 = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 6 };
+const _hs15 = { fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' };
+const _hs16 = { display: 'flex', alignItems: 'center', gap: 4 };
+const _hs17 = {
+            width: 64, padding: '2px 4px', fontSize: 10,
+            border: '1px solid var(--border-default)', borderRadius: 4,
+            background: 'var(--bg-panel)', color: 'var(--text-primary)',
+          };
+const _hs18 = { display: 'flex', gap: 4 };
+const _hs19 = {
+      marginBottom: 8,
+      border: '1px solid var(--border-default)',
+      borderRadius: 6,
+      overflow: 'hidden',
+    };
+const _hs20 = {
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '6px 10px', background: 'var(--bg-subtle)',
+          cursor: 'pointer', userSelect: 'none',
+        };
+const _hs21 = { fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' };
+const _hs22 = { padding: '8px 10px 4px' };
+const _hs23 = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 6 };
+const _hs24 = { fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', flexShrink: 0 };
+const _hs25 = { flexShrink: 1, minWidth: 0 };
+
 const FONT_OPTIONS = [
   { value: '', label: 'Default' },
   { value: 'system-ui, -apple-system, sans-serif', label: 'System' },
@@ -78,7 +125,7 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
     <div style={overlayStyle} onClick={onClose}>
       <div style={panelStyle} onClick={(e) => e.stopPropagation()}>
         <div style={headerStyle}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Page Navigation</span>
+          <span style={_hs0}>Page Navigation</span>
           <button onClick={onClose} style={closeBtn}>x</button>
         </div>
 
@@ -103,14 +150,14 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
                 : raw === 'bottom' ? 100
                 : 0;
               return (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: 160 }}>
+                <div style={_hs1}>
                   <input
                     type="range" min={0} max={100} step={1}
                     value={cur}
                     onChange={(e) => update('pagesAlignment', parseInt(e.target.value, 10))}
-                    style={{ flex: 1, minWidth: 0, accentColor: 'var(--accent-primary)' }}
+                    style={_hs2}
                   />
-                  <span style={{ fontSize: 11, color: 'var(--text-disabled)', minWidth: 36, textAlign: 'right', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  <span style={_hs3}>
                     {cur}%
                   </span>
                 </div>
@@ -160,19 +207,15 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
               type="file"
               accept="image/*"
               onChange={(e) => handleFile(e, (v) => update('logo', v))}
-              style={{ fontSize: 11, width: '100%' }}
+              style={_hs4}
             />
           </Field>
           {config.logo && (
-            <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={_hs5}>
               <img
                 src={config.logo}
                 alt=""
-                style={{
-                  width: 48, height: 48, objectFit: 'contain',
-                  border: '1px solid var(--border-default)', borderRadius: 4,
-                  background: 'var(--bg-subtle)',
-                }}
+                style={_hs6}
               />
               <button onClick={() => update('logo', null)} style={removeBtn}>Remove logo</button>
             </div>
@@ -231,10 +274,7 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
                   ) : (
                     <div style={previewImgEmpty} />
                   )}
-                  <span style={{
-                    fontSize: 11, flex: 1, color: 'var(--text-secondary)',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>{p.name}</span>
+                  <span style={_hs7}>{p.name}</span>
                   <span style={{
                     fontSize: 9, color: 'var(--text-disabled)',
                     transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
@@ -243,9 +283,9 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
                 </div>
 
                 {isOpen && (
-                  <div style={{ padding: '6px 8px', borderTop: '1px solid var(--border-default)' }}>
+                  <div style={_hs8}>
                     <Field label="Image position">
-                      <div style={{ display: 'flex', gap: 4 }}>
+                      <div style={_hs9}>
                         {[
                           { value: 'left',   label: 'Left' },
                           { value: 'right',  label: 'Right' },
@@ -267,7 +307,7 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
                     </Field>
 
                     {/* State tabs */}
-                    <div style={{ display: 'flex', gap: 2, marginBottom: 6, marginTop: 4 }}>
+                    <div style={_hs10}>
                       {STATES.map(({ key, label }) => (
                         <button
                           key={key}
@@ -307,8 +347,8 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
                         ))}
                       </select>
                     </Field>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                      <span style={{ fontSize: 11, flex: 1, color: 'var(--text-secondary)' }}>Image</span>
+                    <div style={_hs11}>
+                      <span style={_hs12}>Image</span>
                       {cfg[activeState].image ? (
                         <>
                           <img src={cfg[activeState].image} alt="" style={previewImg} />
@@ -324,7 +364,7 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
                           <input
                             type="file" accept="image/*"
                             onChange={(e) => handleFile(e, (v) => updatePageState(p.id, activeState, 'image', v))}
-                            style={{ display: 'none' }}
+                            style={_hs13}
                           />
                         </label>
                       )}
@@ -344,9 +384,9 @@ function ColorField({ label, value, onChange, allowTransparent }) {
   const isTransparent = value === 'transparent';
   const isCustom = value != null && value !== '' && !isTransparent;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 6 }}>
-      <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{label}</span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+    <div style={_hs14}>
+      <span style={_hs15}>{label}</span>
+      <div style={_hs16}>
         <input
           type="color"
           value={isCustom ? value : '#888888'}
@@ -367,11 +407,7 @@ function ColorField({ label, value, onChange, allowTransparent }) {
             if (v === 'transparent') onChange('transparent');
             else onChange(v || null);
           }}
-          style={{
-            width: 64, padding: '2px 4px', fontSize: 10,
-            border: '1px solid var(--border-default)', borderRadius: 4,
-            background: 'var(--bg-panel)', color: 'var(--text-primary)',
-          }}
+          style={_hs17}
         />
         {allowTransparent && (
           <button
@@ -407,7 +443,7 @@ function ColorField({ label, value, onChange, allowTransparent }) {
 
 function SegmentedToggle({ value, onChange, options }) {
   return (
-    <div style={{ display: 'flex', gap: 4 }}>
+    <div style={_hs18}>
       {options.map((opt) => {
         const sel = value === opt.value;
         return (
@@ -431,33 +467,24 @@ function SegmentedToggle({ value, onChange, options }) {
 function Section({ title, children }) {
   const [open, setOpen] = useState(true);
   return (
-    <div style={{
-      marginBottom: 8,
-      border: '1px solid var(--border-default)',
-      borderRadius: 6,
-      overflow: 'hidden',
-    }}>
+    <div style={_hs19}>
       <div
         onClick={() => setOpen(!open)}
-        style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          padding: '6px 10px', background: 'var(--bg-subtle)',
-          cursor: 'pointer', userSelect: 'none',
-        }}
+        style={_hs20}
       >
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{title}</span>
+        <span style={_hs21}>{title}</span>
         <span style={{ fontSize: 10, color: 'var(--text-disabled)', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.15s' }}>▼</span>
       </div>
-      {open && <div style={{ padding: '8px 10px 4px' }}>{children}</div>}
+      {open && <div style={_hs22}>{children}</div>}
     </div>
   );
 }
 
 function Field({ label, children }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 6 }}>
-      <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', flexShrink: 0 }}>{label}</span>
-      <div style={{ flexShrink: 1, minWidth: 0 }}>{children}</div>
+    <div style={_hs23}>
+      <span style={_hs24}>{label}</span>
+      <div style={_hs25}>{children}</div>
     </div>
   );
 }

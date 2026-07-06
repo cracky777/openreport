@@ -1,5 +1,7 @@
 import { evaluateColorCondition } from '../../utils/conditionalFormat';
 
+const _hs0 = { width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'visible' };
+
 export default function ShapeWidget({ config, data }) {
   const shape = config?.shape || 'square';
   // When a colorMeasure is bound and a rule matches, override the static fill
@@ -15,7 +17,7 @@ export default function ShapeWidget({ config, data }) {
     const thickness = config?.lineThickness ?? 2;
     const rotation = config?.lineRotation ?? 0;
     return (
-      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'visible' }}>
+      <div style={_hs0}>
         <div style={{
           width: '100%',
           height: thickness,

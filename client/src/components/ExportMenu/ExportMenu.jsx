@@ -22,6 +22,30 @@ import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { TbDownload, TbFileTypePdf, TbPhoto, TbTableExport, TbPrinter, TbBraces } from 'react-icons/tb';
 
+const _hs0 = { position: 'relative' };
+const _hs1 = {
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.78)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 100000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        };
+const _hs2 = {
+            background: 'var(--bg-panel)', padding: '20px 28px', borderRadius: 10,
+            boxShadow: '0 10px 30px rgba(15,23,42,0.25)',
+            minWidth: 280, textAlign: 'center',
+            color: 'var(--text-primary)',
+          };
+const _hs3 = {
+              width: 28, height: 28, margin: '0 auto 12px',
+              border: '3px solid var(--border-default)',
+              borderTopColor: 'var(--accent-primary)',
+              borderRadius: '50%',
+              animation: 'spin 0.8s linear infinite',
+            };
+const _hs4 = { fontSize: 14, fontWeight: 600, marginBottom: 4 };
+const _hs5 = { fontSize: 12, color: 'var(--text-muted)' };
+
 const EXPORT_FORMAT_VERSION = 'open-report.report.v1';
 
 export default function ExportMenu({
@@ -477,7 +501,7 @@ export default function ExportMenu({
   };
 
   return (
-    <div ref={wrapRef} style={{ position: 'relative' }}>
+    <div ref={wrapRef} style={_hs0}>
       <button
         onClick={() => setOpen((o) => !o)}
         style={triggerStyle}
@@ -521,30 +545,13 @@ export default function ExportMenu({
           underneath. Since the overlay isn't inside `canvasRef.current`,
           html2canvas never sees it in the captured DOM. */}
       {exporting && createPortal(
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(15, 23, 42, 0.78)',
-          backdropFilter: 'blur(4px)',
-          zIndex: 100000,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <div style={{
-            background: 'var(--bg-panel)', padding: '20px 28px', borderRadius: 10,
-            boxShadow: '0 10px 30px rgba(15,23,42,0.25)',
-            minWidth: 280, textAlign: 'center',
-            color: 'var(--text-primary)',
-          }}>
-            <div style={{
-              width: 28, height: 28, margin: '0 auto 12px',
-              border: '3px solid var(--border-default)',
-              borderTopColor: 'var(--accent-primary)',
-              borderRadius: '50%',
-              animation: 'spin 0.8s linear infinite',
-            }} />
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>
+        <div style={_hs1}>
+          <div style={_hs2}>
+            <div style={_hs3} />
+            <div style={_hs4}>
               Exporting PDF…
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            <div style={_hs5}>
               Page {exportProgress.current} of {exportProgress.total}
             </div>
           </div>

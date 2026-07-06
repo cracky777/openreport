@@ -8,6 +8,74 @@ import MaxRowsWarning from '../Widgets/MaxRowsWarning';
 import { evaluateColorCondition } from '../../utils/conditionalFormat';
 import { getMergeGroups, groupSeams, mergeCorners, edgeMidpoint } from '../../utils/mergeFrames';
 
+const _hs0 = { position: 'absolute', bottom: 0, left: 0, right: 0, height: 8, cursor: 'move', zIndex: 2 };
+const _hs1 = { position: 'absolute', top: 0, left: 0, bottom: 0, width: 8, cursor: 'move', zIndex: 2 };
+const _hs2 = { position: 'absolute', top: 0, right: 0, bottom: 0, width: 8, cursor: 'move', zIndex: 2 };
+const _hs3 = {
+                    position: 'relative', width: 18, height: 18, padding: 0,
+                    border: 'none', background: 'transparent', cursor: 'pointer',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  };
+const _hs4 = {
+                      position: 'absolute', color: 'var(--state-danger)',
+                    };
+const _hs5 = {
+              position: 'absolute', top: 6, right: 6, zIndex: 11,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 24, height: 24, borderRadius: 12, padding: 0,
+              border: '1px solid var(--border-default)', background: 'var(--bg-panel)',
+              color: 'var(--text-secondary)', cursor: 'pointer',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            };
+const _hs6 = {
+              position: 'absolute', top: 36, right: 6, zIndex: 11,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 24, height: 24, borderRadius: 12, padding: 0,
+              border: '1px solid var(--border-default)', background: 'var(--bg-panel)',
+              color: 'var(--text-secondary)', cursor: 'pointer',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            };
+const _hs7 = {
+            position: 'absolute', top: 6, left: 6, zIndex: 11,
+            display: 'flex', gap: 2, pointerEvents: 'auto',
+          };
+const _hs8 = { fontSize: 22 };
+const _hs9 = { position: 'absolute', top: -3, left: 6, right: 6, height: 6, cursor: 'n-resize', zIndex: 10 };
+const _hs10 = { position: 'absolute', bottom: -3, left: 6, right: 6, height: 6, cursor: 's-resize', zIndex: 10 };
+const _hs11 = { position: 'absolute', left: -3, top: 6, bottom: 6, width: 6, cursor: 'w-resize', zIndex: 10 };
+const _hs12 = { position: 'absolute', right: -3, top: 6, bottom: 6, width: 6, cursor: 'e-resize', zIndex: 10 };
+const _hs13 = { position: 'absolute', top: -3, left: -3, width: 8, height: 8, cursor: 'nw-resize', zIndex: 11 };
+const _hs14 = { position: 'absolute', top: -3, right: -3, width: 8, height: 8, cursor: 'ne-resize', zIndex: 11 };
+const _hs15 = { position: 'absolute', bottom: -3, left: -3, width: 8, height: 8, cursor: 'sw-resize', zIndex: 11 };
+const _hs16 = { position: 'absolute', bottom: -3, right: -3, width: 8, height: 8, cursor: 'se-resize', zIndex: 11 };
+const _hs17 = {
+      position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 9999,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    };
+const _hs18 = {
+        background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 10,
+        width: 'min(720px, 92vw)', maxHeight: '80vh', display: 'flex', flexDirection: 'column',
+        boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+      };
+const _hs19 = {
+          padding: '12px 14px', borderBottom: '1px solid var(--border-default)',
+          display: 'flex', alignItems: 'center', gap: 10,
+        };
+const _hs20 = { fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' };
+const _hs21 = { flex: 1 };
+const _hs22 = {
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 26, height: 26, padding: 0, borderRadius: 6,
+            background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-disabled)',
+          };
+const _hs23 = {
+          margin: 0, padding: 14, overflow: 'auto', flex: 1,
+          fontSize: 12, lineHeight: 1.5,
+          fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
+          color: 'var(--text-primary)', background: 'var(--bg-subtle)',
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        };
+
 function buildGradientCSS(g) {
   if (!g?.enabled) return null;
   return `linear-gradient(${g.angle ?? 180}deg, ${g.color1 || '#ffffff'}, ${g.color2 || '#e2e8f0'})`;
@@ -138,9 +206,9 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
         {!readOnly && (
           <>
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 8 + (widget.config?.title ? 30 : 0), cursor: 'move', zIndex: 2 }} />
-            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 8, cursor: 'move', zIndex: 2 }} />
-            <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: 8, cursor: 'move', zIndex: 2 }} />
-            <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 8, cursor: 'move', zIndex: 2 }} />
+            <div style={_hs0} />
+            <div style={_hs1} />
+            <div style={_hs2} />
           </>
         )}
         <div className="widget-content" style={{
@@ -218,17 +286,11 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
                   onMouseEnter={() => setCancelHover(true)}
                   onMouseLeave={() => setCancelHover(false)}
                   title="Cancel query"
-                  style={{
-                    position: 'relative', width: 18, height: 18, padding: 0,
-                    border: 'none', background: 'transparent', cursor: 'pointer',
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  }}
+                  style={_hs3}
                 >
                   <span style={ringStyle} />
                   {cancelHover && (
-                    <TbX size={12} style={{
-                      position: 'absolute', color: 'var(--state-danger)',
-                    }} />
+                    <TbX size={12} style={_hs4} />
                   )}
                 </button>
               ) : (
@@ -247,14 +309,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           <button
             onClick={(e) => { e.stopPropagation(); setShowSql(true); }}
             title="View the SQL query"
-            style={{
-              position: 'absolute', top: 6, right: 6, zIndex: 11,
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              width: 24, height: 24, borderRadius: 12, padding: 0,
-              border: '1px solid var(--border-default)', background: 'var(--bg-panel)',
-              color: 'var(--text-secondary)', cursor: 'pointer',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            }}
+            style={_hs5}
             onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.borderColor = 'var(--accent-primary)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
           >
@@ -269,14 +324,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           <button
             onClick={(e) => { e.stopPropagation(); onRefreshWidget(item.i); }}
             title="Refresh this widget's data"
-            style={{
-              position: 'absolute', top: 36, right: 6, zIndex: 11,
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              width: 24, height: 24, borderRadius: 12, padding: 0,
-              border: '1px solid var(--border-default)', background: 'var(--bg-panel)',
-              color: 'var(--text-secondary)', cursor: 'pointer',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            }}
+            style={_hs6}
             onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.borderColor = 'var(--accent-primary)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
           >
@@ -312,10 +360,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
 
         {/* Drill-down controls (up / reset) — shown when widget has an active drill path */}
         {widget.data?._drillDepth > 0 && (onDrillUp || onDrillReset) && (
-          <div style={{
-            position: 'absolute', top: 6, left: 6, zIndex: 11,
-            display: 'flex', gap: 2, pointerEvents: 'auto',
-          }}
+          <div style={_hs7}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
           >
@@ -355,7 +400,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
               padding: 16, textAlign: 'center', gap: 6,
               borderRadius: 'inherit', pointerEvents: 'none',
             }}>
-              <div style={{ fontSize: 22 }}>{isTimeout ? '⏱️' : '⚠️'}</div>
+              <div style={_hs8}>{isTimeout ? '⏱️' : '⚠️'}</div>
               <div style={{ fontSize: 13, fontWeight: 600, color: accent }}>
                 {isTimeout ? 'Query timed out' : 'Data error'}
               </div>
@@ -379,22 +424,22 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           <>
             {/* Edges */}
             <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 'n')}
-              style={{ position: 'absolute', top: -3, left: 6, right: 6, height: 6, cursor: 'n-resize', zIndex: 10 }} />
+              style={_hs9} />
             <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 's')}
-              style={{ position: 'absolute', bottom: -3, left: 6, right: 6, height: 6, cursor: 's-resize', zIndex: 10 }} />
+              style={_hs10} />
             <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 'w')}
-              style={{ position: 'absolute', left: -3, top: 6, bottom: 6, width: 6, cursor: 'w-resize', zIndex: 10 }} />
+              style={_hs11} />
             <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 'e')}
-              style={{ position: 'absolute', right: -3, top: 6, bottom: 6, width: 6, cursor: 'e-resize', zIndex: 10 }} />
+              style={_hs12} />
             {/* Corners */}
             <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 'nw')}
-              style={{ position: 'absolute', top: -3, left: -3, width: 8, height: 8, cursor: 'nw-resize', zIndex: 11 }} />
+              style={_hs13} />
             <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 'ne')}
-              style={{ position: 'absolute', top: -3, right: -3, width: 8, height: 8, cursor: 'ne-resize', zIndex: 11 }} />
+              style={_hs14} />
             <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 'sw')}
-              style={{ position: 'absolute', bottom: -3, left: -3, width: 8, height: 8, cursor: 'sw-resize', zIndex: 11 }} />
+              style={_hs15} />
             <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 'se')}
-              style={{ position: 'absolute', bottom: -3, right: -3, width: 8, height: 8, cursor: 'se-resize', zIndex: 11 }} />
+              style={_hs16} />
           </>
         )}
       </div>
@@ -962,21 +1007,11 @@ function SqlViewerModal({ sql, onClose }) {
     } catch { /* clipboard blocked — silently ignore */ }
   };
   return (
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 9999,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
-        background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 10,
-        width: 'min(720px, 92vw)', maxHeight: '80vh', display: 'flex', flexDirection: 'column',
-        boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
-      }}>
-        <div style={{
-          padding: '12px 14px', borderBottom: '1px solid var(--border-default)',
-          display: 'flex', alignItems: 'center', gap: 10,
-        }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>SQL query</span>
-          <span style={{ flex: 1 }} />
+    <div onClick={onClose} style={_hs17}>
+      <div onClick={(e) => e.stopPropagation()} style={_hs18}>
+        <div style={_hs19}>
+          <span style={_hs20}>SQL query</span>
+          <span style={_hs21} />
           <button onClick={handleCopy} style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
             padding: '5px 10px', fontSize: 12, fontWeight: 500,
@@ -987,21 +1022,11 @@ function SqlViewerModal({ sql, onClose }) {
             <TbCopy size={13} />
             {copied ? 'Copied' : 'Copy'}
           </button>
-          <button onClick={onClose} style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 26, height: 26, padding: 0, borderRadius: 6,
-            background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-disabled)',
-          }}>
+          <button onClick={onClose} style={_hs22}>
             <TbX size={14} />
           </button>
         </div>
-        <pre style={{
-          margin: 0, padding: 14, overflow: 'auto', flex: 1,
-          fontSize: 12, lineHeight: 1.5,
-          fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
-          color: 'var(--text-primary)', background: 'var(--bg-subtle)',
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-        }}>
+        <pre style={_hs23}>
           {sql || '(no SQL captured for this widget)'}
         </pre>
       </div>

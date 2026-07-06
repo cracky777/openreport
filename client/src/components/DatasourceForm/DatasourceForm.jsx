@@ -1,6 +1,16 @@
 import { useState } from 'react';
 import api from '../../utils/api';
 
+const _hs0 = { display: 'flex', gap: 12 };
+const _hs1 = { flex: 1 };
+const _hs2 = { width: 100 };
+const _hs3 = { display: 'flex', gap: 12 };
+const _hs4 = { flex: 1 };
+const _hs5 = { flex: 1 };
+const _hs6 = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)' };
+const _hs7 = { display: 'flex', gap: 8, justifyContent: 'flex-end' };
+const _hs8 = { display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4, fontWeight: 500 };
+
 const DB_TYPES = [
   { value: 'postgres', label: 'PostgreSQL', defaultPort: 5432 },
   { value: 'azure_postgres', label: 'Azure PostgreSQL', defaultPort: 5432 },
@@ -98,22 +108,22 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
       {/* Standard DB fields */}
       {!dbTypeMeta?.noHost && (
         <>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <Field label="Host" style={{ flex: 1 }}>
+          <div style={_hs0}>
+            <Field label="Host" style={_hs1}>
               <input style={inputStyle} value={form.host} onChange={(e) => updateForm('host', e.target.value)} />
             </Field>
-            <Field label="Port" style={{ width: 100 }}>
+            <Field label="Port" style={_hs2}>
               <input style={inputStyle} type="number" value={form.port} onChange={(e) => updateForm('port', parseInt(e.target.value))} />
             </Field>
           </div>
           <Field label="Database name">
             <input style={inputStyle} value={form.dbName} onChange={(e) => updateForm('dbName', e.target.value)} />
           </Field>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <Field label="User" style={{ flex: 1 }}>
+          <div style={_hs3}>
+            <Field label="User" style={_hs4}>
               <input style={inputStyle} value={form.dbUser} onChange={(e) => updateForm('dbUser', e.target.value)} />
             </Field>
-            <Field label="Password" style={{ flex: 1 }}>
+            <Field label="Password" style={_hs5}>
               <input style={inputStyle} type="password" value={form.dbPassword}
                 onChange={(e) => updateForm('dbPassword', e.target.value)}
                 placeholder={editingId ? 'Leave blank to keep existing' : ''} />
@@ -126,7 +136,7 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
           self-signed / internal-CA cert opt out (pg + mysql only). */}
       {(form.dbType === 'postgres' || form.dbType === 'mysql') && (
         <Field label="SSL">
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
+          <label style={_hs6}>
             <input type="checkbox"
               checked={!!form.extraConfig?.allowSelfSignedCert}
               onChange={(e) => updateForm('extraConfig', { ...form.extraConfig, allowSelfSignedCert: e.target.checked })} />
@@ -171,7 +181,7 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+      <div style={_hs7}>
         <button className="btn-hover" onClick={onCancel} style={secondaryBtn}>Cancel</button>
         <button className="btn-hover btn-hover-accent" onClick={handleTest} disabled={testing} style={{ ...secondaryBtn, color: 'var(--accent-primary)', borderColor: 'var(--accent-primary)' }}>
           {testing ? 'Testing...' : 'Test Connection'}
@@ -215,7 +225,7 @@ export async function createModelAndNavigate(navigate, datasource, options = {})
 function Field({ label, children, style }) {
   return (
     <div style={{ marginBottom: 12, ...style }}>
-      <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4, fontWeight: 500 }}>{label}</label>
+      <label style={_hs8}>{label}</label>
       {children}
     </div>
   );

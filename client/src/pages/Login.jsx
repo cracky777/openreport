@@ -3,6 +3,21 @@ import api from '../utils/api';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
 
+const _hs0 = { marginBottom: 4 };
+const _hs1 = { height: 36 };
+const _hs2 = { color: 'var(--text-primary)', marginBottom: 8, fontSize: 16, fontWeight: 600 };
+const _hs3 = { color: 'var(--text-muted)', marginBottom: 20, fontSize: 14, lineHeight: 1.5 };
+const _hs4 = { color: 'var(--text-primary)' };
+const _hs5 = { fontSize: 12, color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.5 };
+const _hs6 = { textAlign: 'center', marginTop: 16, fontSize: 13 };
+const _hs7 = { color: 'var(--accent-primary)', border: '1px solid transparent', background: 'transparent', cursor: 'pointer', fontWeight: 500, padding: '4px 8px', borderRadius: 4 };
+const _hs8 = { marginBottom: 4 };
+const _hs9 = { height: 36 };
+const _hs10 = { color: 'var(--text-muted)', marginBottom: 24, fontSize: 14 };
+const _hs11 = { background: '#fef2f2', color: 'var(--state-danger)', padding: '8px 12px', borderRadius: 6, fontSize: 13, marginBottom: 16 };
+const _hs12 = { textAlign: 'center', marginTop: 16, fontSize: 13, color: 'var(--text-muted)' };
+const _hs13 = { color: 'var(--accent-primary)', border: '1px solid transparent', background: 'transparent', cursor: 'pointer', fontWeight: 500, padding: '4px 8px', borderRadius: 4 };
+
 export default function Login() {
   const { login, register } = useAuth();
   const { resolved: themeResolved } = useTheme();
@@ -65,12 +80,12 @@ export default function Login() {
     return (
       <div style={containerStyle}>
         <div style={cardStyle}>
-          <div style={{ marginBottom: 4 }}>
-            <img src={logoSrc} alt="Open Report" style={{ height: 36 }} />
+          <div style={_hs0}>
+            <img src={logoSrc} alt="Open Report" style={_hs1} />
           </div>
-          <p style={{ color: 'var(--text-primary)', marginBottom: 8, fontSize: 16, fontWeight: 600 }}>Check your email</p>
-          <p style={{ color: 'var(--text-muted)', marginBottom: 20, fontSize: 14, lineHeight: 1.5 }}>
-            We sent a verification link to <strong style={{ color: 'var(--text-primary)' }}>{pendingEmail}</strong>.
+          <p style={_hs2}>Check your email</p>
+          <p style={_hs3}>
+            We sent a verification link to <strong style={_hs4}>{pendingEmail}</strong>.
             Click the link to confirm your address, then sign in.
           </p>
           <button className="btn-hover btn-hover-primary" onClick={handleResend} disabled={resendStatus === 'sending' || resendStatus === 'sent'} style={{ ...buttonStyle, opacity: resendStatus === 'sent' ? 0.6 : 1 }}>
@@ -79,11 +94,11 @@ export default function Login() {
               resendStatus === 'error' ? 'Retry — something went wrong' :
               'Resend verification email'}
           </button>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.5 }}>
+          <p style={_hs5}>
             Didn't receive anything? Check your spam folder. The resend button is rate-limited to once per minute.
           </p>
-          <div style={{ textAlign: 'center', marginTop: 16, fontSize: 13 }}>
-            <button className="btn-hover btn-hover-accent" onClick={resetFlow} style={{ color: 'var(--accent-primary)', border: '1px solid transparent', background: 'transparent', cursor: 'pointer', fontWeight: 500, padding: '4px 8px', borderRadius: 4 }}>
+          <div style={_hs6}>
+            <button className="btn-hover btn-hover-accent" onClick={resetFlow} style={_hs7}>
               ← Back to sign in
             </button>
           </div>
@@ -95,15 +110,15 @@ export default function Login() {
   return (
     <div style={containerStyle}>
       <div style={cardStyle}>
-        <div style={{ marginBottom: 4 }}>
-          <img src={logoSrc} alt="Open Report" style={{ height: 36 }} />
+        <div style={_hs8}>
+          <img src={logoSrc} alt="Open Report" style={_hs9} />
         </div>
-        <p style={{ color: 'var(--text-muted)', marginBottom: 24, fontSize: 14 }}>
+        <p style={_hs10}>
           {isRegister ? 'Create your account' : 'Sign in to your account'}
         </p>
 
         {error && (
-          <div style={{ background: '#fef2f2', color: 'var(--state-danger)', padding: '8px 12px', borderRadius: 6, fontSize: 13, marginBottom: 16 }}>
+          <div style={_hs11}>
             {error}
           </div>
         )}
@@ -139,12 +154,12 @@ export default function Login() {
           </button>
         </form>
 
-        <div style={{ textAlign: 'center', marginTop: 16, fontSize: 13, color: 'var(--text-muted)' }}>
+        <div style={_hs12}>
           {isRegister ? 'Already have an account?' : "Don't have an account?"}{' '}
           <button
             className="btn-hover btn-hover-accent"
             onClick={() => { setIsRegister(!isRegister); setError(''); }}
-            style={{ color: 'var(--accent-primary)', border: '1px solid transparent', background: 'transparent', cursor: 'pointer', fontWeight: 500, padding: '4px 8px', borderRadius: 4 }}
+            style={_hs13}
           >
             {isRegister ? 'Sign in' : 'Register'}
           </button>

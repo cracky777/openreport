@@ -2,6 +2,16 @@ import formatNumber from '../../utils/formatNumber';
 import { formatDuration } from '../../utils/formatHuman';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
+const _hs0 = {
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+      };
+const _hs1 = { display: 'flex', alignItems: 'center', gap: 0 };
+
 export default function ScorecardWidget({ data, config }) {
   const hasData = data?.value !== undefined && data?.value !== '';
   // Trigger Google Fonts loading for whichever family the user picked. This
@@ -128,14 +138,7 @@ export default function ScorecardWidget({ data, config }) {
 
   return (
     <div
-      style={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-      }}
+      style={_hs0}
     >
       <div
         style={{
@@ -154,7 +157,7 @@ export default function ScorecardWidget({ data, config }) {
           Each side picks up the per-line spacing as a horizontal gap so
           the user can fine-tune how far the comparison sits from the
           main figure. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+      <div style={_hs1}>
         {leftLines.length > 0 && (
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2,

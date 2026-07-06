@@ -1,6 +1,12 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 
+const _hs0 = { position: 'relative' };
+const _hs1 = { display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 4 };
+const _hs2 = { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const _hs3 = { fontSize: 9, color: 'var(--text-disabled)', whiteSpace: 'nowrap', marginLeft: 8, flex: '0 0 auto', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '50%' };
+const _hs4 = { fontSize: 9, color: 'var(--text-disabled)', padding: '3px 8px', borderTop: '1px solid var(--border-default)' };
+
 const SQL_FUNCTIONS = ['SUM', 'AVG', 'COUNT', 'MIN', 'MAX', 'NULLIF', 'COALESCE', 'CASE WHEN', 'DISTINCT', 'ROUND'];
 
 export default function SqlExpressionInput({ value, onChange, model, style }) {
@@ -175,9 +181,9 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
   }, []);
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div style={_hs0}>
       {/* Functions bar */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 4 }}>
+      <div style={_hs1}>
         {SQL_FUNCTIONS.map((fn) => (
           <button key={fn} onClick={() => insertFunction(fn)} style={fnChip}>{fn}</button>
         ))}
@@ -224,15 +230,15 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
               }}>
                 {s.type === 'dim' ? 'DIM' : (s.type === 'calc' ? 'ƒ' : 'MES')}
               </span>
-              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+              <span style={_hs2}>{s.label}</span>
               {s.type !== 'calc' && (
-                <span style={{ fontSize: 9, color: 'var(--text-disabled)', whiteSpace: 'nowrap', marginLeft: 8, flex: '0 0 auto', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '50%' }}>
+                <span style={_hs3}>
                   {s.source.includes('.') ? s.source.split('.').slice(-2).join('.') : s.source}
                 </span>
               )}
             </div>
           ))}
-          <div style={{ fontSize: 9, color: 'var(--text-disabled)', padding: '3px 8px', borderTop: '1px solid var(--border-default)' }}>
+          <div style={_hs4}>
             ↑↓ navigate &nbsp; Tab/Enter select &nbsp; Esc close
           </div>
         </div>,

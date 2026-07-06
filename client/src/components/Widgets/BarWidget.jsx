@@ -15,6 +15,8 @@ import WidgetEmptyState from './WidgetEmptyState';
 import { resolveZoneSorts } from '../../utils/chartSorts';
 import { buildValueGradient } from '../../utils/chartGradient';
 
+const _hs0 = { flex: 1, minWidth: 0, minHeight: 0 };
+
 // Top-N collapse for bar charts. Folds the long tail of categories into a
 // single neutral "Others" bar so high-cardinality drill-downs stay readable.
 // Operates on the data shape the rest of the component expects: returns a new
@@ -618,7 +620,7 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
       {showHtmlLegend && (legendPosition === 'top' || legendPosition === 'left') && (
         <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
       )}
-      <div ref={chartRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
+      <div ref={chartRef} style={_hs0} />
       {showHtmlLegend && (legendPosition === 'bottom' || legendPosition === 'right') && (
         <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
       )}

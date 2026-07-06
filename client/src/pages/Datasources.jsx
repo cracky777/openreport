@@ -6,6 +6,21 @@ import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton, Secondar
 import { DatasourcesHeader } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
 
+const _hs0 = { minHeight: '100vh', backgroundColor: 'var(--bg-app)' };
+const _hs1 = { flex: 1 };
+const _hs2 = { display: 'none' };
+const _hs3 = { color: 'var(--accent-primary)', borderColor: '#ddd6fe', background: 'var(--accent-primary-soft)' };
+const _hs4 = { maxWidth: 800, margin: '0 auto', padding: '32px 20px' };
+const _hs5 = { fontSize: 16, fontWeight: 600, marginBottom: 16 };
+const _hs6 = { color: 'var(--text-disabled)', textAlign: 'center', marginTop: 60 };
+const _hs7 = { textAlign: 'center', marginTop: 80 };
+const _hs8 = { fontSize: 16, color: 'var(--text-muted)', marginBottom: 12 };
+const _hs9 = { display: 'flex', flexDirection: 'column', gap: 8 };
+const _hs10 = { flex: 1 };
+const _hs11 = { fontWeight: 600, color: 'var(--text-primary)', fontSize: 15 };
+const _hs12 = { fontSize: 13, color: 'var(--text-muted)', marginTop: 2 };
+const _hs13 = { display: 'flex', gap: 6 };
+
 const DB_TYPE_LABELS = {
   postgres: 'PostgreSQL',
   azure_postgres: 'Azure PostgreSQL',
@@ -117,27 +132,27 @@ export default function Datasources() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-app)' }}>
+    <div style={_hs0}>
       <header style={headerShellStyle}>
         <BackButton to="/" />
         <h1 style={{ ...headerTitleStyle, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           <TbDatabase size={20} color="var(--accent-primary)" />
           Data Sources
         </h1>
-        <div style={{ flex: 1 }} />
+        <div style={_hs1} />
         <SecondaryButton onClick={() => navigate('/models')} title="Go to Data Models">
           <TbStack3 size={16} />Data Models
         </SecondaryButton>
         <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv"
-          style={{ display: 'none' }} onChange={handleFileUpload} />
+          style={_hs2} onChange={handleFileUpload} />
         <SecondaryButton onClick={() => fileInputRef.current?.click()} disabled={uploading}
-          style={{ color: 'var(--accent-primary)', borderColor: '#ddd6fe', background: 'var(--accent-primary-soft)' }}>
+          style={_hs3}>
           <TbUpload size={16} />{uploading ? 'Uploading...' : 'Upload File'}
         </SecondaryButton>
         <PrimaryButton onClick={() => { setEditingId(null); setEditingValues(null); setShowForm(true); }}>+ New Connection</PrimaryButton>
       </header>
 
-      <main style={{ maxWidth: 800, margin: '0 auto', padding: '32px 20px' }}>
+      <main style={_hs4}>
         {DatasourcesHeader && <DatasourcesHeader />}
         {uploadProgress && (
           <div style={{
@@ -151,7 +166,7 @@ export default function Datasources() {
         )}
         {showForm && (
           <div style={formCard}>
-            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>{editingId ? 'Edit Data Source' : 'New Data Source'}</h2>
+            <h2 style={_hs5}>{editingId ? 'Edit Data Source' : 'New Data Source'}</h2>
             <DatasourceForm
               editingId={editingId}
               initialValues={editingValues}
@@ -162,22 +177,22 @@ export default function Datasources() {
         )}
 
         {loading ? (
-          <div style={{ color: 'var(--text-disabled)', textAlign: 'center', marginTop: 60 }}>Loading...</div>
+          <div style={_hs6}>Loading...</div>
         ) : datasources.length === 0 && !showForm ? (
-          <div style={{ textAlign: 'center', marginTop: 80 }}>
-            <p style={{ fontSize: 16, color: 'var(--text-muted)', marginBottom: 12 }}>No data sources configured</p>
+          <div style={_hs7}>
+            <p style={_hs8}>No data sources configured</p>
             <button className="btn-hover btn-hover-primary" onClick={() => setShowForm(true)} style={primaryBtn}>Add your first data source</button>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={_hs9}>
             {datasources.map((ds) => {
               const extra = ds.extra_config ? (typeof ds.extra_config === 'string' ? JSON.parse(ds.extra_config) : ds.extra_config) : {};
               const isUploadedFile = !!extra.sourceFile;
               return (
                 <div key={ds.id} style={dsCardStyle}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 15 }}>{ds.name}</div>
-                    <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>
+                  <div style={_hs10}>
+                    <div style={_hs11}>{ds.name}</div>
+                    <div style={_hs12}>
                       {(() => {
                         const dbLabel = DB_TYPE_LABELS[ds.db_type] || ds.db_type.toUpperCase();
                         if (extra.sourceFile) return `${dbLabel} — 📄 ${extra.sourceFile} (${extra.rowCount?.toLocaleString() || '?'} rows)`;
@@ -186,7 +201,7 @@ export default function Datasources() {
                       })()}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  <div style={_hs13}>
                     {!isUploadedFile && (
                       <button className="btn-hover" onClick={() => handleEdit(ds)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px' }}>
                         Edit

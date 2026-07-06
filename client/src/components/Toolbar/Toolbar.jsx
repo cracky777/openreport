@@ -7,6 +7,128 @@ const SUB_TYPE_MENUS = { bar: BAR_SUB_TYPES, line: LINE_SUB_TYPES, combo: COMBO_
 import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbTrash, TbDownload, TbHandClick, TbFilter, TbToggleLeft, TbToggleRightFilled } from 'react-icons/tb';
 import { useCustomVisuals } from '../../hooks/useCustomVisuals';
 
+const _hs0 = {
+      position: 'absolute', top: 'calc(100% + 6px)', left: '50%',
+      transform: 'translateX(-50%)', zIndex: 60,
+      pointerEvents: 'none',
+      background: 'var(--text-primary)', color: 'var(--bg-panel)', fontSize: 11,
+      padding: '4px 8px', borderRadius: 4, whiteSpace: 'nowrap',
+      animation: 'tooltipIn 120ms ease-out',
+      boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+    };
+const _hs1 = {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '10px 20px',
+        backgroundColor: 'var(--bg-panel)',
+        borderBottom: '1px solid var(--border-default)',
+        flexShrink: 0,
+      };
+const _hs2 = { position: 'relative' };
+const _hs3 = { position: 'relative' };
+const _hs4 = { width: 1, height: 20, background: 'var(--border-default)' };
+const _hs5 = { position: 'relative' };
+const _hs6 = { flex: 1 };
+const _hs7 = {
+          fontSize: 16, fontWeight: 600, border: '1px solid transparent', outline: 'none',
+          background: 'transparent', color: 'var(--text-primary)', minWidth: 180, maxWidth: 320,
+          padding: '4px 8px', borderRadius: 6, textAlign: 'center',
+          transition: 'background 0.12s, border-color 0.12s',
+        };
+const _hs8 = { flex: 1 };
+const _hs9 = {
+        display: 'flex', alignItems: 'center', gap: 2,
+        padding: '3px 6px', background: 'var(--bg-subtle)',
+        border: '1px solid var(--border-default)', borderRadius: 10,
+      };
+const _hs10 = { display: 'flex', alignItems: 'center', gap: 2 };
+const _hs11 = { width: 1, height: 22, background: 'var(--border-default)', margin: '0 4px' };
+const _hs12 = { position: 'relative' };
+const _hs13 = { fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 };
+const _hs14 = {
+                        position: 'absolute', top: -2, right: -2,
+                        minWidth: 14, height: 14, padding: '0 3px',
+                        borderRadius: '50%', background: 'var(--accent-primary)', color: '#fff',
+                        fontSize: 9, fontWeight: 700,
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        boxSizing: 'border-box',
+                      };
+const _hs15 = { marginRight: 6, flexShrink: 0 };
+const _hs16 = { marginRight: 6, flexShrink: 0 };
+const _hs17 = { marginRight: 6, flexShrink: 0 };
+const _hs18 = { marginRight: 6, color: 'var(--text-disabled)', flexShrink: 0 };
+const _hs19 = {
+                            marginLeft: 6, minWidth: 16, height: 16, padding: '0 4px',
+                            borderRadius: '50%', background: 'var(--accent-primary)', color: '#fff',
+                            fontSize: 9, fontWeight: 700,
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            boxSizing: 'border-box',
+                          };
+const _hs20 = { width: 1, height: 22, background: 'var(--border-default)', margin: '0 4px' };
+const _hs21 = { position: 'relative' };
+const _hs22 = { fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 };
+const _hs23 = { marginRight: 6, flexShrink: 0 };
+const _hs24 = { width: 1, height: 22, background: 'var(--border-default)', margin: '0 4px' };
+const _hs25 = { position: 'relative' };
+const _hs26 = { fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 };
+const _hs27 = { padding: '12px 14px', fontSize: 11, color: 'var(--state-danger)', background: 'rgba(220,38,38,0.06)' };
+const _hs28 = { padding: '12px 14px', fontSize: 12, color: 'var(--text-disabled)', fontStyle: 'italic' };
+const _hs29 = { padding: '12px 14px', fontSize: 12, color: 'var(--text-disabled)' };
+const _hs30 = { display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-default)' };
+const _hs31 = { width: 16, height: 16, marginRight: 8, flexShrink: 0, objectFit: 'contain' };
+const _hs32 = { marginRight: 8, flexShrink: 0 };
+const _hs33 = { flex: 1, minWidth: 0, overflow: 'hidden' };
+const _hs34 = { fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const _hs35 = { fontSize: 10, color: 'var(--text-disabled)' };
+const _hs36 = { background: 'transparent', border: 'none', cursor: 'pointer', padding: '8px 10px', color: 'var(--text-disabled)' };
+const _hs37 = { marginRight: 8 };
+const _hs38 = { marginRight: 8 };
+const _hs39 = { display: 'none' };
+const _hs40 = { position: 'relative', display: 'flex', alignItems: 'center' };
+const _hs41 = { position: 'relative' };
+const _hs42 = { fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 };
+const _hs43 = { marginRight: 6, flexShrink: 0 };
+const _hs44 = { marginRight: 6, flexShrink: 0 };
+const _hs45 = { position: 'absolute', left: 4, right: 4, bottom: -7, width: 'auto' };
+const _hs46 = { width: 1, height: 20, background: 'var(--border-default)' };
+const _hs47 = { position: 'relative' };
+const _hs48 = { width: 1, height: 20, background: 'var(--border-default)' };
+const _hs49 = { position: 'relative' };
+const _hs50 = { width: 1, height: 20, background: 'var(--border-default)' };
+const _hs51 = { position: 'relative' };
+const _hs52 = { position: 'relative' };
+const _hs53 = { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)', zIndex: 1000 };
+const _hs54 = {
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            background: 'var(--bg-panel)', borderRadius: 10, padding: 20, minWidth: 380, maxWidth: 440,
+            boxShadow: '0 10px 30px rgba(15,23,42,0.25)', zIndex: 1001,
+          };
+const _hs55 = { fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 };
+const _hs56 = { fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.5 };
+const _hs57 = { display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' };
+const _hs58 = { padding: '6px 14px', fontSize: 13, background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' };
+const _hs59 = { padding: '6px 14px', fontSize: 13, background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' };
+const _hs60 = {
+                  padding: '6px 14px', fontSize: 13, fontWeight: 600,
+                  background: 'var(--accent-primary)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer',
+                  boxShadow: '0 1px 3px rgba(124,58,237,0.2)',
+                };
+const _hs61 = { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)', zIndex: 1000 };
+const _hs62 = {
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            background: 'var(--bg-panel)', borderRadius: 10, padding: 20, minWidth: 320, maxWidth: 420,
+            boxShadow: '0 10px 30px rgba(15,23,42,0.25)', zIndex: 1001,
+          };
+const _hs63 = { fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 };
+const _hs64 = { display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' };
+const _hs65 = { padding: '6px 14px', fontSize: 13, background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' };
+const _hs66 = {
+                  padding: '6px 14px', fontSize: 13, fontWeight: 600,
+                  background: 'var(--accent-primary)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer',
+                  boxShadow: '0 1px 3px rgba(124,58,237,0.2)',
+                };
+
 // Ordered groups for the widget toolbar
 const WIDGET_GROUPS = [
   { name: 'charts', types: ['bar', 'line', 'combo', 'pie', 'treemap', 'scatter'] },
@@ -18,15 +140,7 @@ const WIDGET_GROUPS = [
 function WidgetTooltip({ text, show }) {
   if (!show) return null;
   return (
-    <div style={{
-      position: 'absolute', top: 'calc(100% + 6px)', left: '50%',
-      transform: 'translateX(-50%)', zIndex: 60,
-      pointerEvents: 'none',
-      background: 'var(--text-primary)', color: 'var(--bg-panel)', fontSize: 11,
-      padding: '4px 8px', borderRadius: 4, whiteSpace: 'nowrap',
-      animation: 'tooltipIn 120ms ease-out',
-      boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
-    }}>{text}</div>
+    <div style={_hs0}>{text}</div>
   );
 }
 
@@ -124,18 +238,10 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
 
   return (
     <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: '10px 20px',
-        backgroundColor: 'var(--bg-panel)',
-        borderBottom: '1px solid var(--border-default)',
-        flexShrink: 0,
-      }}
+      style={_hs1}
     >
       <div style={utilityGroupStyle}>
-        <div style={{ position: 'relative' }}
+        <div style={_hs2}
           onMouseEnter={() => scheduleHover('back')}
           onMouseLeave={clearHover}>
           <button
@@ -161,7 +267,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
 
       {/* Undo / Redo pill group */}
       <div style={utilityGroupStyle}>
-        <div style={{ position: 'relative' }}
+        <div style={_hs3}
           onMouseEnter={() => scheduleHover('undo')}
           onMouseLeave={clearHover}>
           <button onClick={onUndo} disabled={!canUndo}
@@ -173,8 +279,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           </button>
           <WidgetTooltip text="Undo (Ctrl+Z)" show={hoverKey === 'undo'} />
         </div>
-        <div style={{ width: 1, height: 20, background: 'var(--border-default)' }} />
-        <div style={{ position: 'relative' }}
+        <div style={_hs4} />
+        <div style={_hs5}
           onMouseEnter={() => scheduleHover('redo')}
           onMouseLeave={clearHover}>
           <button onClick={onRedo} disabled={!canRedo}
@@ -188,37 +294,28 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         </div>
       </div>
 
-      <div style={{ flex: 1 }} />
+      <div style={_hs6} />
 
       <input
         type="text"
         value={reportTitle}
         onChange={(e) => onTitleChange(e.target.value)}
-        style={{
-          fontSize: 16, fontWeight: 600, border: '1px solid transparent', outline: 'none',
-          background: 'transparent', color: 'var(--text-primary)', minWidth: 180, maxWidth: 320,
-          padding: '4px 8px', borderRadius: 6, textAlign: 'center',
-          transition: 'background 0.12s, border-color 0.12s',
-        }}
+        style={_hs7}
         onFocus={(e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
         onBlur={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
         placeholder="Report title"
       />
 
-      <div style={{ flex: 1 }} />
+      <div style={_hs8} />
 
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 2,
-        padding: '3px 6px', background: 'var(--bg-subtle)',
-        border: '1px solid var(--border-default)', borderRadius: 10,
-      }}>
+      <div style={_hs9}>
         {groupedWidgets.map((group, gi) => (
-          <div key={group.name} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            {gi > 0 && <div style={{ width: 1, height: 22, background: 'var(--border-default)', margin: '0 4px' }} />}
+          <div key={group.name} style={_hs10}>
+            {gi > 0 && <div style={_hs11} />}
             {group.items.map(([type, { label, icon: Icon, hasSubTypes }]) => {
               const iconColor = type === 'filter' ? 'var(--accent-cyan)' : 'var(--accent-primary)';
               return (
-                <div key={type} style={{ position: 'relative' }}
+                <div key={type} style={_hs12}
                   onMouseEnter={() => { if (hasSubTypes) setOpenMenu(type); }}
                   onMouseLeave={() => { if (hasSubTypes) setOpenMenu(null); }}
                 >
@@ -243,16 +340,9 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                     }}
                   >
                     <Icon size={18} color={iconColor} />
-                    {hasSubTypes && <span style={{ fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 }}>▼</span>}
+                    {hasSubTypes && <span style={_hs13}>▼</span>}
                     {type === 'filter' && reportFilterCount > 0 && (
-                      <span style={{
-                        position: 'absolute', top: -2, right: -2,
-                        minWidth: 14, height: 14, padding: '0 3px',
-                        borderRadius: '50%', background: 'var(--accent-primary)', color: '#fff',
-                        fontSize: 9, fontWeight: 700,
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        boxSizing: 'border-box',
-                      }}>{reportFilterCount}</span>
+                      <span style={_hs14}>{reportFilterCount}</span>
                     )}
                   </button>
                   <WidgetTooltip text={`Add ${label}`} show={hoverKey === type} />
@@ -266,7 +356,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                           <button key={st.value} onClick={() => handleAddWithSubType(type, st.value)} style={dropdownItem}
                             onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                             onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
-                            <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                            <StIcon size={14} color={iconColor} style={_hs15} />{st.label}
                           </button>
                         );
                       })}
@@ -280,7 +370,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                           <button key={st.value} onClick={() => { onAddWidget(st.value); setOpenMenu(null); }} style={dropdownItem}
                             onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                             onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
-                            <StIcon size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                            <StIcon size={14} color={iconColor} style={_hs16} />{st.label}
                           </button>
                         );
                       })}
@@ -291,23 +381,17 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                       <button onClick={() => { onAddWidget('filter'); setOpenMenu(null); }} style={dropdownItem}
                         onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                         onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
-                        <TbFilter size={14} color={iconColor} style={{ marginRight: 6, flexShrink: 0 }} />Visual Filter
+                        <TbFilter size={14} color={iconColor} style={_hs17} />Visual Filter
                       </button>
                       <button onClick={() => { onOpenReportFilters?.(); setOpenMenu(null); }} style={dropdownItem}
                         onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                         onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
                         {reportFilterBarVisible
                           ? <TbToggleRightFilled size={16} style={{ marginRight: 6, color: iconColor, flexShrink: 0 }} />
-                          : <TbToggleLeft size={16} style={{ marginRight: 6, color: 'var(--text-disabled)', flexShrink: 0 }} />}
+                          : <TbToggleLeft size={16} style={_hs18} />}
                         <span>Global filter</span>
                         {reportFilterCount > 0 && (
-                          <span style={{
-                            marginLeft: 6, minWidth: 16, height: 16, padding: '0 4px',
-                            borderRadius: '50%', background: 'var(--accent-primary)', color: '#fff',
-                            fontSize: 9, fontWeight: 700,
-                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                            boxSizing: 'border-box',
-                          }}>
+                          <span style={_hs19}>
                             {reportFilterCount}
                           </span>
                         )}
@@ -321,8 +405,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         ))}
 
         {/* Objects group */}
-        <div style={{ width: 1, height: 22, background: 'var(--border-default)', margin: '0 4px' }} />
-        <div style={{ position: 'relative' }}
+        <div style={_hs20} />
+        <div style={_hs21}
           onMouseEnter={() => setOpenMenu('objects')}
           onMouseLeave={() => setOpenMenu(null)}
         >
@@ -346,7 +430,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             }}
           >
             <TbShape size={18} color="var(--text-muted)" />
-            <span style={{ fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 }}>▼</span>
+            <span style={_hs22}>▼</span>
           </button>
           <WidgetTooltip text="Add object" show={hoverKey === 'objects'} />
           {openMenu === 'objects' && (
@@ -357,7 +441,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                   <button key={st.value} onClick={() => { onAddWidget(st.type, null, st.config, st.size); setOpenMenu(null); }} style={dropdownItem}
                     onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
-                    <StIcon size={14} color="var(--text-muted)" style={{ marginRight: 6, flexShrink: 0 }} />{st.label}
+                    <StIcon size={14} color="var(--text-muted)" style={_hs23} />{st.label}
                   </button>
                 );
               })}
@@ -368,8 +452,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         {/* Custom visuals — workspace-uploaded plugins. Hidden when no workspace. */}
         {workspaceId && (
           <>
-            <div style={{ width: 1, height: 22, background: 'var(--border-default)', margin: '0 4px' }} />
-            <div style={{ position: 'relative' }}
+            <div style={_hs24} />
+            <div style={_hs25}
               onMouseEnter={() => setOpenMenu('customVisuals')}
               onMouseLeave={() => setOpenMenu(null)}
             >
@@ -393,41 +477,41 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                 }}
               >
                 <TbPuzzle size={18} color="var(--accent-primary)" />
-                <span style={{ fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 }}>▼</span>
+                <span style={_hs26}>▼</span>
               </button>
               <WidgetTooltip text="Custom visuals" show={hoverKey === 'customVisuals'} />
               {openMenu === 'customVisuals' && (
                 <div style={{ ...dropdownStyle, minWidth: 240 }}>
                   <div style={dropdownInner}>
                     {customVisualsApi.error && !customVisualsApi.loading && (
-                      <div style={{ padding: '12px 14px', fontSize: 11, color: 'var(--state-danger)', background: 'rgba(220,38,38,0.06)' }}>
+                      <div style={_hs27}>
                         {customVisualsApi.error}
                       </div>
                     )}
                     {customVisualsApi.visuals.length === 0 && !customVisualsApi.loading && !customVisualsApi.error && (
-                      <div style={{ padding: '12px 14px', fontSize: 12, color: 'var(--text-disabled)', fontStyle: 'italic' }}>
+                      <div style={_hs28}>
                         No custom visual installed
                       </div>
                     )}
                     {customVisualsApi.loading && (
-                      <div style={{ padding: '12px 14px', fontSize: 12, color: 'var(--text-disabled)' }}>Loading...</div>
+                      <div style={_hs29}>Loading...</div>
                     )}
                     {customVisualsApi.visuals.map((v) => (
-                      <div key={v.id} style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-default)' }}>
+                      <div key={v.id} style={_hs30}>
                         <button onClick={() => handleAddCustomVisual(v)} style={{ ...dropdownItem, flex: 1, display: 'flex', alignItems: 'center', borderBottom: 'none' }}
                           onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                           onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
                           {v.iconUrl
-                            ? <img src={v.iconUrl} alt="" style={{ width: 16, height: 16, marginRight: 8, flexShrink: 0, objectFit: 'contain' }} />
-                            : <TbPuzzle size={14} color="var(--accent-primary)" style={{ marginRight: 8, flexShrink: 0 }} />}
-                          <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-                            <div style={{ fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.name}</div>
-                            <div style={{ fontSize: 10, color: 'var(--text-disabled)' }}>v{v.version}</div>
+                            ? <img src={v.iconUrl} alt="" style={_hs31} />
+                            : <TbPuzzle size={14} color="var(--accent-primary)" style={_hs32} />}
+                          <div style={_hs33}>
+                            <div style={_hs34}>{v.name}</div>
+                            <div style={_hs35}>v{v.version}</div>
                           </div>
                         </button>
                         {customVisualsApi.canManage && (
                           <button onClick={() => handleDeleteVisual(v.id)} title="Delete"
-                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '8px 10px', color: 'var(--text-disabled)' }}
+                            style={_hs36}
                             onMouseEnter={(e) => e.currentTarget.style.color = 'var(--state-danger)'}
                             onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-disabled)'}>
                             <TbTrash size={14} />
@@ -442,7 +526,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                           style={{ ...dropdownItem, display: 'flex', alignItems: 'center', color: 'var(--accent-primary)', fontWeight: 500 }}
                           onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                           onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
-                          <TbUpload size={14} style={{ marginRight: 8 }} />
+                          <TbUpload size={14} style={_hs37} />
                           Upload custom visual (.zip)
                         </button>
                         <a
@@ -451,14 +535,14 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                           style={{ ...dropdownItem, display: 'flex', alignItems: 'center', color: 'var(--text-secondary)', textDecoration: 'none' }}
                           onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                           onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
-                          <TbDownload size={14} style={{ marginRight: 8 }} />
+                          <TbDownload size={14} style={_hs38} />
                           Download starter template
                         </a>
                         <input
                           ref={fileInputRef}
                           type="file"
                           accept=".zip"
-                          style={{ display: 'none' }}
+                          style={_hs39}
                           onChange={(e) => { handleUploadVisual(e.target.files?.[0]); e.target.value = ''; }}
                         />
                       </>
@@ -484,11 +568,11 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
       <div style={utilityGroupStyle}>
         {onRefresh && (
           <>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}
+            <div style={_hs40}
               onMouseEnter={() => { if (onRebuildCache && !refreshing && !cacheWarming) setOpenMenu('refresh'); }}
               onMouseLeave={() => { if (openMenu === 'refresh') setOpenMenu(null); }}
             >
-              <div style={{ position: 'relative' }}
+              <div style={_hs41}
                 onMouseEnter={() => { if (!onRebuildCache) scheduleHover('refresh'); }}
                 onMouseLeave={clearHover}>
                 <button
@@ -499,7 +583,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
                 >
                   <TbRefresh size={18} color="var(--text-secondary)" style={{ animation: (refreshing || cacheWarming) ? 'spin 0.8s linear infinite' : undefined }} />
-                  {onRebuildCache && <span style={{ fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 }}>▼</span>}
+                  {onRebuildCache && <span style={_hs42}>▼</span>}
                 </button>
                 {!onRebuildCache && <WidgetTooltip text="Refresh all widgets (live query)" show={hoverKey === 'refresh' && !refreshing && !cacheWarming} />}
               </div>
@@ -513,7 +597,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                     onClick={() => { setOpenMenu(null); onRefresh(); }}
                     onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
-                    <TbRefresh size={14} color="var(--text-secondary)" style={{ marginRight: 6, flexShrink: 0 }} />Live query
+                    <TbRefresh size={14} color="var(--text-secondary)" style={_hs43} />Live query
                   </button>
                   <button style={{ ...dropdownItem, display: 'flex', alignItems: 'center' }}
                     onClick={() => {
@@ -529,7 +613,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                     }}
                     onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
-                    <TbRefresh size={14} color="var(--text-secondary)" style={{ marginRight: 6, flexShrink: 0 }} />Cache
+                    <TbRefresh size={14} color="var(--text-secondary)" style={_hs44} />Cache
                   </button>
                 </div></div>
               )}
@@ -538,17 +622,17 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                   role="progressbar"
                   aria-valuenow={Math.round(cacheWarmPct)} aria-valuemin={0} aria-valuemax={100}
                   aria-label="Rebuilding cache"
-                  style={{ position: 'absolute', left: 4, right: 4, bottom: -7, width: 'auto' }}>
+                  style={_hs45}>
                   <span style={{ width: `${Math.max(0, Math.min(100, cacheWarmPct))}%` }} />
                 </div>
               )}
             </div>
-            <div style={{ width: 1, height: 20, background: 'var(--border-default)' }} />
+            <div style={_hs46} />
           </>
         )}
         {onToggleEditInteractions && (
           <>
-            <div style={{ position: 'relative' }}
+            <div style={_hs47}
               onMouseEnter={() => scheduleHover('editInteractions')}
               onMouseLeave={clearHover}>
               <button
@@ -572,10 +656,10 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                   : 'Select a widget first to edit interactions'}
                 show={hoverKey === 'editInteractions'} />
             </div>
-            <div style={{ width: 1, height: 20, background: 'var(--border-default)' }} />
+            <div style={_hs48} />
           </>
         )}
-        <div style={{ position: 'relative' }}
+        <div style={_hs49}
           onMouseEnter={() => scheduleHover('settings')}
           onMouseLeave={clearHover}>
           <button
@@ -590,8 +674,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         </div>
         {exportMenu && (
           <>
-            <div style={{ width: 1, height: 20, background: 'var(--border-default)' }} />
-            <div style={{ position: 'relative' }}
+            <div style={_hs50} />
+            <div style={_hs51}
               onMouseEnter={() => scheduleHover('export')}
               onMouseLeave={clearHover}>
               {exportMenu}
@@ -602,7 +686,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
       </div>
 
       {/* Preview — icon only with tooltip, sits next to Save */}
-      <div style={{ position: 'relative' }}
+      <div style={_hs52}
         onMouseEnter={() => scheduleHover('preview')}
         onMouseLeave={clearHover}>
         <button
@@ -652,28 +736,24 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
       {previewPrompt && (
         <>
           <div onClick={() => setPreviewPrompt(false)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)', zIndex: 1000 }} />
-          <div style={{
-            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-            background: 'var(--bg-panel)', borderRadius: 10, padding: 20, minWidth: 380, maxWidth: 440,
-            boxShadow: '0 10px 30px rgba(15,23,42,0.25)', zIndex: 1001,
-          }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
+            style={_hs53} />
+          <div style={_hs54}>
+            <div style={_hs55}>
               You have unsaved changes
             </div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.5 }}>
+            <div style={_hs56}>
               The preview opens in a new tab and shows the last saved version of your report. Would you like to save before previewing?
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+            <div style={_hs57}>
               <button
                 onClick={() => setPreviewPrompt(false)}
-                style={{ padding: '6px 14px', fontSize: 13, background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}
+                style={_hs58}
               >
                 Cancel
               </button>
               <button
                 onClick={() => { setPreviewPrompt(false); openPreview(); }}
-                style={{ padding: '6px 14px', fontSize: 13, background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}
+                style={_hs59}
               >
                 Preview without saving
               </button>
@@ -683,11 +763,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                   await onSave?.();
                   openPreview();
                 }}
-                style={{
-                  padding: '6px 14px', fontSize: 13, fontWeight: 600,
-                  background: 'var(--accent-primary)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer',
-                  boxShadow: '0 1px 3px rgba(124,58,237,0.2)',
-                }}
+                style={_hs60}
               >
                 Save and preview
               </button>
@@ -703,19 +779,15 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
       {rebuildPrompt && (
         <>
           <div onClick={() => setRebuildPrompt(false)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)', zIndex: 1000 }} />
-          <div style={{
-            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-            background: 'var(--bg-panel)', borderRadius: 10, padding: 20, minWidth: 320, maxWidth: 420,
-            boxShadow: '0 10px 30px rgba(15,23,42,0.25)', zIndex: 1001,
-          }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
+            style={_hs61} />
+          <div style={_hs62}>
+            <div style={_hs63}>
               You have unsaved changes
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+            <div style={_hs64}>
               <button
                 onClick={() => setRebuildPrompt(false)}
-                style={{ padding: '6px 14px', fontSize: 13, background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}
+                style={_hs65}
               >
                 Cancel
               </button>
@@ -725,11 +797,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                   await onSave?.();
                   onRebuildCache?.();
                 }}
-                style={{
-                  padding: '6px 14px', fontSize: 13, fontWeight: 600,
-                  background: 'var(--accent-primary)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer',
-                  boxShadow: '0 1px 3px rgba(124,58,237,0.2)',
-                }}
+                style={_hs66}
               >
                 Save and rebuild
               </button>

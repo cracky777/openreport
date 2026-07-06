@@ -2,6 +2,34 @@ import { useState } from 'react';
 import { TbChevronsLeft, TbChevronsRight, TbSettings, TbPlus } from 'react-icons/tb';
 import PageNavSettings from './PageNavSettings';
 
+const _hs0 = {
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: '0.15em',
+          textTransform: 'uppercase',
+          color: 'var(--text-muted)',
+          writingMode: 'vertical-rl',
+          transform: 'rotate(180deg)',
+          userSelect: 'none',
+        };
+const _hs1 = { flexShrink: 0, display: 'flex', flexDirection: 'column' };
+const _hs2 = { width: 18, height: 18, objectFit: 'contain', flexShrink: 0 };
+const _hs3 = { fontSize: 11, fontWeight: 700 };
+const _hs4 = {
+                      border: 'none', outline: 'none', flex: 1, minWidth: 0,
+                      background: 'transparent', fontSize: 'inherit', fontWeight: 'inherit',
+                      color: 'inherit', fontFamily: 'inherit',
+                    };
+const _hs5 = {
+                    flex: 1, minWidth: 0,
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  };
+const _hs6 = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99 };
+
 const COLLAPSED_WIDTH = 36;
 const EXPANDED_WIDTH = 150;
 const SINGLE_PAGE_WIDTH = 28;
@@ -123,20 +151,7 @@ export default function PagesColumn({
           position: 'relative',
         }}
       >
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: '0.15em',
-          textTransform: 'uppercase',
-          color: 'var(--text-muted)',
-          writingMode: 'vertical-rl',
-          transform: 'rotate(180deg)',
-          userSelect: 'none',
-        }}>
+        <div style={_hs0}>
           Pages
         </div>
         <button onClick={onAdd} title="Add page" style={{ ...floatBtn, marginBottom: 4 }}>
@@ -229,7 +244,7 @@ export default function PagesColumn({
           minHeight: 0,
         }}>
           <div style={{ flexGrow: alignPos, flexShrink: 1, minHeight: 0 }} />
-          <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
+          <div style={_hs1}>
           {pages.map((page, idx) => {
             const active = idx === currentPageIdx;
             const hovered = hoverIdx === idx && !active;
@@ -284,10 +299,10 @@ export default function PagesColumn({
                   <img
                     src={icon}
                     alt=""
-                    style={{ width: 18, height: 18, objectFit: 'contain', flexShrink: 0 }}
+                    style={_hs2}
                   />
                 ) : isCollapsed ? (
-                  <span style={{ fontSize: 11, fontWeight: 700 }}>{idx + 1}</span>
+                  <span style={_hs3}>{idx + 1}</span>
                 ) : null}
                 {!isCollapsed && (isEditing ? (
                   <input
@@ -299,17 +314,10 @@ export default function PagesColumn({
                       if (e.key === 'Escape') setEditingIdx(null);
                     }}
                     onClick={(e) => e.stopPropagation()}
-                    style={{
-                      border: 'none', outline: 'none', flex: 1, minWidth: 0,
-                      background: 'transparent', fontSize: 'inherit', fontWeight: 'inherit',
-                      color: 'inherit', fontFamily: 'inherit',
-                    }}
+                    style={_hs4}
                   />
                 ) : (
-                  <span style={{
-                    flex: 1, minWidth: 0,
-                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                  }}>{page.name}</span>
+                  <span style={_hs5}>{page.name}</span>
                 ))}
               </div>
             );
@@ -372,7 +380,7 @@ export default function PagesColumn({
       {contextMenu && editMode && (
         <>
           <div
-            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99 }}
+            style={_hs6}
             onClick={() => setContextMenu(null)}
           />
           <div style={{

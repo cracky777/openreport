@@ -8,6 +8,46 @@ import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton } from '.
 // Cloud edition contributes extra admin links here (e.g. Billing). Empty in OSS builds.
 import { adminLinks as cloudAdminLinks } from '../cloud';
 
+const _hs0 = { padding: 60, textAlign: 'center', color: 'var(--state-danger)' };
+const _hs1 = { minHeight: '100vh', backgroundColor: 'var(--bg-app)' };
+const _hs2 = { flex: 1 };
+const _hs3 = { maxWidth: 900, margin: '0 auto', padding: '32px 20px' };
+const _hs4 = { fontSize: 14, fontWeight: 600, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 };
+const _hs5 = { height: 1, background: 'var(--border-default)', margin: '14px 0' };
+const _hs6 = { display: 'flex', gap: 16, marginBottom: 24 };
+const _hs7 = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' };
+const _hs8 = { fontSize: 14, fontWeight: 600, marginBottom: 12 };
+const _hs9 = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 };
+const _hs10 = { display: 'flex', gap: 8, justifyContent: 'flex-end' };
+const _hs11 = { textAlign: 'center', color: 'var(--text-disabled)', marginTop: 40 };
+const _hs12 = { width: '100%', borderCollapse: 'collapse', backgroundColor: 'var(--bg-panel)', borderRadius: 8, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' };
+const _hs13 = { borderBottom: '2px solid #e2e8f0' };
+const _hs14 = { borderBottom: '1px solid #f1f5f9' };
+const _hs15 = { display: 'flex', gap: 4 };
+const _hs16 = { display: 'flex', gap: 4, marginTop: 4 };
+const _hs17 = { display: 'flex', flexDirection: 'column', gap: 8 };
+const _hs18 = { display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
+const _hs19 = { fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' };
+const _hs20 = { fontSize: 11, color: 'var(--text-disabled)' };
+const _hs21 = { display: 'flex', alignItems: 'center', gap: 12 };
+const _hs22 = { flex: 1 };
+const _hs23 = { fontSize: 12, color: 'var(--text-muted)' };
+const _hs24 = { fontSize: 11, color: 'var(--text-muted)', margin: 0 };
+const _hs25 = { display: 'flex', gap: 10, marginBottom: 14 };
+const _hs26 = { display: 'flex', flexDirection: 'column', gap: 8 };
+const _hs27 = { display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
+const _hs28 = { fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' };
+const _hs29 = { fontSize: 11, color: 'var(--text-disabled)' };
+const _hs30 = { display: 'flex', alignItems: 'center', gap: 10 };
+const _hs31 = { fontSize: 12, color: 'var(--text-secondary)' };
+const _hs32 = { display: 'flex', alignItems: 'center', gap: 12 };
+const _hs33 = { fontSize: 12, color: 'var(--text-secondary)', minWidth: 30 };
+const _hs34 = { flex: 1 };
+const _hs35 = { fontSize: 12, color: 'var(--text-primary)', fontWeight: 500, minWidth: 56, textAlign: 'right' };
+const _hs36 = { display: 'flex', alignItems: 'center', gap: 10 };
+const _hs37 = { fontSize: 11, color: 'var(--state-success)' };
+const _hs38 = { fontSize: 11, color: 'var(--text-muted)', margin: 0 };
+
 const ROLES = [
   { value: 'admin', label: 'Admin', color: 'var(--state-danger)', icon: TbShield, desc: 'Full access + user management' },
   { value: 'editor', label: 'Editor', color: '#f59e0b', icon: TbEdit, desc: 'Create/edit reports, models, datasources' },
@@ -127,17 +167,17 @@ export default function Admin() {
   };
 
   if (user?.role !== 'admin') {
-    return <div style={{ padding: 60, textAlign: 'center', color: 'var(--state-danger)' }}>Admin access required</div>;
+    return <div style={_hs0}>Admin access required</div>;
   }
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-app)' }}>
+    <div style={_hs1}>
       <header style={headerShellStyle}>
         <BackButton to="/" />
         <h1 style={{ ...headerTitleStyle, display: 'flex', alignItems: 'center', gap: 8 }}>
           <TbShield size={18} color="var(--accent-primary)" /> Admin Console
         </h1>
-        <div style={{ flex: 1 }} />
+        <div style={_hs2} />
         {/* Cloud-only links (Billing, etc.) sit in the header next to Add User. Empty in OSS. */}
         {(cloudAdminLinks || []).map((link) => {
           const Icon = link.icon || TbExternalLink;
@@ -153,12 +193,12 @@ export default function Admin() {
         </PrimaryButton>
       </header>
 
-      <main style={{ maxWidth: 900, margin: '0 auto', padding: '32px 20px' }}>
+      <main style={_hs3}>
         {/* System settings — currently just the query timeout. Bounds and
             default come from the server (clamp lives in settingsHelper). */}
         {settings && (
           <div style={{ ...formCard, marginBottom: 24 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h3 style={_hs4}>
               <TbClock size={16} color="var(--accent-primary)" /> System Settings
             </h3>
             {/* Storage usage summary — uploaded source files (disk) +
@@ -180,7 +220,7 @@ export default function Admin() {
               onSave={saveQueryTimeout}
               saving={savingTimeout}
             />
-            <div style={{ height: 1, background: 'var(--border-default)', margin: '14px 0' }} />
+            <div style={_hs5} />
             <QueryCacheControl
               enabled={settings.queryCacheEnabled}
               ttlMs={settings.queryCacheTtlMs}
@@ -198,11 +238,11 @@ export default function Admin() {
         )}
 
         {/* Role legend */}
-        <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+        <div style={_hs6}>
           {ROLES.map((r) => {
             const Icon = r.icon;
             return (
-              <div key={r.value} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+              <div key={r.value} style={_hs7}>
                 <Icon size={14} color={r.color} /> <strong style={{ color: r.color }}>{r.label}</strong> — {r.desc}
               </div>
             );
@@ -212,8 +252,8 @@ export default function Admin() {
         {/* Create user modal */}
         {showCreate && (
           <div style={formCard}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>New User</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <h3 style={_hs8}>New User</h3>
+            <div style={_hs9}>
               <input placeholder="Email" value={createForm.email}
                 onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} style={inputStyle} />
               <input placeholder="Password" type="password" value={createForm.password}
@@ -224,7 +264,7 @@ export default function Admin() {
                 {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <div style={_hs10}>
               <button className="btn-hover" onClick={() => setShowCreate(false)} style={secondaryBtn}>Cancel</button>
               <button className="btn-hover btn-hover-primary" onClick={createUser} style={primaryBtn}>Create</button>
             </div>
@@ -233,11 +273,11 @@ export default function Admin() {
 
         {/* Users table */}
         {loading ? (
-          <div style={{ textAlign: 'center', color: 'var(--text-disabled)', marginTop: 40 }}>Loading...</div>
+          <div style={_hs11}>Loading...</div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'var(--bg-panel)', borderRadius: 8, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+          <table style={_hs12}>
             <thead>
-              <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+              <tr style={_hs13}>
                 <th style={thStyle}>User</th>
                 <th style={thStyle}>Email</th>
                 <th style={thStyle}>Role</th>
@@ -249,7 +289,7 @@ export default function Admin() {
               {users.map((u) => {
                 const roleDef = ROLES.find((r) => r.value === u.role) || ROLES[2];
                 return (
-                  <tr key={u.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <tr key={u.id} style={_hs14}>
                     <td style={tdStyle}>{u.display_name || u.email.split('@')[0]}</td>
                     <td style={tdStyle}>{u.email}</td>
                     <td style={tdStyle}>
@@ -260,7 +300,7 @@ export default function Admin() {
                     </td>
                     <td style={tdStyle}>{new Date(u.created_at).toLocaleDateString()}</td>
                     <td style={tdStyle}>
-                      <div style={{ display: 'flex', gap: 4 }}>
+                      <div style={_hs15}>
                         <button className="btn-hover btn-hover-accent" onClick={() => { setResetPw(u.id); setNewPw(''); }} title="Reset password" style={iconBtn}>
                           <TbKey size={14} />
                         </button>
@@ -271,7 +311,7 @@ export default function Admin() {
                         )}
                       </div>
                       {resetPw === u.id && (
-                        <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                        <div style={_hs16}>
                           <input type="password" placeholder="New password" value={newPw}
                             onChange={(e) => setNewPw(e.target.value)} style={{ ...inputStyle, padding: '4px 6px', fontSize: 12, width: 120 }} />
                           <button className="btn-hover btn-hover-primary" onClick={() => resetPassword(u.id)} style={{ ...primaryBtn, padding: '4px 8px', fontSize: 11 }}>Set</button>
@@ -307,21 +347,21 @@ function QueryTimeoutControl({ valueMs, minMs, maxMs, defaultMs, onSave, saving 
   useEffect(() => { setSeconds(Math.round(valueMs / 1000)); }, [valueMs]);
   const dirty = seconds !== Math.round(valueMs / 1000);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+    <div style={_hs17}>
+      <div style={_hs18}>
+        <label style={_hs19}>
           Query timeout
         </label>
-        <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>
+        <span style={_hs20}>
           min {minS}s · default {defaultS}s · max {maxS}s
         </span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={_hs21}>
         <input
           type="range" min={minS} max={maxS} step={5}
           value={seconds}
           onChange={(e) => setSeconds(parseInt(e.target.value, 10))}
-          style={{ flex: 1 }}
+          style={_hs22}
         />
         <input
           type="number" min={minS} max={maxS}
@@ -332,7 +372,7 @@ function QueryTimeoutControl({ valueMs, minMs, maxMs, defaultMs, onSave, saving 
           }}
           style={{ ...inputStyle, width: 80, padding: '6px 8px', textAlign: 'center' }}
         />
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>seconds</span>
+        <span style={_hs23}>seconds</span>
         <button
           className="btn-hover btn-hover-primary"
           onClick={() => onSave(seconds)}
@@ -342,7 +382,7 @@ function QueryTimeoutControl({ valueMs, minMs, maxMs, defaultMs, onSave, saving 
           {saving ? 'Saving…' : 'Save'}
         </button>
       </div>
-      <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>
+      <p style={_hs24}>
         Visual queries are cancelled when they exceed this limit. Lower values protect the database under load; higher values allow heavier reports to finish.
       </p>
     </div>
@@ -362,7 +402,7 @@ function StorageUsageRow({ uploadedFileCount, uploadedBytes, ramBytes, rollupByt
   const value = { fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginTop: 4 };
   const sub = { fontSize: 11, color: 'var(--text-disabled)', marginTop: 2 };
   return (
-    <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+    <div style={_hs25}>
       <div style={cell}>
         <div style={label}>Uploaded files</div>
         <div style={value}>{formatBytes(uploadedBytes)}</div>
@@ -395,17 +435,17 @@ function QueryCacheControl({ enabled, ttlMs, minMs, maxMs, stats, preAggStats, l
   const sqlEntries = stats?.size ?? 0;
   const rollupCount = preAggStats?.size ?? 0;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+    <div style={_hs26}>
+      <div style={_hs27}>
+        <label style={_hs28}>
           Query result cache
         </label>
-        <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>
+        <span style={_hs29}>
           {sqlEntries} entries · {formatBytes(stats?.bytes ?? 0)} in RAM
           {rollupCount > 0 ? ` · ${rollupCount} rollup${rollupCount === 1 ? '' : 's'} on local disk` : ''}
         </span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={_hs30}>
         <input
           type="checkbox"
           id="query-cache-enabled"
@@ -413,20 +453,20 @@ function QueryCacheControl({ enabled, ttlMs, minMs, maxMs, stats, preAggStats, l
           onChange={(e) => onSave({ enabled: e.target.checked })}
           disabled={saving}
         />
-        <label htmlFor="query-cache-enabled" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+        <label htmlFor="query-cache-enabled" style={_hs31}>
           Cache visual query results across the whole instance — when off, every refresh re-hits the source DB
         </label>
       </div>
       {enabled && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 30 }}>TTL</span>
+        <div style={_hs32}>
+          <span style={_hs33}>TTL</span>
           <input
             type="range" min={minS} max={maxS} step={5}
             value={seconds}
             onChange={(e) => setSeconds(parseInt(e.target.value, 10))}
-            style={{ flex: 1 }}
+            style={_hs34}
           />
-          <span style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 500, minWidth: 56, textAlign: 'right' }}>
+          <span style={_hs35}>
             {formatDuration(seconds)}
           </span>
           <button
@@ -439,7 +479,7 @@ function QueryCacheControl({ enabled, ttlMs, minMs, maxMs, stats, preAggStats, l
           </button>
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={_hs36}>
         <button
           className="btn-hover"
           onClick={onFlush}
@@ -449,12 +489,12 @@ function QueryCacheControl({ enabled, ttlMs, minMs, maxMs, stats, preAggStats, l
           {flushing ? 'Deleting…' : 'Delete Cache'}
         </button>
         {lastFlushed && (
-          <span style={{ fontSize: 11, color: 'var(--state-success)' }}>
+          <span style={_hs37}>
             Deleted {(lastFlushed.evicted || 0) + (lastFlushed.evictedPreAgg || 0)} entries
           </span>
         )}
       </div>
-      <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>
+      <p style={_hs38}>
         Saved a model? Updated a datasource? Those automatically drop the relevant entries. Use Flush only after an out-of-band schema change you couldn't capture through the UI.
       </p>
     </div>

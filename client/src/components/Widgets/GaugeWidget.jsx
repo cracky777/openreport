@@ -5,6 +5,13 @@ import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import { lerpColor } from '../../utils/tableConfigHelpers';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 
+const _hs0 = { width: '100%', height: '100%', position: 'relative', overflow: 'hidden' };
+const _hs1 = { width: '100%', height: '100%' };
+const _hs2 = {
+      width: '100%', height: '100%', display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center', padding: 12, gap: 8,
+    };
+
 // Extract numeric value from scorecard-shaped data (handles legacy string values from old saves)
 const extractValue = (data) => {
   if (data?.value === undefined || data?.value === null || data?.value === '') return null;
@@ -247,8 +254,8 @@ const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, label, 
   else xMaxPx = Math.max(xMaxPx - centerPull, centerXpx);
 
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-      <div ref={chartRef} style={{ width: '100%', height: '100%' }} />
+    <div ref={containerRef} style={_hs0}>
+      <div ref={chartRef} style={_hs1} />
       {showMinMax && (
         <>
           <span style={{
@@ -308,10 +315,7 @@ const ColumnGauge = memo(function ColumnGauge({ progress, thresholdProgress, thr
   };
 
   return (
-    <div style={{
-      width: '100%', height: '100%', display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center', padding: 12, gap: 8,
-    }}>
+    <div style={_hs2}>
       {showLabel && label && (
         <div style={labelStyle}>{label}</div>
       )}

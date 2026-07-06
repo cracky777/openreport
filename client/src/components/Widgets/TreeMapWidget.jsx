@@ -11,6 +11,8 @@ import WidgetEmptyState from './WidgetEmptyState';
 import { resolveZoneSorts } from '../../utils/chartSorts';
 import { buildValueGradient } from '../../utils/chartGradient';
 
+const _hs0 = { width: '100%', height: '100%' };
+
 export default memo(function TreeMapWidget({ data, config, onDataClick, highlightValue }) {
   const hasData = data?.items?.length > 0;
   const showDataLabels = config?.showDataLabels ?? true;
@@ -160,5 +162,5 @@ export default memo(function TreeMapWidget({ data, config, onDataClick, highligh
 
   if (!hasData) return <WidgetEmptyState data={data} config={config} unboundHint="Select a dimension & measure to display a treemap" />;
 
-  return <div ref={chartRef} style={{ width: '100%', height: '100%' }} />;
+  return <div ref={chartRef} style={_hs0} />;
 });

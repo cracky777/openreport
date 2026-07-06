@@ -14,15 +14,18 @@ import Verify from './pages/Verify';
 // The same import path resolves to either the stub or the real implementation.
 import cloudRoutes from './cloud';
 
+const _hs0 = { padding: 40, color: 'var(--text-disabled)' };
+const _hs1 = { padding: 40, color: 'var(--text-disabled)' };
+
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <div style={{ padding: 40, color: 'var(--text-disabled)' }}>Loading...</div>;
+  if (loading) return <div style={_hs0}>Loading...</div>;
   return user ? children : <Navigate to="/login" />;
 }
 
 function PublicRoute({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <div style={{ padding: 40, color: 'var(--text-disabled)' }}>Loading...</div>;
+  if (loading) return <div style={_hs1}>Loading...</div>;
   return user ? <Navigate to="/" /> : children;
 }
 

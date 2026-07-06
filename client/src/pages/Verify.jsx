@@ -2,6 +2,15 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 
+const _hs0 = { fontSize: 22, fontWeight: 700, marginBottom: 16 };
+const _hs1 = { color: 'var(--text-muted)' };
+const _hs2 = { color: 'var(--state-success)', fontWeight: 500 };
+const _hs3 = { color: 'var(--text-secondary)' };
+const _hs4 = { color: 'var(--state-danger)', marginBottom: 12 };
+const _hs5 = { fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 };
+const _hs6 = { marginTop: 24, fontSize: 13 };
+const _hs7 = { color: 'var(--accent-primary)', textDecoration: 'none' };
+
 // Email-verification landing page. Reads the token from the URL, POSTs it
 // to the cloud-only endpoint, then bounces the user to /login. The
 // endpoint 404s in OSS — but OSS users never get a verification email, so
@@ -43,22 +52,22 @@ export default function Verify() {
   return (
     <div style={shell}>
       <div style={card}>
-        <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Email verification</div>
-        {state.status === 'pending' && <div style={{ color: 'var(--text-muted)' }}>Verifying your email…</div>}
-        {state.status === 'ok' && <div style={{ color: 'var(--state-success)', fontWeight: 500 }}>{state.message}</div>}
-        {state.status === 'already' && <div style={{ color: 'var(--text-secondary)' }}>{state.message}</div>}
+        <div style={_hs0}>Email verification</div>
+        {state.status === 'pending' && <div style={_hs1}>Verifying your email…</div>}
+        {state.status === 'ok' && <div style={_hs2}>{state.message}</div>}
+        {state.status === 'already' && <div style={_hs3}>{state.message}</div>}
         {state.status === 'error' && (
           <div>
-            <div style={{ color: 'var(--state-danger)', marginBottom: 12 }}>{state.message}</div>
+            <div style={_hs4}>{state.message}</div>
             {state.code === 'EXPIRED_TOKEN' && (
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+              <p style={_hs5}>
                 The link is older than 24&nbsp;hours. Sign in again to receive a fresh verification email.
               </p>
             )}
           </div>
         )}
-        <div style={{ marginTop: 24, fontSize: 13 }}>
-          <Link to="/login" style={{ color: 'var(--accent-primary)', textDecoration: 'none' }}>Go to sign in →</Link>
+        <div style={_hs6}>
+          <Link to="/login" style={_hs7}>Go to sign in →</Link>
         </div>
       </div>
     </div>

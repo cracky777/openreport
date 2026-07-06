@@ -11,6 +11,88 @@ import { useResizableWidth } from '../../hooks/useResizableWidth';
 import { parseIntOrNull, parseFloatOrNull } from '../../utils/input';
 import api from '../../utils/api';
 
+const _hs0 = { color: 'var(--text-disabled)', fontSize: 13, textAlign: 'center', marginTop: 40 };
+const _hs1 = { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4, fontSize: 11, color: 'var(--text-secondary)' };
+const _hs2 = { display: 'flex', flexDirection: 'column', gap: 2 };
+const _hs3 = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' };
+const _hs4 = { fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 };
+const _hs5 = { display: 'flex', gap: 3, marginBottom: 12, justifyContent: 'center' };
+const _hs6 = { display: 'flex', gap: 2, marginBottom: 6, justifyContent: 'center' };
+const _hs7 = { display: 'flex', gap: 2, marginBottom: 6, justifyContent: 'center' };
+const _hs8 = { marginTop: 6 };
+const _hs9 = { fontSize: 11, color: 'var(--text-disabled)', fontStyle: 'italic', marginBottom: 6 };
+const _hs10 = { display: 'flex', alignItems: 'center', gap: 4 };
+const _hs11 = { marginLeft: 'auto', background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 4px', color: 'var(--text-disabled)', fontSize: 14, lineHeight: 1 };
+const _hs12 = { display: 'flex', gap: 4, marginTop: 4 };
+const _hs13 = { display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 };
+const _hs14 = { marginTop: 6, padding: '5px 10px', fontSize: 11, background: 'var(--bg-subtle)',
+                      border: '1px dashed var(--border-default)', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer', width: '100%' };
+const _hs15 = { marginTop: 10 };
+const _hs16 = { fontSize: 10, color: 'var(--text-disabled)', marginTop: 6 };
+const _hs17 = { fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 };
+const _hs18 = { fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 };
+const _hs19 = { fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 };
+const _hs20 = { fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 };
+const _hs21 = { display: 'flex', flexDirection: 'column', gap: 8 };
+const _hs22 = { borderBottom: '1px solid #f1f5f9', paddingBottom: 6 };
+const _hs23 = { fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const _hs24 = { display: 'flex', alignItems: 'center', gap: 6 };
+const _hs25 = { display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 };
+const _hs26 = { background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-disabled)', fontSize: 12, padding: 0 };
+const _hs27 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
+const _hs28 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
+const _hs29 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
+const _hs30 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
+const _hs31 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
+const _hs32 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
+const _hs33 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
+const _hs34 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
+const _hs35 = { flexShrink: 0 };
+const _hs36 = { flexShrink: 0 };
+const _hs37 = {
+                display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0,
+                marginLeft: 2, textTransform: 'none', letterSpacing: 0, fontWeight: 500,
+                fontSize: 11, color: 'var(--text-disabled)', textDecoration: 'none',
+                transition: 'color 0.12s',
+              };
+const _hs38 = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 };
+const _hs39 = { flexShrink: 0, opacity: 0.6 };
+const _hs40 = {
+              textTransform: 'none', letterSpacing: 0, fontWeight: 500, fontSize: 11,
+              color: 'var(--text-disabled)', overflow: 'hidden', textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap', minWidth: 0,
+            };
+const _hs41 = { marginBottom: 8 };
+const _hs42 = { fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' };
+const _hs43 = { padding: '8px 10px 4px' };
+const _hs44 = { marginTop: 6, marginBottom: 6 };
+const _hs45 = { fontSize: 10, fontWeight: 600, color: 'var(--text-disabled)', textTransform: 'uppercase', marginBottom: 4 };
+const _hs46 = { display: 'flex', gap: 2, marginBottom: 6, justifyContent: 'flex-start' };
+const _hs47 = { marginBottom: 6 };
+const _hs48 = { fontSize: 12, color: 'var(--text-secondary)', marginBottom: 3 };
+const _hs49 = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 6 };
+const _hs50 = { fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', flexShrink: 0 };
+const _hs51 = { flexShrink: 1, minWidth: 0, overflow: 'hidden' };
+const _hs52 = { display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 };
+const _hs53 = { flex: 1, minWidth: 0 };
+const _hs54 = { width: 48, minWidth: 48, padding: '2px 3px', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 11, textAlign: 'center', outline: 'none', boxSizing: 'border-box', flexShrink: 0 };
+const _hs55 = { fontSize: 10, color: 'var(--text-disabled)', flexShrink: 0 };
+const _hs56 = { display: 'flex', alignItems: 'center', gap: 3 };
+const _hs57 = {
+      border: '1px solid var(--border-default)', borderRadius: 8,
+      overflow: 'hidden', background: 'var(--bg-panel)',
+      boxShadow: '0 1px 1px rgba(15,23,42,0.02)',
+    };
+const _hs58 = {
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '8px 12px', cursor: 'pointer', userSelect: 'none', gap: 8,
+          background: 'var(--bg-panel)',
+        };
+const _hs59 = { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 };
+const _hs60 = { fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const _hs61 = { padding: '8px 10px 4px', borderTop: '1px solid var(--border-default)' };
+const _hs62 = { marginTop: 8, paddingTop: 6, borderTop: '1px solid #f1f5f9' };
+
 function getWidgetDisplayInfo(widget) {
   if (!widget) return { label: '', icon: null };
   const meta = WIDGET_TYPES[widget.type];
@@ -93,7 +175,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
           ><TbChevronsRight size={14} /></button>
         </div>
-        <div style={{ color: 'var(--text-disabled)', fontSize: 13, textAlign: 'center', marginTop: 40 }}>
+        <div style={_hs0}>
           Select a widget to configure it
         </div>
       </div>
@@ -405,7 +487,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <DropZone label="Compare with (date dim)" accepts={['dimension']} fields={compareDateDim ? [compareDateDim] : []} zoneName="compareDate"
             onDrop={setCompareDim} onRemove={removeCompareDim} fieldInfos={fieldInfos} />
           {compareDateDim && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4, fontSize: 11, color: 'var(--text-secondary)' }}>
+            <div style={_hs1}>
               <CompareLineEditor
                 title="N-1 value" checked={widget.config?.showN1Value === true}
                 onToggle={(v) => toggleCompareCfg('showN1Value', v)}
@@ -520,12 +602,12 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
         return (
           <>
             <div style={headerStyle}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+              <div style={_hs2}>
+                <span style={_hs3}>
                   {Icon && <Icon size={18} />} {info.label}
                 </span>
                 {typeof rowCount === 'number' && (
-                  <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>
+                  <span style={_hs4}>
                     {maxReached ? '1,000,000 rows (limit reached)' : `${rowCount.toLocaleString('fr-FR')} rows`}
                   </span>
                 )}
@@ -534,7 +616,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 <TbTrash size={14} />
               </button>
             </div>
-            <div style={{ display: 'flex', gap: 3, marginBottom: 12, justifyContent: 'center' }}>
+            <div style={_hs5}>
               <button onClick={() => onSendToBack(widgetId)} title="Send to back" style={layerBtn}><TbLayersSubtract size={14} /></button>
               <button onClick={() => onSendBackward(widgetId)} title="Back one" style={layerBtn}><TbArrowBigDown size={14} /></button>
               <button onClick={() => onBringForward(widgetId)} title="Forward one" style={layerBtn}><TbArrowBigUp size={14} /></button>
@@ -617,7 +699,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           { value: 'horizontalInverse', rotate: -90, title: 'Right to left' },
         ];
         return (
-          <div style={{ display: 'flex', gap: 2, marginBottom: 6, justifyContent: 'center' }}>
+          <div style={_hs6}>
             {dirs.map((d) => (
               <button key={d.value} title={d.title}
                 onClick={() => updateConfig('barDirection', d.value)}
@@ -645,7 +727,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           { value: 'left', rotate: -90, title: 'Right to left' },
         ];
         return (
-          <div style={{ display: 'flex', gap: 2, marginBottom: 6, justifyContent: 'center' }}>
+          <div style={_hs7}>
             {dirs.map((d) => (
               <button key={d.value} title={d.title}
                 onClick={() => updateConfig('gaugeDirection', d.value)}
@@ -1028,24 +1110,24 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               const addRule = () => setCC({ rules: [...rules, { op: '<', value: 0, color: '#dc2626' }] });
               const removeRule = (idx) => setCC({ rules: rules.filter((_, i) => i !== idx) });
               return (
-                <div style={{ marginTop: 6 }}>
+                <div style={_hs8}>
                   {rules.length === 0 && (
-                    <div style={{ fontSize: 11, color: 'var(--text-disabled)', fontStyle: 'italic', marginBottom: 6 }}>
+                    <div style={_hs9}>
                       No rule yet
                     </div>
                   )}
                   {rules.map((r, i) => (
                     <div key={i} style={ruleCardStyle}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <div style={_hs10}>
                         <span style={ruleLabelStyle}>If value</span>
                         <button onClick={() => removeRule(i)} title="Delete rule"
-                          style={{ marginLeft: 'auto', background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 4px', color: 'var(--text-disabled)', fontSize: 14, lineHeight: 1 }}
+                          style={_hs11}
                           onMouseEnter={(e) => e.currentTarget.style.color = 'var(--state-danger)'}
                           onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-disabled)'}>
                           ×
                         </button>
                       </div>
-                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                      <div style={_hs12}>
                         <select value={r.op || '<'} onChange={(e) => updateRule(i, { op: e.target.value })}
                           style={{ ...inputStyle, marginBottom: 0, width: 52, padding: '4px 4px' }}>
                           <option value="<">&lt;</option>
@@ -1059,22 +1141,21 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                           onChange={(e) => updateRule(i, { value: e.target.value === '' ? '' : Number(e.target.value) })}
                           style={{ ...inputStyle, marginBottom: 0, flex: 1, minWidth: 0 }} />
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                      <div style={_hs13}>
                         <span style={ruleLabelStyle}>Color</span>
                         <ColorInput value={r.color || '#7c3aed'} onChange={(v) => updateRule(i, { color: v })} />
                       </div>
                     </div>
                   ))}
                   <button onClick={addRule}
-                    style={{ marginTop: 6, padding: '5px 10px', fontSize: 11, background: 'var(--bg-subtle)',
-                      border: '1px dashed var(--border-default)', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer', width: '100%' }}>
+                    style={_hs14}>
                     + Add rule
                   </button>
-                  <Field label="Default color" style={{ marginTop: 10 }}>
+                  <Field label="Default color" style={_hs15}>
                     <ColorInput value={cc.defaultColor || ''} onChange={(v) => setCC({ defaultColor: v })} />
                   </Field>
                   {widget.data?._colorValue != null && (
-                    <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 6 }}>
+                    <div style={_hs16}>
                       Current value: {widget.data._colorValue}
                     </div>
                   )}
@@ -1115,22 +1196,22 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                       <ColorInput value={grad.maxColor || '#7c3aed'} onChange={(v) => setGrad({ maxColor: v })} />
                     </Field>
                     {isStackedBar && (
-                      <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 }}>
+                      <div style={_hs17}>
                         Disabled on stacked bars — switch to Grouped/100% to use the gradient.
                       </div>
                     )}
                     {isStackedCombo && (
-                      <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 }}>
+                      <div style={_hs18}>
                         Disabled on Stacked Combo — switch to Clustered Combo to use the gradient.
                       </div>
                     )}
                     {widget.type === 'scatter' && (
-                      <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 }}>
+                      <div style={_hs19}>
                         Coloured by Size measure if bound, otherwise by Y.
                       </div>
                     )}
                     {widget.type === 'combo' && !isStackedCombo && (
-                      <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 }}>
+                      <div style={_hs20}>
                         Applied to bar segments only — line series keep their own colour.
                       </div>
                     )}
@@ -1482,11 +1563,11 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
 
         return (
           <Section title="Legend Colors" sectionState={sections}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={_hs21}>
               {legendValues.map((name, i) => (
-                <div key={name} style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: 6 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div key={name} style={_hs22}>
+                  <div style={_hs23}>{name}</div>
+                  <div style={_hs24}>
                     <ColorInput
                       value={customColors[name] || COLORS[i % COLORS.length]}
                       onChange={(v) => updateConfig('legendColors', { ...customColors, [name]: v })}
@@ -1500,14 +1581,14 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                     )}
                   </div>
                   {widget.type === 'scatter' && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                    <div style={_hs25}>
                       <input type="text" placeholder="Image URL"
                         value={customImages[name] || ''}
                         onChange={(e) => updateConfig('legendImages', { ...customImages, [name]: e.target.value })}
                         style={{ ...inputStyle, flex: 1, fontSize: 10, marginBottom: 0, padding: '2px 4px' }} />
                       {customImages[name] && (
                         <button onClick={() => { const next = { ...customImages }; delete next[name]; updateConfig('legendImages', next); }}
-                          style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-disabled)', fontSize: 12, padding: 0 }}>×</button>
+                          style={_hs26}>×</button>
                       )}
                     </div>
                   )}
@@ -1715,7 +1796,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               <Field label="Border color">
                 <input type="color" value={widget.config?.itemBorderColor || '#ffffff'}
                   onChange={(e) => updateConfig('itemBorderColor', e.target.value)}
-                  style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
+                  style={_hs27} />
               </Field>
               <Field label="Border width" vertical>
                 <RangeInput min={0} max={8} value={widget.config?.itemBorderWidth ?? 1}
@@ -1763,12 +1844,12 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <Field label="Fill color">
             <input type="color" value={widget.config?.gaugeColor || '#7c3aed'}
               onChange={(e) => updateConfig('gaugeColor', e.target.value)}
-              style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
+              style={_hs28} />
           </Field>
           <Field label="Track color">
             <input type="color" value={widget.config?.gaugeTrackColor || '#e2e8f0'}
               onChange={(e) => updateConfig('gaugeTrackColor', e.target.value)}
-              style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
+              style={_hs29} />
           </Field>
           {/* Color gradient (min→max) — overrides Fill color and threshold colour when enabled. */}
           {(() => {
@@ -1801,7 +1882,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <Field label="Over-threshold color">
               <input type="color" value={widget.config?.gaugeOverColor || '#dc2626'}
                 onChange={(e) => updateConfig('gaugeOverColor', e.target.value)}
-                style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
+                style={_hs30} />
             </Field>
           )}
           {!widget.dataBinding?.gaugeThresholdMeasure && (
@@ -1815,7 +1896,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           <Field label="Threshold color">
             <input type="color" value={widget.config?.gaugeThresholdColor || '#dc2626'}
               onChange={(e) => updateConfig('gaugeThresholdColor', e.target.value)}
-              style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
+              style={_hs31} />
           </Field>
           <Field label="Show value">
             <input type="checkbox" checked={widget.config?.gaugeShowValue ?? true}
@@ -1837,7 +1918,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <Field label="Color">
               <input type="color" value={widget.config?.gaugeValueColor || '#0f172a'}
                 onChange={(e) => updateConfig('gaugeValueColor', e.target.value)}
-                style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
+                style={_hs32} />
             </Field>
             <Field label="Font family">
               <FontPicker value={widget.config?.gaugeValueFontFamily}
@@ -1852,7 +1933,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
             <Field label="Color">
               <input type="color" value={widget.config?.gaugeLabelColor || '#64748b'}
                 onChange={(e) => updateConfig('gaugeLabelColor', e.target.value)}
-                style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
+                style={_hs33} />
             </Field>
             <Field label="Font family">
               <FontPicker value={widget.config?.gaugeLabelFontFamily}
@@ -1868,7 +1949,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
               <Field label="Color">
                 <input type="color" value={widget.config?.gaugeAxisColor || '#94a3b8'}
                   onChange={(e) => updateConfig('gaugeAxisColor', e.target.value)}
-                  style={{ width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 }} />
+                  style={_hs34} />
               </Field>
               {widget.config?.subType !== 'column' && (
                 <>
@@ -1981,32 +2062,23 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onS
       <div {...handleProps} />
       <div style={panelHeader}>
         <span style={{ ...panelHeaderTitle, minWidth: 0, flex: 1 }}>
-          <TbDatabase size={14} color="var(--accent-cyan)" style={{ flexShrink: 0 }} />
-          <span style={{ flexShrink: 0 }}>Data</span>
+          <TbDatabase size={14} color="var(--accent-cyan)" style={_hs35} />
+          <span style={_hs36}>Data</span>
           {model?.id ? (
             <a
               href={`/models/${model.id}`}
               target="_blank"
               rel="noopener noreferrer"
               title={`${model.name} — open data model`}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0,
-                marginLeft: 2, textTransform: 'none', letterSpacing: 0, fontWeight: 500,
-                fontSize: 11, color: 'var(--text-disabled)', textDecoration: 'none',
-                transition: 'color 0.12s',
-              }}
+              style={_hs37}
               onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-primary)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-disabled)'; }}
             >
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{model.name}</span>
-              <TbPencil size={10} style={{ flexShrink: 0, opacity: 0.6 }} />
+              <span style={_hs38}>{model.name}</span>
+              <TbPencil size={10} style={_hs39} />
             </a>
           ) : (model?.name ? (
-            <span style={{
-              textTransform: 'none', letterSpacing: 0, fontWeight: 500, fontSize: 11,
-              color: 'var(--text-disabled)', overflow: 'hidden', textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap', minWidth: 0,
-            }}>{model.name}</span>
+            <span style={_hs40}>{model.name}</span>
           ) : null)}
         </span>
         <button onClick={() => toggleCollapsed(true)} style={chevronBtn} title="Collapse panel"
@@ -2021,7 +2093,7 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onS
 
 function Section({ title, children, defaultOpen, sectionState, bare }) {
   if (bare) {
-    return <div style={{ marginBottom: 8 }}>{children}</div>;
+    return <div style={_hs41}>{children}</div>;
   }
 
   // Default: closed for collapsible sections, open for non-collapsible
@@ -2032,7 +2104,7 @@ function Section({ title, children, defaultOpen, sectionState, bare }) {
   return (
     <div style={sectionStyle}>
       <div onClick={toggle} style={{ ...sectionHeaderStyle, cursor: toggle ? 'pointer' : 'default' }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{title}</span>
+        <span style={_hs42}>{title}</span>
         {toggle && (
           <span style={{ display: 'inline-flex', color: 'var(--text-disabled)', transition: 'transform 0.15s', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>
             <TbChevronDown size={14} />
@@ -2040,7 +2112,7 @@ function Section({ title, children, defaultOpen, sectionState, bare }) {
         )}
       </div>
       {!isCollapsed && (
-        <div style={{ padding: '8px 10px 4px' }}>
+        <div style={_hs43}>
           {children}
         </div>
       )}
@@ -2050,8 +2122,8 @@ function Section({ title, children, defaultOpen, sectionState, bare }) {
 
 function SubSection({ label, children }) {
   return (
-    <div style={{ marginTop: 6, marginBottom: 6 }}>
-      <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-disabled)', textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
+    <div style={_hs44}>
+      <div style={_hs45}>{label}</div>
       <div style={subSectionStyle}>
         {children}
       </div>
@@ -2066,7 +2138,7 @@ function SubSection({ label, children }) {
 // each carries a title for accessibility.
 function AlignButtonGroup({ value, onChange, options }) {
   return (
-    <div style={{ display: 'flex', gap: 2, marginBottom: 6, justifyContent: 'flex-start' }}>
+    <div style={_hs46}>
       {options.map(({ v, Icon, title }) => {
         const active = value === v;
         return (
@@ -2094,16 +2166,16 @@ function AlignButtonGroup({ value, onChange, options }) {
 function Field({ label, children, vertical }) {
   if (vertical) {
     return (
-      <div style={{ marginBottom: 6 }}>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 3 }}>{label}</div>
+      <div style={_hs47}>
+        <div style={_hs48}>{label}</div>
         <div>{children}</div>
       </div>
     );
   }
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 6 }}>
-      <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', flexShrink: 0 }}>{label}</span>
-      <div style={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>{children}</div>
+    <div style={_hs49}>
+      <span style={_hs50}>{label}</span>
+      <div style={_hs51}>{children}</div>
     </div>
   );
 }
@@ -2150,13 +2222,13 @@ function DecimalInput({ value, onChange, placeholder, style }) {
 
 function RangeInput({ min, max, step, value, onChange, suffix }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
+    <div style={_hs52}>
       <input type="range" min={min} max={max} step={step || 1} value={value}
-        onChange={onChange} style={{ flex: 1, minWidth: 0 }} />
+        onChange={onChange} style={_hs53} />
       <input type="number" min={min} max={max} step={step || 1} value={value}
         onChange={onChange}
-        style={{ width: 48, minWidth: 48, padding: '2px 3px', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 11, textAlign: 'center', outline: 'none', boxSizing: 'border-box', flexShrink: 0 }} />
-      {suffix && <span style={{ fontSize: 10, color: 'var(--text-disabled)', flexShrink: 0 }}>{suffix}</span>}
+        style={_hs54} />
+      {suffix && <span style={_hs55}>{suffix}</span>}
     </div>
   );
 }
@@ -2164,7 +2236,7 @@ function RangeInput({ min, max, step, value, onChange, suffix }) {
 function ColorInput({ value, onChange }) {
   const isTransparent = value === 'transparent' || value === '';
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+    <div style={_hs56}>
       <input type="color" value={isTransparent ? '#ffffff' : value}
         onChange={(e) => onChange(e.target.value)}
         style={{ opacity: isTransparent ? 0.3 : 1 }} />
@@ -2206,33 +2278,25 @@ function CompareLineEditor({ title, checked, onToggle, style, defaultLabel, onSt
   const iconOn = hasSign ? (s.iconEnabled !== false) : (s.iconEnabled === true);
   const iconColorOn = s.iconColorEnabled !== false;
   return (
-    <div style={{
-      border: '1px solid var(--border-default)', borderRadius: 8,
-      overflow: 'hidden', background: 'var(--bg-panel)',
-      boxShadow: '0 1px 1px rgba(15,23,42,0.02)',
-    }}>
+    <div style={_hs57}>
       <div
         onClick={() => setOpen((o) => !o)}
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '8px 12px', cursor: 'pointer', userSelect: 'none', gap: 8,
-          background: 'var(--bg-panel)',
-        }}
+        style={_hs58}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        <div style={_hs59}>
           <input
             type="checkbox" checked={checked}
             onChange={(e) => onToggle(e.target.checked)}
             onClick={(e) => e.stopPropagation()}
           />
-          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
+          <span style={_hs60}>{title}</span>
         </div>
         <span style={{ display: 'inline-flex', color: 'var(--text-disabled)', transition: 'transform 0.15s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }}>
           <TbChevronDown size={14} />
         </span>
       </div>
       {open && (
-        <div style={{ padding: '8px 10px 4px', borderTop: '1px solid var(--border-default)' }}>
+        <div style={_hs61}>
           <Field label="Position">
             <select value={s.position || 'bottom'} onChange={(e) => update({ position: e.target.value })}
               style={fillStyle}>
@@ -2380,7 +2444,7 @@ function PivotOptionsSection({ widget, updateConfig, inputStyle, sections }) {
       </Field>
 
       {measures.length > 0 && (
-        <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid #f1f5f9' }}>
+        <div style={_hs62}>
           <select
             value={selectedMeasure || ''}
             onChange={(e) => setSelectedMeasure(e.target.value || null)}

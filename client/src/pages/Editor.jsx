@@ -21,6 +21,37 @@ import { filterForTarget } from '../utils/crossFilter';
 import { buildWidgetQueryPayload } from '../utils/widgetQueryPayload';
 import { buildWidgetData } from '../utils/widgetDataBuilder';
 
+const _hs0 = { padding: 40, color: 'var(--text-disabled)' };
+const _hs1 = { height: '100vh', display: 'flex', flexDirection: 'column' };
+const _hs2 = { display: 'flex', flex: 1, overflow: 'hidden' };
+const _hs3 = {
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000,
+          };
+const _hs4 = {
+              background: 'var(--bg-panel)', borderRadius: 10, padding: 20,
+              minWidth: 380, maxWidth: 480,
+              boxShadow: '0 10px 30px rgba(15,23,42,0.25)',
+            };
+const _hs5 = { fontSize: 16, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' };
+const _hs6 = { fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 };
+const _hs7 = { display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' };
+const _hs8 = {
+                  padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 6,
+                  background: 'transparent', color: 'var(--text-muted)',
+                  border: '1px solid var(--border-default)', cursor: 'pointer',
+                };
+const _hs9 = {
+                  padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 6,
+                  background: 'transparent', color: 'var(--state-danger)',
+                  border: '1px solid var(--state-danger)', cursor: 'pointer',
+                };
+const _hs10 = {
+                  padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6,
+                  background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
+                };
+
 function convertData(data, fromType, toType) {
   if (!data || Object.keys(data).length === 0) return data;
 
@@ -2228,11 +2259,11 @@ export default function Editor() {
   const cancelLeave = () => navBlocker.reset?.();
 
   if (loading) {
-    return <div style={{ padding: 40, color: 'var(--text-disabled)' }}>Loading report...</div>;
+    return <div style={_hs0}>Loading report...</div>;
   }
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={_hs1}>
       <Toolbar
         workspaceId={report?.workspace_id}
         reportTitle={title}
@@ -2326,7 +2357,7 @@ export default function Editor() {
           setEditInteractions(true);
         }}
       />
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div style={_hs2}>
         {/* Canvas + pages column live inside the report theme wrapper, so the column inherits the report's theme variables. */}
         <div
           data-theme={settings?.theme?.key || 'light'}
@@ -2458,56 +2489,37 @@ export default function Editor() {
       )}
       {navBlocker.state === 'blocked' && (
         <div
-          style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.4)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000,
-          }}
+          style={_hs3}
           onClick={cancelLeave}
         >
           <div
-            style={{
-              background: 'var(--bg-panel)', borderRadius: 10, padding: 20,
-              minWidth: 380, maxWidth: 480,
-              boxShadow: '0 10px 30px rgba(15,23,42,0.25)',
-            }}
+            style={_hs4}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>
+            <h3 style={_hs5}>
               Unsaved changes
             </h3>
-            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+            <p style={_hs6}>
               You have unsaved changes on this report. Do you want to save them before leaving?
             </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+            <div style={_hs7}>
               <button
                 className="btn-hover"
                 onClick={cancelLeave}
                 disabled={savingFromBlocker}
-                style={{
-                  padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 6,
-                  background: 'transparent', color: 'var(--text-muted)',
-                  border: '1px solid var(--border-default)', cursor: 'pointer',
-                }}
+                style={_hs8}
               >Cancel</button>
               <button
                 className="btn-hover"
                 onClick={confirmDiscardAndLeave}
                 disabled={savingFromBlocker}
-                style={{
-                  padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 6,
-                  background: 'transparent', color: 'var(--state-danger)',
-                  border: '1px solid var(--state-danger)', cursor: 'pointer',
-                }}
+                style={_hs9}
               >Leave without saving</button>
               <button
                 className="btn-hover btn-hover-primary"
                 onClick={confirmSaveAndLeave}
                 disabled={savingFromBlocker}
-                style={{
-                  padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6,
-                  background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
-                }}
+                style={_hs10}
               >{savingFromBlocker ? 'Saving…' : 'Save and leave'}</button>
             </div>
           </div>

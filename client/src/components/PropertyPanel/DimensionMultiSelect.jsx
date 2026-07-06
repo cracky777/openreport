@@ -3,6 +3,14 @@ import { createPortal } from 'react-dom';
 import { TbChevronDown, TbX } from 'react-icons/tb';
 import api from '../../utils/api';
 
+const _hs0 = { width: '100%' };
+const _hs1 = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 };
+const _hs2 = { padding: 8, fontSize: 11, color: 'var(--state-danger)' };
+const _hs3 = { padding: 8, fontSize: 11, color: 'var(--text-disabled)' };
+const _hs4 = { padding: 8, fontSize: 11, color: 'var(--text-disabled)', fontStyle: 'italic' };
+const _hs5 = { marginRight: 6 };
+const _hs6 = { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+
 /**
  * Searchable multi-select dropdown for the per-widget Filters section
  * (`is in` / `is not in` operators).
@@ -105,7 +113,7 @@ export default function DimensionMultiSelect({ modelId, fieldName, selectedValue
   const triggerLabel = selCount === 0 ? 'Select values…' : `${selCount} selected`;
 
   return (
-    <div style={{ width: '100%' }}>
+    <div style={_hs0}>
       <button
         ref={triggerRef}
         type="button"
@@ -122,7 +130,7 @@ export default function DimensionMultiSelect({ modelId, fieldName, selectedValue
         <div style={chipsBoxStyle}>
           {(selectedValues || []).map((v) => (
             <span key={String(v)} style={chipStyle}>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>{String(v)}</span>
+              <span style={_hs1}>{String(v)}</span>
               <button onClick={() => removeChip(String(v))} style={chipDelBtn} title="Remove">
                 <TbX size={10} />
               </button>
@@ -145,19 +153,19 @@ export default function DimensionMultiSelect({ modelId, fieldName, selectedValue
             style={searchInputStyle}
           />
           <div style={listStyle}>
-            {error && <div style={{ padding: 8, fontSize: 11, color: 'var(--state-danger)' }}>{error}</div>}
+            {error && <div style={_hs2}>{error}</div>}
             {!error && loading && (
-              <div style={{ padding: 8, fontSize: 11, color: 'var(--text-disabled)' }}>Loading values…</div>
+              <div style={_hs3}>Loading values…</div>
             )}
             {!error && !loading && filtered.length === 0 && (
-              <div style={{ padding: 8, fontSize: 11, color: 'var(--text-disabled)', fontStyle: 'italic' }}>No values</div>
+              <div style={_hs4}>No values</div>
             )}
             {!loading && filtered.map((o) => {
               const checked = sel.has(o);
               return (
                 <div key={o} onClick={() => toggle(o)} style={{ ...itemStyle, background: checked ? 'var(--bg-active)' : 'transparent' }}>
-                  <input type="checkbox" checked={checked} readOnly style={{ marginRight: 6 }} />
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o}</span>
+                  <input type="checkbox" checked={checked} readOnly style={_hs5} />
+                  <span style={_hs6}>{o}</span>
                 </div>
               );
             })}

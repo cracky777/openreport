@@ -1,6 +1,69 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import api from '../../utils/api';
 
+const _hs0 = {
+          position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 20, display: 'flex', alignItems: 'center', gap: 8,
+          background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8,
+          padding: '10px 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+          animation: 'fadeIn 0.2s ease',
+        };
+const _hs1 = {
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 22, height: 22, borderRadius: '50%',
+            background: '#dc2626', color: '#fff', fontSize: 13, fontWeight: 700,
+            flexShrink: 0,
+          };
+const _hs2 = { fontSize: 12, color: '#991b1b', fontWeight: 500 };
+const _hs3 = {
+            background: 'transparent', border: '1px solid transparent', cursor: 'pointer',
+            color: 'var(--state-danger)', fontSize: 16, padding: '2px 6px', lineHeight: 1, flexShrink: 0,
+            borderRadius: 4,
+          };
+const _hs4 = { position: 'absolute', bottom: 12, right: 12, zIndex: 10, display: 'flex', gap: 4, background: 'var(--bg-panel)', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.12)', padding: 4 };
+const _hs5 = { fontSize: 11, padding: '4px 6px', color: 'var(--text-muted)', minWidth: 36, textAlign: 'center' };
+const _hs6 = { width: '100%', height: '100%' };
+const _hs7 = { cursor: 'pointer' };
+const _hs8 = { pointerEvents: 'none' };
+const _hs9 = { cursor: 'pointer' };
+const _hs10 = { pointerEvents: 'none' };
+const _hs11 = { cursor: 'move' };
+const _hs12 = { pointerEvents: 'none' };
+const _hs13 = { pointerEvents: 'none' };
+const _hs14 = { pointerEvents: 'none' };
+const _hs15 = { cursor: 'pointer' };
+const _hs16 = { cursor: 'pointer' };
+const _hs17 = { pointerEvents: 'none' };
+const _hs18 = { cursor: 'pointer' };
+const _hs19 = { cursor: 'pointer' };
+const _hs20 = { pointerEvents: 'none' };
+const _hs21 = { cursor: 'pointer' };
+const _hs22 = { cursor: 'pointer' };
+const _hs23 = { pointerEvents: 'none' };
+const _hs24 = { cursor: 'pointer' };
+const _hs25 = { cursor: 'pointer' };
+const _hs26 = { cursor: 'crosshair' };
+const _hs27 = { cursor: 'crosshair' };
+const _hs28 = { cursor: 'pointer' };
+const _hs29 = { position: 'fixed', inset: 0, zIndex: 50 };
+const _hs30 = { fontWeight: 600, marginBottom: 4, color: 'var(--text-primary)' };
+const _hs31 = { fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 };
+const _hs32 = {
+                    width: '100%', padding: '4px 6px',
+                    border: '1px solid var(--border-default)', borderRadius: 4,
+                    fontSize: 12, marginBottom: 8,
+                  };
+const _hs33 = {
+                      width: '100%', padding: '4px 6px',
+                      border: '1px solid var(--border-default)', borderRadius: 4,
+                      fontSize: 11, marginBottom: 8,
+                    };
+const _hs34 = { marginTop: 8, fontSize: 11 };
+const _hs35 = { color: 'var(--state-danger)' };
+const _hs36 = { color: 'var(--text-muted)', marginTop: 4, wordBreak: 'break-all' };
+const _hs37 = { marginTop: 10, textAlign: 'right' };
+const _hs38 = { padding: '4px 12px', fontSize: 11, border: '1px solid var(--border-default)', borderRadius: 4, background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)' };
+
 const TABLE_WIDTH = 220;
 const HEADER_HEIGHT = 44;
 const TYPE_BAR_HEIGHT = 20;
@@ -397,39 +460,24 @@ export default function SchemaCanvas({
     >
       {/* Cycle warning */}
       {cycleWarning && (
-        <div style={{
-          position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
-          zIndex: 20, display: 'flex', alignItems: 'center', gap: 8,
-          background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8,
-          padding: '10px 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-          animation: 'fadeIn 0.2s ease',
-        }}>
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 22, height: 22, borderRadius: '50%',
-            background: '#dc2626', color: '#fff', fontSize: 13, fontWeight: 700,
-            flexShrink: 0,
-          }}>!</span>
-          <span style={{ fontSize: 12, color: '#991b1b', fontWeight: 500 }}>{cycleWarning}</span>
-          <button className="btn-hover btn-hover-danger" onClick={() => setCycleWarning(null)} style={{
-            background: 'transparent', border: '1px solid transparent', cursor: 'pointer',
-            color: 'var(--state-danger)', fontSize: 16, padding: '2px 6px', lineHeight: 1, flexShrink: 0,
-            borderRadius: 4,
-          }}>x</button>
+        <div style={_hs0}>
+          <span style={_hs1}>!</span>
+          <span style={_hs2}>{cycleWarning}</span>
+          <button className="btn-hover btn-hover-danger" onClick={() => setCycleWarning(null)} style={_hs3}>x</button>
         </div>
       )}
 
       {/* Zoom controls */}
-      <div style={{ position: 'absolute', bottom: 12, right: 12, zIndex: 10, display: 'flex', gap: 4, background: 'var(--bg-panel)', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.12)', padding: 4 }}>
+      <div style={_hs4}>
         <button className="btn-hover" onClick={() => setZoom((z) => Math.min(2, z + 0.15))} style={zoomBtn}>+</button>
-        <span style={{ fontSize: 11, padding: '4px 6px', color: 'var(--text-muted)', minWidth: 36, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
+        <span style={_hs5}>{Math.round(zoom * 100)}%</span>
         <button className="btn-hover" onClick={() => setZoom((z) => Math.max(0.3, z - 0.15))} style={zoomBtn}>-</button>
         <button className="btn-hover" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} style={{ ...zoomBtn, fontSize: 10, width: 'auto', padding: '4px 8px' }}>Reset</button>
       </div>
 
       <svg
         ref={svgRef}
-        style={{ width: '100%', height: '100%' }}
+        style={_hs6}
         onMouseDown={handleBgMouseDown}
       >
         <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
@@ -585,12 +633,12 @@ export default function SchemaCanvas({
               const renderMarker = (cx, cy, value, side) => (
                 <g
                   onClick={(e) => { e.stopPropagation(); toggleCardinality(i, side); }}
-                  style={{ cursor: 'pointer' }}
+                  style={_hs7}
                 >
                   <title>Cardinality {value} — click to toggle</title>
                   <circle cx={cx} cy={cy} r={9} fill="#fff" stroke={color} strokeWidth={2} />
                   <text x={cx} y={cy + 4} textAnchor="middle" fontSize={11} fill={color} fontWeight={700}
-                    style={{ pointerEvents: 'none' }}>
+                    style={_hs8}>
                     {value}
                   </text>
                 </g>
@@ -606,13 +654,13 @@ export default function SchemaCanvas({
                   {renderMarker(toMarkerX, toMarkerY, cardinality.to, 'to')}
                   {/* Delete button — kept at the curve apex */}
                   <circle cx={labelX} cy={labelY} r={9} fill="#fff" stroke="#fca5a5" strokeWidth={1.5}
-                    style={{ cursor: 'pointer' }}
+                    style={_hs9}
                     onClick={(e) => { e.stopPropagation(); onJoinsChange(joins.filter((_, idx) => idx !== i)); }}
                   >
                     <title>Remove join</title>
                   </circle>
                   <text x={labelX} y={labelY + 4} textAnchor="middle" fontSize={11} fill="#dc2626" fontWeight={600}
-                    style={{ pointerEvents: 'none' }}>×</text>
+                    style={_hs10}>×</text>
                 </g>
               );
             });
@@ -650,7 +698,7 @@ export default function SchemaCanvas({
                 <rect y={HEADER_HEIGHT - 6} width={TABLE_WIDTH} height={6} fill={headerColor} />
                 {/* Drag handle area (full header) */}
                 <rect width={TABLE_WIDTH} height={HEADER_HEIGHT} rx={6} fill="transparent"
-                  style={{ cursor: 'move' }} onMouseDown={(e) => handleTableMouseDown(e, tableName)} />
+                  style={_hs11} onMouseDown={(e) => handleTableMouseDown(e, tableName)} />
                 {/* Clip path for text truncation */}
                 <defs>
                   <clipPath id={`clip-header-${tableName.replace(/[^a-zA-Z0-9]/g, '_')}`}>
@@ -659,13 +707,13 @@ export default function SchemaCanvas({
                 </defs>
                 {/* Schema name (small, above table name) */}
                 {tableName.includes('.') && (
-                  <text x={10} y={15} fontSize={9} fill="#94a3b8" fontWeight={400} style={{ pointerEvents: 'none' }}>
+                  <text x={10} y={15} fontSize={9} fill="#94a3b8" fontWeight={400} style={_hs12}>
                     {tableName.split('.').slice(0, -1).join('.')}
                   </text>
                 )}
                 {/* Table name (truncated with clipPath) */}
                 <g clipPath={`url(#clip-header-${tableName.replace(/[^a-zA-Z0-9]/g, '_')})`}>
-                  <text x={10} y={tableName.includes('.') ? 30 : 28} fontSize={12} fill="#fff" fontWeight={600} style={{ pointerEvents: 'none' }}>
+                  <text x={10} y={tableName.includes('.') ? 30 : 28} fontSize={12} fill="#fff" fontWeight={600} style={_hs13}>
                     {tableName.includes('.') ? tableName.split('.').pop() : tableName}
                   </text>
                 </g>
@@ -677,12 +725,12 @@ export default function SchemaCanvas({
                     <g>
                       {countText && (
                         <text x={TABLE_WIDTH - 36} y={15} fontSize={9} fill="#94a3b8" fontWeight={400}
-                          textAnchor="end" style={{ pointerEvents: 'none' }}>
+                          textAnchor="end" style={_hs14}>
                           {countText} rows
                         </text>
                       )}
                       <text x={TABLE_WIDTH - 22} y={15} fontSize={10} fill="#64748b"
-                        textAnchor="end" style={{ cursor: 'pointer' }}
+                        textAnchor="end" style={_hs15}
                         onClick={(e) => { e.stopPropagation(); fetchTableCount(tableName); }}>
                         ↻
                       </text>
@@ -694,11 +742,11 @@ export default function SchemaCanvas({
                               onRemoveTable(tableName);
                             }
                           }}
-                          style={{ cursor: 'pointer' }}>
+                          style={_hs16}>
                           <title>Remove table from model</title>
                           <circle cx={TABLE_WIDTH - 10} cy={12} r={7} fill="rgba(255,255,255,0.15)" />
                           <text x={TABLE_WIDTH - 10} y={16} fontSize={11} fill="#fff" fontWeight={700}
-                            textAnchor="middle" style={{ pointerEvents: 'none' }}>×</text>
+                            textAnchor="middle" style={_hs17}>×</text>
                         </g>
                       )}
                     </g>
@@ -708,20 +756,20 @@ export default function SchemaCanvas({
                 {/* Type bar — below header, click to cycle (none → dimension → fact → none) */}
                 <rect y={HEADER_HEIGHT} width={TABLE_WIDTH} height={TYPE_BAR_HEIGHT}
                   fill={tColors ? tColors.badge : '#f1f5f9'} fillOpacity={tColors ? 0.1 : 1}
-                  style={{ cursor: 'pointer' }}
+                  style={_hs18}
                   onClick={(e) => { e.stopPropagation(); cycleTableType(tableName); }} />
                 {tColors ? (
-                  <g onClick={(e) => { e.stopPropagation(); cycleTableType(tableName); }} style={{ cursor: 'pointer' }}>
+                  <g onClick={(e) => { e.stopPropagation(); cycleTableType(tableName); }} style={_hs19}>
                     <rect x={TABLE_WIDTH / 2 - 22} y={HEADER_HEIGHT + 3} width={44} height={14} rx={7}
                       fill={tColors.badge} fillOpacity={0.2} stroke={tColors.badge} strokeWidth={1} />
                     <text x={TABLE_WIDTH / 2} y={HEADER_HEIGHT + 13} textAnchor="middle" fontSize={8} fill={tColors.badge} fontWeight={700}
-                      style={{ pointerEvents: 'none' }}>
+                      style={_hs20}>
                       {tColors.label}
                     </text>
                   </g>
                 ) : (
                   <text x={TABLE_WIDTH / 2} y={HEADER_HEIGHT + 14} textAnchor="middle" fontSize={8} fill="#94a3b8" fontWeight={500}
-                    style={{ cursor: 'pointer' }}
+                    style={_hs21}
                     onClick={(e) => { e.stopPropagation(); cycleTableType(tableName); }}>
                     click to set type
                   </text>
@@ -731,7 +779,7 @@ export default function SchemaCanvas({
                 {onOpenRLS && (
                   <g
                     onClick={(e) => { e.stopPropagation(); onOpenRLS(tableName); }}
-                    style={{ cursor: 'pointer' }}
+                    style={_hs22}
                   >
                     <title>{rlsTable === tableName ? 'Row-level security enabled — click to configure' : 'Configure row-level security'}</title>
                     <rect
@@ -746,7 +794,7 @@ export default function SchemaCanvas({
                       x={TABLE_WIDTH - 22} y={HEADER_HEIGHT + 13}
                       textAnchor="middle" fontSize={8}
                       fill={rlsTable === tableName ? '#fff' : '#64748b'} fontWeight={700}
-                      style={{ pointerEvents: 'none' }}
+                      style={_hs23}
                     >RLS</text>
                   </g>
                 )}
@@ -831,14 +879,14 @@ export default function SchemaCanvas({
                       {/* D / M buttons */}
                       <text x={TABLE_WIDTH - 36} y={cy + 4} fontSize={9}
                         fill={isDim ? '#7c3aed' : '#cbd5e1'} fontWeight={700}
-                        style={{ cursor: 'pointer' }}
+                        style={_hs24}
                         onClick={(e) => { e.stopPropagation(); onAddDimension(tableName, col); }}>
                         D
                       </text>
                       {numeric && (
                         <text x={TABLE_WIDTH - 22} y={cy + 4} fontSize={9}
                           fill={isMeas ? '#16a34a' : '#cbd5e1'} fontWeight={700}
-                          style={{ cursor: 'pointer' }}
+                          style={_hs25}
                           onClick={(e) => { e.stopPropagation(); onAddMeasure(tableName, col); }}>
                           M
                         </text>
@@ -846,11 +894,11 @@ export default function SchemaCanvas({
 
                       {/* Left dot */}
                       <circle cx={0} cy={cy} r={COL_DOT_RADIUS} fill="#fff" stroke="#94a3b8" strokeWidth={1.5}
-                        style={{ cursor: 'crosshair' }} data-table={tableName} data-column={col.column_name}
+                        style={_hs26} data-table={tableName} data-column={col.column_name}
                         onMouseDown={(e) => handleColumnDotDown(e, tableName, col.column_name, 'left')} />
                       {/* Right dot */}
                       <circle cx={TABLE_WIDTH} cy={cy} r={COL_DOT_RADIUS} fill="#fff" stroke="#94a3b8" strokeWidth={1.5}
-                        style={{ cursor: 'crosshair' }} data-table={tableName} data-column={col.column_name}
+                        style={_hs27} data-table={tableName} data-column={col.column_name}
                         onMouseDown={(e) => handleColumnDotDown(e, tableName, col.column_name, 'right')} />
                     </g>
                   );
@@ -860,7 +908,7 @@ export default function SchemaCanvas({
                 {showToggle && (
                   <g
                     onClick={(e) => { e.stopPropagation(); toggleExpand(tableName); }}
-                    style={{ cursor: 'pointer' }}
+                    style={_hs28}
                   >
                     <rect
                       x={1}
@@ -896,7 +944,7 @@ export default function SchemaCanvas({
         <>
           <div
             onClick={() => setTypePopover(null)}
-            style={{ position: 'fixed', inset: 0, zIndex: 50 }}
+            style={_hs29}
           />
           {(() => {
             const key = `${typePopover.table}.${typePopover.column}`;
@@ -928,10 +976,10 @@ export default function SchemaCanvas({
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <div style={{ fontWeight: 600, marginBottom: 4, color: 'var(--text-primary)' }}>
+                <div style={_hs30}>
                   Override column type
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+                <div style={_hs31}>
                   <code>{typePopover.column}</code> · native <code>{typePopover.dataType}</code>
                 </div>
                 <select
@@ -939,11 +987,7 @@ export default function SchemaCanvas({
                   onChange={(e) => {
                     onColumnTypeChange?.(typePopover.table, typePopover.column, e.target.value, currentFormat);
                   }}
-                  style={{
-                    width: '100%', padding: '4px 6px',
-                    border: '1px solid var(--border-default)', borderRadius: 4,
-                    fontSize: 12, marginBottom: 8,
-                  }}
+                  style={_hs32}
                 >
                   <option value="auto">auto (use native)</option>
                   <option value="string">string</option>
@@ -956,11 +1000,7 @@ export default function SchemaCanvas({
                   <select
                     value={currentFormat}
                     onChange={(e) => onColumnTypeChange?.(typePopover.table, typePopover.column, 'date', e.target.value)}
-                    style={{
-                      width: '100%', padding: '4px 6px',
-                      border: '1px solid var(--border-default)', borderRadius: 4,
-                      fontSize: 11, marginBottom: 8,
-                    }}
+                    style={_hs33}
                     title="Expected date format in this column"
                   >
                     <option value="auto">auto (try ISO / EU / US)</option>
@@ -989,16 +1029,16 @@ export default function SchemaCanvas({
                   </button>
                 )}
                 {result && (
-                  <div style={{ marginTop: 8, fontSize: 11 }}>
+                  <div style={_hs34}>
                     {result.error ? (
-                      <span style={{ color: 'var(--state-danger)' }}>Error: {result.error}</span>
+                      <span style={_hs35}>Error: {result.error}</span>
                     ) : (
                       <>
                         <div style={{ color: result.validRatio >= 0.95 ? 'var(--state-success, #16a34a)' : 'var(--state-warning, #92400e)' }}>
                           {result.validRatio >= 0.95 ? '✓' : '!'} {Math.round((result.validRatio || 0) * 100)}% valid ({result.validCount}/{result.sampleSize} rows)
                         </div>
                         {result.invalidExamples?.length > 0 && (
-                          <div style={{ color: 'var(--text-muted)', marginTop: 4, wordBreak: 'break-all' }}>
+                          <div style={_hs36}>
                             Invalid examples: {result.invalidExamples.slice(0, 3).map((v) => v == null ? 'NULL' : `"${v}"`).join(', ')}
                           </div>
                         )}
@@ -1006,12 +1046,12 @@ export default function SchemaCanvas({
                     )}
                   </div>
                 )}
-                <div style={{ marginTop: 10, textAlign: 'right' }}>
+                <div style={_hs37}>
                   <button
                     type="button"
                     className="btn-hover"
                     onClick={() => setTypePopover(null)}
-                    style={{ padding: '4px 12px', fontSize: 11, border: '1px solid var(--border-default)', borderRadius: 4, background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                    style={_hs38}
                   >
                     Close
                   </button>

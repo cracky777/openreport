@@ -8,6 +8,14 @@ import {
   getColumnHeaderStyle, getColumnValueStyle, getColumnDisplayName, getColumnWidth,
 } from '../../utils/tableConfigHelpers';
 
+const _hs0 = {
+        position: 'absolute', right: 0, top: 0, bottom: 0, width: 4,
+        cursor: 'col-resize', zIndex: 5,
+      };
+const _hs1 = { height: '100%', overflow: 'auto', fontSize: 12 };
+const _hs2 = { cursor: 'pointer', marginRight: 6, fontSize: 10, color: 'var(--text-muted)', display: 'inline-block', width: 12 };
+const _hs3 = { marginLeft: 18 };
+
 /**
  * Build a tree of row groups for Power BI-style hierarchy.
  * Each node: { key, value, depth, children[], rowKey (leaf only) }
@@ -128,10 +136,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
   const renderResizeHandle = (colKey) => (
     <div
       onMouseDown={(e) => handleResizeStart(e, colKey)}
-      style={{
-        position: 'absolute', right: 0, top: 0, bottom: 0, width: 4,
-        cursor: 'col-resize', zIndex: 5,
-      }}
+      style={_hs0}
     />
   );
 
@@ -310,7 +315,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
   const anyExplicitWidth = leafColKeys.some((k) => widthFor(k));
 
   return (
-    <div style={{ height: '100%', overflow: 'auto', fontSize: 12 }}>
+    <div style={_hs1}>
       <table style={{
         borderCollapse: 'collapse', width: 'auto', minWidth: '100%',
         ...(grid.outerBorder ? { border: `${grid.outerBorderWidth}px solid ${grid.outerBorderColor}` } : {}),
@@ -433,7 +438,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
                         ...(freeze.freezeFirstColumn ? { position: 'sticky', left: 0, zIndex: 1, backgroundColor: bg, boxShadow: '2px 0 4px rgba(0,0,0,0.06)' } : {}),
                       }}>
                         <span onClick={() => toggleGroup(node.key)}
-                          style={{ cursor: 'pointer', marginRight: 6, fontSize: 10, color: 'var(--text-muted)', display: 'inline-block', width: 12 }}>
+                          style={_hs2}>
                           {row.isCollapsed ? '▶' : '▼'}
                         </span>
                         {node.value}
@@ -505,7 +510,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
                       ...(freeze.freezeFirstColumn ? { position: 'sticky', left: 0, zIndex: 1, backgroundColor: bg, boxShadow: '2px 0 4px rgba(0,0,0,0.06)' } : {}),
                     }}>
                       {rowDims.length <= 1 ? node.value : (
-                        <span style={{ marginLeft: 18 }}>{node.value}</span>
+                        <span style={_hs3}>{node.value}</span>
                       )}
                     </td>
                   );

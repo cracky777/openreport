@@ -7,6 +7,97 @@ import api from '../utils/api';
 import { headerShellStyle, BackButton, PrimaryButton, SecondaryButton, headerBadgeStyle } from '../components/PageHeader/PageHeader';
 import { useTheme } from '../hooks/useTheme';
 
+const _hs0 = { padding: 40, color: 'var(--text-disabled)' };
+const _hs1 = { height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' };
+const _hs2 = {
+            fontSize: 16, fontWeight: 600, border: '1px solid transparent', outline: 'none',
+            background: 'transparent', color: 'var(--text-primary)', minWidth: 180, maxWidth: 320,
+            padding: '4px 8px', borderRadius: 6,
+            transition: 'background 0.12s, border-color 0.12s',
+          };
+const _hs3 = { fontSize: 9, color: 'var(--accent-primary)', marginLeft: 2 };
+const _hs4 = { flex: 1 };
+const _hs5 = {
+          display: 'flex', alignItems: 'center', gap: 2,
+          padding: '3px 4px', background: 'var(--bg-subtle)',
+          border: '1px solid var(--border-default)', borderRadius: 10, marginRight: 8,
+        };
+const _hs6 = { marginRight: 8 };
+const _hs7 = { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)', zIndex: 100 };
+const _hs8 = {
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            background: 'var(--bg-panel)', borderRadius: 10, padding: 20, minWidth: 400, maxWidth: 480,
+            boxShadow: '0 10px 30px rgba(15,23,42,0.25)', zIndex: 101,
+          };
+const _hs9 = { fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 };
+const _hs10 = { fontSize: 12, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 };
+const _hs11 = { display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 280, overflowY: 'auto', border: '1px solid var(--border-default)', borderRadius: 6, padding: 4 };
+const _hs12 = { fontSize: 13, fontWeight: 500 };
+const _hs13 = { fontSize: 10, color: 'var(--accent-primary)', marginLeft: 6 };
+const _hs14 = { fontSize: 11, color: 'var(--text-muted)' };
+const _hs15 = { padding: 16, fontSize: 12, color: 'var(--text-disabled)', textAlign: 'center' };
+const _hs16 = { display: 'flex', justifyContent: 'flex-end', marginTop: 14 };
+const _hs17 = { padding: '6px 14px', fontSize: 13, background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' };
+const _hs18 = { flex: 1, overflow: 'auto', padding: 24 };
+const _hs19 = { maxWidth: 700, margin: '0 auto' };
+const _hs20 = { fontSize: 16, fontWeight: 600, marginBottom: 4 };
+const _hs21 = { fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 };
+const _hs22 = { maxHeight: 400, overflow: 'auto' };
+const _hs23 = { padding: 20, textAlign: 'center', color: 'var(--text-disabled)' };
+const _hs24 = { padding: 12, background: 'var(--state-danger-soft)', color: 'var(--state-danger)', borderRadius: 6, fontSize: 13, marginBottom: 8 };
+const _hs25 = { padding: 20, textAlign: 'center', color: 'var(--text-disabled)' };
+const _hs26 = { width: 18, height: 18, cursor: 'pointer' };
+const _hs27 = { fontSize: 14, color: 'var(--text-primary)' };
+const _hs28 = { marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
+const _hs29 = { fontSize: 13, color: 'var(--text-muted)' };
+const _hs30 = {
+          margin: '12px 24px 0', padding: '10px 14px', borderRadius: 8,
+          background: 'var(--state-warning-soft)', border: '1px solid #fde68a', color: 'var(--state-warning)',
+          fontSize: 13, display: 'flex', alignItems: 'flex-start', gap: 10,
+        };
+const _hs31 = { fontSize: 18, lineHeight: 1 };
+const _hs32 = { flex: 1 };
+const _hs33 = { fontWeight: 600, marginBottom: 4 };
+const _hs34 = { fontSize: 12, color: 'var(--state-warning)', lineHeight: 1.5 };
+const _hs35 = { margin: '6px 0 0 18px', padding: 0, fontSize: 12, color: 'var(--state-warning)' };
+const _hs36 = {
+          margin: '12px 24px 0', padding: '10px 14px', borderRadius: 8,
+          background: 'var(--state-warning-soft)', border: '1px solid #fde68a', color: 'var(--state-warning)',
+          fontSize: 13, display: 'flex', alignItems: 'flex-start', gap: 10,
+        };
+const _hs37 = { fontSize: 18, lineHeight: 1 };
+const _hs38 = { flex: 1 };
+const _hs39 = { fontWeight: 600, marginBottom: 4 };
+const _hs40 = { fontSize: 12, lineHeight: 1.5 };
+const _hs41 = { flex: 1, position: 'relative', overflow: 'hidden' };
+const _hs42 = {
+            position: 'absolute', top: 12, left: 12, zIndex: 10,
+            background: 'var(--bg-panel)', borderRadius: 6, padding: '6px 12px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)', fontSize: 12, color: 'var(--text-muted)',
+          };
+const _hs43 = { flex: 1, overflow: 'auto', padding: 24 };
+const _hs44 = { maxWidth: 1000, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 };
+const _hs45 = { width: '100%', border: 'none', outline: 'none', fontSize: 14, color: 'var(--text-secondary)' };
+const _hs46 = { color: 'var(--text-disabled)', fontSize: 13 };
+const _hs47 = { marginRight: 4 };
+const _hs48 = { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' };
+const _hs49 = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 };
+const _hs50 = { padding: 12, background: 'var(--bg-subtle)', borderRadius: 6, marginBottom: 12, border: '1px solid var(--border-default)' };
+const _hs51 = { fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 };
+const _hs52 = { display: 'flex', gap: 6, justifyContent: 'flex-end' };
+const _hs53 = { color: 'var(--text-disabled)', fontSize: 13 };
+const _hs54 = { marginRight: 4 };
+const _hs55 = { color: 'var(--accent-primary)', fontSize: 11 };
+const _hs56 = { fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)' };
+const _hs57 = { fontSize: 11, color: 'var(--accent-primary)', fontWeight: 600 };
+const _hs58 = { color: 'var(--text-disabled)', fontSize: 13 };
+const _hs59 = { display: 'flex', flexDirection: 'column', gap: 6 };
+const _hs60 = { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--bg-subtle)', borderRadius: 6, fontSize: 13 };
+const _hs61 = { fontWeight: 600 };
+const _hs62 = { color: 'var(--text-muted)' };
+const _hs63 = { fontWeight: 600 };
+const _hs64 = { color: 'var(--text-muted)' };
+
 const AGG_OPTIONS = [
   { value: 'sum', label: 'Sum' },
   { value: 'avg', label: 'Average' },
@@ -460,7 +551,7 @@ export default function ModelEditor() {
     }
   };
 
-  if (loading) return <div style={{ padding: 40, color: 'var(--text-disabled)' }}>Loading model...</div>;
+  if (loading) return <div style={_hs0}>Loading model...</div>;
 
   // Build table data for SchemaCanvas (only selected tables with loaded columns)
   const schemaTablesData = {};
@@ -478,18 +569,13 @@ export default function ModelEditor() {
     : allTables;
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' }}>
+    <div style={_hs1}>
       {/* Header */}
       <header style={headerShellStyle}>
         <BackButton to="/models" />
         <input
           type="text" value={name} onChange={(e) => setName(e.target.value)}
-          style={{
-            fontSize: 16, fontWeight: 600, border: '1px solid transparent', outline: 'none',
-            background: 'transparent', color: 'var(--text-primary)', minWidth: 180, maxWidth: 320,
-            padding: '4px 8px', borderRadius: 6,
-            transition: 'background 0.12s, border-color 0.12s',
-          }}
+          style={_hs2}
           onFocus={(e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
           onBlur={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
         />
@@ -502,16 +588,12 @@ export default function ModelEditor() {
             onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent-primary-soft)'; e.currentTarget.style.borderColor = 'var(--accent-primary-border)'; }}
           >
             {datasource.name}
-            <span style={{ fontSize: 9, color: 'var(--accent-primary)', marginLeft: 2 }}>▼</span>
+            <span style={_hs3}>▼</span>
           </button>
         )}
-        <div style={{ flex: 1 }} />
+        <div style={_hs4} />
         {/* Steps */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 2,
-          padding: '3px 4px', background: 'var(--bg-subtle)',
-          border: '1px solid var(--border-default)', borderRadius: 10, marginRight: 8,
-        }}>
+        <div style={_hs5}>
           {STEPS.map((s, i) => {
             const active = step === i;
             return (
@@ -542,7 +624,7 @@ export default function ModelEditor() {
           title={selectedTables.length === 0
             ? 'Pick at least one table before creating a report'
             : 'Save the model and open a new report bound to it'}
-          style={{ marginRight: 8 }}
+          style={_hs6}
         >
           {creatingReport ? 'Creating…' : '+ New Report'}
         </SecondaryButton>
@@ -555,17 +637,13 @@ export default function ModelEditor() {
       {showDsChange && (
         <>
           <div onClick={() => setShowDsChange(false)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)', zIndex: 100 }} />
-          <div style={{
-            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-            background: 'var(--bg-panel)', borderRadius: 10, padding: 20, minWidth: 400, maxWidth: 480,
-            boxShadow: '0 10px 30px rgba(15,23,42,0.25)', zIndex: 101,
-          }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Change datasource</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
+            style={_hs7} />
+          <div style={_hs8}>
+            <div style={_hs9}>Change datasource</div>
+            <div style={_hs10}>
               The model's tables, dimensions, measures and joins will be preserved. Any references to tables/columns that don't exist in the new datasource will be flagged on the model editor and on the widgets that use them.
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 280, overflowY: 'auto', border: '1px solid var(--border-default)', borderRadius: 6, padding: 4 }}>
+            <div style={_hs11}>
               {allDatasources.map((ds) => {
                 const isCurrent = ds.id === model?.datasource_id;
                 return (
@@ -582,22 +660,22 @@ export default function ModelEditor() {
                     onMouseEnter={(e) => { if (!isCurrent) e.currentTarget.style.background = 'var(--bg-subtle)'; }}
                     onMouseLeave={(e) => { if (!isCurrent) e.currentTarget.style.background = 'transparent'; }}
                   >
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>
-                      {ds.name} {isCurrent && <span style={{ fontSize: 10, color: 'var(--accent-primary)', marginLeft: 6 }}>current</span>}
+                    <span style={_hs12}>
+                      {ds.name} {isCurrent && <span style={_hs13}>current</span>}
                     </span>
-                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    <span style={_hs14}>
                       {ds.db_type?.toUpperCase()} — {ds.host ? `${ds.host}:${ds.port}/${ds.db_name}` : ds.db_name}
                     </span>
                   </button>
                 );
               })}
               {allDatasources.length === 0 && (
-                <div style={{ padding: 16, fontSize: 12, color: 'var(--text-disabled)', textAlign: 'center' }}>No datasources available</div>
+                <div style={_hs15}>No datasources available</div>
               )}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+            <div style={_hs16}>
               <button className="btn-hover" onClick={() => setShowDsChange(false)}
-                style={{ padding: '6px 14px', fontSize: 13, background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                style={_hs17}>
                 Cancel
               </button>
             </div>
@@ -607,11 +685,11 @@ export default function ModelEditor() {
 
       {/* Step 0: Table selection */}
       {step === 0 && (
-        <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
-          <div style={{ maxWidth: 700, margin: '0 auto' }}>
+        <div style={_hs18}>
+          <div style={_hs19}>
             <div style={cardStyle}>
-              <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Select Tables</h2>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+              <h2 style={_hs20}>Select Tables</h2>
+              <p style={_hs21}>
                 Choose the tables you want to include in this model.
               </p>
               <input
@@ -619,17 +697,17 @@ export default function ModelEditor() {
                 value={tableSearch} onChange={(e) => setTableSearch(e.target.value)}
                 style={searchInput}
               />
-              <div style={{ maxHeight: 400, overflow: 'auto' }}>
+              <div style={_hs22}>
                 {tablesLoading && (
-                  <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-disabled)' }}>Loading tables from database...</div>
+                  <div style={_hs23}>Loading tables from database...</div>
                 )}
                 {tablesError && (
-                  <div style={{ padding: 12, background: 'var(--state-danger-soft)', color: 'var(--state-danger)', borderRadius: 6, fontSize: 13, marginBottom: 8 }}>
+                  <div style={_hs24}>
                     {tablesError}
                   </div>
                 )}
                 {!tablesLoading && !tablesError && filteredTables.length === 0 && (
-                  <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-disabled)' }}>
+                  <div style={_hs25}>
                     {tableSearch ? 'No tables match your search' : 'No tables found in this database'}
                   </div>
                 )}
@@ -639,14 +717,14 @@ export default function ModelEditor() {
                       type="checkbox"
                       checked={selectedTables.includes(table)}
                       onChange={() => toggleTable(table)}
-                      style={{ width: 18, height: 18, cursor: 'pointer' }}
+                      style={_hs26}
                     />
-                    <span style={{ fontSize: 14, color: 'var(--text-primary)' }}>{table}</span>
+                    <span style={_hs27}>{table}</span>
                   </label>
                 ))}
               </div>
-              <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{selectedTables.length} table(s) selected</span>
+              <div style={_hs28}>
+                <span style={_hs29}>{selectedTables.length} table(s) selected</span>
                 <button
                   className="btn-hover btn-hover-primary"
                   onClick={enterStep1}
@@ -664,20 +742,16 @@ export default function ModelEditor() {
       {/* Step 1: Visual schema */}
       {/* Broken references banner (visible on all steps when there are issues) */}
       {brokenRefs.length > 0 && (
-        <div style={{
-          margin: '12px 24px 0', padding: '10px 14px', borderRadius: 8,
-          background: 'var(--state-warning-soft)', border: '1px solid #fde68a', color: 'var(--state-warning)',
-          fontSize: 13, display: 'flex', alignItems: 'flex-start', gap: 10,
-        }}>
-          <span style={{ fontSize: 18, lineHeight: 1 }}>⚠️</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+        <div style={_hs30}>
+          <span style={_hs31}>⚠️</span>
+          <div style={_hs32}>
+            <div style={_hs33}>
               {brokenRefs.length} broken reference{brokenRefs.length > 1 ? 's' : ''} detected
             </div>
-            <div style={{ fontSize: 12, color: 'var(--state-warning)', lineHeight: 1.5 }}>
+            <div style={_hs34}>
               Some tables or columns used by this model are no longer present in the datasource. Queries using them will fail. Review and fix them below.
             </div>
-            <ul style={{ margin: '6px 0 0 18px', padding: 0, fontSize: 12, color: 'var(--state-warning)' }}>
+            <ul style={_hs35}>
               {brokenRefs.slice(0, 6).map((r, i) => (
                 <li key={i}>
                   <strong>{r.kind}</strong>{' '}
@@ -704,17 +778,13 @@ export default function ModelEditor() {
       {/* No fields flagged yet — visible warning so the user doesn't save an
           empty model and end up with widgets that have nothing to bind to. */}
       {selectedTables.length > 0 && dimensions.length === 0 && measures.length === 0 && (
-        <div style={{
-          margin: '12px 24px 0', padding: '10px 14px', borderRadius: 8,
-          background: 'var(--state-warning-soft)', border: '1px solid #fde68a', color: 'var(--state-warning)',
-          fontSize: 13, display: 'flex', alignItems: 'flex-start', gap: 10,
-        }}>
-          <span style={{ fontSize: 18, lineHeight: 1 }}>⚠️</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+        <div style={_hs36}>
+          <span style={_hs37}>⚠️</span>
+          <div style={_hs38}>
+            <div style={_hs39}>
               No columns flagged for this model
             </div>
-            <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+            <div style={_hs40}>
               You haven't added any dimension, measure or date column yet. Click the <strong>D</strong> (dimension) or <strong>M</strong> (measure) tag next to a column in the schema to flag it. Without flagged columns, reports built on this model won't have anything to display.
             </div>
           </div>
@@ -722,12 +792,8 @@ export default function ModelEditor() {
       )}
 
       {step === 1 && (
-        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-          <div style={{
-            position: 'absolute', top: 12, left: 12, zIndex: 10,
-            background: 'var(--bg-panel)', borderRadius: 6, padding: '6px 12px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)', fontSize: 12, color: 'var(--text-muted)',
-          }}>
+        <div style={_hs41}>
+          <div style={_hs42}>
             Drag column dots to create joins. Click D/M to mark dimensions/measures.
           </div>
           <SchemaCanvas
@@ -779,14 +845,14 @@ export default function ModelEditor() {
 
       {/* Step 2: Dimensions & Measures */}
       {step === 2 && (
-        <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
-          <div style={{ maxWidth: 1000, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={_hs43}>
+          <div style={_hs44}>
             {/* Description */}
             <div style={cardStyle}>
               <input
                 type="text" value={description} onChange={(e) => setDescription(e.target.value)}
                 placeholder="Model description (optional)"
-                style={{ width: '100%', border: 'none', outline: 'none', fontSize: 14, color: 'var(--text-secondary)' }}
+                style={_hs45}
               />
             </div>
 
@@ -794,7 +860,7 @@ export default function ModelEditor() {
             <div style={cardStyle}>
               <h3 style={cardTitle}>Dimensions ({dimensions.length})</h3>
               {dimensions.length === 0 ? (
-                <p style={{ color: 'var(--text-disabled)', fontSize: 13 }}>
+                <p style={_hs46}>
                   No dimensions yet. Go to "Schema & Joins" and click D next to columns.
                 </p>
               ) : (
@@ -813,7 +879,7 @@ export default function ModelEditor() {
                       const broken = brokenRefByKey.get(`dimension\u0000${d.name}`);
                       return (
                       <tr key={d.name} style={broken ? { background: 'var(--state-warning-soft)' } : undefined} title={broken ? (broken.issue === 'missing_table' ? `Table "${broken.table}" not found` : broken.issue === 'missing_column' ? `Column "${broken.column}" missing in "${broken.table}"` : broken.issue) : undefined}>
-                        <td style={tdStyle}>{broken && <span style={{ marginRight: 4 }}>⚠️</span>}{d.table}</td>
+                        <td style={tdStyle}>{broken && <span style={_hs47}>⚠️</span>}{d.table}</td>
                         <td style={tdStyle}>{d.column}</td>
                         <td style={tdStyle}>
                           {(() => {
@@ -825,7 +891,7 @@ export default function ModelEditor() {
                             const currentFormat = override?.format || 'auto';
                             const isDateType_ = normalizeStoredType(d.type) === 'date';
                             return (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <div style={_hs48}>
                                 <select
                                   value={normalizeStoredType(d.type)}
                                   onChange={(e) => setColumnType(d.table, d.column, e.target.value, currentFormat)}
@@ -904,14 +970,14 @@ export default function ModelEditor() {
 
             {/* Measures */}
             <div style={cardStyle}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={_hs49}>
                 <h3 style={{ ...cardTitle, marginBottom: 0 }}>Measures ({measures.length})</h3>
                 <button className="btn-hover btn-hover-accent" onClick={() => setShowCalcMeasure(true)} style={addCalcBtn}>+ Measure</button>
               </div>
 
               {showCalcMeasure && (
-                <div style={{ padding: 12, background: 'var(--bg-subtle)', borderRadius: 6, marginBottom: 12, border: '1px solid var(--border-default)' }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>New calculated measure</div>
+                <div style={_hs50}>
+                  <div style={_hs51}>New calculated measure</div>
                   <input
                     type="text" placeholder="Label (e.g. Amount per capita)"
                     value={calcMeasure.label} onChange={(e) => setCalcMeasure({ ...calcMeasure, label: e.target.value })}
@@ -922,7 +988,7 @@ export default function ModelEditor() {
                     onChange={(v) => setCalcMeasure({ ...calcMeasure, expression: v })}
                     model={{ dimensions, measures }}
                   />
-                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                  <div style={_hs52}>
                     <button className="btn-hover" onClick={() => { setShowCalcMeasure(false); setCalcMeasure({ label: '', expression: '' }); }} style={calcCancelBtn}>Cancel</button>
                     <button className="btn-hover btn-hover-primary" onClick={addCalculatedMeasure} disabled={!calcMeasure.label || !calcMeasure.expression} style={calcSaveBtn}>Add</button>
                   </div>
@@ -930,7 +996,7 @@ export default function ModelEditor() {
               )}
 
               {measures.length === 0 && !showCalcMeasure ? (
-                <p style={{ color: 'var(--text-disabled)', fontSize: 13 }}>
+                <p style={_hs53}>
                   No measures yet. Go to "Schema & Joins" and click M, or add a SQL measure above.
                 </p>
               ) : (
@@ -949,17 +1015,17 @@ export default function ModelEditor() {
                       const broken = brokenRefByKey.get(`measure\u0000${m.name}`);
                       return (
                       <tr key={m.name} style={broken ? { background: 'var(--state-warning-soft)' } : undefined} title={broken ? (broken.issue === 'missing_table' ? `Table "${broken.table}" not found` : broken.issue === 'missing_column' ? `Column "${broken.column}" missing in "${broken.table}"` : broken.issue) : undefined}>
-                        <td style={tdStyle}>{broken && <span style={{ marginRight: 4 }}>⚠️</span>}{m.aggregation === 'custom' ? <span style={{ color: 'var(--accent-primary)', fontSize: 11 }}>SQL</span> : m.table}</td>
+                        <td style={tdStyle}>{broken && <span style={_hs54}>⚠️</span>}{m.aggregation === 'custom' ? <span style={_hs55}>SQL</span> : m.table}</td>
                         <td style={tdStyle} title={m.expression || ''}>
                           {m.aggregation === 'custom' ? (
-                            <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)' }}>
+                            <span style={_hs56}>
                               {m.expression?.length > 30 ? m.expression.substring(0, 30) + '...' : m.expression}
                             </span>
                           ) : m.column}
                         </td>
                         <td style={tdStyle}>
                           {m.aggregation === 'custom' ? (
-                            <span style={{ fontSize: 11, color: 'var(--accent-primary)', fontWeight: 600 }}>custom</span>
+                            <span style={_hs57}>custom</span>
                           ) : (
                           <select
                             style={inlineInput}
@@ -996,16 +1062,16 @@ export default function ModelEditor() {
             <div style={cardStyle}>
               <h3 style={cardTitle}>Joins ({joins.length})</h3>
               {joins.length === 0 ? (
-                <p style={{ color: 'var(--text-disabled)', fontSize: 13 }}>No joins. Go to "Schema & Joins" to drag between column dots.</p>
+                <p style={_hs58}>No joins. Go to "Schema & Joins" to drag between column dots.</p>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={_hs59}>
                   {joins.map((j, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--bg-subtle)', borderRadius: 6, fontSize: 13 }}>
-                      <span style={{ fontWeight: 600 }}>{j.from_table}</span>
-                      <span style={{ color: 'var(--text-muted)' }}>.{j.from_column}</span>
+                    <div key={i} style={_hs60}>
+                      <span style={_hs61}>{j.from_table}</span>
+                      <span style={_hs62}>.{j.from_column}</span>
                       <span style={{ ...badge, background: 'var(--bg-active)', color: 'var(--accent-primary)' }}>{j.type}</span>
-                      <span style={{ fontWeight: 600 }}>{j.to_table}</span>
-                      <span style={{ color: 'var(--text-muted)' }}>.{j.to_column}</span>
+                      <span style={_hs63}>{j.to_table}</span>
+                      <span style={_hs64}>.{j.to_column}</span>
                       <button className="btn-hover btn-hover-danger" onClick={() => setJoins((prev) => prev.filter((_, idx) => idx !== i))} style={{ ...removeBtn, marginLeft: 'auto' }}>x</button>
                     </div>
                   ))}
