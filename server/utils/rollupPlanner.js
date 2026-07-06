@@ -468,7 +468,12 @@ async function tryServeFromRollup(opts) {
 
   let sql = `SELECT ${[...finalDimSelects, ...finalAtomSelects].join(', ')} FROM ${fromSql}`;
   if (dimNameCols.length > 0) sql += ` ORDER BY ${dimNameCols[0]}`;
-  const lim = Math.min(Number(limit) || 1000, 1_000_000);
+  // Don't pre-truncate with the arbitrary LIMIT when a top_n/bottom_n is in
+  // play: the in-memory rank (below) must see ALL rollup rows first, otherwise
+  // the true top-N can be cut off by this LIMIT. Rollup rows are one-per-grain,
+  // so the 1M cap still bounds the scan.
+  const hasTopN = wf.some(isSyntheticTopN);
+  const lim = hasTopN ? 1_000_000 : Math.min(Number(limit) || 1000, 1_000_000);
   sql += ` LIMIT ${lim}`;
 
   // All groups' tables must live in the SAME generation file (one

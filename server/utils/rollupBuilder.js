@@ -36,6 +36,11 @@ function buildingModelIds() {
   return [..._building];
 }
 
+// In-flight build promise per model, so concurrent build requests for the same
+// model coalesce onto one build instead of racing (a manual refresh landing
+// during a cron tick must not drop/recreate rollup files under the running one).
+const _buildPromises = new Map();
+
 // Per-model build progress for the dashboard bar: modelId →
 // { done, total }. `done` counts processed plan items (built OR failed)
 // so the bar always reaches 100%. Set/cleared by the orchestrator.
@@ -912,25 +917,12 @@ async function buildRollup({
   const outputDefs = measures
     .map((n) => measureByName.get(n))
     .filter(Boolean);
-  // HLL gate. The DataSketches DuckDB community extension crashes the
-  // Node process natively on Windows under some load conditions
-  // (ACCESS_VIOLATION 0xC0000005 after a multi-MB BLOB sketch column
-  // lands — no JS exception, process dies silently). Until that's
-  // diagnosed upstream, default = OFF on Windows, ON elsewhere. The
-  // env var can force either: `ROLLUP_HLL_ENABLED=1` opts in
-  // (Windows dev who wants to repro), `ROLLUP_HLL_ENABLED=0` opts out
-  // (Linux/Mac install hitting an unrelated extension issue). With
-  // the gate off, distinct outputs become `supported:false` → planner
-  // MISS → live SQL — same behaviour as pre-Phase-D, just no HLL
-  // acceleration for DISTINCT.
-  const hllEnvVar = process.env.ROLLUP_HLL_ENABLED;
-  const hllAllowed = hllEnvVar === '1'
-    ? true
-    : hllEnvVar === '0'
-      ? false
-      : process.platform !== 'win32';
+  // HLL gate — single source of truth in rollupDuckDB.hllAllowedByEnv (ON by
+  // default, OFF on Windows where the DataSketches community extension crashes
+  // the process natively; `ROLLUP_HLL_ENABLED=1|0` overrides). With the gate
+  // off, distinct outputs become `supported:false` → planner MISS → live SQL.
   let hllReady = false;
-  if (storageMode === 'duckdb' && hllAllowed) {
+  if (storageMode === 'duckdb' && rollupDuckDB.hllAllowedByEnv()) {
     try {
       const _db = await rollupDuckDB.getDb(modelId, orgId, gen);
       hllReady = rollupDuckDB.isHllReady(_db);
@@ -1092,13 +1084,22 @@ async function buildRollup({
 // ─── Orchestrators ────────────────────────────────────────────────────────
 
 async function buildRollupsForModel(opts) {
-  _building.add(opts.modelId);
-  try {
-    return await _buildRollupsForModelInner(opts);
-  } finally {
-    _building.delete(opts.modelId);
-    _progress.delete(opts.modelId);
-  }
+  const key = opts.modelId;
+  // Coalesce concurrent builds of the same model onto the in-flight one.
+  const inFlight = _buildPromises.get(key);
+  if (inFlight) return inFlight;
+  _building.add(key);
+  const p = (async () => {
+    try {
+      return await _buildRollupsForModelInner(opts);
+    } finally {
+      _building.delete(key);
+      _progress.delete(key);
+      _buildPromises.delete(key);
+    }
+  })();
+  _buildPromises.set(key, p);
+  return p;
 }
 
 async function _buildRollupsForModelInner({ modelId, internalUserId, orgId, log = false }) {

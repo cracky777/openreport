@@ -113,6 +113,18 @@ function isHllReady(db) {
   return !!(db && db.__hllReady);
 }
 
+// Whether we may load the DataSketches (HLL) extension. Single source of
+// truth for both this module (which loads it) and rollupBuilder (which plans
+// around it). Default ON where the extension is known-safe, OFF on Windows
+// where the community binary can crash the process natively (ACCESS_VIOLATION,
+// uncatchable). `ROLLUP_HLL_ENABLED=1|0` forces either way.
+function hllAllowedByEnv() {
+  const flag = process.env.ROLLUP_HLL_ENABLED;
+  if (flag === '1') return true;
+  if (flag === '0') return false;
+  return process.platform !== 'win32';
+}
+
 async function getDb(modelId, orgId, gen) {
   const p = dbPathFor(modelId, orgId, gen);
   const existing = _dbByPath.get(p);
@@ -122,13 +134,11 @@ async function getDb(modelId, orgId, gen) {
     .create(p, { access_mode: 'read_write', default_block_size: '16384' })
     .catch(() => duckdb.Database.create(p)) // older DuckDB w/o the setting
     .then(async (db) => {
-      // Only TOUCH the DataSketches extension when the operator opted
-      // in via ROLLUP_HLL_ENABLED=1. On Windows localhost the
-      // community extension binary triggers a native ACCESS_VIOLATION
-      // (exit code 0xC0000005) under some build conditions — gating
-      // the load itself (not just the use of the atom) keeps the
-      // process alive even if there's HLL plumbing in the codepath.
-      if (process.env.ROLLUP_HLL_ENABLED === '1') {
+      // Only TOUCH the DataSketches extension where it's allowed (ON by
+      // default, OFF on Windows where the community binary triggers a native
+      // ACCESS_VIOLATION 0xC0000005; `ROLLUP_HLL_ENABLED=1|0` overrides).
+      // Gating the load itself (not just the atom) keeps the process alive.
+      if (hllAllowedByEnv()) {
         await loadDataSketches(db);
       } else {
         db.__hllReady = false;
@@ -273,6 +283,7 @@ module.exports = {
   genFilesFor,
   getDb,
   isHllReady,
+  hllAllowedByEnv,
   query,
   run,
   insertRows,

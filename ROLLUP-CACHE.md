@@ -446,7 +446,7 @@ exposes this as `datasketch_hll(lg_k, col)` (build aggregate),
 `datasketch_hll_union(lg_k, sketch)` (merge aggregate), and
 `datasketch_hll_estimate(sketch)` (scalar extraction).
 
-**Current state (2026-05-20) — D-1 to D-4 landed, gated opt-in:**
+**Current state (2026-05-20) — D-1 to D-4 landed, ON by default (OFF on Windows):**
 
 - **D-1** — `server/utils/rollupDuckDB.js` attempts `LOAD datasketches`
   on every new connection; falls back to `INSTALL datasketches FROM
@@ -474,17 +474,23 @@ exposes this as `datasketch_hll(lg_k, col)` (build aggregate),
   arithmetic / function wrappers / unquoted columns are still
   rejected (caller falls to live SQL).
 
-  The single gate on **materialisation** is `isHllReady(db)` — the
-  builder pre-warms the destination gen DuckDB, reads
-  `db.__hllReady` (true iff `LOAD datasketches` succeeded), and
-  passes it as `componentPlanForMeasures({hllReady})`. When false,
-  distinct outputs become `supported:false` and the planner MISSes
-  → live SQL. There is **no env var flag** — the design is safe by
-  construction (three layers of defence: extension load is a no-op
-  on failure, plan opts mark unsupported outputs, build path
-  try/catches the staging→rollup transition), so the feature is
-  active out-of-the-box wherever the extension can load, and
-  invisible everywhere else. Tests in
+  The gate on **materialisation** is `isHllReady(db)` — the builder
+  pre-warms the destination gen DuckDB, reads `db.__hllReady` (true
+  iff `LOAD datasketches` succeeded), and passes it as
+  `componentPlanForMeasures({hllReady})`. When false, distinct outputs
+  become `supported:false` and the planner MISSes → live SQL.
+
+  Whether the extension is even *loaded* is decided by
+  `rollupDuckDB.hllAllowedByEnv()` — the single source of truth, shared
+  by the loader and the builder: **ON by default, OFF on Windows**,
+  where the community DataSketches binary can crash the process
+  natively (ACCESS_VIOLATION 0xC0000005, no JS exception). The env var
+  `ROLLUP_HLL_ENABLED=1` forces it on (Windows dev repro), `=0` forces
+  it off. Beyond that the design is safe by construction (extension
+  load is a no-op on failure, plan opts mark unsupported outputs, the
+  build path try/catches the staging→rollup transition), so
+  distinct-count acceleration is active out-of-the-box wherever the
+  extension can load, and invisible everywhere else. Tests in
   `server/__tests__/measureType.distinct.test.js` cover both the
   recognised-spec contract and the `{hllReady}` gate.
 
