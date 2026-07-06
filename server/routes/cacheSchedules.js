@@ -232,7 +232,7 @@ router.get('/size/:reportId', requireAuth, (req, res) => {
   if (!canManageSchedule(r, req.user)) return res.status(403).json({ error: 'Forbidden' });
   const modelId = r.model_id;
   const manifest = rollupBuilder.getManifest({ modelId, orgId: req.organizationId || null });
-  const rollupBuiltAt = manifest.map((x) => x.builtAt).filter(Boolean).sort().pop() || null;
+  const rollupBuiltAt = manifest.map((x) => x.builtAt).filter(Boolean).sort((a, b) => new Date(a) - new Date(b)).pop() || null;
   const queryBuiltAt = queryCache.latestBuiltAtForModel(modelId);
   res.json({
     rollupCount: manifest.length,
@@ -241,7 +241,7 @@ router.get('/size/:reportId', requireAuth, (req, res) => {
     diskBytes: rollupDiskBytes(modelId, req.organizationId || null),
     queryEntries: queryCache.entriesForModel(modelId),
     queryBytes: queryCache.bytesForModel(modelId),
-    builtAt: [queryBuiltAt, rollupBuiltAt].filter(Boolean).sort().pop() || null,
+    builtAt: [queryBuiltAt, rollupBuiltAt].filter(Boolean).sort((a, b) => new Date(a) - new Date(b)).pop() || null,
   });
 });
 

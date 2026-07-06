@@ -63,7 +63,9 @@ function appBase() {
 // tuples on the same model to risk a clash). Truncating keeps physical
 // table names under PG's 63-byte identifier limit.
 function grainHashOf(dimNames) {
-  const sorted = [...dimNames].sort();
+  // Explicit comparator identical to the default lexicographic order — keeps the
+  // grain hash stable (a different order would invalidate every persisted rollup).
+  const sorted = [...dimNames].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   return crypto.createHash('sha256').update(sorted.join('|')).digest('hex').slice(0, 16);
 }
 
@@ -216,7 +218,7 @@ function grainsForWidget(w, widgetId, allWidgets) {
       // the aggregate over the baked-global-filter slice) so the planner
       // serves it exact instead of falling through to Postgres on every
       // drill / cross-filter refresh.
-      const key = combined.slice().sort().join('|'); // '' for the empty grain
+      const key = combined.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join('|'); // '' for the empty grain
       if (seen.has(key)) continue;
       seen.add(key);
       out.push(combined);
@@ -536,7 +538,7 @@ function planRollupsForModel(modelId) {
               return t == null || t === factTable || allow.has(t);
             })
           : unionDims.slice()
-        ).sort();
+        ).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
         const hash = grainHashOf(grain);
         const key = `${hash}::${baseFilterHash}::${factTable}`;
         if (seen.has(key)) continue;

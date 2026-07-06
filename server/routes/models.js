@@ -604,7 +604,7 @@ router.post('/:id/query', async (req, res) => {
   const __qid = `q${Math.random().toString(36).slice(2, 8)}`;
   const __t0 = Date.now();
   const __mark = (label) => {
-    if (process.env.QUERY_TIMING !== '0') {
+    if (process.env.QUERY_TIMING === '1') {
       console.log(`[${__qid}] +${Date.now() - __t0}ms ${label}`);
     }
   };
@@ -935,16 +935,18 @@ router.post('/:id/query', async (req, res) => {
   // type — prevents the integer-division-truncates-to-0 trap when the
   // user writes a / inside a custom expression. Dialect-aware so it works
   // on every supported backend:
-  //   - PG / Azure PG / DuckDB / MSSQL / Azure SQL: CAST(... AS NUMERIC)
-  //     (PG flavours accept DECIMAL too but NUMERIC is more idiomatic)
-  //   - MySQL: CAST(... AS DECIMAL(38,10)) — MySQL refuses CAST AS NUMERIC
-  //     without precision in older versions
+  //   - PG / Azure PG / DuckDB: CAST(... AS NUMERIC) — arbitrary precision
+  //   - MySQL / MSSQL / Azure SQL: CAST(... AS DECIMAL(38,10)). MySQL refuses
+  //     CAST AS NUMERIC without precision; MSSQL/Azure DEFAULT NUMERIC to scale
+  //     0, silently truncating the decimals — pin the scale on both.
   //   - BigQuery: CAST(... AS NUMERIC) — BQ already returns FLOAT64 from
   //     `/` so this is mostly defensive, but harmless
   // SUM/AVG/MIN/MAX get the argument cast (preserves decimal precision);
   // COUNT gets cast on its return value (it ignores its argument's type).
   function dialectNumericCast(inner) {
-    if (dbType === 'mysql') return `CAST(${inner} AS DECIMAL(38,10))`;
+    if (dbType === 'mysql' || dbType === 'mssql' || dbType === 'azure_sql') {
+      return `CAST(${inner} AS DECIMAL(38,10))`;
+    }
     return `CAST(${inner} AS NUMERIC)`;
   }
   function applyNumericCast(expression) {
@@ -1974,7 +1976,7 @@ router.post('/:id/query', async (req, res) => {
             const dd = allDimensions.find((d) => d.name === w.field);
             if (dd && droppedTables.has(dd.table)) whereParts.splice(i, 1);
           }
-          if (process.env.QUERY_TIMING !== '0') {
+          if (process.env.QUERY_TIMING === '1') {
             console.log(`[${__qid}] dropped unjoinable filter table(s): ${Array.from(droppedTables).join(', ')} (no join path to the query — filter would be a Cartesian no-op)`);
           }
         }

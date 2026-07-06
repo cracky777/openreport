@@ -512,7 +512,8 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
             // Bar series: split by legend (like bar chart)
             let barSeries = [];
             if (grpKey) {
-              const uniqueGroups = [...new Set(rows.map((r) => String(r[grpKey] ?? '')))].sort();
+              const uniqueGroups = [...new Set(rows.map((r) => String(r[grpKey] ?? '')))]
+                .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
               const rowByAxisGroup = new Map();
               for (const r of rows) rowByAxisGroup.set(`${String(r[axisKey] ?? '')}\u0000${String(r[grpKey] ?? '')}`, r);
               cBarMeas.forEach((mn) => {

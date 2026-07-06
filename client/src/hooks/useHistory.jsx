@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 
 export function useHistory(initialState) {
   const [state, setState] = useState(initialState);
@@ -59,5 +59,12 @@ export function useHistory(initialState) {
   const canUndo = indexRef.current > 0;
   const canRedo = indexRef.current < historyRef.current.length - 1;
 
-  return { state, set, setSilent, undo, redo, canUndo, canRedo };
+  // Stable identity across renders — set/setSilent/undo/redo are already stable
+  // callbacks, so the returned object only changes when state / canUndo / canRedo
+  // actually change. Without this, consumers with an effect keyed on the whole
+  // object (e.g. Editor's cache-warming poll) re-fire on every render.
+  return useMemo(
+    () => ({ state, set, setSilent, undo, redo, canUndo, canRedo }),
+    [state, set, setSilent, undo, redo, canUndo, canRedo],
+  );
 }

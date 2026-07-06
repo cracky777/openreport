@@ -435,7 +435,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
       .filter(Boolean);
     // Between mode endpoints — used both to draw the range fill in
     // MiniCalendar and to render the "X dates selected (Y → Z)" hint.
-    const sortedSelectedIsos = [...selectedIsos].sort();
+    const sortedSelectedIsos = [...selectedIsos].sort((a, b) => new Date(a) - new Date(b));
     const rangeStart = calMode === 'between' && sortedSelectedIsos.length
       ? sortedSelectedIsos[0] : undefined;
     const rangeEnd = calMode === 'between' && sortedSelectedIsos.length

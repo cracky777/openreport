@@ -154,7 +154,7 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
       // ISO date strings sort lexically the same as chronologically.
       // Non-ISO date formats would need Date-coerced comparison, but
       // every date slicer in this codebase emits ISO via toLocalInputDate.
-      const sorted = [...arr].map((x) => String(x)).sort();
+      const sorted = [...arr].map((x) => String(x)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
       mergedFilters[k] = { op: 'between', value: [sorted[0], sorted[sorted.length - 1]] };
     }
   }

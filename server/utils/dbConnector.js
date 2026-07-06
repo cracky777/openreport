@@ -54,7 +54,7 @@ function withTimeout({ promise, cancel }, timeoutMs) {
   return { promise: wrapped, cancel };
 }
 
-function createConnection(datasource) {
+function buildConnector(datasource) {
   const { db_type, host, port, db_name, db_user, extra_config } = datasource;
   // Credentials are encrypted at rest — decrypt here, at the single point of use.
   // decrypt() passes plaintext through, so /test (unsaved, plaintext) still works.
@@ -95,8 +95,13 @@ function createConnection(datasource) {
       const timeoutMs = Number(opts.timeoutMs) || 0;
       let client = null;
       let canceled = false;
+      // Resolves as soon as the client is acquired, so cancel() can wait for
+      // the backend PID without busy-polling.
+      let markClientReady;
+      const clientReady = new Promise((res) => { markClientReady = res; });
       const promise = (async () => {
         client = await pool.connect();
+        markClientReady();
         try {
           if (canceled) throw new Error('Query canceled');
           // Native PG enforcement is best-effort: some hosted/restricted
@@ -119,9 +124,8 @@ function createConnection(datasource) {
       const cancel = async () => {
         if (canceled) return;
         canceled = true;
-        for (let i = 0; i < 20 && !client; i++) {
-          await new Promise((r) => setTimeout(r, 25));
-        }
+        // Bounded wait for the client to be acquired (else we have no PID to cancel).
+        await Promise.race([clientReady, new Promise((r) => setTimeout(r, 500))]);
         const pid = client?.processID;
         if (!pid) return;
         // Use a one-shot pg.Client (NOT the shared pool) so a refresh
@@ -455,4 +459,37 @@ function createConnection(datasource) {
   throw new Error(`Unsupported database type: ${db_type}`);
 }
 
-module.exports = { createConnection, closeAllDuckDB };
+// Connector cache — pg/mysql/mssql pools are expensive to spin up, and a single
+// dashboard refresh calls createConnection once per widget. Cache the whole
+// connector by datasource.id so those share ONE pool instead of opening N.
+// Ephemeral connections (no id — the /test endpoint builds from req.body) are
+// never cached and keep their real close(). A cached connector's close() is a
+// no-op: the pool lives until invalidateDatasource() or process exit. DuckDB is
+// already instance-cached internally, so caching its connector is harmless.
+const _connectorCache = new Map();
+
+function createConnection(datasource) {
+  const id = datasource && datasource.id;
+  if (id && _connectorCache.has(id)) return _connectorCache.get(id);
+  const conn = buildConnector(datasource);
+  if (id) {
+    conn._teardown = conn.close;
+    conn.close = () => {}; // shared pool — real teardown only via invalidateDatasource
+    _connectorCache.set(id, conn);
+  }
+  return conn;
+}
+
+// Evict + tear down a datasource's cached connector. Call whenever its
+// connection params change or it's deleted. No-op for an uncached id.
+function invalidateDatasource(id) {
+  const conn = _connectorCache.get(id);
+  if (!conn) return;
+  _connectorCache.delete(id);
+  try {
+    const r = conn._teardown && conn._teardown();
+    if (r && typeof r.then === 'function') r.catch(() => {});
+  } catch { /* already closed */ }
+}
+
+module.exports = { createConnection, invalidateDatasource, closeAllDuckDB };

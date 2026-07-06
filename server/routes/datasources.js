@@ -2,7 +2,7 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
-const { createConnection } = require('../utils/dbConnector');
+const { createConnection, invalidateDatasource } = require('../utils/dbConnector');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
 const { encrypt } = require('../utils/secretCrypto');
@@ -128,6 +128,7 @@ router.put('/:id', requireAuth, (req, res) => {
   // now potentially wrong. queryCache invalidation is synchronous; the
   // rollup drop is fire-and-forget (the planner falls through to a live
   // fact query if it races a half-dropped rollup).
+  invalidateDatasource(req.params.id); // drop the cached pool so the new params take effect
   queryCache.invalidateDatasource(req.params.id);
   rollupBuilder.dropAllRollupsForDatasource({ datasourceId: req.params.id, orgId: req.organizationId || null })
     .catch((err) => console.warn('[rollup] invalidate on datasource update failed:', err.message));
@@ -241,6 +242,7 @@ router.delete('/:id', requireAuth, (req, res) => {
     return res.status(404).json({ error: 'Datasource not found' });
   }
 
+  invalidateDatasource(req.params.id); // tear down the cached pool for the removed datasource
   res.json({ message: 'Datasource deleted' });
 });
 

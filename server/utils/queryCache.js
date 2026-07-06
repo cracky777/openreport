@@ -67,9 +67,9 @@ function indexRemove(map, id, key) {
 function buildKey({ datasourceId, sql, rlsContext }) {
   const h = crypto.createHash('sha256');
   h.update(String(datasourceId || ''));
-  h.update('');
+  h.update('\0');
   h.update(String(sql || ''));
-  h.update('');
+  h.update('\0');
   h.update(rlsContext ? JSON.stringify(rlsContext) : '');
   return h.digest('hex');
 }

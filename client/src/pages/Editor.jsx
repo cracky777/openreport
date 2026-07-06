@@ -85,7 +85,7 @@ function canonicalStringify(obj) {
   if (obj === null || obj === undefined) return 'null';
   if (typeof obj !== 'object') return JSON.stringify(obj);
   if (Array.isArray(obj)) return '[' + obj.map(canonicalStringify).join(',') + ']';
-  const keys = Object.keys(obj).filter((k) => obj[k] !== undefined).sort();
+  const keys = Object.keys(obj).filter((k) => obj[k] !== undefined).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalStringify(obj[k])).join(',') + '}';
 }
 

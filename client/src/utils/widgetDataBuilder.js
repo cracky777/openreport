@@ -134,7 +134,8 @@ export function buildWidgetData({
       const labels = [...new Set(rows.map((r) => String(r[axisKey] ?? '')))];
       let barSeries = [];
       if (grpKey) {
-        const ug = [...new Set(rows.map((r) => String(r[grpKey] ?? '')))].sort();
+        const ug = [...new Set(rows.map((r) => String(r[grpKey] ?? '')))]
+          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
         // Index by (axis, group) once so each cell is an O(1) lookup instead
         // of a rows.find() scan. First-match wins, matching rows.find().
         const byAxisGroup = new Map();
