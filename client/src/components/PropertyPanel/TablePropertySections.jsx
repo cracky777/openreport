@@ -499,19 +499,19 @@ function ConditionalFormatEditor({ rules, onChange, inputStyle, Field, SubSectio
                 onIconChange={(v) => updateRule(i, 'lowIcon', v)}
                 onColorChange={(v) => updateRule(i, 'lowColor', v)}
                 onValueChange={(v) => updateRule(i, 'lowValue', v)}
-                inputStyle={inputStyle} Field={Field} />
+                inputStyle={inputStyle} ColorInput={ColorInput} />
               <IconLevelEditor label="Mid ≤" icon={rule.midIcon ?? '→'} color={rule.midColor ?? '#f59e0b'}
                 value={rule.midValue} valuePlaceholder="Auto (avg)"
                 onIconChange={(v) => updateRule(i, 'midIcon', v)}
                 onColorChange={(v) => updateRule(i, 'midColor', v)}
                 onValueChange={(v) => updateRule(i, 'midValue', v)}
-                inputStyle={inputStyle} Field={Field} />
+                inputStyle={inputStyle} ColorInput={ColorInput} />
               <IconLevelEditor label="High >" icon={rule.highIcon ?? '↑'} color={rule.highColor ?? '#16a34a'}
                 value={rule.highValue} valuePlaceholder="Auto (max)"
                 onIconChange={(v) => updateRule(i, 'highIcon', v)}
                 onColorChange={(v) => updateRule(i, 'highColor', v)}
                 onValueChange={(v) => updateRule(i, 'highValue', v)}
-                inputStyle={inputStyle} Field={Field} />
+                inputStyle={inputStyle} ColorInput={ColorInput} />
             </>
           )}
           <button onClick={() => removeRule(i)}
@@ -535,7 +535,7 @@ function ConditionalFormatEditor({ rules, onChange, inputStyle, Field, SubSectio
 
 const ICON_PRESETS = ['↑', '↓', '→', '↗', '↘', '●', '▲', '▼', '★', '✓', '✗', '⚠', '♦', '■', '◆'];
 
-function IconLevelEditor({ label, icon, color, value, valuePlaceholder, onIconChange, onColorChange, onValueChange, inputStyle }) {
+function IconLevelEditor({ label, icon, color, value, valuePlaceholder, onIconChange, onColorChange, onValueChange, inputStyle, ColorInput }) {
   const [showPresets, setShowPresets] = useState(false);
   return (
     <div style={iconLevelStyle}>
