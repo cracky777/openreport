@@ -23,7 +23,7 @@ function shiftYearInt(v) {
 }
 
 function findDim(name, dimensions) {
-  return (dimensions || []).find((d) => d?.name === name);
+  return (dimensions || []).find((d) => d && d.name === name);
 }
 
 // "Year-like": dim that holds a 4-digit year. We recognise the canonical

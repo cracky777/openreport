@@ -1,0 +1,7 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`aggregate SQL is stable — mssql 1`] = `"SELECT [items].[label] AS [label], SUM([items].[amt]) AS [total], AVG([items].[amt]) AS [moyenne], MIN([items].[amt]) AS [mini], MAX([items].[amt]) AS [maxi], SUM([items].[dur]) AS [duree] FROM [items] GROUP BY [items].[label] ORDER BY [items].[label] OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY"`;
+
+exports[`aggregate SQL is stable — mysql 1`] = `"SELECT \`items\`.\`label\` AS \`label\`, SUM(\`items\`.\`amt\`) AS \`total\`, AVG(\`items\`.\`amt\`) AS \`moyenne\`, MIN(\`items\`.\`amt\`) AS \`mini\`, MAX(\`items\`.\`amt\`) AS \`maxi\`, SUM(\`items\`.\`dur\`) AS \`duree\` FROM \`items\` GROUP BY \`items\`.\`label\` ORDER BY \`items\`.\`label\` LIMIT 1000"`;
+
+exports[`aggregate SQL is stable — postgres 1`] = `"SELECT "items"."label" AS "label", SUM("items"."amt") AS "total", AVG("items"."amt") AS "moyenne", MIN("items"."amt") AS "mini", MAX("items"."amt") AS "maxi", EXTRACT(EPOCH FROM SUM("items"."dur")) AS "duree" FROM "items" GROUP BY "items"."label" ORDER BY "items"."label" LIMIT 1000"`;

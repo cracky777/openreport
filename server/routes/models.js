@@ -39,6 +39,29 @@ function columnNameSet(cols) {
   }).filter(Boolean));
 }
 
+// Single source for a measure's aggregate SQL expression (the block that was
+// copy-pasted 5× across the /query handler): numeric CAST on a column the user
+// overrode to a numeric type, then SUM/AVG/MIN/MAX(col), then interval →
+// EXTRACT(EPOCH …) flattening on the dialects that support it. COUNT stays at
+// each call site (dialect-specific COUNT(col)/COUNT(*) shapes). `caseWhenSql`
+// wraps the column in a CASE for conditional-filter measures. Returns the
+// expression string (no alias). NB: the HAVING path keeps its own copy — its
+// COUNT/effAgg handling diverges.
+function buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql = null }) {
+  const rawCol = quoteCol(m.table, m.column, dbType);
+  const ovType = getOverrideType(m.table, m.column, columnTypes);
+  const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
+    ? castToNumber(rawCol, dbType, ovType)
+    : rawCol;
+  const agg = normalizeAggregation(m.aggregation).toUpperCase();
+  const aggExpr = caseWhenSql
+    ? `${agg}(CASE WHEN ${caseWhenSql} THEN ${colExpr} END)`
+    : `${agg}(${colExpr})`;
+  const isInterval = String(m.dataType || '').toLowerCase() === 'interval' || ovType === 'interval';
+  const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
+  return (isInterval && supportsExtractEpoch) ? `EXTRACT(EPOCH FROM ${aggExpr})` : aggExpr;
+}
+
 // Hook for cloud edition to override the global query-timeout with a
 // workspace/org-scoped value. Default in OSS just returns the global
 // admin setting. Cloud installs `cloudHooks.resolveQueryTimeoutMs(req)`
@@ -1491,20 +1514,7 @@ router.post('/:id/query', async (req, res) => {
         } else if (m.aggregation === 'count' || (m.column === '*' && !m.table)) {
           selectParts.push(`COUNT(CASE WHEN ${whenSql} THEN 1 END) AS ${quoteIdent(m.label || m.name, dbType)}`);
         } else if (m.table && m.column) {
-          const rawCol = quoteCol(m.table, m.column, dbType);
-          const ovType = getOverrideType(m.table, m.column, columnTypes);
-          const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
-            ? castToNumber(rawCol, dbType, ovType)
-            : rawCol;
-          const aggExpr = `${normalizeAggregation(m.aggregation).toUpperCase()}(CASE WHEN ${whenSql} THEN ${colExpr} END)`;
-          // Same INTERVAL handling as regular measures.
-          const isInterval = String(m.dataType || '').toLowerCase() === 'interval'
-            || ovType === 'interval';
-          const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
-          const finalExpr = (isInterval && supportsExtractEpoch)
-            ? `EXTRACT(EPOCH FROM ${aggExpr})`
-            : aggExpr;
-          selectParts.push(`${finalExpr} AS ${quoteIdent(m.label || m.name, dbType)}`);
+          selectParts.push(`${buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql: whenSql })} AS ${quoteIdent(m.label || m.name, dbType)}`);
         }
         return; // handled
       }
@@ -1573,26 +1583,10 @@ router.post('/:id/query', async (req, res) => {
       // Wrap the column in CAST when the user has overridden it to a numeric
       // type — otherwise SUM/AVG on a text column (e.g. nvarchar storing
       // numbers) blows up with "operand data type ... is invalid for sum".
-      const rawCol = quoteCol(m.table, m.column, dbType);
-      const ovType = getOverrideType(m.table, m.column, columnTypes);
-      const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
-        ? castToNumber(rawCol, dbType, ovType)
-        : rawCol;
-      const aggExpr = `${normalizeAggregation(m.aggregation).toUpperCase()}(${colExpr})`;
-      // `interval` columns: SUM/AVG/MIN/MAX return an interval value, which
-      // the underlying driver delivers as a JS object — widgets then render
-      // `[object Object]`. PostgreSQL and DuckDB both support
-      // `EXTRACT(EPOCH FROM …)` to flatten to seconds at SQL time. BigQuery
-      // also has an INTERVAL type but no equivalent EPOCH extract — its
-      // intervals get flattened by the row post-processor instead. MySQL
-      // and MSSQL have no native interval column type so nothing to wrap.
-      const isInterval = String(m.dataType || '').toLowerCase() === 'interval'
-        || ovType === 'interval';
-      const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
-      const finalExpr = (isInterval && supportsExtractEpoch)
-        ? `EXTRACT(EPOCH FROM ${aggExpr})`
-        : aggExpr;
-      selectParts.push(`${finalExpr} AS ${quoteIdent(m.label || m.name, dbType)}`);
+      // interval columns render as an `[object Object]` blob; the shared helper
+      // flattens SUM/AVG/MIN/MAX(interval) with EXTRACT(EPOCH …) on pg/azure_pg/
+      // duckdb (mysql/mssql have no interval type; BQ flattens post-query).
+      selectParts.push(`${buildMeasureAggExpr(m, { dbType, columnTypes })} AS ${quoteIdent(m.label || m.name, dbType)}`);
     }
   });
 
@@ -1785,13 +1779,7 @@ router.post('/:id/query', async (req, res) => {
           const e = (m.table && m.column && m.column !== '*') ? `COUNT(${rawCol})` : 'COUNT(*)';
           return { sql: `${e} AS ${alias}`, alias };
         }
-        const ovType = getOverrideType(m.table, m.column, columnTypes);
-        const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
-          ? castToNumber(rawCol, dbType, ovType) : rawCol;
-        const aggExpr = `${normalizeAggregation(m.aggregation).toUpperCase()}(${colExpr})`;
-        const isInterval = String(m.dataType || '').toLowerCase() === 'interval' || ovType === 'interval';
-        const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
-        const finalExpr = (isInterval && supportsExtractEpoch) ? `EXTRACT(EPOCH FROM ${aggExpr})` : aggExpr;
+        const finalExpr = buildMeasureAggExpr(m, { dbType, columnTypes });
         return { sql: `${finalExpr} AS ${alias}`, alias };
       };
       // Every per-fact subquery must join the grain dims AND any dim
@@ -2028,21 +2016,7 @@ router.post('/:id/query', async (req, res) => {
     } else if (measure.aggregation === 'count' || (measure.column === '*' && !measure.table)) {
       innerAgg = 'COUNT(*)';
     } else if (measure.table && measure.column) {
-      const rawCol = quoteCol(measure.table, measure.column, dbType);
-      const ovType = getOverrideType(measure.table, measure.column, columnTypes);
-      const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
-        ? castToNumber(rawCol, dbType, ovType)
-        : rawCol;
-      innerAgg = `${normalizeAggregation(measure.aggregation).toUpperCase()}(${colExpr})`;
-      // Interval → seconds on the dialects that expose EXTRACT(EPOCH) on
-      // intervals (PG / Azure PG / DuckDB). MSSQL / MySQL / BigQuery don't
-      // and the response post-processor flattens the interval blob there.
-      const isInterval = String(measure.dataType || '').toLowerCase() === 'interval'
-        || ovType === 'interval';
-      const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
-      if (isInterval && supportsExtractEpoch) {
-        innerAgg = `EXTRACT(EPOCH FROM ${innerAgg})`;
-      }
+      innerAgg = buildMeasureAggExpr(measure, { dbType, columnTypes });
     } else {
       innerAgg = 'NULL';
     }
@@ -2084,18 +2058,7 @@ router.post('/:id/query', async (req, res) => {
     } else if (m.aggregation === 'count' || (m.column === '*' && !m.table)) {
       innerAgg = 'COUNT(*)';
     } else if (m.table && m.column) {
-      const rawCol = quoteCol(m.table, m.column, dbType);
-      const ovType = getOverrideType(m.table, m.column, columnTypes);
-      const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
-        ? castToNumber(rawCol, dbType, ovType)
-        : rawCol;
-      innerAgg = `${normalizeAggregation(m.aggregation).toUpperCase()}(${colExpr})`;
-      const isInterval = String(m.dataType || '').toLowerCase() === 'interval'
-        || ovType === 'interval';
-      const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
-      if (isInterval && supportsExtractEpoch) {
-        innerAgg = `EXTRACT(EPOCH FROM ${innerAgg})`;
-      }
+      innerAgg = buildMeasureAggExpr(m, { dbType, columnTypes });
     } else {
       innerAgg = 'NULL';
     }
