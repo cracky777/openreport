@@ -61,7 +61,7 @@ An open-source, self-hosted reporting and data visualization platform. Build int
 
 ### Prerequisites
 
-- Node.js >= 18
+- Node.js >= 22
 - npm >= 9
 
 ### Installation

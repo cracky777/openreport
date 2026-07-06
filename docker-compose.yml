@@ -1,12 +1,10 @@
-version: '3.8'
-
 services:
   app:
     build: .
     container_name: openreport
     restart: unless-stopped
-    ports:
-      - "3001:3001"
+    # No host port mapping — the app is reachable only through nginx (internal
+    # docker network → http://app:3001). Access prod via nginx on :80/:443.
     environment:
       - NODE_ENV=production
       - PORT=3001

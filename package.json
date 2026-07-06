@@ -13,6 +13,9 @@
   },
   "keywords": ["reporting", "dataviz", "dashboard", "open-source", "looker-studio"],
   "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "node": ">=22"
+  },
   "devDependencies": {
     "concurrently": "^8.2.2"
   }

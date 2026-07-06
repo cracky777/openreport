@@ -2,6 +2,9 @@
   "name": "open-report-server",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "jest"
   },
@@ -31,6 +34,6 @@
     "passport-local": "^1.0.0",
     "pg": "^8.20.0",
     "uuid": "^10.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }
