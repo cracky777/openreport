@@ -1,6 +1,6 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
-const { requireAuth, requireRole } = require('../middleware/auth');
+const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const { ensurePersonalWorkspace } = require('../utils/personalWorkspace');
 

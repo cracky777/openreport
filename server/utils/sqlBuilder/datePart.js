@@ -141,7 +141,7 @@ function isValidDate(v, fmt) {
   const tryYyyymmdd = () => {
     const m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
     if (!m) return false;
-    const yyyy = +m[1], mm = +m[2], dd = +m[3];
+    const mm = +m[2], dd = +m[3];
     if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return false;
     return !isNaN(Date.parse(`${m[1]}-${m[2]}-${m[3]}`));
   };

@@ -279,7 +279,6 @@ function extractRefs(expression) {
   const out = new Set();
   let m;
   EXPR_REF_PATTERN.lastIndex = 0;
-  // eslint-disable-next-line no-cond-assign
   while ((m = EXPR_REF_PATTERN.exec(expression)) !== null) out.add(m[1]);
   return [...out];
 }
@@ -503,7 +502,6 @@ function compileExpression(rawExpression, refs) {
   try {
     // Strict mode + return wrapper. The Function constructor isolates the
     // body from outer scope; only `_v` is accessible.
-    // eslint-disable-next-line no-new-func
     fn = new Function('_v', `"use strict"; return (${js});`);
   } catch {
     fn = null;

@@ -56,13 +56,6 @@ function indexAdd(map, id, key) {
   if (!set) { set = new Set(); map.set(id, set); }
   set.add(key);
 }
-function indexRemove(map, id, key) {
-  if (!id) return;
-  const set = map.get(id);
-  if (!set) return;
-  set.delete(key);
-  if (set.size === 0) map.delete(id);
-}
 
 function buildKey({ datasourceId, sql, rlsContext }) {
   const h = crypto.createHash('sha256');

@@ -2,10 +2,13 @@ const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, '..', 'data', 'open-report.db');
+// Data directory is overridable (OPENREPORT_DATA_DIR) so tests can point at a
+// throwaway temp dir; defaults to the repo's server/data.
+const DATA_DIR = process.env.OPENREPORT_DATA_DIR || path.join(__dirname, '..', 'data');
+const DB_PATH = path.join(DATA_DIR, 'open-report.db');
 
 // Ensure data directory exists
-const dataDir = path.dirname(DB_PATH);
+const dataDir = DATA_DIR;
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }

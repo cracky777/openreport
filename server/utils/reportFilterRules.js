@@ -14,7 +14,7 @@ function prepareGlobalRulesForWidget(rules, widgetId) {
   for (const r of rules) {
     if (!r) continue;
     if (Array.isArray(r.exclusions) && r.exclusions.includes(widgetId)) continue;
-    const { exclusions, ...rest } = r;
+    const { exclusions: _exclusions, ...rest } = r;
     out.push(rest);
   }
   return out;
