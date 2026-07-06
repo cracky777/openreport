@@ -169,6 +169,10 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_rollups_org ON rollups (organization_id)
 // privileges on that database.
 safeMigrate("ALTER TABLE datasources ADD COLUMN rollup_storage TEXT NOT NULL DEFAULT 'duckdb'");
 
+// Encrypt datasource credentials at rest (idempotent). Requires DATASOURCE_ENC_KEY
+// once any datasource carries a secret; migrates plaintext rows in place.
+require('../utils/secretCrypto').migrateDatasourceSecrets(db);
+
 // Promote first user to admin if no admin exists
 const adminCount = db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'admin'").get();
 if (adminCount.c === 0) {

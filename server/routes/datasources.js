@@ -5,8 +5,18 @@ const db = require('../db');
 const { createConnection } = require('../utils/dbConnector');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
+const { encrypt } = require('../utils/secretCrypto');
 
 const router = express.Router();
+
+// Encrypt the sensitive field(s) inside a datasource's extra_config (currently
+// the BigQuery service-account key) without touching the non-secret keys, so
+// the blob stays readable for display fields (dataset, fileSize, …).
+function encryptExtraConfig(extraConfig) {
+  const cfg = { ...(extraConfig || {}) };
+  if (cfg.credentials) cfg.credentials = encrypt(cfg.credentials);
+  return cfg;
+}
 
 // List datasources for current user
 router.get('/', requireAuth, (req, res) => {
@@ -67,7 +77,7 @@ router.post('/', requireAuth, (req, res) => {
   db.prepare(`
     INSERT INTO datasources (id, user_id, name, db_type, host, port, db_name, db_user, db_password, extra_config)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, req.user.id, name, dbType, host || '', port || 5432, dbName, dbUser || '', dbPassword || '', JSON.stringify(extraConfig || {}));
+  `).run(id, req.user.id, name, dbType, host || '', port || 5432, dbName, dbUser || '', encrypt(dbPassword || ''), JSON.stringify(encryptExtraConfig(extraConfig)));
 
   res.status(201).json({
     datasource: { id, name, db_type: dbType, host: host || '', port: port || 5432, db_name: dbName },
@@ -92,8 +102,9 @@ router.put('/:id', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  // Empty password means "keep existing" — non-empty replaces it
-  const finalPassword = dbPassword ? dbPassword : existing.db_password;
+  // Empty password means "keep existing" (already encrypted) — non-empty replaces
+  // it (encrypt the new one).
+  const finalPassword = dbPassword ? encrypt(dbPassword) : existing.db_password;
 
   db.prepare(`
     UPDATE datasources
@@ -107,7 +118,7 @@ router.put('/:id', requireAuth, (req, res) => {
     newDbName,
     dbUser !== undefined ? dbUser : existing.db_user,
     finalPassword,
-    extraConfig !== undefined ? JSON.stringify(extraConfig) : existing.extra_config,
+    extraConfig !== undefined ? JSON.stringify(encryptExtraConfig(extraConfig)) : existing.extra_config,
     req.params.id,
     req.user.id,
   );

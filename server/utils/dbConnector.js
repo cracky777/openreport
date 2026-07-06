@@ -1,5 +1,6 @@
 const { Pool, Client } = require('pg');
 const mysql = require('mysql2/promise');
+const { decrypt } = require('./secretCrypto');
 
 // Process-wide DuckDB cache. One open file lock per path — concurrent
 // callers share the same resolved Database instance, and concurrent
@@ -54,8 +55,12 @@ function withTimeout({ promise, cancel }, timeoutMs) {
 }
 
 function createConnection(datasource) {
-  const { db_type, host, port, db_name, db_user, db_password, extra_config } = datasource;
+  const { db_type, host, port, db_name, db_user, extra_config } = datasource;
+  // Credentials are encrypted at rest — decrypt here, at the single point of use.
+  // decrypt() passes plaintext through, so /test (unsaved, plaintext) still works.
+  const db_password = decrypt(datasource.db_password);
   const extra = extra_config ? (typeof extra_config === 'string' ? JSON.parse(extra_config) : extra_config) : {};
+  if (extra.credentials) extra.credentials = decrypt(extra.credentials);
 
   // ─── PostgreSQL / Azure PostgreSQL ───
   if (db_type === 'postgres' || db_type === 'azure_postgres') {
