@@ -789,7 +789,6 @@ export default function SchemaCanvas({
                         const TYPE_MAX = 10;
                         const truncate = (s, n) => (s && s.length > n ? s.slice(0, n - 1) + '…' : s);
                         const nameTruncated = (col.column_name || '').length > NAME_MAX;
-                        const typeTruncated = (displayType || '').length > TYPE_MAX;
                         // Click on the type label opens the override popover at
                         // the click coordinates. The popover lives outside the
                         // SVG (HTML overlay) so it can host a normal <select>.

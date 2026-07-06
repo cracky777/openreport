@@ -2,7 +2,7 @@ import { useRef, memo, useMemo } from 'react';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
-import { sortDateLabels, sortDateSeries, formatDateLabel } from '../../utils/dateHelpers';
+import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues } from '../../utils/axisSort';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
@@ -73,7 +73,7 @@ function applyBarTopN(rawData, options) {
   };
 }
 
-export default memo(function BarWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
+export default memo(function BarWidget({ data, config, chartWidth, onDataClick, highlightValue }) {
   const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const hasData = data?.labels?.length > 0;
@@ -113,7 +113,6 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
   const topN = config?.topN ?? 20;
   const othersLabel = config?.othersLabel || 'Others';
   const w = chartWidth || 400;
-  const h = chartHeight || 300;
 
   // Track all series names ever seen so colors stay stable across filters
   const allSeriesNames = useMemo(() => {
@@ -475,7 +474,6 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
 
     const barDir = config?.barDirection || 'vertical';
     const isHoriz = barDir === 'horizontal' || barDir === 'horizontalInverse';
-    const isInverse = barDir === 'verticalInverse' || barDir === 'horizontalInverse';
 
     const xAxisFont = { fontSize: config?.xAxisLabelFontSize ?? 11, color: config?.xAxisLabelColor || '#64748b', fontFamily: xAxisFontFamily };
     const yAxisFont = { fontSize: config?.yAxisLabelFontSize ?? 11, color: config?.yAxisLabelColor || '#64748b', fontFamily: yAxisFontFamily };
@@ -612,7 +610,6 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
 
   if (!hasData) return <WidgetEmptyState data={data} config={config} unboundHint="Select dimensions & measures to display a bar chart" />;
 
-  const isVertical = legendPosition === 'left' || legendPosition === 'right';
   const showHtmlLegend = showLegend && legendItems.length > 0;
   const flexDir = legendPosition === 'left' ? 'row' : legendPosition === 'right' ? 'row' : legendPosition === 'top' ? 'column' : 'column';
 

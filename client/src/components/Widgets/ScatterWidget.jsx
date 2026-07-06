@@ -10,7 +10,7 @@ import { useChartFonts } from '../../hooks/useChartFonts';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
 import WidgetEmptyState from './WidgetEmptyState';
 
-export default memo(function ScatterWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
+export default memo(function ScatterWidget({ data, config, onDataClick, highlightValue }) {
   const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const hasData = data?.points?.length > 0;
@@ -200,7 +200,6 @@ export default memo(function ScatterWidget({ data, config, chartWidth, chartHeig
 
   if (!hasData) return <WidgetEmptyState data={data} config={config} unboundHint="Drop measures on X and Y axes to create a scatter chart" />;
 
-  const legendH = showLegend && legendItems.length > 0 ? 28 : 0;
   const isLR = legendPosition === 'left' || legendPosition === 'right';
 
   return (

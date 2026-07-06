@@ -1,6 +1,5 @@
 import { sanitizeWidgetFilters } from './widgetFilters';
 import { filterForTarget } from './crossFilter';
-import { prepareGlobalRulesForWidget } from './reportFilterRules';
 import {
   hasShiftableFilterForN1,
   shiftFiltersForN1,

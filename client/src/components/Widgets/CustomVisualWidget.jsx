@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, memo } from 'react';
+import { useEffect, useRef, useState, memo } from 'react';
 
 // Built-in template for the sandbox iframe. The bundle is injected as a regular
 // <script> tag, so the visual.js file just needs to call OpenReportRegisterVisual({...}).

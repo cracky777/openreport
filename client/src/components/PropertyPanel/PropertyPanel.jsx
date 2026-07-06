@@ -104,11 +104,6 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     onUpdate(widgetId, { ...widget, config: { ...widget.config, [key]: value } });
   };
 
-  const updateData = (key, value) => {
-    onUpdate(widgetId, { ...widget, data: { ...widget.data, [key]: value } });
-  };
-
-  const widgetMeta = WIDGET_TYPES[widget.type];
   const binding = widget.dataBinding || {};
 
   // Build field info lookup for tooltips and type detection
@@ -165,39 +160,13 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     onUpdate(widgetId, next);
   };
 
-  const addDimension = (name) => {
-    if (!selectedDims.includes(name)) {
-      updateBinding({ selectedDimensions: [...selectedDims, name] });
-    }
-  };
-
-  const removeDimension = (name) => {
-    updateBinding({ selectedDimensions: selectedDims.filter((d) => d !== name) });
-  };
-
-  const addMeasure = (name) => {
-    if (!selectedMeass.includes(name)) {
-      updateBinding({ selectedMeasures: [...selectedMeass, name] });
-    }
-  };
-
-  const removeMeasure = (name) => {
-    updateBinding({ selectedMeasures: selectedMeass.filter((m) => m !== name) });
-  };
-
   const groupBy = binding.groupBy || [];
   const columnDims = binding.columnDimensions || [];
 
-  const addGroupBy = (name) => {
-    if (!groupBy.includes(name)) updateBinding({ groupBy: [...groupBy, name] });
-  };
   const removeGroupBy = (name) => {
     updateBinding({ groupBy: groupBy.filter((g) => g !== name) });
   };
 
-  const addColumnDim = (name) => {
-    if (!columnDims.includes(name)) updateBinding({ columnDimensions: [...columnDims, name] });
-  };
   const removeColumnDim = (name) => {
     updateBinding({ columnDimensions: columnDims.filter((d) => d !== name) });
   };
@@ -2360,7 +2329,7 @@ const compareInputStyle = {
   background: 'var(--bg-panel)', color: 'var(--text-primary)',
 };
 
-function PivotOptionsSection({ widget, updateConfig, Section, Field, inputStyle, sections }) {
+function PivotOptionsSection({ widget, updateConfig, inputStyle, sections }) {
   const pc = widget.config?.pivotConfig || {};
   const measures = widget.data?._measures || [];
   const [selectedMeasure, setSelectedMeasure] = useState(null);

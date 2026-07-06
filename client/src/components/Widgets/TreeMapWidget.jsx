@@ -11,7 +11,7 @@ import WidgetEmptyState from './WidgetEmptyState';
 import { resolveZoneSorts } from '../../utils/chartSorts';
 import { buildValueGradient } from '../../utils/chartGradient';
 
-export default memo(function TreeMapWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
+export default memo(function TreeMapWidget({ data, config, onDataClick, highlightValue }) {
   const hasData = data?.items?.length > 0;
   const showDataLabels = config?.showDataLabels ?? true;
   const dataLabelContent = config?.dataLabelContent || 'nameValue';

@@ -14,7 +14,7 @@ import { useEchartsInstance } from '../../hooks/useEchartsInstance';
 import WidgetEmptyState from './WidgetEmptyState';
 import { resolveZoneSorts } from '../../utils/chartSorts';
 
-export default memo(function LineWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
+export default memo(function LineWidget({ data, config, chartWidth, onDataClick, highlightValue }) {
   const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const hasData = data?.labels?.length > 0;
@@ -44,7 +44,6 @@ export default memo(function LineWidget({ data, config, chartWidth, chartHeight,
   const hideZeros = config?.hideZeros ?? false;
   const { sortOrder, axisSort, groupBySort } = resolveZoneSorts(config);
   const w = chartWidth || 400;
-  const h = chartHeight || 300;
 
   const allSeriesNames = useMemo(() => {
     const names = [];

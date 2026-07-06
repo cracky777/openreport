@@ -124,9 +124,7 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
   const values = (search && Array.isArray(data?._searchedValues))
     ? data._searchedValues
     : (data?.values || []);
-  const isSearchingServer = !!data?._isSearching;
   const isDate = data?._isDate || false;
-  const label = data?.label || config?.title || 'Filter';
   const multiSelect = config?.multiSelect ?? true;
   const slicerStyle = config?.slicerStyle || (isDate ? 'dateRange' : 'list');
   const showSearch = config?.showSearch ?? true;
@@ -230,10 +228,6 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
 
   // ─── DATE RANGE MODE (Between) ───
   if (slicerStyle === 'dateRange' || slicerStyle === 'dateBetween') {
-    const dateValues = sortedValues.map((v) => new Date(v)).filter((d) => !isNaN(d));
-    const minDate = dateValues.length > 0 ? dateValues[0] : new Date();
-    const maxDate = dateValues.length > 0 ? dateValues[dateValues.length - 1] : new Date();
-
     const startDate = dateFrom;
     const endDate = dateTo;
 

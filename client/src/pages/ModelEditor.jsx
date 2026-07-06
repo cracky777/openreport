@@ -120,7 +120,7 @@ export default function ModelEditor() {
         try {
           const colRes = await api.get(`/datasources/${dsRes.data.datasource.id}/tables/${t}/columns`);
           setTableColumns((prev) => ({ ...prev, [t]: colRes.data.columns }));
-        } catch (err) {
+        } catch {
           // Table missing in new datasource — drop its columns (validation will flag it)
           setTableColumns((prev) => { const n = { ...prev }; delete n[t]; return n; });
         }

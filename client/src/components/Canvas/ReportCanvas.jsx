@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import Draggable from 'react-draggable';
 import { TbCode, TbX, TbCopy, TbRefresh, TbMagnet, TbMagnetOff, TbMinus } from 'react-icons/tb';
 import { WIDGET_TYPES } from '../Widgets';
-import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
+import { fontStack } from '../../utils/googleFonts';
 import MaxRowsWarning from '../Widgets/MaxRowsWarning';
 import { evaluateColorCondition } from '../../utils/conditionalFormat';
 import { getMergeGroups, groupSeams, mergeCorners, edgeMidpoint } from '../../utils/mergeFrames';
@@ -23,7 +23,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, refreshKind, mergeCorners }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners }) {
   const nodeRef = useRef(null);
   const [showSql, setShowSql] = useState(false);
   // Hover state for the in-flight cancel button — the X icon is hidden

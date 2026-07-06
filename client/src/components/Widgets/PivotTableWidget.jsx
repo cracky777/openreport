@@ -180,7 +180,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
     return <div style={emptyStyle}>Drop dimensions into Rows/Columns and measures into Values</div>;
   }
 
-  const { colKeys, cellMap, rowTotals, colTotals, grandTotal, subTotals, colTree, getFn } = pivot;
+  const { colKeys, cellMap, colTotals, grandTotal, subTotals, colTree, getFn } = pivot;
   const colLevels = colDims.length > 0 ? flattenHeaderLevels(colTree, colDims.length) : [];
   const numMeasures = measures.length;
 
@@ -364,7 +364,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
               (and the Grand Total Amount). */}
           {numMeasures > 1 && colDims.length > 0 && (
             <tr>
-              {colKeys.map(([ck], ci) =>
+              {colKeys.map((_col, ci) =>
                 measures.map((m, mi) => (
                   <th key={`${ci}-${mi}`} style={{ ...getHeaderStyle(m, colLevels.length * headerRowHeight), fontSize: 10, fontWeight: 500, backgroundColor: 'var(--bg-hover)', color: 'var(--text-primary)' }}>
                     {getColumnDisplayName(tc, m)}

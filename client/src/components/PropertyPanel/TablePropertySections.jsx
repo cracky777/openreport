@@ -524,7 +524,7 @@ function ConditionalFormatEditor({ rules, onChange, inputStyle, Field, SubSectio
 
 const ICON_PRESETS = ['↑', '↓', '→', '↗', '↘', '●', '▲', '▼', '★', '✓', '✗', '⚠', '♦', '■', '◆'];
 
-function IconLevelEditor({ label, icon, color, value, valuePlaceholder, onIconChange, onColorChange, onValueChange, inputStyle, Field }) {
+function IconLevelEditor({ label, icon, color, value, valuePlaceholder, onIconChange, onColorChange, onValueChange, inputStyle }) {
   const [showPresets, setShowPresets] = useState(false);
   return (
     <div style={iconLevelStyle}>

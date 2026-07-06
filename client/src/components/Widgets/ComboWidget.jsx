@@ -4,9 +4,9 @@ import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues } from '../../utils/axisSort';
-import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
+import { calcLabelRotation } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
-import { CHART_COLORS as COLORS, hexToRgba } from '../../utils/chartPalette';
+import { CHART_COLORS as COLORS } from '../../utils/chartPalette';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
@@ -14,7 +14,7 @@ import WidgetEmptyState from './WidgetEmptyState';
 import { resolveZoneSorts } from '../../utils/chartSorts';
 import { buildValueGradient } from '../../utils/chartGradient';
 
-export default memo(function ComboWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
+export default memo(function ComboWidget({ data, config, chartWidth, onDataClick, highlightValue }) {
   const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const w = chartWidth || 400;
@@ -363,7 +363,6 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
 
     const barDir = config?.barDirection || 'vertical';
     const isHoriz = barDir === 'horizontal' || barDir === 'horizontalInverse';
-    const isInverse = barDir === 'verticalInverse' || barDir === 'horizontalInverse';
 
     const xAxisFontSize = config?.xAxisLabelFontSize ?? 11;
     const xAxisColor = config?.xAxisLabelColor || '#64748b';

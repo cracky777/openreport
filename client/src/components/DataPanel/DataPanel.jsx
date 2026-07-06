@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import { useCalcWizard } from '../../hooks/useCalcWizard';
 import { useFieldEdit } from '../../hooks/useFieldEdit';
 import { createPortal } from 'react-dom';
@@ -53,7 +53,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   // under the active row, so it visually belongs to the clicked field.
   const [measurePanelMount, setMeasurePanelMount] = useState(null);
   const [dimPanelMount, setDimPanelMount] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   // Date Table is collapsed by default — only the main date column is shown,
   // the per-period extension dims (year, month, weekday, …) appear when opened.
   const [dateTableOpen, setDateTableOpen] = useState(false);
@@ -151,7 +151,6 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
     }
 
     const parts = selectionKey.split(':');
-    const wId = parts[0];
     const dims = parts[1]?.split(',').filter(Boolean) || [];
     const meass = parts[2]?.split(',').filter(Boolean) || [];
     const grpBy = parts[3]?.split(',').filter(Boolean) || [];
@@ -434,10 +433,6 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
             const measNames = meass.map((m) => {
               const measDef = (model.measures || []).find((x) => x.name === m);
               return measDef?.label || measDef?.name || m;
-            });
-            const dimLabels = dims.map((d) => {
-              const dimDef = (model.dimensions || []).find((x) => x.name === d);
-              return dimDef?.label || dimDef?.name || d;
             });
             const colDimLabels = colDimsBinding.map((d) => {
               const dimDef = (model.dimensions || []).find((x) => x.name === d);
@@ -1710,9 +1705,6 @@ const dragHandle = {
 const truncatedLabel = {
   flex: 1, minWidth: 0, fontSize: 12,
   overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-};
-const dimTag = {
-  fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--bg-active)', color: 'var(--accent-primary)', fontWeight: 600,
 };
 const measTag = {
   fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--state-success-soft)', color: 'var(--state-success)', fontWeight: 600,

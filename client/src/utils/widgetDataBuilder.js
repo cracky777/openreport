@@ -36,7 +36,7 @@ export function buildWidgetData({
   pivotFilterRowDims = false,
 }) {
   const w = widget;
-  const { dims, allDims, meass, grpBy, colDimsB, cbm, clm, sm,
+  const { dims, meass, grpBy, colDimsB, cbm, clm, sm,
     fullHierarchy, isDrillable, drillPath, topN } = meta;
   const topNApplies = topN.applies;
 

@@ -972,7 +972,6 @@ export default function Dashboard() {
   };
 
   const wsName = selectedWs ? workspaces.find((w) => w.id === selectedWs)?.name || 'Workspace' : 'My Reports';
-  const canEditWs = wsUserRole === 'admin' || wsUserRole === 'editor';
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' }}>
@@ -2366,7 +2365,7 @@ function ScheduleModal({ modal, runningIds, onClose, onStartCreate, onStartEdit,
   );
 }
 
-function ScheduleEditor({ initial, limits, dimensions, onCancel, onSubmit }) {
+function ScheduleEditor({ initial, dimensions, onCancel, onSubmit }) {
   const isEdit = !!initial;
   const [form, setForm] = useState(() => ({
     id: initial?.id || null,

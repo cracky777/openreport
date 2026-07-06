@@ -1,9 +1,4 @@
-/**
- * Format a number according to measure format settings.
- * @param {number} value - The number to format
- * @param {object} format - { decimals, thousandSep, prefix, suffix }
- * @returns {string}
- */
+// Format a number per its measure format: { decimals, thousandSep, prefix, suffix }.
 export default function formatNumber(value, format) {
   if (value == null || isNaN(value)) return String(value ?? '');
   if (!format) return value.toLocaleString();

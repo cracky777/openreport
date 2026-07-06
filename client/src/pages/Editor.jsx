@@ -18,7 +18,6 @@ import { prepareGlobalRulesForWidget } from '../utils/reportFilterRules';
 import { parseFiltersFromUrl, syncFiltersToUrl } from '../utils/urlFilters';
 import { computeBindingKey } from '../utils/bindingKey';
 import { filterForTarget } from '../utils/crossFilter';
-import { shiftFiltersForN1, shiftWidgetFiltersForN1, hasShiftableFilterForN1 } from '../utils/comparePeriod';
 import { buildWidgetQueryPayload } from '../utils/widgetQueryPayload';
 import { buildWidgetData } from '../utils/widgetDataBuilder';
 

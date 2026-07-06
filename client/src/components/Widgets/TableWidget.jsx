@@ -65,7 +65,6 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
 
   const [hoveredRow, setHoveredRow] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [resizingCol, setResizingCol] = useState(null);
   const [colWidths, setColWidths] = useState({});
 
   // Sort rows

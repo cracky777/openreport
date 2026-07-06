@@ -23,7 +23,10 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // Uppercase-named args are React components passed as props (e.g. Section, Field).
+      // ESLint can't see JSX usage without eslint-plugin-react, so mirror varsIgnorePattern
+      // on args to avoid false "unused" reports that invite breaking removals.
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^[A-Z_]', ignoreRestSiblings: true }],
     },
   },
 ])

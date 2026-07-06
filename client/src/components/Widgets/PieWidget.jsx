@@ -13,7 +13,7 @@ import WidgetEmptyState from './WidgetEmptyState';
 import { resolveZoneSorts } from '../../utils/chartSorts';
 import { buildValueGradient } from '../../utils/chartGradient';
 
-export default memo(function PieWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
+export default memo(function PieWidget({ data, config, onDataClick, highlightValue }) {
   const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const hasData = data?.items?.length > 0;
@@ -31,8 +31,6 @@ export default memo(function PieWidget({ data, config, chartWidth, chartHeight, 
   const topNEnabled = config?.topNEnabled === true;
   const topN = config?.topN ?? 20;
   const othersLabel = config?.othersLabel || 'Others';
-  const w = chartWidth || 400;
-  const h = chartHeight || 300;
 
   const allItemNames = useMemo(() => (data?.items || []).map((it) => it?.name).filter((n) => n != null), [data?.items]);
   const { getStableIdx } = useStableColorOrder(allItemNames.join('|'), allItemNames);
