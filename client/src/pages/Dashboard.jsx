@@ -5,6 +5,8 @@ import api from '../utils/api';
 import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbPencil, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbLoader2, TbRefresh } from 'react-icons/tb';
 import { formatBytes } from '../utils/formatHuman';
 import { useTheme } from '../hooks/useTheme';
+import { usePermissions } from '../hooks/usePermissions';
+import { useWorkspaceData } from '../hooks/useWorkspaceData';
 import { TopbarSwitcher, UserMenuExtras } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
 import CacheInspectorModal from '../components/CacheInspectorModal/CacheInspectorModal';
@@ -165,17 +167,10 @@ export default function Dashboard() {
       return stored && stored !== 'null' ? stored : null;
     } catch { return null; }
   }); // null = My Reports
-  const [wsReports, setWsReports] = useState([]);
-  const [wsMembers, setWsMembers] = useState([]);
-  const [wsOwner, setWsOwner] = useState(null);
-  const [wsUserRole, setWsUserRole] = useState(null);
-  // Cloud-only flag returned by GET /api/workspaces/:id when the workspace's
-  // org is a Personal one. Lets us hide sharing controls. Undefined in OSS
-  // (single-tenant) where every workspace is fair game.
-  const [wsIsPersonalOrg, setWsIsPersonalOrg] = useState(false);
-  // Cloud-only flag — true when the API exposed the members list (i.e. the
-  // caller is ws_admin / org_admin). Hides the Members button for editors / viewers.
-  const [wsCanSeeMembers, setWsCanSeeMembers] = useState(false);
+  const {
+    wsReports, wsMembers, wsOwner, wsUserRole, wsIsPersonalOrg, wsCanSeeMembers,
+    setWsReports, setWsMembers,
+  } = useWorkspaceData(selectedWs, reports, personalWorkspace);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showCreateWs, setShowCreateWs] = useState(false);
@@ -235,42 +230,8 @@ export default function Dashboard() {
     setUserSuggestions([]);
   };
 
-  // Cloud-aware permission state. Falls back to OSS-style user.role check
-  // when /api/cloud/orgs/active/current returns nothing (OSS or pre-cloud user).
-  const [activeOrgRole, setActiveOrgRole] = useState(null); // 'admin' | 'editor' | 'viewer' | null
-  useEffect(() => {
-    api.get('/cloud/orgs/active/current')
-      .then((res) => setActiveOrgRole(res.data.role || null))
-      .catch(() => setActiveOrgRole(null));
-  }, [selectedWs]); // refetch when org context might have shifted
-
-  // Cloud-only — am I a platform admin? Used to surface the Platform link
-  // in the top nav. The endpoint 404s in OSS so isPlatformAdmin stays false
-  // and the button doesn't render.
-  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    api.get('/cloud/platform/me')
-      .then((res) => { if (!cancelled) setIsPlatformAdmin(!!res.data.isPlatformAdmin); })
-      .catch(() => { /* not cloud or not platform admin — silently no-op */ });
-    return () => { cancelled = true; };
-  }, []);
-
-  // Org-level write capability: needed to create workspaces, manage datasources/models.
-  // In OSS (no cloud) we fall back to the legacy user.role check.
-  const canEditOrg = activeOrgRole
-    ? (activeOrgRole === 'admin' || activeOrgRole === 'editor')
-    : (user?.role !== 'viewer');
-
-  // Capability inside the currently-selected context. For workspace views: ws_admin/editor
-  // OR org_admin override. For "My Reports" (no workspace): same as canEditOrg.
-  const canEditCurrent = selectedWs
-    ? (wsUserRole === 'admin' || wsUserRole === 'editor' || activeOrgRole === 'admin')
-    : canEditOrg;
-
-  // Backwards-compat alias used by OSS code paths still expecting `canEdit`.
-  // It now resolves to canEditCurrent for the workspace-card actions.
-  const canEdit = canEditCurrent;
+  // Cloud-aware permission state (org role, platform-admin, write capability).
+  const { activeOrgRole, isPlatformAdmin, canEditOrg, canEdit } = usePermissions(selectedWs, user, wsUserRole);
 
   // Load data
   useEffect(() => {
@@ -354,42 +315,6 @@ export default function Dashboard() {
     } catch { /* ignore quota / privacy-mode errors */ }
   }, [selectedWs, lastWsKey]);
 
-  // Load workspace content. Split into two effects so a local change to
-  // `reports` (e.g. delete) doesn't trigger a server re-fetch that could
-  // overwrite the local optimistic update with stale data.
-  useEffect(() => {
-    if (selectedWs) return; // workspace view → handled by the next effect
-    // "My Reports" view = reports living in the user's personal workspace.
-    // Until that workspace id is loaded we fall back to the legacy NULL filter
-    // so the UI stays usable on first paint and on older deployments.
-    const personalId = personalWorkspace?.id;
-    setWsReports(reports.filter((r) => personalId
-      ? r.workspace_id === personalId
-      : !r.workspace_id));
-    setWsMembers([]);
-    setWsOwner(null);
-    setWsUserRole(null);
-    setWsIsPersonalOrg(false);
-    setWsCanSeeMembers(false);
-  }, [selectedWs, reports, personalWorkspace]);
-
-  useEffect(() => {
-    if (!selectedWs) return;
-    api.get(`/workspaces/${selectedWs}`).then((res) => {
-      setWsReports(res.data.reports || []);
-      setWsMembers(res.data.members || []);
-      setWsOwner(res.data.owner);
-      setWsUserRole(res.data.userRole);
-      setWsIsPersonalOrg(!!res.data.is_personal_org);
-      // Cloud responses include can_see_members (true for ws_admin / org_admin).
-      // OSS responses don't — fall back to "user is workspace admin" for OSS compat.
-      setWsCanSeeMembers(
-        res.data.can_see_members !== undefined
-          ? !!res.data.can_see_members
-          : res.data.userRole === 'admin'
-      );
-    }).catch(() => {});
-  }, [selectedWs]);
 
   const handleFileForReport = async (e) => {
     const file = e.target.files?.[0];
