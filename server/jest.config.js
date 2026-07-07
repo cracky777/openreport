@@ -6,7 +6,7 @@ module.exports = {
   // behaviour is covered by the integration harness (supertest) without a
   // coverage gate, so a big partially-exercised file can't crater the numbers.
   collectCoverageFrom: [
-    'utils/measureType.js',
+    'utils/measureType/**/*.js',
     'utils/reportFilterRules.js',
     'utils/sqlBuilder/**/*.js',
   ],
