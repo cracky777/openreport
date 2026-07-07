@@ -8,9 +8,9 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET required (generate: openssl rand -hex 32)}
-      - INTERNAL_TOKEN_SECRET=${INTERNAL_TOKEN_SECRET:?INTERNAL_TOKEN_SECRET required (openssl rand -hex 32; must differ from SESSION_SECRET)}
-      - DATASOURCE_ENC_KEY=${DATASOURCE_ENC_KEY:?DATASOURCE_ENC_KEY required (openssl rand -hex 32; keep it stable / backed up)}
+      - "SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET required (generate: openssl rand -hex 32)}"
+      - "INTERNAL_TOKEN_SECRET=${INTERNAL_TOKEN_SECRET:?INTERNAL_TOKEN_SECRET required (openssl rand -hex 32; must differ from SESSION_SECRET)}"
+      - "DATASOURCE_ENC_KEY=${DATASOURCE_ENC_KEY:?DATASOURCE_ENC_KEY required (openssl rand -hex 32; keep it stable / backed up)}"
     volumes:
       - app-data:/app/server/data
     networks:
