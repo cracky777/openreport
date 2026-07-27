@@ -6,6 +6,11 @@ import SqlExpressionInput from '../components/SqlExpressionInput/SqlExpressionIn
 import api from '../utils/api';
 import { headerShellStyle, BackButton, PrimaryButton, SecondaryButton, headerBadgeStyle } from '../components/PageHeader/PageHeader';
 import { useTheme } from '../hooks/useTheme';
+import ValidationBadge from '../components/ValidationBadge';
+import {
+  isNumeric, isDateType, getColumnType,
+  normalizeStoredType, readOverride, writeOverride, chevronSvg,
+} from '../utils/modelEditorHelpers';
 
 const _hs0 = { padding: 40, color: 'var(--text-disabled)' };
 const _hs1 = { height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' };
@@ -309,63 +314,6 @@ export default function ModelEditor() {
     setSelectedTables((prev) =>
       prev.includes(tableName) ? prev.filter((t) => t !== tableName) : [...prev, tableName]
     );
-  };
-
-  // Whole-number db types (no fractional part). Used to pre-select 'integer'
-  // when the user creates a Dimension from such a column.
-  const isIntegerType = (dataType) => {
-    const t = String(dataType || '').toLowerCase();
-    return ['integer', 'int', 'int2', 'int4', 'int8', 'bigint', 'smallint',
-      'tinyint', 'mediumint', 'serial', 'bigserial', 'smallserial'].includes(t);
-  };
-
-  // Floating / fixed-precision numeric types.
-  const isDecimalType = (dataType) => {
-    const t = String(dataType || '').toLowerCase();
-    return ['numeric', 'decimal', 'real', 'double precision', 'float', 'double',
-      'money', 'smallmoney',
-      // Postgres interval — durations are aggregable in SQL (SUM/AVG return interval).
-      'interval'].includes(t);
-  };
-
-  // Combined check used by the schema canvas to decide whether to expose the
-  // "M" (Measure) flag on a column.
-  const isNumeric = (dataType) => isIntegerType(dataType) || isDecimalType(dataType);
-
-  const isDateType = (dataType) => {
-    const t = String(dataType || '').toLowerCase();
-    return ['date', 'timestamp', 'timestamptz', 'timestamp with time zone',
-      'timestamp without time zone', 'datetime', 'time',
-      'smalldatetime', 'datetime2', 'datetimeoffset'].includes(t);
-  };
-
-  const getColumnType = (dataType) => {
-    if (isIntegerType(dataType)) return 'integer';
-    if (isDecimalType(dataType)) return 'decimal';
-    if (isDateType(dataType)) return 'date';
-    return 'string';
-  };
-
-  // Older models stored 'number' as the catch-all numeric type. Normalise it
-  // to 'decimal' on read so the new dropdown widgets and validators don't
-  // need to special-case the legacy value. Saving emits the new vocabulary.
-  const normalizeStoredType = (t) => (t === 'number' ? 'decimal' : t);
-
-  // columnTypes entries can be either a plain string ('date', 'integer', ...)
-  // or an object { type, format } once the user picks an explicit format
-  // (relevant for dates: 'dd/mm/yyyy', 'iso', etc.). These two helpers
-  // normalise reads/writes so the rest of the code can stay simple.
-  const readOverride = (entry) => {
-    if (!entry) return null;
-    if (typeof entry === 'string') return { type: entry, format: 'auto' };
-    return { type: entry.type, format: entry.format || 'auto' };
-  };
-  // Build the value to store back. Returns null when the override is auto
-  // (= no override, drop the entry entirely).
-  const writeOverride = (type, format) => {
-    if (!type || type === 'auto') return null;
-    if (!format || format === 'auto') return type;       // simple form
-    return { type, format };                              // object form
   };
 
   // Effective type + optional format for a column. Reads the override map
@@ -1093,42 +1041,6 @@ export default function ModelEditor() {
   );
 }
 
-// Compact green/red pill that summarises the result of a column-type
-// validation run. Tooltip shows sample size + a few invalid examples so
-// the user knows where the type mismatches are.
-function ValidationBadge({ result }) {
-  if (result.error) {
-    return (
-      <span title={result.error} style={{ ...badge, background: 'var(--state-danger-soft)', color: 'var(--state-danger)' }}>
-        error
-      </span>
-    );
-  }
-  const ratio = result.validRatio ?? 0;
-  const pct = Math.round(ratio * 100);
-  const ok = ratio >= 0.95;
-  const tooltip = [
-    `${result.validCount}/${result.sampleSize} rows match "${result.type}"`,
-    result.invalidExamples?.length
-      ? `Invalid examples: ${result.invalidExamples.map((v) => v == null ? 'NULL' : `"${v}"`).join(', ')}`
-      : null,
-    result.note || null,
-  ].filter(Boolean).join('\n');
-  return (
-    <span
-      title={tooltip}
-      style={{
-        ...badge,
-        background: ok ? 'var(--state-success-soft, #dcfce7)' : 'var(--state-warning-soft, #fef3c7)',
-        color: ok ? 'var(--state-success, #16a34a)' : 'var(--state-warning, #92400e)',
-        cursor: 'help',
-      }}
-    >
-      {ok ? '✓' : '!'} {pct}%
-    </span>
-  );
-}
-
 const primaryBtn = {
   padding: '8px 16px', fontSize: 14, fontWeight: 600, border: 'none',
   borderRadius: 6, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
@@ -1150,9 +1062,6 @@ const inlineInput = {
   padding: '4px 6px', border: '1px solid var(--border-default)', borderRadius: 4,
   fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box',
 };
-// Encoded chevron used as a CSS background-image so the select looks like a
-// real interactive dropdown instead of a flat read-only field.
-const chevronSvg = (color) => `no-repeat right 6px center / 10px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='none' stroke='${encodeURIComponent(color)}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M4 6l4 4 4-4'/></svg>")`;
 const editableSelectStyle = {
   appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
   padding: '3px 22px 3px 8px', borderRadius: 4, fontSize: 12,
