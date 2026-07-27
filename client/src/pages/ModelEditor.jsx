@@ -7,6 +7,7 @@ import api from '../utils/api';
 import { headerShellStyle, BackButton, PrimaryButton, SecondaryButton, headerBadgeStyle } from '../components/PageHeader/PageHeader';
 import { useTheme } from '../hooks/useTheme';
 import ValidationBadge from '../components/ValidationBadge';
+import Step0Tables from './Step0Tables';
 import {
   isNumeric, isDateType, getColumnType,
   normalizeStoredType, readOverride, writeOverride, chevronSvg,
@@ -43,18 +44,6 @@ const _hs14 = { fontSize: 11, color: 'var(--text-muted)' };
 const _hs15 = { padding: 16, fontSize: 12, color: 'var(--text-disabled)', textAlign: 'center' };
 const _hs16 = { display: 'flex', justifyContent: 'flex-end', marginTop: 14 };
 const _hs17 = { padding: '6px 14px', fontSize: 13, background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' };
-const _hs18 = { flex: 1, overflow: 'auto', padding: 24 };
-const _hs19 = { maxWidth: 700, margin: '0 auto' };
-const _hs20 = { fontSize: 16, fontWeight: 600, marginBottom: 4 };
-const _hs21 = { fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 };
-const _hs22 = { maxHeight: 400, overflow: 'auto' };
-const _hs23 = { padding: 20, textAlign: 'center', color: 'var(--text-disabled)' };
-const _hs24 = { padding: 12, background: 'var(--state-danger-soft)', color: 'var(--state-danger)', borderRadius: 6, fontSize: 13, marginBottom: 8 };
-const _hs25 = { padding: 20, textAlign: 'center', color: 'var(--text-disabled)' };
-const _hs26 = { width: 18, height: 18, cursor: 'pointer' };
-const _hs27 = { fontSize: 14, color: 'var(--text-primary)' };
-const _hs28 = { marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
-const _hs29 = { fontSize: 13, color: 'var(--text-muted)' };
 const _hs30 = {
           margin: '12px 24px 0', padding: '10px 14px', borderRadius: 8,
           background: 'var(--state-warning-soft)', border: '1px solid #fde68a', color: 'var(--state-warning)',
@@ -633,58 +622,12 @@ export default function ModelEditor() {
 
       {/* Step 0: Table selection */}
       {step === 0 && (
-        <div style={_hs18}>
-          <div style={_hs19}>
-            <div style={cardStyle}>
-              <h2 style={_hs20}>Select Tables</h2>
-              <p style={_hs21}>
-                Choose the tables you want to include in this model.
-              </p>
-              <input
-                type="text" placeholder="Search tables..."
-                value={tableSearch} onChange={(e) => setTableSearch(e.target.value)}
-                style={searchInput}
-              />
-              <div style={_hs22}>
-                {tablesLoading && (
-                  <div style={_hs23}>Loading tables from database...</div>
-                )}
-                {tablesError && (
-                  <div style={_hs24}>
-                    {tablesError}
-                  </div>
-                )}
-                {!tablesLoading && !tablesError && filteredTables.length === 0 && (
-                  <div style={_hs25}>
-                    {tableSearch ? 'No tables match your search' : 'No tables found in this database'}
-                  </div>
-                )}
-                {filteredTables.map((table) => (
-                  <label key={table} style={tableCheckRow}>
-                    <input
-                      type="checkbox"
-                      checked={selectedTables.includes(table)}
-                      onChange={() => toggleTable(table)}
-                      style={_hs26}
-                    />
-                    <span style={_hs27}>{table}</span>
-                  </label>
-                ))}
-              </div>
-              <div style={_hs28}>
-                <span style={_hs29}>{selectedTables.length} table(s) selected</span>
-                <button
-                  className="btn-hover btn-hover-primary"
-                  onClick={enterStep1}
-                  disabled={selectedTables.length === 0}
-                  style={{ ...primaryBtn, opacity: selectedTables.length === 0 ? 0.5 : 1 }}
-                >
-                  Next: Schema & Joins →
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <Step0Tables
+          tableSearch={tableSearch} setTableSearch={setTableSearch}
+          tablesLoading={tablesLoading} tablesError={tablesError}
+          filteredTables={filteredTables} selectedTables={selectedTables}
+          toggleTable={toggleTable} enterStep1={enterStep1}
+        />
       )}
 
       {/* Step 1: Visual schema */}
@@ -1041,20 +984,8 @@ export default function ModelEditor() {
   );
 }
 
-const primaryBtn = {
-  padding: '8px 16px', fontSize: 14, fontWeight: 600, border: 'none',
-  borderRadius: 6, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
-};
 const cardStyle = { backgroundColor: 'var(--bg-panel)', padding: 20, borderRadius: 8, border: '1px solid var(--border-default)' };
 const cardTitle = { fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 };
-const searchInput = {
-  width: '100%', padding: '8px 10px', border: '1px solid var(--border-default)',
-  borderRadius: 6, fontSize: 14, outline: 'none', marginBottom: 12, boxSizing: 'border-box',
-};
-const tableCheckRow = {
-  display: 'flex', alignItems: 'center', gap: 10, padding: '8px 8px',
-  borderBottom: '1px solid #f1f5f9', cursor: 'pointer',
-};
 const tableStyleCSS = { width: '100%', borderCollapse: 'collapse', fontSize: 13 };
 const thStyle = { textAlign: 'left', padding: '8px 10px', borderBottom: '2px solid #e2e8f0', color: 'var(--text-muted)', fontWeight: 600, fontSize: 12 };
 const tdStyle = { padding: '6px 10px', borderBottom: '1px solid #f1f5f9', color: 'var(--text-secondary)' };
