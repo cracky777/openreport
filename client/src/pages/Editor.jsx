@@ -20,6 +20,9 @@ import { computeBindingKey } from '../utils/bindingKey';
 import { filterForTarget } from '../utils/crossFilter';
 import { buildWidgetQueryPayload } from '../utils/widgetQueryPayload';
 import { buildWidgetData } from '../utils/widgetDataBuilder';
+import { convertData, buildSnapshot } from '../utils/editorHelpers';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useAutoRefreshOnImport } from '../hooks/useAutoRefreshOnImport';
 
 const _hs0 = { padding: 40, color: 'var(--text-disabled)' };
 const _hs1 = { height: '100vh', display: 'flex', flexDirection: 'column' };
@@ -51,100 +54,6 @@ const _hs10 = {
                   padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6,
                   background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
                 };
-
-function convertData(data, fromType, toType) {
-  if (!data || Object.keys(data).length === 0) return data;
-
-  // Extract labels and values from any source format
-  let labels = [];
-  let values = [];
-
-  if (data.labels && data.values) {
-    // bar, line format
-    labels = data.labels;
-    values = data.values;
-  } else if (data.items) {
-    // pie format
-    labels = data.items.map((item) => item.name);
-    values = data.items.map((item) => item.value);
-  } else if (data.columns && data.rows) {
-    // table format
-    labels = data.rows.map((r) => r[0]);
-    values = data.rows.map((r) => parseFloat(r[r.length - 1]) || 0);
-  } else if (data.rawRows || data.points || data.barSeries || data.lineSeries) {
-    // pivotTable / scatter / combo format — clear data, will need refetch
-    return {};
-  } else if (data.value !== undefined) {
-    // scorecard format - can't meaningfully convert
-    return data;
-  } else {
-    return data;
-  }
-
-  // Convert to target format
-  switch (toType) {
-    case 'bar':
-    case 'line':
-      return { labels, values };
-    case 'pie':
-    case 'treemap':
-      return { items: labels.map((name, i) => ({ name, value: values[i] || 0 })) };
-    case 'table':
-      return {
-        columns: ['Label', 'Value'],
-        rows: labels.map((l, i) => [String(l), String(values[i] || 0)]),
-      };
-    case 'scorecard':
-    case 'gauge':
-      return {
-        value: values.reduce((a, b) => a + b, 0),
-        label: 'Total',
-      };
-    case 'pivotTable':
-    case 'scatter':
-    case 'combo':
-      // Needs specific data format — clear data to force a refetch
-      return {};
-    default:
-      return data;
-  }
-}
-
-// Canonical JSON serializer — keys sorted so object key ordering doesn't affect the output.
-function canonicalStringify(obj) {
-  if (obj === null || obj === undefined) return 'null';
-  if (typeof obj !== 'object') return JSON.stringify(obj);
-  if (Array.isArray(obj)) return '[' + obj.map(canonicalStringify).join(',') + ']';
-  const keys = Object.keys(obj).filter((k) => obj[k] !== undefined).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalStringify(obj[k])).join(',') + '}';
-}
-
-// Build a stable snapshot string used to detect real modifications against the last-saved state.
-// Strips transient widget data/loading flags — only persisted config matters — and emits keys in
-// canonical order so a difference means a real change, not a re-ordered object.
-function buildSnapshot(title, settings, pagesArr) {
-  const cleanWidget = (w) => {
-    if (!w) return {};
-    // Only keep fields that represent the user-authored configuration of the widget.
-    // Anything else (data, _loading, _error, transient cached state…) is runtime noise.
-    const out = {
-      type: w.type,
-      config: w.config || {},
-      dataBinding: w.dataBinding || {},
-    };
-    if (Array.isArray(w.drillPath) && w.drillPath.length > 0) out.drillPath = w.drillPath;
-    return out;
-  };
-  const cleanPage = (p) => ({
-    id: p.id, name: p.name,
-    layout: p.layout || [],
-    widgets: Object.fromEntries(Object.entries(p.widgets || {}).map(([k, w]) => [k, cleanWidget(w)])),
-  });
-  // Server nests pages inside settings for storage — strip that copy out; our `pagesArr` is the canonical one.
-  const settingsSansPages = { ...(settings || {}) };
-  delete settingsSansPages.pages;
-  return canonicalStringify({ title: title || '', settings: settingsSansPages, pages: (pagesArr || []).map(cleanPage) });
-}
 
 export default function Editor() {
   const { id } = useParams();
@@ -927,83 +836,9 @@ export default function Editor() {
     if (st.trickle) clearInterval(st.trickle);
   }, []);
 
-  // Refs used by the initial-refresh effect AND the one-shot auto-save
-  // effect immediately below. Declared together so the order stays
-  // obvious and a future refactor can't accidentally split them.
-  const initialRefreshFiredRef = useRef(false);
-  const postImportAutoSavePendingRef = useRef(false);
-  const prevRefreshingRef = useRef(false);
-
-  // Auto-fire the "Refresh live query" toolbar action once per browser
-  // tab session for a report whose widgets arrive without data — typical
-  // for a freshly-imported report (the importer strips per-widget result
-  // rows so the bundle stays portable across accounts). We detect this
-  // by looking for any data-binding widget missing its `_fetchedBinding`
-  // marker.
-  //
-  // The `_fetchedBinding` marker lives only in `history.state` (memory),
-  // never persisted to the server — so without the sessionStorage gate,
-  // F5 on an imported-but-unsaved report would trigger the auto-refresh
-  // every reload (the server keeps returning the stripped widgets the
-  // import wrote). sessionStorage scopes the one-shot to a single tab
-  // session, surviving F5 and intra-tab navigation. Reopening the report
-  // in a new tab re-fires once there, which is the correct behaviour:
-  // a new tab can't see the previous tab's in-memory fetched state.
-  useEffect(() => {
-    if (initialRefreshFiredRef.current) return;
-    if (!model?.id || !id) return;
-    const key = `openreport.autoRefreshed.${id}`;
-    let alreadyAutoRefreshed = false;
-    try { alreadyAutoRefreshed = sessionStorage.getItem(key) === '1'; } catch {}
-    if (alreadyAutoRefreshed) {
-      initialRefreshFiredRef.current = true;
-      return;
-    }
-    const wids = history.state.widgets || {};
-    const anyUnfetched = Object.values(wids).some((w) => {
-      if (!w || w.type === 'filter' || w.type === 'text'
-          || w.type === 'image' || w.type === 'shape') return false;
-      const b = w.dataBinding || {};
-      const hasMeas = w.type === 'scatter' ? !!(b.scatterMeasures?.x && b.scatterMeasures?.y)
-        : w.type === 'combo' ? (b.comboBarMeasures?.length > 0 || b.comboLineMeasures?.length > 0)
-        : b.selectedMeasures?.length > 0;
-      const hasBinding = b.selectedDimensions?.length > 0 || hasMeas;
-      return hasBinding && !w.data?._fetchedBinding;
-    });
-    if (!anyUnfetched) return;
-    initialRefreshFiredRef.current = true;
-    try { sessionStorage.setItem(key, '1'); } catch {}
-    // Arm the one-shot auto-save: when THIS refresh finishes (refreshing
-    // flips back to false), persist the fetched widget data so subsequent
-    // F5s don't re-trigger the auto-refresh path and the user doesn't
-    // need to remember to click Save. Cleared as soon as it fires —
-    // later manual refreshes won't auto-save.
-    postImportAutoSavePendingRef.current = true;
-    // Defer to the next macrotask so the rest of the mount-time state
-    // (setReportFilters from the widgets→filters sync effect, settings
-    // load, etc.) has committed first. Without this, handleRefresh
-    // bumps refreshCounter mid-mount and the main fetch effect's
-    // setTimeout(150ms) gets repeatedly cleared by the cleanup running
-    // on each subsequent state-driven re-render — the actual fetches
-    // only fire once the cascade settles, which can take seconds. The
-    // toolbar-button path doesn't see this because it's clicked from a
-    // stable state.
-    setTimeout(() => handleRefresh(), 0);
-  }, [id, model?.id, history.state.widgets, handleRefresh]);
-
-  // One-shot auto-save after the post-import refresh settles. Watches
-  // `refreshing` for a true→false edge and, if the post-import flag is
-  // armed, calls handleSave once and clears the flag. Any subsequent
-  // manual refresh leaves `postImportAutoSavePendingRef` false, so it's
-  // a no-op for normal refreshes.
-  useEffect(() => {
-    const wasRefreshing = prevRefreshingRef.current;
-    prevRefreshingRef.current = refreshing;
-    if (wasRefreshing && !refreshing && postImportAutoSavePendingRef.current) {
-      postImportAutoSavePendingRef.current = false;
-      handleSave();
-    }
-  }, [refreshing]);
+  // Post-import one-shot auto-refresh + auto-save — see
+  // hooks/useAutoRefreshOnImport. Called lower down (after handleRefresh /
+  // handleSave are defined) rather than here.
 
   // On mount, check whether the server is already rebuilding this report's
   // cache (user clicked rebuild then F5'd / navigated away and back). If
@@ -1815,71 +1650,6 @@ export default function Editor() {
     load();
   }, [id, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keyboard shortcuts: Delete, Ctrl+Z, Ctrl+Y
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Delete selected widget
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedWidget) {
-        // Don't delete if user is typing in an input
-        const tag = e.target.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-
-        e.preventDefault();
-        handleDeleteWidget(selectedWidget);
-      }
-
-      // Ctrl+Z = undo
-      if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        history.undo();
-      }
-
-      // Ctrl+Y or Ctrl+Shift+Z = redo
-      if ((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'z')) {
-        e.preventDefault();
-        history.redo();
-      }
-
-      // Ctrl+C = copy selected widget
-      if (e.ctrlKey && e.key === 'c' && selectedWidget) {
-        const tag = e.target.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-        const widgetData = widgets[selectedWidget];
-        const layoutItem = layout.find((l) => l.i === selectedWidget);
-        if (widgetData && layoutItem) {
-          setClipboard({ widget: JSON.parse(JSON.stringify(widgetData)), layout: { ...layoutItem } });
-        }
-      }
-
-      // Ctrl+V = paste copied widget
-      if (e.ctrlKey && e.key === 'v' && clipboard) {
-        const tag = e.target.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-        e.preventDefault();
-        const newId = uuidv4();
-        const newLayout = {
-          ...clipboard.layout,
-          i: newId,
-          x: (clipboard.layout.x || 0) + 20,
-          y: (clipboard.layout.y || 0) + 20,
-        };
-        const newWidget = JSON.parse(JSON.stringify(clipboard.widget));
-        // Clear fetched data to avoid stale cache
-        if (newWidget.data) delete newWidget.data._fetchedBinding;
-        setLayoutAndWidgets(
-          (prev) => [...prev, newLayout],
-          (prev) => ({ ...prev, [newId]: newWidget }),
-        );
-        setSelectedWidget(newId);
-        // Update clipboard position for next paste
-        setClipboard({ widget: clipboard.widget, layout: newLayout });
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedWidget, history, clipboard, widgets, layout, setLayoutAndWidgets]);
-
   const handleAddWidget = useCallback((type, subType, extraConfig, customSize) => {
     const widgetId = uuidv4();
     const defaultSize = customSize || WIDGET_TYPES[type]?.defaultSize || { w: 24, h: 16 };
@@ -2021,6 +1791,14 @@ export default function Editor() {
     // Clear cross-highlight if deleting the source widget — slicer state auto-resyncs via useEffect(widgets)
     if (wasCrossFilterSource) setCrossHighlight(null);
   }, [setLayoutAndWidgets]);
+
+  // Keyboard shortcuts (Delete / undo-redo / copy-paste). Declared here rather
+  // than up top so handleDeleteWidget is already defined (avoids a TDZ on the
+  // hook argument); it's a window listener, so its effect order is irrelevant.
+  useKeyboardShortcuts({
+    selectedWidget, setSelectedWidget, handleDeleteWidget, history,
+    widgets, layout, setLayoutAndWidgets, clipboard, setClipboard,
+  });
 
   const handleLoadMore = useCallback(async (widgetId) => {
     const widget = widgets[widgetId];
@@ -2189,6 +1967,8 @@ export default function Editor() {
       setSaving(false);
     }
   };
+
+  useAutoRefreshOnImport({ id, model, history, refreshing, handleRefresh, handleSave });
 
   // Unsaved-changes guard. Same comparison the toolbar already uses to
   // grey out the Save button — current snapshot vs. last-saved snapshot
