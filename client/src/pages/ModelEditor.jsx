@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import SchemaCanvas from '../components/SchemaCanvas/SchemaCanvas';
-import RLSDialog from '../components/SchemaCanvas/RLSDialog';
+import Step1Schema from './Step1Schema';
 import api from '../utils/api';
 import { headerShellStyle, BackButton, PrimaryButton, SecondaryButton, headerBadgeStyle } from '../components/PageHeader/PageHeader';
 import { useTheme } from '../hooks/useTheme';
@@ -62,12 +61,6 @@ const _hs37 = { fontSize: 18, lineHeight: 1 };
 const _hs38 = { flex: 1 };
 const _hs39 = { fontWeight: 600, marginBottom: 4 };
 const _hs40 = { fontSize: 12, lineHeight: 1.5 };
-const _hs41 = { flex: 1, position: 'relative', overflow: 'hidden' };
-const _hs42 = {
-            position: 'absolute', top: 12, left: 12, zIndex: 10,
-            background: 'var(--bg-panel)', borderRadius: 6, padding: '6px 12px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)', fontSize: 12, color: 'var(--text-muted)',
-          };
 
 
 const STEPS = ['Tables', 'Schema & Joins', 'Dimensions & Measures'];
@@ -683,55 +676,21 @@ export default function ModelEditor() {
       )}
 
       {step === 1 && (
-        <div style={_hs41}>
-          <div style={_hs42}>
-            Drag column dots to create joins. Click D/M to mark dimensions/measures.
-          </div>
-          <SchemaCanvas
-            tables={schemaTablesData}
-            positions={tablePositions}
-            joins={joins}
-            dimensions={dimensions}
-            measures={measures}
-            onPositionsChange={setTablePositions}
-            onJoinsChange={setJoins}
-            onAddDimension={addDimension}
-            onAddMeasure={addMeasure}
-            modelId={id}
-            datasourceId={model?.datasource_id}
-            isNumeric={isNumeric}
-            isDateType={isDateType}
-            columnTypes={columnTypes}
-            onColumnTypeChange={setColumnType}
-            onValidateColumnType={validateColumnType}
-            validatingColumn={validatingColumn}
-            validationResults={validationResults}
-            rlsTable={rls?.enabled ? rls?.table : null}
-            onOpenRLS={(tableName) => setRlsDialogTable(tableName)}
-            onRemoveTable={(tableName) => {
-              setSelectedTables((prev) => prev.filter((t) => t !== tableName));
-              setTablePositions((prev) => {
-                const next = { ...prev };
-                delete next[tableName];
-                return next;
-              });
-              setJoins((prev) => prev.filter((j) => j.from_table !== tableName && j.to_table !== tableName));
-              setDimensions((prev) => prev.filter((d) => d.table !== tableName));
-              setMeasures((prev) => prev.filter((m) => m.table !== tableName));
-              if (rls?.table === tableName) setRls({});
-            }}
-          />
-          {rlsDialogTable && (
-            <RLSDialog
-              modelId={id}
-              tableName={rlsDialogTable}
-              tableColumns={tableColumns[rlsDialogTable] || []}
-              rls={rls}
-              onChange={setRls}
-              onClose={() => setRlsDialogTable(null)}
-            />
-          )}
-        </div>
+        <Step1Schema
+          schemaTablesData={schemaTablesData}
+          tablePositions={tablePositions} setTablePositions={setTablePositions}
+          joins={joins} setJoins={setJoins}
+          dimensions={dimensions} setDimensions={setDimensions}
+          measures={measures} setMeasures={setMeasures}
+          addDimension={addDimension} addMeasure={addMeasure}
+          modelId={id} datasourceId={model?.datasource_id}
+          isNumeric={isNumeric} isDateType={isDateType}
+          columnTypes={columnTypes} setColumnType={setColumnType}
+          validateColumnType={validateColumnType} validatingColumn={validatingColumn} validationResults={validationResults}
+          rls={rls} setRls={setRls}
+          rlsDialogTable={rlsDialogTable} setRlsDialogTable={setRlsDialogTable}
+          setSelectedTables={setSelectedTables} tableColumns={tableColumns}
+        />
       )}
 
       {/* Step 2: Dimensions & Measures */}
