@@ -390,6 +390,24 @@ export default function ModelEditor() {
       );
       if (!ok) return;
     }
+    // Advisory guard: if a column was type-tested and its CURRENT type still
+    // fits the sampled data poorly, confirm before saving. Non-blocking — the
+    // user may legitimately know better than a 100k-row sample. Skips stale
+    // results (a type the user changed away from after testing) via r.type.
+    const TYPE_MATCH_THRESHOLD = 0.95;
+    const poorlyTyped = dimensions
+      .map((d) => ({ d, r: validationResults[`${d.table}.${d.column}`] }))
+      .filter(({ d, r }) => r && !r.error && r.type === d.type
+        && typeof r.validRatio === 'number' && r.validRatio < TYPE_MATCH_THRESHOLD)
+      .map(({ d, r }) => `• ${d.label || d.column}: "${d.type}" fits only ${Math.round(r.validRatio * 100)}% of sampled rows`);
+    if (poorlyTyped.length > 0) {
+      const ok = window.confirm(
+        'Some columns don’t match their chosen type well:\n\n'
+        + poorlyTyped.join('\n')
+        + '\n\nReports may format or sort them unexpectedly. Save anyway?'
+      );
+      if (!ok) return;
+    }
     setSaving(true);
     try {
       await api.put(`/models/${id}`, {

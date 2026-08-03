@@ -61,6 +61,7 @@ const editableInputStyle = {
   transition: 'border-color 0.12s',
 };
 const badge = { padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 };
+const warnIcon = { fontSize: 13, cursor: 'help', lineHeight: 1 };
 const removeBtn = {
   fontSize: 12, color: 'var(--state-danger)', background: 'transparent', border: '1px solid #fca5a5',
   borderRadius: 4, padding: '2px 8px', cursor: 'pointer',
@@ -139,6 +140,11 @@ export default function Step2DimensionsMeasures({
                         const override = readOverride(columnTypes[key]);
                         const currentFormat = override?.format || 'auto';
                         const isDateType_ = normalizeStoredType(d.type) === 'date';
+                        // Column was tested and its CURRENT type fits the sample
+                        // poorly (< 95%). r.type guards against a stale result for
+                        // a type the user has since changed away from.
+                        const typeMismatch = result && !result.error && result.type === d.type
+                          && typeof result.validRatio === 'number' && result.validRatio < 0.95;
                         return (
                           <div style={_hs48}>
                             <select
@@ -161,6 +167,12 @@ export default function Step2DimensionsMeasures({
                               <option value="date">date</option>
                               <option value="boolean">boolean</option>
                             </select>
+                            {typeMismatch && (
+                              <span
+                                style={warnIcon}
+                                title={`This column matches "${d.type}" for only ${Math.round(result.validRatio * 100)}% of the sampled rows`}
+                              >⚠️</span>
+                            )}
                             {isDateType_ && (
                               <select
                                 value={currentFormat}

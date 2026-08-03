@@ -821,6 +821,13 @@ export default function SchemaCanvas({
                   const isDate = overrideType ? overrideType === 'date' : isDateType?.(col.data_type);
                   const displayType = overrideType || col.data_type;
                   const isId = col.column_name.toLowerCase().startsWith('id');
+                  // Column was type-tested and its CURRENT override fits the
+                  // sample poorly (< 95%). `vres.type === normOverride` skips a
+                  // stale result for a type the user has since changed away from.
+                  const normOverride = overrideType === 'number' ? 'decimal' : overrideType;
+                  const vres = validationResults?.[overrideKey];
+                  const typeMismatch = !!vres && !vres.error && vres.type === normOverride
+                    && typeof vres.validRatio === 'number' && vres.validRatio < 0.95;
 
                   return (
                     <g key={col.column_name}>
@@ -861,14 +868,16 @@ export default function SchemaCanvas({
                               x={TABLE_WIDTH - (isDate ? 56 : 48)}
                               y={cy + 4}
                               fontSize={9}
-                              fill={isOverridden ? '#7c3aed' : isDate ? '#d97706' : '#94a3b8'}
-                              fontWeight={isOverridden ? 700 : 400}
+                              fill={typeMismatch ? '#dc2626' : isOverridden ? '#7c3aed' : isDate ? '#d97706' : '#94a3b8'}
+                              fontWeight={typeMismatch || isOverridden ? 700 : 400}
                               textAnchor="end"
                               style={{ cursor: onColumnTypeChange ? 'pointer' : 'default' }}
                               onClick={onTypeClick}
                             >
-                              {isOverridden ? '✎ ' : isDate ? '📅 ' : '✎ '}{truncate(displayType, TYPE_MAX)}
-                              <title>{isOverridden
+                              {typeMismatch ? '⚠ ' : ''}{isOverridden ? '✎ ' : isDate ? '📅 ' : '✎ '}{truncate(displayType, TYPE_MAX)}
+                              <title>{typeMismatch
+                                ? `⚠ Seulement ${Math.round(vres.validRatio * 100)}% des lignes échantillonnées correspondent au type « ${normOverride} »\nClique pour changer le type / re-tester`
+                                : isOverridden
                                 ? `Override actif : ${displayType}\nNatif : ${col.data_type}\nClique pour changer`
                                 : `Type natif : ${col.data_type}\nClique pour forcer un autre type / format`}</title>
                             </text>
