@@ -17,6 +17,22 @@
 const { quoteLiteral } = require('../sqlDialect');
 
 const NUMERIC_TYPES = new Set(['integer', 'decimal', 'number']);
+// Native DB column types that are ALREADY numeric. REPLACE(expr, ',', '.')
+// must be skipped for these: it's pointless (no comma decimals to fix) and a
+// hard binder error on strict dialects — DuckDB rejects `replace(DOUBLE, …)`
+// since there's no implicit VARCHAR cast. Mirrors the client's is-numeric list.
+const NATIVE_NUMERIC_TYPES = new Set([
+  'integer', 'int', 'int2', 'int4', 'int8', 'bigint', 'smallint', 'tinyint',
+  'mediumint', 'serial', 'bigserial', 'smallserial',
+  'numeric', 'decimal', 'real', 'double precision', 'float', 'double',
+  'money', 'smallmoney',
+]);
+function isNativeNumericType(nativeType) {
+  // Strip any precision/scale suffix — `decimal(18,2)`, `numeric(10)`,
+  // `float(24)` → base name — before matching.
+  const base = String(nativeType || '').toLowerCase().trim().replace(/\s*\(.*/, '');
+  return base === 'number' || NATIVE_NUMERIC_TYPES.has(base);
+}
 const BOOL_TRUE = new Set(['true', 't', 'yes', 'y', '1']);
 const BOOL_FALSE = new Set(['false', 'f', 'no', 'n', '0']);
 
@@ -41,18 +57,22 @@ function castToString(expr, dbType) {
   return `CAST(${expr} AS VARCHAR)`;
 }
 
-// Convert a (possibly text) column expression into a numeric SQL value
-// using the dialect's CAST keyword. `type` is 'integer' / 'decimal' /
-// 'number' (the legacy alias, treated as decimal). For decimals we wrap
-// REPLACE(expr, ',', '.') first so French comma decimals like "12,34"
-// parse cleanly — REPLACE on a native numeric column implicitly stringifies,
-// works on every supported dialect.
-function castToNumber(expr, dbType, type) {
+// Convert a (possibly text) column expression into a numeric SQL value using
+// the dialect's CAST keyword. `type` is 'integer' / 'decimal' / 'number' (the
+// legacy alias, treated as decimal). For decimals we REPLACE ',' → '.' so
+// French comma decimals like "12,34" parse cleanly. CRITICAL: REPLACE requires
+// a string argument, and strict dialects (DuckDB) reject `replace(DOUBLE, …)`
+// with a binder error — so we ALWAYS cast the column to text before REPLACE.
+// The cast is a harmless no-op on real text columns and makes an override to a
+// numeric type work on a natively-numeric column too (the common "user forced
+// decimal on a DOUBLE" case). When we already KNOW the column is numeric
+// (`nativeType`), we skip REPLACE entirely — cleaner, and avoids a needless
+// number→text→number round-trip.
+function castToNumber(expr, dbType, type, nativeType) {
   const wantsInt = type === 'integer';
-  // For decimals, tolerate comma decimals; for integers, trust clean digits
-  // (REPLACE on an int that happens to contain "12,000" thousands would lose
-  // the decimal, which is the safer outcome).
-  const cleaned = wantsInt ? expr : `REPLACE(${expr}, ',', '.')`;
+  const cleaned = (wantsInt || isNativeNumericType(nativeType))
+    ? expr
+    : `REPLACE(${castToString(expr, dbType)}, ',', '.')`;
   if (dbType === 'mysql') {
     return wantsInt ? `CAST(${cleaned} AS SIGNED)` : `CAST(${cleaned} AS DECIMAL(38,10))`;
   }

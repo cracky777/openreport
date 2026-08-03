@@ -51,7 +51,7 @@ function buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql = null }) {
   const rawCol = quoteCol(m.table, m.column, dbType);
   const ovType = getOverrideType(m.table, m.column, columnTypes);
   const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
-    ? castToNumber(rawCol, dbType, ovType)
+    ? castToNumber(rawCol, dbType, ovType, m.dataType)
     : rawCol;
   const agg = normalizeAggregation(m.aggregation).toUpperCase();
   const aggExpr = caseWhenSql
@@ -1652,7 +1652,7 @@ router.post('/:id/query', async (req, res) => {
         : null;
       const ovTypeH = getOverrideType(measDef.table, measDef.column, columnTypes);
       const colExprH = rawColH && (ovTypeH === 'integer' || ovTypeH === 'decimal' || ovTypeH === 'number')
-        ? castToNumber(rawColH, dbType, ovTypeH)
+        ? castToNumber(rawColH, dbType, ovTypeH, measDef.dataType)
         : rawColH;
       // Mirror the SELECT path: COUNT becomes COUNT(table.column) when a
       // column is bound on the measure (non-'*' sentinel), otherwise the
