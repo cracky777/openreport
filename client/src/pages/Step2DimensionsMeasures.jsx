@@ -140,11 +140,20 @@ export default function Step2DimensionsMeasures({
                         const override = readOverride(columnTypes[key]);
                         const currentFormat = override?.format || 'auto';
                         const isDateType_ = normalizeStoredType(d.type) === 'date';
-                        // Column was tested and its CURRENT type fits the sample
-                        // poorly (< 95%). r.type guards against a stale result for
-                        // a type the user has since changed away from.
-                        const typeMismatch = result && !result.error && result.type === d.type
-                          && typeof result.validRatio === 'number' && result.validRatio < 0.95;
+                        // Column type fits the sample poorly (< 95%). A live
+                        // "Test" this session wins; otherwise fall back to the
+                        // flag persisted on the dimension at the last save, so
+                        // the ⚠ survives reopening the editor. `type === d.type`
+                        // skips a stale signal for a type since changed away from.
+                        let typeMismatch = false;
+                        let mismatchRatio = 0;
+                        if (result && !result.error && result.type === d.type && typeof result.validRatio === 'number') {
+                          typeMismatch = result.validRatio < 0.95;
+                          mismatchRatio = result.validRatio;
+                        } else if (d.typeWarning && d.typeWarning.type === d.type && typeof d.typeWarning.ratio === 'number') {
+                          typeMismatch = true;
+                          mismatchRatio = d.typeWarning.ratio;
+                        }
                         return (
                           <div style={_hs48}>
                             <select
@@ -170,7 +179,7 @@ export default function Step2DimensionsMeasures({
                             {typeMismatch && (
                               <span
                                 style={warnIcon}
-                                title={`This column matches "${d.type}" for only ${Math.round(result.validRatio * 100)}% of the sampled rows`}
+                                title={`This column matches "${d.type}" for only ${Math.round(mismatchRatio * 100)}% of the sampled rows`}
                               >⚠️</span>
                             )}
                             {isDateType_ && (

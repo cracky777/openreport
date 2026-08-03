@@ -1092,6 +1092,12 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                     >
                       <span style={dragHandle}>⠿</span>
                       <span style={truncatedLabel} title={d.label || d.column}>{d.label || d.column}</span>
+                      {d.typeWarning && (
+                        <span
+                          style={{ fontSize: 11, cursor: 'help', marginLeft: 2, flexShrink: 0 }}
+                          title={`Type "${d.typeWarning.type}" matched only ${Math.round(d.typeWarning.ratio * 100)}% of sampled rows when the model was last saved`}
+                        >⚠️</span>
+                      )}
                       {d.type === 'date' && (
                         <button
                           onClick={async (e) => {

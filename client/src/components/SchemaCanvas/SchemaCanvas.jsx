@@ -821,13 +821,24 @@ export default function SchemaCanvas({
                   const isDate = overrideType ? overrideType === 'date' : isDateType?.(col.data_type);
                   const displayType = overrideType || col.data_type;
                   const isId = col.column_name.toLowerCase().startsWith('id');
-                  // Column was type-tested and its CURRENT override fits the
-                  // sample poorly (< 95%). `vres.type === normOverride` skips a
-                  // stale result for a type the user has since changed away from.
+                  // Column type fits the sample poorly (< 95%). A live "Test"
+                  // this session wins; otherwise fall back to the flag persisted
+                  // on the dimension at the last save, so the ⚠ survives
+                  // reopening the model editor. `type === normOverride` skips a
+                  // stale signal for a type the user has since changed away from.
                   const normOverride = overrideType === 'number' ? 'decimal' : overrideType;
                   const vres = validationResults?.[overrideKey];
-                  const typeMismatch = !!vres && !vres.error && vres.type === normOverride
-                    && typeof vres.validRatio === 'number' && vres.validRatio < 0.95;
+                  const savedWarn = dimensions?.find(
+                    (d) => d.table === tableName && d.column === col.column_name)?.typeWarning;
+                  let typeMismatch = false;
+                  let mismatchRatio = 0;
+                  if (vres && !vres.error && vres.type === normOverride && typeof vres.validRatio === 'number') {
+                    typeMismatch = vres.validRatio < 0.95;
+                    mismatchRatio = vres.validRatio;
+                  } else if (savedWarn && savedWarn.type === normOverride && typeof savedWarn.ratio === 'number') {
+                    typeMismatch = true;
+                    mismatchRatio = savedWarn.ratio;
+                  }
 
                   return (
                     <g key={col.column_name}>
@@ -876,10 +887,10 @@ export default function SchemaCanvas({
                             >
                               {typeMismatch ? '⚠ ' : ''}{isOverridden ? '✎ ' : isDate ? '📅 ' : '✎ '}{truncate(displayType, TYPE_MAX)}
                               <title>{typeMismatch
-                                ? `⚠ Seulement ${Math.round(vres.validRatio * 100)}% des lignes échantillonnées correspondent au type « ${normOverride} »\nClique pour changer le type / re-tester`
+                                ? `⚠ Only ${Math.round(mismatchRatio * 100)}% of sampled rows match the "${normOverride}" type\nClick to change the type / re-test`
                                 : isOverridden
-                                ? `Override actif : ${displayType}\nNatif : ${col.data_type}\nClique pour changer`
-                                : `Type natif : ${col.data_type}\nClique pour forcer un autre type / format`}</title>
+                                ? `Override active: ${displayType}\nNative: ${col.data_type}\nClick to change`
+                                : `Native type: ${col.data_type}\nClick to force another type / format`}</title>
                             </text>
                           </>
                         );

@@ -410,9 +410,21 @@ export default function ModelEditor() {
     }
     setSaving(true);
     try {
+      // Persist a lightweight type-mismatch flag on dimensions so the report
+      // editor can flag poorly-typed fields without re-validating on every
+      // open. Derived from the current validation cache (same 95% rule);
+      // stamped when the CURRENT type validates poorly, cleared otherwise.
+      const dimensionsToSave = dimensions.map((d) => {
+        const r = validationResults[`${d.table}.${d.column}`];
+        const mismatch = r && !r.error && r.type === d.type
+          && typeof r.validRatio === 'number' && r.validRatio < 0.95;
+        if (mismatch) return { ...d, typeWarning: { ratio: r.validRatio, type: d.type } };
+        if (d.typeWarning) { const { typeWarning: _tw, ...rest } = d; return rest; }
+        return d;
+      });
       await api.put(`/models/${id}`, {
         name, description, selected_tables: selectedTables,
-        table_positions: tablePositions, dimensions, measures, joins, rls,
+        table_positions: tablePositions, dimensions: dimensionsToSave, measures, joins, rls,
         column_types: columnTypes,
       });
       setSaveMsg('Saved');
