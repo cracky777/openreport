@@ -255,9 +255,15 @@ async function insertRows(modelId, gen, tableName, columns, rows, orgId) {
 
 // Real on-disk size of ONE model's store = sum of its gen file(s) (+ any
 // stray legacy file). The figure a per-report view shows.
-function modelStoreBytes(modelId, orgId) {
+function modelStoreBytes(modelId, orgId, referencedGens = null) {
   let total = 0;
-  for (const { path: gp } of genFilesFor(modelId, orgId)) {
+  // During a blue-green rebuild the PREVIOUS gen file lingers on disk until
+  // the builder prunes it, so a size probe landing in that window counts both
+  // gens and reports ≈2× the real footprint. When the caller passes the gens
+  // the manifest still references, skip the orphaned old-gen files.
+  const keep = referencedGens ? new Set(referencedGens) : null;
+  for (const { gen, path: gp } of genFilesFor(modelId, orgId)) {
+    if (keep && !keep.has(gen)) continue;
     try { total += fs.statSync(gp).size; } catch { /* race */ }
   }
   try { total += fs.statSync(dbPathFor(modelId, orgId, null)).size; } catch { /* none */ }

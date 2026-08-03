@@ -979,6 +979,21 @@ function getManifest({ modelId, orgId }) {
   });
 }
 
+// The set of gens the live manifest still references for a model — i.e. the
+// gen files that actually hold serving data. Used to size the store without
+// counting an old gen still on disk mid-rebuild (blue-green leaves it around
+// until the prune). Same derivation as dropRollup's cleanup.
+function referencedGensFor({ modelId, orgId }) {
+  return new Set(
+    db.prepare(
+      `SELECT table_name FROM rollups
+       WHERE model_id = ? AND (organization_id IS ? OR organization_id = ?)`
+    ).all(modelId, orgId || null, orgId || null)
+      .map((r) => rollupDuckDB.genOfTableName(r.table_name))
+      .filter(Boolean)
+  );
+}
+
 // Drops every base-filter variant of a grain (the HTTP route is keyed by
 // grainHash only; a grain can now have multiple baked-filter slices).
 async function dropRollup({ modelId, grainHash, orgId }) {
@@ -1111,6 +1126,7 @@ module.exports = {
   buildingModelIds,
   buildProgress,
   getManifest,
+  referencedGensFor,
   dropRollup,
   dropAllRollups,
   dropAllRollupsForDatasource,

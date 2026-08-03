@@ -27,7 +27,10 @@ const rollupDuckDB = require('../utils/rollupDuckDB');
 // DuckDB file, so this is now a true per-report (per-model) figure — the
 // storage that report's "refresh" rebuilds and reclaims.
 function rollupDiskBytes(modelId, orgId) {
-  return rollupDuckDB.modelStoreBytes(modelId, orgId);
+  // Count only the gens the manifest still references, so a size probe during
+  // a blue-green rebuild doesn't also count the old gen file awaiting prune
+  // (which reported ≈2× the real footprint for that window).
+  return rollupDuckDB.modelStoreBytes(modelId, orgId, rollupBuilder.referencedGensFor({ modelId, orgId }));
 }
 
 const router = express.Router();
