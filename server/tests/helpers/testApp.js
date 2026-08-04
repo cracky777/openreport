@@ -55,10 +55,10 @@ function seedModel({ userId, datasourceId, measures, rls, joins, selectedTables 
   return id;
 }
 
-function seedReport({ userId, modelId, isPublic = 0, workspaceId = null, settings = {} } = {}) {
+function seedReport({ userId, modelId, isPublic = 0, workspaceId = null, settings = {}, widgets = {}, layout = [] } = {}) {
   const id = uuid();
-  db.prepare('INSERT INTO reports (id, user_id, model_id, workspace_id, is_public, settings) VALUES (?,?,?,?,?,?)')
-    .run(id, userId, modelId, workspaceId, isPublic ? 1 : 0, JSON.stringify(settings));
+  db.prepare('INSERT INTO reports (id, user_id, model_id, workspace_id, is_public, settings, widgets, layout) VALUES (?,?,?,?,?,?,?,?)')
+    .run(id, userId, modelId, workspaceId, isPublic ? 1 : 0, JSON.stringify(settings), JSON.stringify(widgets), JSON.stringify(layout));
   return id;
 }
 
