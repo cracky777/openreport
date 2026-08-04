@@ -27,6 +27,19 @@ export default defineConfig([
       // ESLint can't see JSX usage without eslint-plugin-react, so mirror varsIgnorePattern
       // on args to avoid false "unused" reports that invite breaking removals.
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^[A-Z_]', ignoreRestSiblings: true }],
+      // eslint-plugin-react-hooks v7 promotes the React Compiler lint rules to
+      // errors in its recommended config. This codebase doesn't adopt the React
+      // Compiler, and these flag intentional, correct patterns (the latest-ref
+      // `xxxRef.current = prop` idiom, manual useMemo, deliberate setState in an
+      // effect). Keep them as warnings so they stay visible without failing CI.
+      // rules-of-hooks stays an error — those are genuine bugs.
+      'react-hooks/refs': 'warn',
+      'react-hooks/preserve-manual-memoization': 'warn',
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/immutability': 'warn',
+      // Fast-Refresh DX hint (a file exporting constants next to a component) —
+      // not a correctness issue; warn instead of blocking the build.
+      'react-refresh/only-export-components': 'warn',
     },
   },
 ])

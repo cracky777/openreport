@@ -107,19 +107,13 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   const widgetIdRef = useRef(widgetId);
   widgetIdRef.current = widgetId;
 
-  if (!model) {
-    return (
-      <div style={_hs0}>
-        <div style={sectionTitle}>Data Source</div>
-        <div style={_hs1}>No model linked to this report.</div>
-      </div>
-    );
-  }
-
   // Widgets without any data binding hide all the binding-related sections
   // (field wells, measures, filterRules editor, etc.). The data-panel header
-  // still renders so the user can navigate to the underlying model.
-  const hasWidget = widgetId && widget && !['text', 'image', 'shape'].includes(widget.type);
+  // still renders so the user can navigate to the underlying model. `model &&`
+  // keeps this (and everything derived from it) inert when there's no model —
+  // the hooks below must run unconditionally (Rules of Hooks), so the "no model"
+  // bail happens after them, not here.
+  const hasWidget = model && widgetId && widget && !['text', 'image', 'shape'].includes(widget.type);
   const binding = hasWidget ? (widget.dataBinding || {}) : {};
   const selectedDims = binding.selectedDimensions || [];
   const groupBy = binding.groupBy || [];
@@ -398,7 +392,20 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         onSetWidgetLoading(stampedLoadingFor, false);
       }
     };
-  }, [selectionKey, bindingKey, model.id, refreshNonce]);
+  }, [selectionKey, bindingKey, model?.id, refreshNonce]);
+
+  // No model linked: bail AFTER all the hooks above so the hook order is
+  // identical on every render (an early return before them breaks the Rules of
+  // Hooks). With no model, hasWidget is false, so the derived binding values are
+  // empty and the effect above no-ops.
+  if (!model) {
+    return (
+      <div style={_hs0}>
+        <div style={sectionTitle}>Data Source</div>
+        <div style={_hs1}>No model linked to this report.</div>
+      </div>
+    );
+  }
 
   // Helper to get short table name
   const shortTable = (t) => t.includes('.') ? t.split('.').pop() : t;

@@ -6,9 +6,6 @@ import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
  * Uses arrow buttons for navigation instead of scrollbars.
  */
 export default memo(function ChartLegend({ items, position, onToggle, hiddenSeries, fontFamily }) {
-  if (!items || items.length === 0) return null;
-  if (fontFamily) loadGoogleFont(fontFamily);
-
   const isVertical = position === 'left' || position === 'right';
   const listRef = useRef(null);
   const [canScrollBack, setCanScrollBack] = useState(false);
@@ -35,6 +32,11 @@ export default memo(function ChartLegend({ items, position, onToggle, hiddenSeri
     ro.observe(el);
     return () => { el.removeEventListener('scroll', checkOverflow); ro.disconnect(); };
   }, [checkOverflow, items]);
+
+  // Bail AFTER the hooks so the hook order is identical on every render — an
+  // early return before the hooks above violates the Rules of Hooks.
+  if (!items || items.length === 0) return null;
+  if (fontFamily) loadGoogleFont(fontFamily);
 
   const scroll = (direction) => {
     const el = listRef.current;
