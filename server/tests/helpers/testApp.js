@@ -41,14 +41,14 @@ function seedDatasource({ userId, dbType = 'postgres' } = {}) {
 
 // A single-table model: dimension `items.label`, measure SUM(items.amt).
 // `extraMeasures` lets a test add a measure (e.g. a poisoned label).
-function seedModel({ userId, datasourceId, measures } = {}) {
+function seedModel({ userId, datasourceId, measures, rls, joins, selectedTables } = {}) {
   const id = uuid();
   const dimensions = [{ name: 'items.label', table: 'items', column: 'label', type: 'string', label: 'label' }];
   const meas = measures || [{ name: 'items.amt_sum', table: 'items', column: 'amt', aggregation: 'sum', label: 'amt' }];
   db.prepare(`INSERT INTO models (id, user_id, datasource_id, name, selected_tables, dimensions, measures, joins, rls, column_types)
               VALUES (?,?,?,?,?,?,?,?,?,?)`)
-    .run(id, userId, datasourceId, 'm', JSON.stringify(['items']), JSON.stringify(dimensions),
-      JSON.stringify(meas), '[]', '{}', '{}');
+    .run(id, userId, datasourceId, 'm', JSON.stringify(selectedTables || ['items']), JSON.stringify(dimensions),
+      JSON.stringify(meas), JSON.stringify(joins || []), JSON.stringify(rls || {}), '{}');
   return id;
 }
 
