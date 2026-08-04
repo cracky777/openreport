@@ -15,6 +15,9 @@ function buildApp() {
     const user = uid ? db.prepare('SELECT id, email, display_name, role FROM users WHERE id = ?').get(String(uid)) : null;
     if (user) { req.user = user; req.isAuthenticated = () => true; }
     else { req.isAuthenticated = () => false; }
+    // Passport establishes the session via req.login after /register; stub it
+    // so the register handler can complete without a real session store.
+    req.login = (u, cb) => cb(null);
     next();
   });
   app.use('/api/auth', require('../../routes/auth'));
