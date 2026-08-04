@@ -37,6 +37,7 @@ const { buildScalarClause } = require('../utils/sqlBuilder/filterClause');
 const { buildMultiFactBody } = require('../utils/sqlBuilder/multiFact');
 const { buildFromClause } = require('../utils/sqlBuilder/fromClause');
 const { buildTopNOrderLimit } = require('../utils/sqlBuilder/orderLimit');
+const { computeRealFacts, computeJoinedTables, measurePrimaryTable } = require('../utils/sqlBuilder/joinGraph');
 const { tablesReachableFrom, getAllowedRlsKeys } = require('../utils/rls');
 const { parseModel } = require('../db/modelRow');
 
@@ -1213,55 +1214,10 @@ router.post('/:id/query', async (req, res) => {
   // `from_table` is a real fact. Anything else (incl. snowflake dim
   // children that ARE `*` but also parent a fact via their own join)
   // counts as a dim. Mirrors `factConformedDimTables` in rollupBuilder.
-  const realFacts = (() => {
-    const list = Array.isArray(allJoins) ? allJoins : [];
-    const fromTables = new Set();
-    const manyTables = new Set();
-    for (const j of list) {
-      if (!j || !j.from_table || !j.to_table) continue;
-      fromTables.add(j.from_table);
-      const c = j.cardinality || {};
-      if (c.to === '*' || (!c.from && !c.to)) manyTables.add(j.to_table);
-      if (c.from === '*') manyTables.add(j.from_table);
-    }
-    return new Set([...manyTables].filter((t) => !fromTables.has(t)));
-  })();
-  // Tables that actually participate in the join graph. The dim-only
-  // treatment only makes sense for a table reached THROUGH a join — that's
-  // the only place threading the graph would inflate the aggregate. A
-  // table that joins to nothing (a single-table model, or a standalone
-  // table) can't fan out, so its measures must aggregate normally via
-  // GROUP BY. Without this guard a single-table model has an empty
-  // `realFacts` set, so every measure was wrongly treated dim-only and
-  // emitted as an uncorrelated `(SELECT SUM(col) FROM t)` — repeating the
-  // grand total across every group instead of the per-group sum.
-  const joinedTables = (() => {
-    const s = new Set();
-    for (const j of (Array.isArray(allJoins) ? allJoins : [])) {
-      if (j && j.from_table) s.add(j.from_table);
-      if (j && j.to_table) s.add(j.to_table);
-    }
-    return s;
-  })();
-  // Primary table for the measure — the dim table that owns its column.
-  // For a custom expression we accept the dim-only treatment only if
-  // every quoted column reference points at the SAME table; multi-table
-  // refs need the join graph and stay on the regular path.
-  const measurePrimaryTable = (m) => {
-    if (m.table) return m.table;
-    if (m.aggregation === 'custom' && m.expression) {
-      // Defer to the regular path when the expression embeds `${ref}`
-      // markers — the inliner may pull in another measure that lives on
-      // a different table, which our extraction-based detection here
-      // can't see. Single-table custom expressions with no refs are the
-      // safe sweet spot.
-      if (String(m.expression).includes('${')) return null;
-      const refs = extractColumnRefsFromExpression(m.expression);
-      const tables = new Set(refs.map((r) => r.table).filter(Boolean));
-      if (tables.size === 1) return [...tables][0];
-    }
-    return null;
-  };
+  // Join-graph classification (realFacts / joinedTables / measurePrimaryTable)
+  // lives in utils/sqlBuilder/joinGraph.js — pure functions of the model shape.
+  const realFacts = computeRealFacts(allJoins);
+  const joinedTables = computeJoinedTables(allJoins);
   const dimOnlyMeasureInfos = [];
 
   // Field list used by every "which tables does this inlined expression touch?"
