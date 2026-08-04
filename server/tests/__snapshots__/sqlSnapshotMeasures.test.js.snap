@@ -1,0 +1,31 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`custom-expression measure SQL is stable — mssql 1`] = `"SELECT [items].[label] AS [label], (SUM(CAST(items.amt AS DECIMAL(38,10))) / CAST(COUNT(items.id) AS DECIMAL(38,10))) AS [panier_moyen] FROM [items] GROUP BY [items].[label] ORDER BY [items].[label] OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY"`;
+
+exports[`custom-expression measure SQL is stable — mysql 1`] = `"SELECT \`items\`.\`label\` AS \`label\`, (SUM(CAST(items.amt AS DECIMAL(38,10))) / CAST(COUNT(items.id) AS DECIMAL(38,10))) AS \`panier_moyen\` FROM \`items\` GROUP BY \`items\`.\`label\` ORDER BY \`items\`.\`label\` LIMIT 1000"`;
+
+exports[`custom-expression measure SQL is stable — postgres 1`] = `"SELECT "items"."label" AS "label", (SUM(CAST(items.amt AS NUMERIC)) / CAST(COUNT(items.id) AS NUMERIC)) AS "panier_moyen" FROM "items" GROUP BY "items"."label" ORDER BY "items"."label" LIMIT 1000"`;
+
+exports[`measure HAVING (gt) SQL is stable — mssql 1`] = `"SELECT [items].[label] AS [label], SUM([items].[amt]) AS [amt] FROM [items] GROUP BY [items].[label] HAVING SUM([items].[amt]) > 100 ORDER BY [items].[label] OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY"`;
+
+exports[`measure HAVING (gt) SQL is stable — mysql 1`] = `"SELECT \`items\`.\`label\` AS \`label\`, SUM(\`items\`.\`amt\`) AS \`amt\` FROM \`items\` GROUP BY \`items\`.\`label\` HAVING SUM(\`items\`.\`amt\`) > 100 ORDER BY \`items\`.\`label\` LIMIT 1000"`;
+
+exports[`measure HAVING (gt) SQL is stable — postgres 1`] = `"SELECT "items"."label" AS "label", SUM("items"."amt") AS "amt" FROM "items" GROUP BY "items"."label" HAVING SUM("items"."amt") > 100 ORDER BY "items"."label" LIMIT 1000"`;
+
+exports[`measure top_n override SQL is stable — mssql 1`] = `"SELECT [items].[label] AS [label], SUM([items].[amt]) AS [amt] FROM [items] GROUP BY [items].[label] ORDER BY SUM([items].[amt]) DESC OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"`;
+
+exports[`measure top_n override SQL is stable — mysql 1`] = `"SELECT \`items\`.\`label\` AS \`label\`, SUM(\`items\`.\`amt\`) AS \`amt\` FROM \`items\` GROUP BY \`items\`.\`label\` ORDER BY SUM(\`items\`.\`amt\`) IS NULL, SUM(\`items\`.\`amt\`) DESC LIMIT 10"`;
+
+exports[`measure top_n override SQL is stable — postgres 1`] = `"SELECT "items"."label" AS "label", SUM("items"."amt") AS "amt" FROM "items" GROUP BY "items"."label" ORDER BY SUM("items"."amt") DESC NULLS LAST LIMIT 10"`;
+
+exports[`override-filtered measure SQL is stable — mssql 1`] = `"SELECT (SELECT SUM([items].[amt]) FROM [items] WHERE [items].[label] = 'X') AS [amt_label_X] FROM [items] ORDER BY 1 OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY"`;
+
+exports[`override-filtered measure SQL is stable — mysql 1`] = `"SELECT (SELECT SUM(\`items\`.\`amt\`) FROM \`items\` WHERE \`items\`.\`label\` = 'X') AS \`amt_label_X\` FROM \`items\` ORDER BY 1 LIMIT 1000"`;
+
+exports[`override-filtered measure SQL is stable — postgres 1`] = `"SELECT (SELECT SUM("items"."amt") FROM "items" WHERE "items"."label" = 'X') AS "amt_label_X" FROM "items" ORDER BY 1 LIMIT 1000"`;
+
+exports[`x-grain top_n IN-subquery SQL is stable — mssql 1`] = `"SELECT [items].[region] AS [region], [items].[label] AS [label], SUM([items].[amt]) AS [amt] FROM [items] WHERE [items].[region] IN (SELECT [items].[region] FROM [items] GROUP BY [items].[region] ORDER BY SUM([items].[amt]) DESC OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY) GROUP BY [items].[region], [items].[label] ORDER BY [items].[region] OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY"`;
+
+exports[`x-grain top_n IN-subquery SQL is stable — mysql 1`] = `"SELECT \`items\`.\`region\` AS \`region\`, \`items\`.\`label\` AS \`label\`, SUM(\`items\`.\`amt\`) AS \`amt\` FROM \`items\` WHERE \`items\`.\`region\` IN (SELECT \`items\`.\`region\` FROM \`items\` GROUP BY \`items\`.\`region\` ORDER BY SUM(\`items\`.\`amt\`) IS NULL, SUM(\`items\`.\`amt\`) DESC LIMIT 5) GROUP BY \`items\`.\`region\`, \`items\`.\`label\` ORDER BY \`items\`.\`region\` LIMIT 1000"`;
+
+exports[`x-grain top_n IN-subquery SQL is stable — postgres 1`] = `"SELECT "items"."region" AS "region", "items"."label" AS "label", SUM("items"."amt") AS "amt" FROM "items" WHERE "items"."region" IN (SELECT "items"."region" FROM "items" GROUP BY "items"."region" ORDER BY SUM("items"."amt") DESC NULLS LAST LIMIT 5) GROUP BY "items"."region", "items"."label" ORDER BY "items"."region" LIMIT 1000"`;
