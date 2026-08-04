@@ -27,7 +27,6 @@ const {
   buildDimensionExpr,
   isValidDate,
 } = require('../utils/sqlBuilder/datePart');
-const { deriveJoinKeyword } = require('../utils/sqlBuilder/joins');
 const {
   transformAggregates,
   dialectNumericCast,
@@ -36,6 +35,8 @@ const {
 } = require('../utils/sqlBuilder/measureAgg');
 const { buildScalarClause } = require('../utils/sqlBuilder/filterClause');
 const { buildMultiFactBody } = require('../utils/sqlBuilder/multiFact');
+const { buildFromClause } = require('../utils/sqlBuilder/fromClause');
+const { buildTopNOrderLimit } = require('../utils/sqlBuilder/orderLimit');
 const { tablesReachableFrom, getAllowedRlsKeys } = require('../utils/rls');
 const { parseModel } = require('../db/modelRow');
 
@@ -1616,140 +1617,25 @@ router.post('/:id/query', async (req, res) => {
     measureFiltersDeferred, havingGrainDims, dimOnlyMeasureInfos,
   });
 
-  // Build FROM + JOINs. Greedy traversal of the join graph: start with the
-  // most "fact-like" table (the one appearing with cardinality "*" on the
-  // most joins), then keep pulling in any remaining table that has a
-  // direct join with one already added. Starting from a dim would emit
-  // `FROM dim LEFT JOIN fact` — semantically OK, but `FROM fact LEFT JOIN dim`
-  // is the canonical star-schema shape and what most analytics readers
-  // expect.
-  let tableList = Array.from(tablesUsed);
-  if (tableList.length > 1) {
-    const factScore = {};
-    for (const t of tableList) factScore[t] = 0;
-    for (const j of allJoins) {
-      const c = j.cardinality;
-      if (!c) continue;
-      if (c.from === '*' && tableList.includes(j.from_table)) factScore[j.from_table] += 1;
-      if (c.to === '*' && tableList.includes(j.to_table)) factScore[j.to_table] += 1;
+  // Build FROM + JOINs (greedy join-graph traversal + snowflake bridging) in
+  // utils/sqlBuilder/fromClause.js. It reports back the filter-only tables it
+  // had to drop (no join path) so we can strip their now-meaningless WHERE
+  // clauses here — the one side effect kept in the handler.
+  const { fromClause, droppedTables } = buildFromClause({
+    tablesUsed, allJoins, selectedDimensions, selectedMeasures, dbType,
+  });
+  if (droppedTables.size > 0) {
+    // Strip dim WHERE clauses on the dropped tables. Never drop untagged
+    // clauses (field === null): those are RLS / security and unreachable RLS
+    // is already handled by deny-all above.
+    for (let i = whereParts.length - 1; i >= 0; i--) {
+      const w = whereParts[i];
+      if (!w.field) continue;
+      const dd = allDimensions.find((d) => d.name === w.field);
+      if (dd && droppedTables.has(dd.table)) whereParts.splice(i, 1);
     }
-    // Stable sort: highest fact score first, original index as tie-breaker
-    // so two equal-score tables keep their original relative order.
-    const origOrder = new Map(tableList.map((t, i) => [t, i]));
-    tableList.sort((a, b) => (factScore[b] - factScore[a]) || (origOrder.get(a) - origOrder.get(b)));
-  }
-  // Snowflake bridging: when a referenced table has no direct join to the
-  // root (e.g. filter on `d_entite` while the query SELECTs from
-  // `f_appel_entrant_fin` and the only connection is via `d_destinataire`),
-  // we need to pull the intermediate table(s) into the FROM clause. Without
-  // this the greedy join loop below falls back to a comma-separated
-  // cross-join — Cartesian product, wrong results.
-  if (tableList.length > 1) {
-    const rootTable = tableList[0];
-    // Undirected adjacency over the full join graph.
-    const adj = new Map();
-    for (const j of allJoins || []) {
-      if (!j || !j.from_table || !j.to_table) continue;
-      if (!adj.has(j.from_table)) adj.set(j.from_table, new Set());
-      if (!adj.has(j.to_table)) adj.set(j.to_table, new Set());
-      adj.get(j.from_table).add(j.to_table);
-      adj.get(j.to_table).add(j.from_table);
-    }
-    // BFS from root to record the parent of every reachable table — gives
-    // us shortest path back to root by walking up the parent chain.
-    const parent = new Map();
-    parent.set(rootTable, null);
-    const queue = [rootTable];
-    while (queue.length > 0) {
-      const cur = queue.shift();
-      for (const next of adj.get(cur) || []) {
-        if (parent.has(next)) continue;
-        parent.set(next, cur);
-        queue.push(next);
-      }
-    }
-    // For every referenced table, walk the parent chain back to root and
-    // add the intermediate tables. Skip tables that aren't reachable at
-    // all (broken model — the greedy loop will fall back to cross-join,
-    // matching the old behaviour for that pathological case).
-    const expanded = new Set(tableList);
-    for (const t of tableList) {
-      if (t === rootTable || !parent.has(t)) continue;
-      let cur = parent.get(t);
-      while (cur !== null && cur !== rootTable) {
-        if (!expanded.has(cur)) expanded.add(cur);
-        cur = parent.get(cur);
-      }
-    }
-    if (expanded.size > tableList.length) {
-      // Re-sort with bridges included. The root stays first; bridge tables
-      // get fact-score 0 and slot in after the genuinely referenced tables.
-      tableList = Array.from(expanded);
-      tableList.sort((a, b) => {
-        if (a === rootTable) return -1;
-        if (b === rootTable) return 1;
-        return 0;
-      });
-    }
-  }
-  let fromClause = quoteTable(tableList[0], dbType);
-  if (tableList.length > 1) {
-    const added = new Set([tableList[0]]);
-    const remaining = tableList.slice(1);
-    while (remaining.length > 0) {
-      let pickedIdx = -1;
-      let pickedJoin = null;
-      for (let i = 0; i < remaining.length; i++) {
-        const t = remaining[i];
-        const join = allJoins.find(
-          (j) => (j.from_table === t && added.has(j.to_table)) ||
-                 (j.to_table === t && added.has(j.from_table))
-        );
-        if (join) { pickedIdx = i; pickedJoin = join; break; }
-      }
-      if (pickedIdx === -1) {
-        // None of the leftover tables can be reached through a real join.
-        // A filter-only table here — e.g. a date dimension pulled in by a
-        // global date filter on a fact-less slicer query (`SELECT DISTINCT
-        // d_destinataire.lib` with no measure, so no fact to bridge
-        // d_date) — must NOT be comma-cross-joined: that's a Cartesian
-        // product AND its WHERE clause degrades to a meaningless no-op
-        // (`d_date.year = 2026` against an unrelated cross product just
-        // asks "does any 2026 row exist"). Drop such tables and strip the
-        // WHERE clauses that reference them. Tables genuinely required by
-        // the SELECT / GROUP BY (pathological broken model) keep the old
-        // cross-join fallback so we never emit invalid SQL.
-        const requiredTables = new Set();
-        for (const d of selectedDimensions) if (d.table) requiredTables.add(d.table);
-        for (const m of selectedMeasures) if (m && m.table) requiredTables.add(m.table);
-        const droppedTables = new Set();
-        for (const t of remaining) {
-          if (requiredTables.has(t)) {
-            fromClause += `, ${quoteTable(t, dbType)}`;
-          } else {
-            droppedTables.add(t);
-          }
-        }
-        if (droppedTables.size > 0) {
-          // Strip dim WHERE clauses on the dropped tables. Never drop
-          // untagged clauses (field === null): those are RLS / security
-          // and unreachable RLS is already handled by deny-all above.
-          for (let i = whereParts.length - 1; i >= 0; i--) {
-            const w = whereParts[i];
-            if (!w.field) continue;
-            const dd = allDimensions.find((d) => d.name === w.field);
-            if (dd && droppedTables.has(dd.table)) whereParts.splice(i, 1);
-          }
-          if (process.env.QUERY_TIMING === '1') {
-            console.log(`[${__qid}] dropped unjoinable filter table(s): ${Array.from(droppedTables).join(', ')} (no join path to the query — filter would be a Cartesian no-op)`);
-          }
-        }
-        break;
-      }
-      const t = remaining.splice(pickedIdx, 1)[0];
-      const joinType = deriveJoinKeyword(pickedJoin);
-      fromClause += ` ${joinType} JOIN ${quoteTable(t, dbType)} ON ${quoteCol(pickedJoin.from_table, pickedJoin.from_column, dbType)} = ${quoteCol(pickedJoin.to_table, pickedJoin.to_column, dbType)}`;
-      added.add(t);
+    if (process.env.QUERY_TIMING === '1') {
+      console.log(`[${__qid}] dropped unjoinable filter table(s): ${Array.from(droppedTables).join(', ')} (no join path to the query — filter would be a Cartesian no-op)`);
     }
   }
 
@@ -1907,22 +1793,7 @@ router.post('/:id/query', async (req, res) => {
       const subHaving = xGrainHavingParts.length > 0
         ? ` HAVING ${xGrainHavingParts.join(' AND ')}`
         : '';
-      let subOrderLimit = '';
-      if (xGrainTopN) {
-        const supportsNullsLast = dbType === 'postgres' || dbType === 'duckdb' || dbType === 'bigquery';
-        if (dbType === 'mysql') {
-          subOrderLimit = ` ORDER BY ${xGrainTopN.aggExpr} IS NULL, ${xGrainTopN.aggExpr} ${xGrainTopN.direction}`;
-        } else if (supportsNullsLast) {
-          subOrderLimit = ` ORDER BY ${xGrainTopN.aggExpr} ${xGrainTopN.direction} NULLS LAST`;
-        } else {
-          subOrderLimit = ` ORDER BY ${xGrainTopN.aggExpr} ${xGrainTopN.direction}`;
-        }
-        if (dbType === 'mssql' || dbType === 'azure_sql') {
-          subOrderLimit += ` OFFSET 0 ROWS FETCH NEXT ${xGrainTopN.n} ROWS ONLY`;
-        } else {
-          subOrderLimit += ` LIMIT ${xGrainTopN.n}`;
-        }
-      }
+      const subOrderLimit = xGrainTopN ? buildTopNOrderLimit(xGrainTopN, dbType) : '';
       const subSql = `SELECT ${subSelect} FROM ${fromClause}${capturedWhere} GROUP BY ${subGroupBy}${subHaving}${subOrderLimit}`;
       const inLhs = dimColExprs.length === 1 ? dimColExprs[0] : `(${dimColExprs.join(', ')})`;
       whereParts.push({ field: null, sql: `${inLhs} IN (${subSql})` });
@@ -1967,24 +1838,9 @@ router.post('/:id/query', async (req, res) => {
   // Top/Bottom N filter (set above) replaces both the default ORDER BY (which
   // is by the first dimension for stability) and the configured LIMIT.
   if (topNOverride) {
-    // NULL-handling on ORDER BY is dialect-specific. Postgres / DuckDB /
-    // BigQuery accept "NULLS LAST" inline. MySQL emulates with "<col> IS NULL".
-    // SQL Server / Azure SQL has neither; in practice aggregates over a
-    // non-empty group rarely produce NULL, so we just omit the nulls hint.
-    const supportsNullsLast = dbType === 'postgres' || dbType === 'duckdb' || dbType === 'bigquery';
-    if (dbType === 'mysql') {
-      sql += ` ORDER BY ${topNOverride.aggExpr} IS NULL, ${topNOverride.aggExpr} ${topNOverride.direction}`;
-    } else if (supportsNullsLast) {
-      sql += ` ORDER BY ${topNOverride.aggExpr} ${topNOverride.direction} NULLS LAST`;
-    } else {
-      sql += ` ORDER BY ${topNOverride.aggExpr} ${topNOverride.direction}`;
-    }
-    // SQL Server / Azure SQL: OFFSET/FETCH instead of LIMIT.
-    if (dbType === 'azure_sql' || dbType === 'mssql') {
-      sql += ` OFFSET 0 ROWS FETCH NEXT ${topNOverride.n} ROWS ONLY`;
-    } else {
-      sql += ` LIMIT ${topNOverride.n}`;
-    }
+    // Top/Bottom N replaces both the default ORDER BY and the configured LIMIT
+    // with a dialect-aware ORDER BY <aggExpr> <dir> [NULLS handling] + limit.
+    sql += buildTopNOrderLimit(topNOverride, dbType);
   } else {
     // Stable ordering: ORDER BY the first dimension to keep consistent colors across refetches
     if (multiFactBody) {
