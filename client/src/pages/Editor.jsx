@@ -394,6 +394,11 @@ export default function Editor() {
         return n;
       });
       crossHighlightWasCleared = true;
+      // Clearing a cross-filter is still a FACT operation (drilling a chart):
+      // it must not cascade into the slicers. Mark the run as cross-filter-
+      // sourced so useWidgetFetch's slicer re-narrow (which fires on a stale
+      // cache) is skipped — filters flow dimension→fact only.
+      crossFilterSourceRef.current = widgetId;
     }
     if (!crossHighlightWasCleared) {
       drillingWidgetIdRef.current = widgetId;
@@ -484,6 +489,10 @@ export default function Editor() {
       // own dim.
       const appliedFilters = { ...(reportFiltersRef.current || {}) };
       delete appliedFilters[dim];
+      // Cross-filters flow dimension→fact only — a cross-highlight (a chart
+      // click) must never narrow a slicer. Drop the cross-highlighted dim.
+      const chS = crossHighlightRef.current;
+      if (chS?.dim) delete appliedFilters[chS.dim];
       const res = await api.post(`/models/${model.id}/query`, {
         dimensionNames: [dim],
         measureNames: [],
@@ -585,6 +594,11 @@ export default function Editor() {
       // by the OTHER active filters.
       const appliedFilters = { ...(reportFiltersRef.current || {}) };
       delete appliedFilters[dim];
+      // Cross-filters flow dimension→fact only — a cross-highlight (a chart
+      // click) must never narrow a slicer, or it shrinks to the clicked value
+      // and its own click feeds back (a loop). Drop the cross-highlighted dim.
+      const ch = crossHighlightRef.current;
+      if (ch?.dim) delete appliedFilters[ch.dim];
       // No bypassCache here: the server's slicer-distinct fast path
       // tries the rollup first (matches the freshly-rebuilt state)
       // and on MISS falls to LIVE while bypassing queryCache —

@@ -100,7 +100,11 @@ export function useWidgetFetch({
         w?.type === 'filter'
         && w.dataBinding?.selectedDimensions?.[0]
         && w.data?._fetchedCacheBuiltAt !== reportCacheBuiltAt);
-    if (!scopedToId && (globalFilterChanged || manualRefresh || slicersHaveStaleCache)) {
+    // A cross-filter run (sourceId set = a fact widget was clicked) must never
+    // cascade into the slicers: filters flow dimension→fact, not fact→dimension.
+    // Without this guard a stale-cache slicer re-narrows (and spins) on every
+    // chart click, even though the cross-filter must not touch it.
+    if (!scopedToId && !sourceId && (globalFilterChanged || manualRefresh || slicersHaveStaleCache)) {
       for (const [wId, w] of Object.entries(currentWidgets)) {
         if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0]) {
           refreshSlicerRef.current?.(wId);
