@@ -54,6 +54,19 @@ for (const dbType of ['postgres', 'mysql', 'mssql']) {
     expect(sql).toMatchSnapshot();
   });
 
+  // Filtered measure in INTERSECTION mode (filterRules WITHOUT overrideFilters)
+  // → SUM(CASE WHEN <rule> THEN col END), still inside the visual's own WHERE.
+  test(`intersection-filtered measure SQL is stable — ${dbType}`, async () => {
+    const measures = [{
+      name: 'items.amt_active', table: 'items', column: 'amt', aggregation: 'sum', label: 'amt_active',
+      filterRules: [{ field: 'items.label', op: 'eq', value: 'active' }],
+    }];
+    const sql = await compile(dbType, { measures }, {
+      dimensionNames: ['items.label'], measureNames: ['items.amt_active'],
+    });
+    expect(sql).toMatchSnapshot();
+  });
+
   // Measure filter with a comparator → HAVING on the aggregate.
   test(`measure HAVING (gt) SQL is stable — ${dbType}`, async () => {
     const sql = await compile(dbType, {}, {
