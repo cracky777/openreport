@@ -38,6 +38,7 @@ const { buildMultiFactBody } = require('../utils/sqlBuilder/multiFact');
 const { buildFromClause } = require('../utils/sqlBuilder/fromClause');
 const { buildTopNOrderLimit } = require('../utils/sqlBuilder/orderLimit');
 const { computeRealFacts, computeJoinedTables, measurePrimaryTable } = require('../utils/sqlBuilder/joinGraph');
+const { buildOverrideSubquery } = require('../utils/sqlBuilder/overrideSubquery');
 const { tablesReachableFrom, getAllowedRlsKeys } = require('../utils/rls');
 const { parseModel } = require('../db/modelRow');
 
@@ -1595,55 +1596,12 @@ router.post('/:id/query', async (req, res) => {
     }
   }
 
-  // Build the inner aggregation subquery for an override-mode filtered
-  // measure. Used by both patch-up loops below (the top-level
-  // `overrideMeasureInfos` loop and the `__OVERRIDE_REF_<i>__` placeholder
-  // resolver). Both used to inline the same ~25 lines of identical logic,
-  // with one subtle drift: the placeholder resolver was MISSING the
-  // EXTRACT(EPOCH FROM …) wrap for interval-typed measures, so a duration
-  // measure referenced via `${...}` inside a custom expression would emit
-  // an INTERVAL value while the same measure at top-level emitted seconds.
-  // Now that both call sites share one helper, the interval wrap applies
-  // in both paths.
-  //
-  // Returns the raw `SELECT ... FROM ... [WHERE ...]` string; the caller
-  // wraps it in `(...)` (+ either an `AS <label>` or a placeholder substring
-  // splice). `inlinedExpr` lets the caller pre-feed the nested-`${}`-expanded
-  // form (the overrideMeasureInfos path pre-computes this during the main
-  // SELECT loop and stashes it on the info object; the override-ref path
-  // calls inlineMeasureRefs on demand).
-  const buildOverrideSubquery = (measure, inlinedExpr) => {
-    const overrideFields = new Set(
-      (measure.filterRules || []).map((r) => r && r.field).filter(Boolean)
-    );
-    // Keep all WHERE clauses NOT tied to an override field. Untagged
-    // clauses (RLS) are always kept so security is preserved.
-    const keptWhere = whereParts
-      .filter((w) => !w.field || !overrideFields.has(w.field))
-      .map((w) => w.sql);
-    const ruleClauses = (measure.filterRules || []).map(buildRuleClause).filter(Boolean);
-    const innerWhere = [...keptWhere, ...ruleClauses];
-    let innerAgg;
-    if (measure.aggregation === 'custom' && measure.expression) {
-      // Pre-wrap interval refs even on the fallback path (when inlinedExpr
-      // wasn't pre-computed) — applyNumericCast will fail on raw interval
-      // columns otherwise.
-      const exprForCast = inlinedExpr
-        || preWrapIntervalRefs(measure.expression, columnTypes, dbType);
-      innerAgg = applyNumericCast(exprForCast, dbType);
-    } else if (measure.aggregation === 'count' || (measure.column === '*' && !measure.table)) {
-      innerAgg = 'COUNT(*)';
-    } else if (measure.table && measure.column) {
-      innerAgg = buildMeasureAggExpr(measure, { dbType, columnTypes });
-    } else {
-      innerAgg = 'NULL';
-    }
-    let subSql = `SELECT ${innerAgg} FROM ${fromClause}`;
-    if (innerWhere.length > 0) {
-      subSql += ` WHERE ${innerWhere.join(' AND ')}`;
-    }
-    return subSql;
-  };
+  // buildOverrideSubquery (inner scalar subquery for an override-filtered
+  // measure) lives in utils/sqlBuilder/overrideSubquery.js. buildRuleClause is
+  // passed through because it's a handler closure (mutates the join-graph table
+  // set on the pre-FROM paths); here that write is dead but the clause SQL must
+  // stay identical.
+  const overrideSubqueryDeps = { whereParts, fromClause, buildRuleClause, dbType, columnTypes };
 
   // Fill in dim-only measure placeholders. Each becomes a scalar subquery
   // that runs against the measure's primary dim table alone, with only
@@ -1694,7 +1652,7 @@ router.post('/:id/query', async (req, res) => {
   // finalised so the subquery has the same join graph as the outer query.
   for (const info of overrideMeasureInfos) {
     const { m, index, label, inlinedExpression } = info;
-    const subSql = buildOverrideSubquery(m, inlinedExpression);
+    const subSql = buildOverrideSubquery(m, inlinedExpression, overrideSubqueryDeps);
     selectParts[index] = `(${subSql}) AS ${quoteIdent(label, dbType)}`;
   }
 
