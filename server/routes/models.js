@@ -1226,7 +1226,10 @@ router.post('/:id/query', async (req, res) => {
   // rebuilding the spread+filter inside each custom/filtered-measure branch.
   const allFieldsForLookup = [...allDimensions, ...allMeasures.filter((x) => x.table)];
 
-  selectedMeasures.forEach((m) => {
+  // for…of (not forEach): the 400 early-returns below must halt the whole
+  // handler, not just the callback — a forEach `return` let it fall through and
+  // double-respond ("Cannot set headers after sent") on a bad custom measure.
+  for (const m of selectedMeasures) {
     // Dim-only fast path. Skip the normal selectParts emission AND skip
     // the `tablesUsed.add` — the dim is queried by the scalar subquery
     // independently, so adding it here would needlessly force the join
@@ -1256,7 +1259,7 @@ router.post('/:id/query', async (req, res) => {
         label: m.label || m.name,
       });
       selectParts.push(null);
-      return;
+      continue;
     }
     if (m.table) tablesUsed.add(m.table);
     // Override-mode filtered measure: register tables referenced by its
@@ -1296,7 +1299,7 @@ router.post('/:id/query', async (req, res) => {
         inlinedExpression,
       });
       selectParts.push(null); // placeholder, filled in after fromClause is built
-      return;
+      continue;
     }
     // Filtered measure (intersection mode): aggregate over rows that
     // satisfy `filterRules`, otherwise NULL. The visual's WHERE clauses
@@ -1344,7 +1347,7 @@ router.post('/:id/query', async (req, res) => {
         } else if (m.table && m.column) {
           selectParts.push(`${buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql: whenSql })} AS ${quoteIdent(m.label || m.name, dbType)}`);
         }
-        return; // handled
+        continue; // handled
       }
       // No clauses survived (e.g. all rules pointed at non-existent fields)
       // → fall through to the regular aggregation path.
@@ -1416,7 +1419,7 @@ router.post('/:id/query', async (req, res) => {
       // duckdb (mysql/mssql have no interval type; BQ flattens post-query).
       selectParts.push(`${buildMeasureAggExpr(m, { dbType, columnTypes })} AS ${quoteIdent(m.label || m.name, dbType)}`);
     }
-  });
+  }
 
   // Apply per-widget MEASURE filters as HAVING clauses, now that aggregation
   // expressions are known. Custom-expression measures route through the same
