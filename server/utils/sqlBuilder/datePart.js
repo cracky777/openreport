@@ -164,9 +164,22 @@ function isValidDate(v, fmt) {
   }
 }
 
+// The SQL expression that projects a dimension: a date-part function when the
+// dim carries a `datePart` grain (year/month/…), otherwise the plain quoted
+// column. Same expression must appear in SELECT and in any WHERE/HAVING that
+// targets the dim, so filtering a "num_year" dim hits YEAR(col) not the raw
+// timestamp. Extracted from routes/models.js where it was inlined identically
+// at every dimension site.
+function buildDimensionExpr(dim, dbType, columnTypes) {
+  return dim.datePart
+    ? buildDatePartExpr(dim, dbType, columnTypes)
+    : quoteCol(dim.table, dim.column, dbType);
+}
+
 module.exports = {
   getDateFormat,
   getOverrideType,
   buildDatePartExpr,
+  buildDimensionExpr,
   isValidDate,
 };

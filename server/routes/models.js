@@ -24,9 +24,16 @@ const {
   getDateFormat,
   getOverrideType,
   buildDatePartExpr,
+  buildDimensionExpr,
   isValidDate,
 } = require('../utils/sqlBuilder/datePart');
 const { deriveJoinKeyword } = require('../utils/sqlBuilder/joins');
+const {
+  transformAggregates,
+  dialectNumericCast,
+  applyNumericCast,
+  buildMeasureAggExpr,
+} = require('../utils/sqlBuilder/measureAgg');
 const { tablesReachableFrom, getAllowedRlsKeys } = require('../utils/rls');
 const { parseModel } = require('../db/modelRow');
 
@@ -39,28 +46,9 @@ function columnNameSet(cols) {
   }).filter(Boolean));
 }
 
-// Single source for a measure's aggregate SQL expression (the block that was
-// copy-pasted 5× across the /query handler): numeric CAST on a column the user
-// overrode to a numeric type, then SUM/AVG/MIN/MAX(col), then interval →
-// EXTRACT(EPOCH …) flattening on the dialects that support it. COUNT stays at
-// each call site (dialect-specific COUNT(col)/COUNT(*) shapes). `caseWhenSql`
-// wraps the column in a CASE for conditional-filter measures. Returns the
-// expression string (no alias). NB: the HAVING path keeps its own copy — its
-// COUNT/effAgg handling diverges.
-function buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql = null }) {
-  const rawCol = quoteCol(m.table, m.column, dbType);
-  const ovType = getOverrideType(m.table, m.column, columnTypes);
-  const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
-    ? castToNumber(rawCol, dbType, ovType, m.dataType)
-    : rawCol;
-  const agg = normalizeAggregation(m.aggregation).toUpperCase();
-  const aggExpr = caseWhenSql
-    ? `${agg}(CASE WHEN ${caseWhenSql} THEN ${colExpr} END)`
-    : `${agg}(${colExpr})`;
-  const isInterval = String(m.dataType || '').toLowerCase() === 'interval' || ovType === 'interval';
-  const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
-  return (isInterval && supportsExtractEpoch) ? `EXTRACT(EPOCH FROM ${aggExpr})` : aggExpr;
-}
+// buildMeasureAggExpr + transformAggregates/applyNumericCast/dialectNumericCast
+// (the aggregate-expression assembly) live in utils/sqlBuilder/measureAgg.js —
+// imported at the top of this file.
 
 // Hook for cloud edition to override the global query-timeout with a
 // workspace/org-scoped value. Default in OSS just returns the global
@@ -902,86 +890,6 @@ router.post('/:id/query', async (req, res) => {
     });
   }
 
-  // Walk a SQL expression and replace each top-level aggregate (SUM/AVG/
-  // MIN/MAX/COUNT) by `transform(fn, arg)`. Paren-aware: tracks depth so a
-  // CASE WHEN containing `IN (...)` inside the aggregate doesn't trick the
-  // matcher into terminating early. Skips string literals so an expression
-  // like `'SUM(x)'` stays untouched. The same primitive backs both the
-  // NUMERIC cast (for integer-division avoidance) and the CASE WHEN wrap
-  // (for filtered-measure intersection mode).
-  function transformAggregates(expression, fns, transform) {
-    if (!expression) return expression;
-    const s = String(expression);
-    const fnRegex = new RegExp(`^(${fns.join('|')})\\(`, 'i');
-    let out = '';
-    let i = 0;
-    while (i < s.length) {
-      if (s[i] === "'") {
-        const end = s.indexOf("'", i + 1);
-        if (end === -1) { out += s.slice(i); break; }
-        out += s.slice(i, end + 1);
-        i = end + 1;
-        continue;
-      }
-      // Aggregates are word-boundaried; skip if previous char is alpha/_
-      const prev = i > 0 ? s[i - 1] : '';
-      const atBoundary = !/[A-Za-z0-9_]/.test(prev);
-      const m = atBoundary ? s.slice(i).match(fnRegex) : null;
-      if (!m) { out += s[i]; i++; continue; }
-      const fn = m[1];
-      let depth = 1;
-      let j = i + m[0].length;
-      let inStr = false;
-      while (j < s.length && depth > 0) {
-        const ch = s[j];
-        if (inStr) {
-          if (ch === "'") inStr = false;
-        } else if (ch === "'") {
-          inStr = true;
-        } else if (ch === '(') {
-          depth++;
-        } else if (ch === ')') {
-          depth--;
-          if (depth === 0) break;
-        }
-        j++;
-      }
-      if (depth !== 0) { out += s[i]; i++; continue; }
-      const arg = s.slice(i + m[0].length, j);
-      out += transform(fn, arg);
-      i = j + 1;
-    }
-    return out;
-  }
-
-  // Wrap each top-level aggregate so its result is in a decimal/numeric
-  // type — prevents the integer-division-truncates-to-0 trap when the
-  // user writes a / inside a custom expression. Dialect-aware so it works
-  // on every supported backend:
-  //   - PG / Azure PG / DuckDB: CAST(... AS NUMERIC) — arbitrary precision
-  //   - MySQL / MSSQL / Azure SQL: CAST(... AS DECIMAL(38,10)). MySQL refuses
-  //     CAST AS NUMERIC without precision; MSSQL/Azure DEFAULT NUMERIC to scale
-  //     0, silently truncating the decimals — pin the scale on both.
-  //   - BigQuery: CAST(... AS NUMERIC) — BQ already returns FLOAT64 from
-  //     `/` so this is mostly defensive, but harmless
-  // SUM/AVG/MIN/MAX get the argument cast (preserves decimal precision);
-  // COUNT gets cast on its return value (it ignores its argument's type).
-  function dialectNumericCast(inner) {
-    if (dbType === 'mysql' || dbType === 'mssql' || dbType === 'azure_sql') {
-      return `CAST(${inner} AS DECIMAL(38,10))`;
-    }
-    return `CAST(${inner} AS NUMERIC)`;
-  }
-  function applyNumericCast(expression) {
-    return transformAggregates(
-      expression,
-      ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT'],
-      (fn, arg) => fn.toUpperCase() === 'COUNT'
-        ? dialectNumericCast(`${fn}(${arg})`)
-        : `${fn}(${dialectNumericCast(arg)})`,
-    );
-  }
-
   // RLS: model owner and global admins bypass. Everyone else (including unauthenticated
   // viewers of public reports) is filtered by the rule set against their email.
   const isOwner = req.isAuthenticated() && req.user.id === model.user_id;
@@ -1263,9 +1171,7 @@ router.post('/:id/query', async (req, res) => {
       // EXTRACT/YEAR(...) expression used in SELECT — otherwise filtering
       // by year on a "_date.num_year" dim would never match the raw
       // timestamp column.
-      const col = dimDef.datePart
-        ? buildDatePartExpr(dimDef, dbType, columnTypes)
-        : quoteCol(dimDef.table, dimDef.column, dbType);
+      const col = buildDimensionExpr(dimDef, dbType, columnTypes);
       const clause = buildScalarClause(
         col, f.op, f.value, f.values,
         // datePart dims aren't date-typed — they're year/month numbers etc.
@@ -1278,15 +1184,10 @@ router.post('/:id/query', async (req, res) => {
   }
 
   selectedDimensions.forEach((d) => {
-    let expr;
-    if (d.datePart) {
-      // Date part derived column — delegate to the dialect-aware helper so
-      // the SELECT and the WHERE/HAVING paths stay consistent (they all need
-      // the same EXTRACT/YEAR(...) expression for drill-down to work).
-      expr = buildDatePartExpr(d, dbType, columnTypes);
-    } else {
-      expr = quoteCol(d.table, d.column, dbType);
-    }
+    // datePart dims emit the dialect EXTRACT/YEAR(...) expression; the SELECT
+    // and WHERE/HAVING paths all go through buildDimensionExpr so drill-down
+    // filters target the same expression the projection used.
+    const expr = buildDimensionExpr(d, dbType, columnTypes);
     selectParts.push(`${expr} AS ${quoteIdent(d.label || d.name, dbType)}`);
     groupByParts.push(expr);
     tablesUsed.add(d.table);
@@ -1302,9 +1203,7 @@ router.post('/:id/query', async (req, res) => {
     const dimDef = allDimensions.find((d) => d.name === rule.field);
     if (!dimDef) return null;
     tablesUsed.add(dimDef.table);
-    const col = dimDef.datePart
-      ? buildDatePartExpr(dimDef, dbType, columnTypes)
-      : quoteCol(dimDef.table, dimDef.column, dbType);
+    const col = buildDimensionExpr(dimDef, dbType, columnTypes);
     return buildScalarClause(
       col, rule.op, rule.value, rule.values,
       !dimDef.datePart && dimDef.type === 'date',
@@ -1499,7 +1398,7 @@ router.post('/:id/query', async (req, res) => {
             ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT'],
             (fn, arg) => {
               const cast = (fn.toUpperCase() === 'SUM' || fn.toUpperCase() === 'AVG')
-                ? dialectNumericCast(arg)
+                ? dialectNumericCast(arg, dbType)
                 : arg;
               return `${fn}(CASE WHEN ${whenSql} THEN ${cast} END)`;
             },
@@ -1537,7 +1436,7 @@ router.post('/:id/query', async (req, res) => {
       // SUM(col) becomes SUM((col)::NUMERIC) so division preserves decimals.
       // Paren-aware so a CASE WHEN ... IN (..) inside an aggregate doesn't
       // break the matcher.
-      const numericExpr = applyNumericCast(inlined);
+      const numericExpr = applyNumericCast(inlined, dbType);
       selectParts.push(`(${numericExpr}) AS ${quoteIdent(m.label || m.name, dbType)}`);
       // Extract table references from the INLINED expression for joins
       for (const field of allFieldsForLookup) {
@@ -1624,7 +1523,7 @@ router.post('/:id/query', async (req, res) => {
         continue;
       }
       inlined = preWrapIntervalRefs(inlined, columnTypes, dbType);
-      aggExpr = `(${applyNumericCast(inlined)})`;
+      aggExpr = `(${applyNumericCast(inlined, dbType)})`;
       // Pull tables referenced by the inlined expression into the JOIN
       // graph — same logic the SELECT path uses at line 1477. Without
       // this, a HAVING that references a table not otherwise selected
@@ -1762,7 +1661,7 @@ router.post('/:id/query', async (req, res) => {
       && dimOnlyMeasureInfos.length === 0;
     if (eligible) {
       const dimInfoOf = (d) => ({
-        expr: d.datePart ? buildDatePartExpr(d, dbType, columnTypes) : quoteCol(d.table, d.column, dbType),
+        expr: buildDimensionExpr(d, dbType, columnTypes),
         alias: quoteIdent(d.label || d.name, dbType),
       });
       const dimInfos = selectedDimensions.map(dimInfoOf);
@@ -2012,7 +1911,7 @@ router.post('/:id/query', async (req, res) => {
       // columns otherwise.
       const exprForCast = inlinedExpr
         || preWrapIntervalRefs(measure.expression, columnTypes, dbType);
-      innerAgg = applyNumericCast(exprForCast);
+      innerAgg = applyNumericCast(exprForCast, dbType);
     } else if (measure.aggregation === 'count' || (measure.column === '*' && !measure.table)) {
       innerAgg = 'COUNT(*)';
     } else if (measure.table && measure.column) {
@@ -2054,7 +1953,7 @@ router.post('/:id/query', async (req, res) => {
         return res.status(400).json({ error: e.message });
       }
       inlined = preWrapIntervalRefs(inlined, columnTypes, dbType);
-      innerAgg = applyNumericCast(inlined);
+      innerAgg = applyNumericCast(inlined, dbType);
     } else if (m.aggregation === 'count' || (m.column === '*' && !m.table)) {
       innerAgg = 'COUNT(*)';
     } else if (m.table && m.column) {
