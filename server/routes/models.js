@@ -34,6 +34,8 @@ const {
   applyNumericCast,
   buildMeasureAggExpr,
 } = require('../utils/sqlBuilder/measureAgg');
+const { buildScalarClause } = require('../utils/sqlBuilder/filterClause');
+const { buildMultiFactBody } = require('../utils/sqlBuilder/multiFact');
 const { tablesReachableFrom, getAllowedRlsKeys } = require('../utils/rls');
 const { parseModel } = require('../db/modelRow');
 
@@ -1124,39 +1126,8 @@ router.post('/:id/query', async (req, res) => {
   // measure aggregation expressions are constructed). Custom-expression
   // measures are not yet supported in HAVING.
   const havingParts = [];
-  const escVal = (v) => quoteLiteral(v, dbType);
-  const isEmpty = (v) => v == null || v === '';
-  function buildScalarClause(colExpr, op, value, values, isDateCol, dateFmt, dimType) {
-    const cast = isDateCol ? castToDate(colExpr, dbType, dateFmt || 'auto') : colExpr;
-    const list = Array.isArray(values) ? values : (Array.isArray(value) ? value : null);
-    const numericFor = (v) => isDateCol ? escVal(v) : Number(v);
-    switch (op) {
-      case 'in':
-        return list?.length ? buildInList(colExpr, dimType || 'string', list, dbType) : null;
-      case 'not_in':
-        return list?.length ? buildInList(colExpr, dimType || 'string', list, dbType, true) : null;
-      case 'eq':  return isEmpty(value) ? null : `${cast} = ${escVal(value)}`;
-      case 'neq': return isEmpty(value) ? null : `${cast} <> ${escVal(value)}`;
-      case 'gt':  return isEmpty(value) ? null : `${cast} > ${numericFor(value)}`;
-      case 'gte': return isEmpty(value) ? null : `${cast} >= ${numericFor(value)}`;
-      case 'lt':  return isEmpty(value) ? null : `${cast} < ${numericFor(value)}`;
-      case 'lte': return isEmpty(value) ? null : `${cast} <= ${numericFor(value)}`;
-      case 'between': {
-        const [a, b] = list || [];
-        if (isEmpty(a) || isEmpty(b)) return null;
-        return isDateCol
-          ? `${cast} BETWEEN ${escVal(a)} AND ${escVal(b)}`
-          : `${cast} BETWEEN ${Number(a)} AND ${Number(b)}`;
-      }
-      case 'contains':     return isEmpty(value) ? null : `${castToString(colExpr, dbType)} LIKE ${escVal('%' + value + '%')}`;
-      case 'not_contains': return isEmpty(value) ? null : `${castToString(colExpr, dbType)} NOT LIKE ${escVal('%' + value + '%')}`;
-      case 'starts_with':  return isEmpty(value) ? null : `${castToString(colExpr, dbType)} LIKE ${escVal(value + '%')}`;
-      case 'ends_with':    return isEmpty(value) ? null : `${castToString(colExpr, dbType)} LIKE ${escVal('%' + value)}`;
-      case 'is_empty':     return `(${colExpr} IS NULL OR ${castToString(colExpr, dbType)} = '')`;
-      case 'is_not_empty': return `(${colExpr} IS NOT NULL AND ${castToString(colExpr, dbType)} <> '')`;
-      default: return null;
-    }
-  }
+  // buildScalarClause (WHERE/HAVING operator → SQL fragment) lives in
+  // utils/sqlBuilder/filterClause.js — dbType is passed as the trailing arg.
   // Apply dimension filters now (WHERE). Measure filters are deferred until
   // the SELECT is built, then pushed onto havingParts below.
   const measureFiltersDeferred = [];
@@ -1177,7 +1148,7 @@ router.post('/:id/query', async (req, res) => {
         // datePart dims aren't date-typed — they're year/month numbers etc.
         !dimDef.datePart && dimDef.type === 'date',
         getDateFormat(dimDef.table, dimDef.column, columnTypes),
-        effectiveDimType(dimDef),
+        effectiveDimType(dimDef), dbType,
       );
       if (clause) whereParts.push({ field: f.field, sql: clause });
     }
@@ -1208,7 +1179,7 @@ router.post('/:id/query', async (req, res) => {
       col, rule.op, rule.value, rule.values,
       !dimDef.datePart && dimDef.type === 'date',
       getDateFormat(dimDef.table, dimDef.column, columnTypes),
-      effectiveDimType(dimDef),
+      effectiveDimType(dimDef), dbType,
     );
   };
 
@@ -1596,7 +1567,7 @@ router.post('/:id/query', async (req, res) => {
 
     // Comparator (>, <, =, between, is_null, …) — route to x-grain bucket
     // when legend is present, otherwise emit as a regular HAVING.
-    const clause = buildScalarClause(aggExpr, f.op, f.value, f.values, false);
+    const clause = buildScalarClause(aggExpr, f.op, f.value, f.values, false, undefined, undefined, dbType);
     if (!clause) continue;
     if (useXGrainHaving) xGrainHavingParts.push(clause);
     else havingParts.push(clause);
@@ -1638,106 +1609,12 @@ router.post('/:id/query', async (req, res) => {
   // (custom/HLL/override/filtered measures, x-grain HAVING, measure
   // HAVING/TopN, RLS, distinct, or a dim/filter not conformed to every fact)
   // falls back to the existing single-query path below, unchanged.
-  let multiFactBody = null;
-  {
-    const SIMPLE_AGGS = new Set(['sum', 'avg', 'min', 'max', 'count']);
-    const factsInvolved = [...new Set(
-      selectedMeasures.filter((m) => m.table && realFacts.has(m.table)).map((m) => m.table),
-    )];
-    const allMeasuresSimpleFact = selectedMeasures.length > 0 && selectedMeasures.every((m) =>
-      m.table && realFacts.has(m.table)
-      && SIMPLE_AGGS.has(String(m.aggregation || '').toLowerCase())
-      && !m.expression
-      && !(Array.isArray(m.filterRules) && m.filterRules.length > 0)
-      && !m.overrideFilters);
-    const eligible = factsInvolved.length >= 2
-      && allMeasuresSimpleFact
-      && !rlsApplies
-      && !distinct
-      && !topNOverride
-      && havingParts.length === 0
-      && measureFiltersDeferred.length === 0
-      && (!Array.isArray(havingGrainDims) || havingGrainDims.length === 0)
-      && dimOnlyMeasureInfos.length === 0;
-    if (eligible) {
-      const dimInfoOf = (d) => ({
-        expr: buildDimensionExpr(d, dbType, columnTypes),
-        alias: quoteIdent(d.label || d.name, dbType),
-      });
-      const dimInfos = selectedDimensions.map(dimInfoOf);
-      const dimSelects = dimInfos.map((x) => `${x.expr} AS ${x.alias}`);
-      const dimExprs = dimInfos.map((x) => x.expr);
-      const dimAliases = dimInfos.map((x) => x.alias);
-      // Per-fact aggregate select — mirrors the normal-aggregation branch of
-      // the SELECT loop above (CAST override + interval EXTRACT EPOCH).
-      const measureSelectOf = (m) => {
-        const alias = quoteIdent(m.label || m.name, dbType);
-        const rawCol = quoteCol(m.table, m.column, dbType);
-        const agg = String(m.aggregation || '').toLowerCase();
-        if (agg === 'count') {
-          const e = (m.table && m.column && m.column !== '*') ? `COUNT(${rawCol})` : 'COUNT(*)';
-          return { sql: `${e} AS ${alias}`, alias };
-        }
-        const finalExpr = buildMeasureAggExpr(m, { dbType, columnTypes });
-        return { sql: `${finalExpr} AS ${alias}`, alias };
-      };
-      // Every per-fact subquery must join the grain dims AND any dim
-      // referenced by a WHERE filter (report / widget / cross-filter), so
-      // the filters apply inside each fact's aggregation.
-      const filterDimTables = whereParts
-        .filter((w) => w.field)
-        .map((w) => { const d = allDimensions.find((x) => x.name === w.field); return d ? d.table : null; })
-        .filter(Boolean);
-      const neededDimTables = [...new Set([...selectedDimensions.map((d) => d.table), ...filterDimTables])];
-      // FROM <fact> JOIN <needed dims…>, rooted at the fact (mirrors the main
-      // traversal). Returns null if a needed table can't be connected to this
-      // fact → the fact isn't conformed to that dim → fall back entirely.
-      const buildFactFrom = (fact) => {
-        let from = quoteTable(fact, dbType);
-        const added = new Set([fact]);
-        const remaining = neededDimTables.filter((t) => t !== fact);
-        while (remaining.length > 0) {
-          let pickedIdx = -1; let pickedJoin = null;
-          for (let i = 0; i < remaining.length; i++) {
-            const t = remaining[i];
-            const j = allJoins.find((jj) => (jj.from_table === t && added.has(jj.to_table))
-              || (jj.to_table === t && added.has(jj.from_table)));
-            if (j) { pickedIdx = i; pickedJoin = j; break; }
-          }
-          if (pickedIdx < 0) return null;
-          const t = remaining.splice(pickedIdx, 1)[0];
-          const jt = deriveJoinKeyword(pickedJoin);
-          from += ` ${jt} JOIN ${quoteTable(t, dbType)} ON ${quoteCol(pickedJoin.from_table, pickedJoin.from_column, dbType)} = ${quoteCol(pickedJoin.to_table, pickedJoin.to_column, dbType)}`;
-          added.add(t);
-        }
-        return from;
-      };
-      const whereSql = whereParts.length > 0 ? ` WHERE ${whereParts.map((w) => w.sql).join(' AND ')}` : '';
-      const groupSql = dimExprs.length > 0 ? ` GROUP BY ${dimExprs.join(', ')}` : '';
-      const subs = [];
-      const measureAliases = [];
-      let ok = true;
-      for (const fact of factsInvolved) {
-        const from = buildFactFrom(fact);
-        if (!from) { ok = false; break; }
-        const fMeasures = selectedMeasures.filter((m) => m.table === fact);
-        const mSel = fMeasures.map(measureSelectOf);
-        mSel.forEach((x) => measureAliases.push(x.alias));
-        subs.push(`SELECT ${[...dimSelects, ...mSel.map((x) => x.sql)].join(', ')} FROM ${from}${whereSql}${groupSql}`);
-      }
-      if (ok && subs.length >= 2) {
-        const wrapped = subs.map((s, i) => `(${s}) g${i}`);
-        const joiner = dimAliases.length > 0
-          ? (acc, cur) => `${acc} FULL JOIN ${cur} USING (${dimAliases.join(', ')})`
-          : (acc, cur) => `${acc} CROSS JOIN ${cur}`;
-        const joined = wrapped.reduce((acc, cur, i) => (i === 0 ? cur : joiner(acc, cur)));
-        multiFactBody = {
-          sql: `SELECT ${[...dimAliases, ...measureAliases].join(', ')} FROM ${joined}`,
-          orderByAlias: dimAliases.length > 0 ? dimAliases[0] : null,
-        };
-      }
-    }
-  }
+  const multiFactBody = buildMultiFactBody({
+    selectedMeasures, selectedDimensions, realFacts, whereParts,
+    allDimensions, allJoins, dbType, columnTypes,
+    rlsApplies, distinct, topNOverride, havingParts,
+    measureFiltersDeferred, havingGrainDims, dimOnlyMeasureInfos,
+  });
 
   // Build FROM + JOINs. Greedy traversal of the join graph: start with the
   // most "fact-like" table (the one appearing with cardinality "*" on the
