@@ -8,7 +8,7 @@ const {
   extractColumnRefsFromExpression,
   preWrapIntervalRefs,
 } = require('../utils/columnTypeResolver');
-const { canAccessReport, canAccessModel, canWriteModel } = require('./reports');
+const { canAccessReport, canAccessModel, canWriteModel, canReadModel } = require('./reports');
 const { getQueryTimeoutMs } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
@@ -125,7 +125,7 @@ router.get('/', authFor('read'), (req, res) => {
 // Get single model with full details (owner, global admin, or anyone with access to a report using it)
 router.get('/:id', authFor('read'), (req, res) => {
   const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
-  if (!row || !canAccessModel(row, req.user, req)) return res.status(404).json({ error: 'Model not found' });
+  if (!row || !canReadModel(row, req.user, req)) return res.status(404).json({ error: 'Model not found' });
   const model = parseModel(row);
 
   // Strip the RLS rules map (other users' email patterns) from the response for anyone

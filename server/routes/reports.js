@@ -64,6 +64,14 @@ function canWriteModel(model, user, req) {
   return user.id === model.user_id || user.role === 'admin';
 }
 
+// Read access to a model's METADATA (GET /:id). OSS: same as query access.
+// Cloud makes it stricter (org membership only, no public-report path) so a
+// public-report viewer can /query the model but not enumerate its full schema.
+function canReadModel(model, user, req) {
+  if (typeof cloudHooks.canReadModel === 'function') return cloudHooks.canReadModel(model, user, req);
+  return canAccessModel(model, user, req);
+}
+
 // List reports for current user
 router.get('/', requireAuth, (req, res) => {
   const rows = db.prepare(`
@@ -440,3 +448,4 @@ module.exports = router;
 module.exports.canAccessReport = canAccessReport;
 module.exports.canAccessModel = canAccessModel;
 module.exports.canWriteModel = canWriteModel;
+module.exports.canReadModel = canReadModel;

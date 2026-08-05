@@ -14,11 +14,13 @@
 //       override (falls back to the global admin setting when it returns
 //       nothing usable).
 //   canAccessReport(report, user, req) / canAccessModel(model, user, req)
-//       canWriteModel(model, user, req)
-//       — the single authority for read / write access. OSS runs its base
-//       owner/admin/public logic; cloud replaces it with the org read/write
-//       role check. When set, the hook fully REPLACES the base logic (it must
-//       return a boolean).
+//       canWriteModel(model, user, req) / canReadModel(model, user, req)
+//       — the single authority for access. canAccessModel gates /query (owner /
+//       admin / via a report, incl. public — cross-tenant OK). canReadModel
+//       gates GET /:id metadata; cloud makes it stricter (org-membership only,
+//       no public-report path) so a public viewer can query but not enumerate
+//       the full model schema. OSS: canReadModel == canAccessModel. When set,
+//       the hook fully REPLACES the base logic (returns a boolean).
 //   listModels(req) → array          — the models the request may list. OSS:
 //       the caller's own models. Cloud: org models + workspace-shared ones.
 //   canUseDatasource(datasourceId, req) → bool — may the caller bind this
@@ -34,6 +36,7 @@ const cloudHooks = {
   canAccessReport: null,
   canAccessModel: null,
   canWriteModel: null,
+  canReadModel: null,
   listModels: null,
   canUseDatasource: null,
   onModelCreate: null,
