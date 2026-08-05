@@ -84,6 +84,13 @@ function authFor(action) {
   };
 }
 
+// May the caller bind this datasource to a model? OSS: they must own it. Cloud
+// replaces this with an org-membership check via cloudHooks.canUseDatasource.
+function datasourceUsable(datasourceId, req) {
+  if (typeof cloudHooks.canUseDatasource === 'function') return cloudHooks.canUseDatasource(datasourceId, req);
+  return !!db.prepare('SELECT id FROM datasources WHERE id = ? AND user_id = ?').get(datasourceId, req.user.id);
+}
+
 const router = express.Router();
 
 // In-flight cancellable queries — keyed by client-generated queryId so the
@@ -99,8 +106,12 @@ const inFlightQueries = new Map();
 // + RLS helpers used to live inline here — extracted to utils/sqlBuilder/
 // and utils/rls.js. See the `require` block at the top of this file.
 
-// List models for current user
+// List models for current user. Cloud lists the org's models (+ workspace-
+// shared ones) via cloudHooks.listModels; OSS lists the caller's own.
 router.get('/', authFor('read'), (req, res) => {
+  if (typeof cloudHooks.listModels === 'function') {
+    return res.json({ models: cloudHooks.listModels(req) });
+  }
   const models = db.prepare(`
     SELECT m.id, m.name, m.description, m.datasource_id, d.name as datasource_name, m.created_at, m.updated_at
     FROM models m
@@ -138,13 +149,14 @@ router.post('/', authFor('write'), (req, res) => {
   const { name, datasourceId, description } = req.body;
   if (!name || !datasourceId) return res.status(400).json({ error: 'Name and datasourceId are required' });
 
-  const ds = db.prepare('SELECT id FROM datasources WHERE id = ? AND user_id = ?').get(datasourceId, req.user.id);
-  if (!ds) return res.status(404).json({ error: 'Datasource not found' });
+  if (!datasourceUsable(datasourceId, req)) return res.status(404).json({ error: 'Datasource not found' });
 
   const id = uuidv4();
   db.prepare('INSERT INTO models (id, user_id, datasource_id, name, description) VALUES (?, ?, ?, ?, ?)').run(
     id, req.user.id, datasourceId, name, description || ''
   );
+  // Cloud stamps organization_id (and any other tenant columns) on the new row.
+  if (typeof cloudHooks.onModelCreate === 'function') cloudHooks.onModelCreate(req, id);
 
   res.status(201).json({ model: { id, name, datasource_id: datasourceId, description: description || '' } });
 });
@@ -157,10 +169,9 @@ router.put('/:id', authFor('write'), (req, res) => {
 
   const { name, description, selected_tables, table_positions, dimensions, measures, joins, rls, column_types, dateColumn, datasourceId } = req.body;
 
-  // If caller is moving the model to a different datasource, verify ownership
+  // If caller is moving the model to a different datasource, verify they may use it
   if (datasourceId && datasourceId !== model.datasource_id) {
-    const ds = db.prepare('SELECT id FROM datasources WHERE id = ? AND user_id = ?').get(datasourceId, req.user.id);
-    if (!ds) return res.status(404).json({ error: 'Target datasource not found' });
+    if (!datasourceUsable(datasourceId, req)) return res.status(404).json({ error: 'Target datasource not found' });
   }
 
   db.prepare(`

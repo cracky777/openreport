@@ -19,12 +19,21 @@
 //       owner/admin/public logic; cloud replaces it with the org read/write
 //       role check. When set, the hook fully REPLACES the base logic (it must
 //       return a boolean).
+//   listModels(req) → array          — the models the request may list. OSS:
+//       the caller's own models. Cloud: org models + workspace-shared ones.
+//   canUseDatasource(datasourceId, req) → bool — may the caller bind this
+//       datasource to a model. OSS: they own it. Cloud: it's in their org.
+//   onModelCreate(req, modelId)       — post-INSERT hook to stamp tenant columns
+//       (cloud: organization_id). No-op in OSS.
 const cloudHooks = {
   authz: null,
   resolveQueryTimeoutMs: null,
   canAccessReport: null,
   canAccessModel: null,
   canWriteModel: null,
+  listModels: null,
+  canUseDatasource: null,
+  onModelCreate: null,
 };
 
 module.exports = cloudHooks;
