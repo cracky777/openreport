@@ -13,9 +13,18 @@
 //   resolveQueryTimeoutMs(req)      — workspace/org-scoped query timeout
 //       override (falls back to the global admin setting when it returns
 //       nothing usable).
+//   canAccessReport(report, user, req) / canAccessModel(model, user, req)
+//       canWriteModel(model, user, req)
+//       — the single authority for read / write access. OSS runs its base
+//       owner/admin/public logic; cloud replaces it with the org read/write
+//       role check. When set, the hook fully REPLACES the base logic (it must
+//       return a boolean).
 const cloudHooks = {
   authz: null,
   resolveQueryTimeoutMs: null,
+  canAccessReport: null,
+  canAccessModel: null,
+  canWriteModel: null,
 };
 
 module.exports = cloudHooks;

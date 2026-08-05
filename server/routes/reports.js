@@ -3,6 +3,8 @@ const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const { ensurePersonalWorkspace } = require('../utils/personalWorkspace');
+// Cloud extension points (null in OSS). See server/cloudHooks.js.
+const cloudHooks = require('../cloudHooks');
 
 const router = express.Router();
 
@@ -22,8 +24,10 @@ function stripWidgetData(widgets) {
 
 // Authorization helper used by report viewing and downstream model/query routes.
 // A user can access a report if they own it, it's public, they are a global admin,
-// or they're a member of the workspace containing it.
-function canAccessReport(report, user) {
+// or they're a member of the workspace containing it. The cloud edition replaces
+// this whole decision with an org read-role check via cloudHooks.canAccessReport.
+function canAccessReport(report, user, req) {
+  if (typeof cloudHooks.canAccessReport === 'function') return cloudHooks.canAccessReport(report, user, req);
   if (!report) return false;
   if (report.is_public) return true;
   if (!user) return false;
@@ -40,13 +44,24 @@ function canAccessReport(report, user) {
 
 // Returns true if the user has access to the model, either directly (owner / global admin)
 // or indirectly through a report that uses the model (public or workspace-shared).
-function canAccessModel(model, user) {
+// Cloud replaces this with an org read-role check via cloudHooks.canAccessModel.
+function canAccessModel(model, user, req) {
+  if (typeof cloudHooks.canAccessModel === 'function') return cloudHooks.canAccessModel(model, user, req);
   if (!model) return false;
   if (user && user.role === 'admin') return true;
   if (user && user.id === model.user_id) return true;
   // Check every report that uses this model — if the user can access any of them, they can use the model.
   const reports = db.prepare('SELECT * FROM reports WHERE model_id = ?').all(model.id);
-  return reports.some((r) => canAccessReport(r, user));
+  return reports.some((r) => canAccessReport(r, user, req));
+}
+
+// Write access: who may mutate a model (edit / delete / re-validate / column
+// overrides). OSS: the model owner or a global admin. Cloud replaces this with
+// the org write-role check (editor/admin) via cloudHooks.canWriteModel.
+function canWriteModel(model, user, req) {
+  if (typeof cloudHooks.canWriteModel === 'function') return cloudHooks.canWriteModel(model, user, req);
+  if (!model || !user) return false;
+  return user.id === model.user_id || user.role === 'admin';
 }
 
 // List reports for current user
@@ -424,3 +439,4 @@ router.delete('/:id', requireAuth, (req, res) => {
 module.exports = router;
 module.exports.canAccessReport = canAccessReport;
 module.exports.canAccessModel = canAccessModel;
+module.exports.canWriteModel = canWriteModel;
