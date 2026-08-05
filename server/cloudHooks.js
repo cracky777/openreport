@@ -90,6 +90,10 @@ const cloudHooks = {
   validateNewMember: null,
   canSeeWorkspaceMembers: null,
   workspaceIsPersonalOrg: null,
+  // adminViewWorkspace(req) → ws|null — the admin-bypass fetch for GET /:id when
+  // the caller isn't a member. OSS: any workspace (global admin). Cloud:
+  // org-scoped (an org admin only sees workspaces in their own org).
+  adminViewWorkspace: null,
 };
 
 module.exports = cloudHooks;

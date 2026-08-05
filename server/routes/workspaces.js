@@ -83,10 +83,17 @@ function workspaceIsPersonalOrg(req, ws) {
   return false;
 }
 
+// The admin-bypass fetch for GET /:id (caller isn't a member but may view).
+// OSS: any workspace. Cloud: org-scoped so an org admin can't view another org's.
+function adminViewWorkspace(req) {
+  if (typeof cloudHooks.adminViewWorkspace === 'function') return cloudHooks.adminViewWorkspace(req);
+  return db.prepare('SELECT * FROM workspaces WHERE id = ?').get(req.params.id);
+}
+
 // List workspaces the user has access to. Personal workspaces are returned
 // separately so the client can hide them from the regular switcher and use the
 // id internally for the "My Reports" view.
-router.get('/', authFor('read'), (req, res) => {
+router.get('/', authFor('org'), (req, res) => {
   const { owned, shared } = listWorkspaces(req);
   const all = [...owned, ...shared];
   const personal = all.find((w) => w.is_personal === 1) || null;
@@ -113,12 +120,13 @@ router.post('/', authFor('write'), (req, res) => {
 });
 
 // Get workspace details + reports + members
-router.get('/:id', authFor('read'), (req, res) => {
+router.get('/:id', authFor('org'), (req, res) => {
   const access = workspaceAccess(req.params.id, req);
   const isAdmin = canAdminAllWorkspaces(req);
   if (!access && !isAdmin) return res.status(404).json({ error: 'Workspace not found' });
 
-  const ws = access?.workspace || db.prepare('SELECT * FROM workspaces WHERE id = ?').get(req.params.id);
+  const ws = access?.workspace || adminViewWorkspace(req);
+  if (!ws) return res.status(404).json({ error: 'Workspace not found' });
   const reportsRaw = db.prepare(`
     SELECT r.id, r.title, r.updated_at, r.is_public, r.live_mode, r.model_id, r.workspace_id,
       m.name as model_name,
@@ -164,7 +172,7 @@ router.get('/:id', authFor('read'), (req, res) => {
 });
 
 // Update workspace
-router.put('/:id', authFor('read'), (req, res) => {
+router.put('/:id', authFor('org'), (req, res) => {
   const access = workspaceAccess(req.params.id, req);
   if (!access || access.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
   const { name, description } = req.body;
@@ -176,7 +184,7 @@ router.put('/:id', authFor('read'), (req, res) => {
 // Delete workspace. Personal workspaces are not deletable — they're the
 // implicit home for reports without an explicit workspace and removing one
 // would orphan the user's reports + custom visuals.
-router.delete('/:id', authFor('read'), (req, res) => {
+router.delete('/:id', authFor('org'), (req, res) => {
   const access = workspaceAccess(req.params.id, req);
   if (!access || access.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
   if (access.workspace.is_personal) {
@@ -200,7 +208,7 @@ router.delete('/:id', authFor('read'), (req, res) => {
 });
 
 // Add member
-router.post('/:id/members', authFor('read'), (req, res) => {
+router.post('/:id/members', authFor('org'), (req, res) => {
   const access = workspaceAccess(req.params.id, req);
   if (!access || access.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
   const denied = workspaceSharingDenied(access.workspace, req);
@@ -222,7 +230,7 @@ router.post('/:id/members', authFor('read'), (req, res) => {
 });
 
 // Update member role
-router.put('/:id/members/:userId', authFor('read'), (req, res) => {
+router.put('/:id/members/:userId', authFor('org'), (req, res) => {
   const access = workspaceAccess(req.params.id, req);
   if (!access || access.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
   const denied = workspaceSharingDenied(access.workspace, req);
@@ -234,7 +242,7 @@ router.put('/:id/members/:userId', authFor('read'), (req, res) => {
 });
 
 // Remove member
-router.delete('/:id/members/:userId', authFor('read'), (req, res) => {
+router.delete('/:id/members/:userId', authFor('org'), (req, res) => {
   const access = workspaceAccess(req.params.id, req);
   if (!access || access.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
   const denied = workspaceSharingDenied(access.workspace, req);
@@ -244,7 +252,7 @@ router.delete('/:id/members/:userId', authFor('read'), (req, res) => {
 });
 
 // Move report to workspace
-router.put('/:id/reports/:reportId', authFor('read'), (req, res) => {
+router.put('/:id/reports/:reportId', authFor('org'), (req, res) => {
   const access = workspaceAccess(req.params.id, req);
   if (!access || (access.role !== 'admin' && access.role !== 'editor')) return res.status(403).json({ error: 'Editor access required' });
   // Verify the report belongs to the requesting user
