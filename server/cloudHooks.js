@@ -74,6 +74,22 @@ const cloudHooks = {
   // → existing row|null ; listUploadedDatasources(req) → rows.
   dedupUpload: null,
   listUploadedDatasources: null,
+  // Workspaces. workspaceAccess(id, req) → {workspace, role}|null (404 when null) ;
+  // canAdminAllWorkspaces(req) → bool (GET/:id bypass) ; listWorkspaces(req) →
+  // {owned, shared} ; onWorkspaceCreate(req, id) → stamp org ;
+  // resolvePersonalWorkspaceFor(req, userId) → wsId (delete rehome) ;
+  // workspaceSharingDenied(ws, req) → string|null (personal-org guard) ;
+  // validateNewMember(req, targetUser) → string|null ; canSeeWorkspaceMembers(req,
+  // access) → bool (member-list leak guard) ; workspaceIsPersonalOrg(req, ws) → bool.
+  workspaceAccess: null,
+  canAdminAllWorkspaces: null,
+  listWorkspaces: null,
+  onWorkspaceCreate: null,
+  resolvePersonalWorkspaceFor: null,
+  workspaceSharingDenied: null,
+  validateNewMember: null,
+  canSeeWorkspaceMembers: null,
+  workspaceIsPersonalOrg: null,
 };
 
 module.exports = cloudHooks;
