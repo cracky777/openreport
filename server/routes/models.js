@@ -1676,7 +1676,11 @@ router.post('/:id/query', async (req, res) => {
     // quota — same behaviour as before. Mirrors the rollup planner calls above.
     orgId: req.organizationId || null,
   };
-  if (!bypassCache && !req._slicerDistinctBypassQueryCache) {
+  // Cloud may disable the result cache per workspace (TTL override of 0). OSS:
+  // no hook → the global TTL applies, cache stays on.
+  const reqCacheTtlMs = typeof cloudHooks.resolveCacheTtlMs === 'function' ? cloudHooks.resolveCacheTtlMs(req) : null;
+  const cacheDisabledForRequest = reqCacheTtlMs != null && reqCacheTtlMs <= 0;
+  if (!bypassCache && !req._slicerDistinctBypassQueryCache && !cacheDisabledForRequest) {
     // The rollup planner was already checked at the top of the handler —
     // a hit returned early before SQL build. Reaching here means rollup
     // miss; fall through to the SQL-keyed queryCache, then the DB.
@@ -1806,7 +1810,7 @@ router.post('/:id/query', async (req, res) => {
     // Rollup-builder requests pull a full unfiltered aggregation that
     // lands in the rollup table anyway; don't also bloat the in-RAM
     // queryCache with that one-off payload.
-    if (!isRollupBuilderRequest) {
+    if (!isRollupBuilderRequest && !cacheDisabledForRequest) {
       queryCache.set(cacheOpts, {
         rows,
         builtAt: new Date().toISOString(),

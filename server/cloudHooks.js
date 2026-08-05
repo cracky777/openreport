@@ -25,6 +25,9 @@
 //       datasource to a model. OSS: they own it. Cloud: it's in their org.
 //   onModelCreate(req, modelId)       — post-INSERT hook to stamp tenant columns
 //       (cloud: organization_id). No-op in OSS.
+//   resolveCacheTtlMs(req) → number|null — per-request result-cache TTL. Cloud
+//       reads the workspace override; a value <= 0 disables the queryCache for
+//       that request. null / no hook → the global TTL applies (OSS default).
 const cloudHooks = {
   authz: null,
   resolveQueryTimeoutMs: null,
@@ -34,6 +37,7 @@ const cloudHooks = {
   listModels: null,
   canUseDatasource: null,
   onModelCreate: null,
+  resolveCacheTtlMs: null,
 };
 
 module.exports = cloudHooks;
