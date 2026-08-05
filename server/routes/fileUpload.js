@@ -3,11 +3,26 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
-const { requireAuth } = require('../middleware/auth');
+const { authFor } = require('../middleware/auth');
 const db = require('../db');
 const uploadHooks = require('../hooks/upload');
+const cloudHooks = require('../cloudHooks');
 
 const router = express.Router();
+
+// Access scoping (cloud org-scopes these; OSS scopes by owner).
+function dedupUpload(req, originalFilename) {
+  if (typeof cloudHooks.dedupUpload === 'function') return cloudHooks.dedupUpload(req, originalFilename);
+  return db.prepare("SELECT id, name, extra_config FROM datasources WHERE user_id = ? AND extra_config LIKE ?")
+    .get(req.user.id, `%"sourceFile":"${originalFilename}"%`);
+}
+function listUploadedDatasources(req) {
+  if (typeof cloudHooks.listUploadedDatasources === 'function') return cloudHooks.listUploadedDatasources(req);
+  return db.prepare("SELECT * FROM datasources WHERE user_id = ? AND db_type = 'duckdb' AND extra_config LIKE '%sourceFile%'").all(req.user.id);
+}
+function stampNewDatasource(req, id) {
+  if (typeof cloudHooks.onDatasourceCreate === 'function') cloudHooks.onDatasourceCreate(req, id);
+}
 
 // Ensure upload directories exist
 const uploadsDir = path.join(__dirname, '..', 'data', 'uploads');
@@ -32,7 +47,7 @@ const upload = multer({
 });
 
 // Upload file → import into DuckDB → create datasource
-router.post('/', requireAuth, upload.single('file'), async (req, res) => {
+router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   const file = req.file;
@@ -50,8 +65,7 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
   const tableName = sanitizeTableName(path.basename(file.originalname, ext));
 
   // Check if a datasource with the same source file already exists
-  const existing = db.prepare("SELECT id, name, extra_config FROM datasources WHERE user_id = ? AND extra_config LIKE ?")
-    .get(req.user.id, `%"sourceFile":"${file.originalname}"%`);
+  const existing = dedupUpload(req, file.originalname);
   if (existing) {
     try { fs.unlinkSync(file.path); } catch { /* ignore */ }
     const extra = JSON.parse(existing.extra_config || '{}');
@@ -134,6 +148,7 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
       fileSize: file.size,            // bytes — used by cloud quota enforcement
       importedAt: new Date().toISOString(),
     }));
+    stampNewDatasource(req, dsId);
 
     res.status(201).json({
       datasource: {
@@ -166,8 +181,8 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
 });
 
 // List uploaded file datasources
-router.get('/', requireAuth, (req, res) => {
-  const sources = db.prepare("SELECT * FROM datasources WHERE user_id = ? AND db_type = 'duckdb' AND extra_config LIKE '%sourceFile%'").all(req.user.id);
+router.get('/', authFor('read'), (req, res) => {
+  const sources = listUploadedDatasources(req);
   res.json({
     sources: sources.map((s) => ({
       ...s,

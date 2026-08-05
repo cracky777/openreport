@@ -1,13 +1,35 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, authFor } = require('../middleware/auth');
 const db = require('../db');
 const { createConnection, invalidateDatasource } = require('../utils/dbConnector');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
 const { encrypt } = require('../utils/secretCrypto');
+const cloudHooks = require('../cloudHooks');
 
 const router = express.Router();
+
+// Access scoping (cloud org-scopes these; OSS scopes by owner). getDatasource
+// returns the FULL row (secrets included) for the connection paths — callers
+// that return it to the client must project the safe columns.
+function getDatasource(id, req) {
+  if (typeof cloudHooks.getDatasource === 'function') return cloudHooks.getDatasource(id, req);
+  return db.prepare('SELECT * FROM datasources WHERE id = ? AND user_id = ?').get(id, req.user.id);
+}
+function listDatasources(req) {
+  if (typeof cloudHooks.listDatasources === 'function') return cloudHooks.listDatasources(req);
+  return db.prepare(
+    'SELECT id, name, db_type, host, port, db_name, created_at FROM datasources WHERE user_id = ? ORDER BY name'
+  ).all(req.user.id);
+}
+function stampNewDatasource(req, id) {
+  if (typeof cloudHooks.onDatasourceCreate === 'function') cloudHooks.onDatasourceCreate(req, id);
+}
+function countModelsUsingDatasource(req, id) {
+  if (typeof cloudHooks.countModelsUsingDatasource === 'function') return cloudHooks.countModelsUsingDatasource(req, id);
+  return db.prepare('SELECT COUNT(*) as count FROM models WHERE datasource_id = ? AND user_id = ?').get(id, req.user.id).count;
+}
 
 // Encrypt the sensitive field(s) inside a datasource's extra_config (currently
 // the BigQuery service-account key) without touching the non-secret keys, so
@@ -18,24 +40,18 @@ function encryptExtraConfig(extraConfig) {
   return cfg;
 }
 
-// List datasources for current user
-router.get('/', requireAuth, (req, res) => {
-  const sources = db.prepare(
-    'SELECT id, name, db_type, host, port, db_name, created_at FROM datasources WHERE user_id = ? ORDER BY name'
-  ).all(req.user.id);
-  res.json({ datasources: sources });
+// List datasources (write-gated: an org-viewer can't enumerate connections).
+router.get('/', authFor('write'), (req, res) => {
+  res.json({ datasources: listDatasources(req) });
 });
 
-// Get single datasource
-router.get('/:id', requireAuth, (req, res) => {
-  const source = db.prepare(
-    'SELECT id, name, db_type, host, port, db_name, db_user, created_at FROM datasources WHERE id = ? AND user_id = ?'
-  ).get(req.params.id, req.user.id);
-
-  if (!source) {
+// Get single datasource — project the safe columns (never secrets).
+router.get('/:id', authFor('write'), (req, res) => {
+  const s = getDatasource(req.params.id, req);
+  if (!s) {
     return res.status(404).json({ error: 'Datasource not found' });
   }
-  res.json({ datasource: source });
+  res.json({ datasource: { id: s.id, name: s.name, db_type: s.db_type, host: s.host, port: s.port, db_name: s.db_name, db_user: s.db_user, created_at: s.created_at } });
 });
 
 // Test connection (without saving)
@@ -63,7 +79,7 @@ router.post('/test', requireAuth, async (req, res) => {
 });
 
 // Create datasource
-router.post('/', requireAuth, (req, res) => {
+router.post('/', authFor('write'), (req, res) => {
   const { name, dbType, host, port, dbName, dbUser, dbPassword, extraConfig } = req.body;
 
   // BigQuery and DuckDB don't need host/user
@@ -78,6 +94,7 @@ router.post('/', requireAuth, (req, res) => {
     INSERT INTO datasources (id, user_id, name, db_type, host, port, db_name, db_user, db_password, extra_config)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, req.user.id, name, dbType, host || '', port || 5432, dbName, dbUser || '', encrypt(dbPassword || ''), JSON.stringify(encryptExtraConfig(extraConfig)));
+  stampNewDatasource(req, id);
 
   res.status(201).json({
     datasource: { id, name, db_type: dbType, host: host || '', port: port || 5432, db_name: dbName },
@@ -85,10 +102,8 @@ router.post('/', requireAuth, (req, res) => {
 });
 
 // Update datasource (edit existing connection)
-router.put('/:id', requireAuth, (req, res) => {
-  const existing = db.prepare(
-    'SELECT * FROM datasources WHERE id = ? AND user_id = ?'
-  ).get(req.params.id, req.user.id);
+router.put('/:id', authFor('write'), (req, res) => {
+  const existing = getDatasource(req.params.id, req);
   if (!existing) {
     return res.status(404).json({ error: 'Datasource not found' });
   }
@@ -109,7 +124,7 @@ router.put('/:id', requireAuth, (req, res) => {
   db.prepare(`
     UPDATE datasources
     SET name = ?, db_type = ?, host = ?, port = ?, db_name = ?, db_user = ?, db_password = ?, extra_config = ?
-    WHERE id = ? AND user_id = ?
+    WHERE id = ?
   `).run(
     name,
     newDbType,
@@ -120,7 +135,6 @@ router.put('/:id', requireAuth, (req, res) => {
     finalPassword,
     extraConfig !== undefined ? JSON.stringify(encryptExtraConfig(extraConfig)) : existing.extra_config,
     req.params.id,
-    req.user.id,
   );
 
   // Connection params (host / db / credentials / type) may have changed
@@ -134,16 +148,14 @@ router.put('/:id', requireAuth, (req, res) => {
     .catch((err) => console.warn('[rollup] invalidate on datasource update failed:', err.message));
 
   const updated = db.prepare(
-    'SELECT id, name, db_type, host, port, db_name, db_user, created_at FROM datasources WHERE id = ? AND user_id = ?'
-  ).get(req.params.id, req.user.id);
+    'SELECT id, name, db_type, host, port, db_name, db_user, created_at FROM datasources WHERE id = ?'
+  ).get(req.params.id);
   res.json({ datasource: updated });
 });
 
 // List tables for a datasource
-router.get('/:id/tables', requireAuth, async (req, res) => {
-  const source = db.prepare(
-    'SELECT * FROM datasources WHERE id = ? AND user_id = ?'
-  ).get(req.params.id, req.user.id);
+router.get('/:id/tables', authFor('write'), async (req, res) => {
+  const source = getDatasource(req.params.id, req);
 
   if (!source) {
     return res.status(404).json({ error: 'Datasource not found' });
@@ -162,10 +174,8 @@ router.get('/:id/tables', requireAuth, async (req, res) => {
 });
 
 // List columns for a table
-router.get('/:id/tables/:table/columns', requireAuth, async (req, res) => {
-  const source = db.prepare(
-    'SELECT * FROM datasources WHERE id = ? AND user_id = ?'
-  ).get(req.params.id, req.user.id);
+router.get('/:id/tables/:table/columns', authFor('write'), async (req, res) => {
+  const source = getDatasource(req.params.id, req);
 
   if (!source) {
     return res.status(404).json({ error: 'Datasource not found' });
@@ -188,10 +198,8 @@ router.get('/:id/tables/:table/columns', requireAuth, async (req, res) => {
 });
 
 // Execute query on a datasource
-router.post('/:id/query', requireAuth, async (req, res) => {
-  const source = db.prepare(
-    'SELECT * FROM datasources WHERE id = ? AND user_id = ?'
-  ).get(req.params.id, req.user.id);
+router.post('/:id/query', authFor('write'), async (req, res) => {
+  const source = getDatasource(req.params.id, req);
 
   if (!source) {
     return res.status(404).json({ error: 'Datasource not found' });
@@ -227,21 +235,17 @@ router.post('/:id/query', requireAuth, async (req, res) => {
 });
 
 // Delete datasource
-router.delete('/:id', requireAuth, (req, res) => {
-  // Check if any models use this datasource
-  const modelCount = db.prepare('SELECT COUNT(*) as count FROM models WHERE datasource_id = ? AND user_id = ?').get(req.params.id, req.user.id);
-  if (modelCount && modelCount.count > 0) {
-    return res.status(409).json({ error: `This datasource is used by ${modelCount.count} model(s). Delete them first.` });
+router.delete('/:id', authFor('write'), (req, res) => {
+  // Load first so a cross-org / cross-owner delete is a clean 404, not a no-op.
+  const source = getDatasource(req.params.id, req);
+  if (!source) return res.status(404).json({ error: 'Datasource not found' });
+
+  const count = countModelsUsingDatasource(req, req.params.id);
+  if (count > 0) {
+    return res.status(409).json({ error: `This datasource is used by ${count} model(s). Delete them first.` });
   }
 
-  const result = db.prepare('DELETE FROM datasources WHERE id = ? AND user_id = ?').run(
-    req.params.id, req.user.id
-  );
-
-  if (result.changes === 0) {
-    return res.status(404).json({ error: 'Datasource not found' });
-  }
-
+  db.prepare('DELETE FROM datasources WHERE id = ?').run(req.params.id);
   invalidateDatasource(req.params.id); // tear down the cached pool for the removed datasource
   res.json({ message: 'Datasource deleted' });
 });

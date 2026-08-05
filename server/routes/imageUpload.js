@@ -16,6 +16,7 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
+const cloudHooks = require('../cloudHooks');
 
 const router = express.Router();
 
@@ -53,7 +54,12 @@ const upload = multer({
   },
 });
 
-router.post('/', requireAuth, upload.single('image'), (req, res) => {
+router.post('/', requireAuth, (req, res, next) => {
+  // Cloud disables local image upload (per-tenant disk quota / abuse not built);
+  // users paste their own CDN/S3 URL instead. The hook sends the 403.
+  if (typeof cloudHooks.guardImageUpload === 'function' && cloudHooks.guardImageUpload(req, res)) return;
+  next();
+}, upload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No image uploaded' });
   // Public URL relative to the server root — Express serves it via the
   // static middleware mounted in `server/index.js` on `/uploads/images`.

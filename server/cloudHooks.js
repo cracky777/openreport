@@ -58,6 +58,22 @@ const cloudHooks = {
   listReports: null,
   onReportCreate: null,
   resolveDefaultWorkspace: null,
+  // guardImageUpload(req, res) → bool — cloud disables local image upload
+  // (users paste a CDN/S3 URL). Returns true after sending its 403. OSS: no
+  // hook → the upload proceeds.
+  guardImageUpload: null,
+  // Datasources (org-scoped in cloud). listDatasources(req) → rows ;
+  // getDatasource(id, req) → full row|null (404 when null) ;
+  // onDatasourceCreate(req, id) → stamp organization_id ;
+  // countModelsUsingDatasource(req, id) → n (DELETE 409 guard).
+  listDatasources: null,
+  getDatasource: null,
+  onDatasourceCreate: null,
+  countModelsUsingDatasource: null,
+  // File upload dedup + list (org-scoped in cloud). dedupUpload(req, filename)
+  // → existing row|null ; listUploadedDatasources(req) → rows.
+  dedupUpload: null,
+  listUploadedDatasources: null,
 };
 
 module.exports = cloudHooks;
