@@ -1639,6 +1639,10 @@ router.post('/:id/query', async (req, res) => {
     modelId: model.id,
     sql,
     rlsContext: rlsContextForCache,
+    // Cloud only: tags the cache entry to an org so queryCache can enforce a
+    // per-org RAM quota (setOrgQuotaResolver). null in OSS → no org index, no
+    // quota — same behaviour as before. Mirrors the rollup planner calls above.
+    orgId: req.organizationId || null,
   };
   if (!bypassCache && !req._slicerDistinctBypassQueryCache) {
     // The rollup planner was already checked at the top of the handler —
