@@ -13,28 +13,27 @@ const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const rollupBuilder = require('../utils/rollupBuilder');
+const cloudHooks = require('../cloudHooks');
 
 const router = express.Router();
 
-function loadModelOrFail(modelId, res) {
-  const m = db.prepare('SELECT id, user_id FROM models WHERE id = ?').get(modelId);
-  if (!m) {
-    res.status(404).json({ error: 'Model not found' });
+// Load + authorize the model for a rollup op. OSS: model owner or global admin.
+// Cloud: org-scoped (404 cross-org) + org-owner/admin/model-owner. Sends the
+// 404/403 response itself when denied and returns null.
+function authorizeRollupModel(req, res) {
+  if (typeof cloudHooks.authorizeRollupModel === 'function') return cloudHooks.authorizeRollupModel(req, res);
+  const m = db.prepare('SELECT id, user_id FROM models WHERE id = ?').get(req.params.modelId);
+  if (!m) { res.status(404).json({ error: 'Model not found' }); return null; }
+  if (!(req.user && (req.user.role === 'admin' || m.user_id === req.user.id))) {
+    res.status(403).json({ error: 'Forbidden' });
     return null;
   }
   return m;
 }
 
-function canManageRollups(model, user) {
-  if (!user) return false;
-  if (user.role === 'admin') return true;
-  return model.user_id === user.id;
-}
-
 router.post('/run-now/:modelId', requireAuth, async (req, res) => {
-  const model = loadModelOrFail(req.params.modelId, res);
+  const model = authorizeRollupModel(req, res);
   if (!model) return;
-  if (!canManageRollups(model, req.user)) return res.status(403).json({ error: 'Forbidden' });
 
   try {
     const result = await rollupBuilder.buildRollupsForModel({
@@ -54,9 +53,8 @@ router.post('/run-now/:modelId', requireAuth, async (req, res) => {
 });
 
 router.get('/manifest/:modelId', requireAuth, (req, res) => {
-  const model = loadModelOrFail(req.params.modelId, res);
+  const model = authorizeRollupModel(req, res);
   if (!model) return;
-  if (!canManageRollups(model, req.user)) return res.status(403).json({ error: 'Forbidden' });
   const rollups = rollupBuilder.getManifest({
     modelId: model.id,
     orgId: req.organizationId || null,
@@ -65,9 +63,8 @@ router.get('/manifest/:modelId', requireAuth, (req, res) => {
 });
 
 router.delete('/:modelId/:grainHash', requireAuth, async (req, res) => {
-  const model = loadModelOrFail(req.params.modelId, res);
+  const model = authorizeRollupModel(req, res);
   if (!model) return;
-  if (!canManageRollups(model, req.user)) return res.status(403).json({ error: 'Forbidden' });
   const result = await rollupBuilder.dropRollup({
     modelId: model.id,
     grainHash: req.params.grainHash,

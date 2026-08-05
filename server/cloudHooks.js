@@ -94,6 +94,10 @@ const cloudHooks = {
   // the caller isn't a member. OSS: any workspace (global admin). Cloud:
   // org-scoped (an org admin only sees workspaces in their own org).
   adminViewWorkspace: null,
+  // authorizeRollupModel(req, res) → model row|null — load + authorize the model
+  // for the rollup endpoints. Sends the 404/403 itself when denied. OSS: owner
+  // or global admin. Cloud: org-scoped + org-owner/admin/model-owner.
+  authorizeRollupModel: null,
 };
 
 module.exports = cloudHooks;
