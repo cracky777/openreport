@@ -1,6 +1,6 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, authFor } = require('../middleware/auth');
 const db = require('../db');
 const { createConnection } = require('../utils/dbConnector');
 const {
@@ -71,18 +71,8 @@ function resolveQueryTimeoutMs(req) {
   return getQueryTimeoutMs();
 }
 
-// Per-route authorization. OSS: just requireAuth — access is then gated
-// per-resource by canAccessModel inside the handler. Cloud installs
-// cloudHooks.authz to enforce the org read/write role on top (requireOrgRead /
-// requireOrgWrite). `action` is 'read' | 'write'.
-function authFor(action) {
-  return (req, res, next) => {
-    requireAuth(req, res, () => {
-      if (typeof cloudHooks.authz === 'function') return cloudHooks.authz(action, req, res, next);
-      return next();
-    });
-  };
-}
+// authFor(action) is shared from middleware/auth.js (OSS: requireAuth; cloud
+// adds the org role check via cloudHooks.authz).
 
 // May the caller bind this datasource to a model? OSS: they must own it. Cloud
 // replaces this with an org-membership check via cloudHooks.canUseDatasource.

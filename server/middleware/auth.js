@@ -39,6 +39,21 @@ function requireAuth(req, res, next) {
   res.status(401).json({ error: 'Authentication required' });
 }
 
+// Per-route authorization used by the model/report routes. OSS: just
+// requireAuth — access is then gated per-resource by canAccess*/canWrite*
+// inside the handler. Cloud installs cloudHooks.authz to add the org role check
+// on top. `action` is 'read' | 'write'. Lives here so models.js and reports.js
+// share one definition.
+function authFor(action) {
+  const cloudHooks = require('../cloudHooks');
+  return (req, res, next) => {
+    requireAuth(req, res, () => {
+      if (typeof cloudHooks.authz === 'function') return cloudHooks.authz(action, req, res, next);
+      return next();
+    });
+  };
+}
+
 function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
@@ -53,4 +68,4 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-module.exports = { passport, requireAuth, requireRole, requireAdmin };
+module.exports = { passport, requireAuth, authFor, requireRole, requireAdmin };

@@ -1,6 +1,6 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
-const { requireAuth } = require('../middleware/auth');
+const { authFor } = require('../middleware/auth');
 const db = require('../db');
 const { ensurePersonalWorkspace } = require('../utils/personalWorkspace');
 // Cloud extension points (null in OSS). See server/cloudHooks.js.
@@ -72,9 +72,40 @@ function canReadModel(model, user, req) {
   return canAccessModel(model, user, req);
 }
 
+// Write access to a report (edit / delete / duplicate). OSS: owner or global
+// admin. Cloud: org admin, or workspace owner/admin/editor, or (personal
+// report) owner + org editor.
+function canWriteReport(report, user, req) {
+  if (typeof cloudHooks.canWriteReport === 'function') return cloudHooks.canWriteReport(report, user, req);
+  if (!report || !user) return false;
+  return user.id === report.user_id || user.role === 'admin';
+}
+
+// View / restore a report's version history. OSS: global admin. Cloud: org admin.
+function canManageReportHistory(report, user, req) {
+  if (typeof cloudHooks.canManageReportHistory === 'function') return cloudHooks.canManageReportHistory(report, user, req);
+  return !!user && user.role === 'admin';
+}
+
+// Fallback workspace for a report with no explicit one. OSS: the user's personal
+// workspace. Cloud: their personal workspace within the active org.
+function defaultWorkspaceFor(req) {
+  if (typeof cloudHooks.resolveDefaultWorkspace === 'function') return cloudHooks.resolveDefaultWorkspace(req);
+  return ensurePersonalWorkspace(req.user.id);
+}
+
+// Post-INSERT tenant-column stamp (cloud: organization_id). No-op in OSS.
+function stampNewReport(req, reportId) {
+  if (typeof cloudHooks.onReportCreate === 'function') cloudHooks.onReportCreate(req, reportId);
+}
+
 // List reports for current user
-router.get('/', requireAuth, (req, res) => {
-  const rows = db.prepare(`
+router.get('/', authFor('read'), (req, res) => {
+  // Cloud scopes the list to the active org (cloudHooks.listReports); OSS lists
+  // the caller's own reports. Both return the same row shape for the map below.
+  const rows = typeof cloudHooks.listReports === 'function'
+    ? cloudHooks.listReports(req)
+    : db.prepare(`
     SELECT r.id, r.title, r.model_id, r.workspace_id, r.is_public, r.live_mode, r.created_at, r.updated_at,
       m.name as model_name,
       d.id as datasource_id, d.db_type, d.extra_config
@@ -107,7 +138,7 @@ router.get('/:id', (req, res) => {
     return res.status(404).json({ error: 'Report not found' });
   }
 
-  if (!canAccessReport(report, req.user)) {
+  if (!canAccessReport(report, req.user, req)) {
     return res.status(403).json({ error: 'Access denied' });
   }
 
@@ -142,7 +173,7 @@ router.get('/:id', (req, res) => {
 // We DON'T try to recreate the source datasource or model — the importer must
 // pick one they already have access to via `modelId` in the query/body.
 // model_name in the bundle is only used to surface a hint in the response.
-router.post('/import', requireAuth, (req, res) => {
+router.post('/import', authFor('read'), (req, res) => {
   const { bundle, modelId, workspaceId } = req.body || {};
   if (!bundle || typeof bundle !== 'object') {
     return res.status(400).json({ error: 'Missing or invalid bundle' });
@@ -158,11 +189,12 @@ router.post('/import', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'A target modelId is required to import' });
   }
 
-  // The model must belong to the calling user (or they must be admin) — we
-  // never let an import silently bind to someone else's model.
-  const model = db.prepare('SELECT id, user_id FROM models WHERE id = ?').get(modelId);
+  // The importer must be able to WRITE the target model — never let an import
+  // silently bind to a model they can't edit (OSS: owner/admin; cloud: org
+  // write-role on the model's org).
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(modelId);
   if (!model) return res.status(404).json({ error: 'Target model not found' });
-  if (req.user.role !== 'admin' && model.user_id !== req.user.id) {
+  if (!canWriteModel(model, req.user, req)) {
     return res.status(403).json({ error: 'You do not own the target model' });
   }
 
@@ -202,9 +234,13 @@ router.post('/import', requireAuth, (req, res) => {
     }));
   }
 
-  // Reports always live in a workspace — fall back to the user's personal
-  // workspace when the caller didn't pick one, so custom visuals etc. remain available.
-  const targetWs = workspaceId || ensurePersonalWorkspace(req.user.id);
+  // Reports always live in a workspace — fall back to the caller's personal
+  // workspace when they didn't pick one, so custom visuals etc. remain available.
+  const targetWs = workspaceId || defaultWorkspaceFor(req);
+  // Must be allowed to create a report in the target workspace.
+  if (!canWriteReport({ workspace_id: targetWs, user_id: req.user.id, organization_id: req.organizationId }, req.user, req)) {
+    return res.status(403).json({ error: 'Not authorized to create a report in this workspace' });
+  }
   db.prepare(`
     INSERT INTO reports (id, user_id, model_id, title, workspace_id, layout, widgets, settings)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -212,6 +248,7 @@ router.post('/import', requireAuth, (req, res) => {
     id, req.user.id, modelId, title, targetWs,
     JSON.stringify(layout), JSON.stringify(widgets), JSON.stringify(settings),
   );
+  stampNewReport(req, id);
 
   const created = db.prepare('SELECT * FROM reports WHERE id = ?').get(id);
   res.status(201).json({
@@ -226,7 +263,7 @@ router.post('/import', requireAuth, (req, res) => {
 });
 
 // Create report
-router.post('/', requireAuth, (req, res) => {
+router.post('/', authFor('read'), (req, res) => {
   const id = uuidv4();
   const { title, modelId, workspaceId, settings } = req.body;
 
@@ -240,17 +277,21 @@ router.post('/', requireAuth, (req, res) => {
   // report can't grant access to itself via canAccessModel.
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(modelId);
   if (!model) return res.status(404).json({ error: 'Model not found' });
-  if (!canAccessModel(model, req.user)) {
+  if (!canAccessModel(model, req.user, req)) {
     return res.status(403).json({ error: 'Not authorized for this model' });
   }
 
   // Bake in initial settings (e.g. createdTheme) at creation time
   const initialSettings = settings && typeof settings === 'object' ? JSON.stringify(settings) : '{}';
 
-  const targetWs = workspaceId || ensurePersonalWorkspace(req.user.id);
+  const targetWs = workspaceId || defaultWorkspaceFor(req);
+  if (!canWriteReport({ workspace_id: targetWs, user_id: req.user.id, organization_id: req.organizationId }, req.user, req)) {
+    return res.status(403).json({ error: 'Not authorized to create a report in this workspace' });
+  }
   db.prepare('INSERT INTO reports (id, user_id, model_id, title, workspace_id, settings) VALUES (?, ?, ?, ?, ?, ?)').run(
     id, req.user.id, modelId, title || 'Untitled Report', targetWs, initialSettings
   );
+  stampNewReport(req, id);
 
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(id);
   res.status(201).json({
@@ -284,13 +325,15 @@ function snapshotReportVersion(reportId, savedBy) {
 }
 
 // Update report
-router.put('/:id', requireAuth, (req, res) => {
-  const report = db.prepare('SELECT * FROM reports WHERE id = ? AND user_id = ?').get(
-    req.params.id, req.user.id
-  );
-
-  if (!report) {
+router.put('/:id', authFor('read'), (req, res) => {
+  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  // 404 when the report isn't even visible (hides existence cross-tenant), 403
+  // when it's visible but the caller can't write it.
+  if (!report || !canAccessReport(report, req.user, req)) {
     return res.status(404).json({ error: 'Report not found' });
+  }
+  if (!canWriteReport(report, req.user, req)) {
+    return res.status(403).json({ error: 'Access denied' });
   }
 
   // Re-check model access on edit too. Authoritative gating of custom-SQL
@@ -298,7 +341,7 @@ router.put('/:id', requireAuth, (req, res) => {
   // is defense-in-depth so a report can't be repointed/edited against a model
   // the caller has lost access to.
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(report.model_id);
-  if (model && !canAccessModel(model, req.user)) {
+  if (model && !canAccessModel(model, req.user, req)) {
     return res.status(403).json({ error: 'Not authorized for this model' });
   }
 
@@ -357,11 +400,10 @@ router.put('/:id', requireAuth, (req, res) => {
 });
 
 // Duplicate report — creates a copy in the same workspace, owned by the caller.
-router.post('/:id/duplicate', requireAuth, (req, res) => {
-  const src = db.prepare('SELECT * FROM reports WHERE id = ? AND user_id = ?').get(
-    req.params.id, req.user.id
-  );
-  if (!src) return res.status(404).json({ error: 'Report not found' });
+router.post('/:id/duplicate', authFor('read'), (req, res) => {
+  const src = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  if (!src || !canAccessReport(src, req.user, req)) return res.status(404).json({ error: 'Report not found' });
+  if (!canWriteReport(src, req.user, req)) return res.status(403).json({ error: 'Access denied' });
 
   const newId = uuidv4();
   const newTitle = `${src.title} (copy)`.slice(0, 200);
@@ -369,6 +411,7 @@ router.post('/:id/duplicate', requireAuth, (req, res) => {
     INSERT INTO reports (id, user_id, model_id, title, workspace_id, layout, widgets, settings)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(newId, req.user.id, src.model_id, newTitle, src.workspace_id, src.layout, src.widgets, src.settings);
+  stampNewReport(req, newId);
 
   const created = db.prepare('SELECT * FROM reports WHERE id = ?').get(newId);
   res.status(201).json({
@@ -383,10 +426,10 @@ router.post('/:id/duplicate', requireAuth, (req, res) => {
 
 // History (admin only) — list saved versions, newest first. Bodies excluded
 // from the list payload to keep it small; use /restore to materialize one.
-router.get('/:id/history', requireAuth, (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
-  const exists = db.prepare('SELECT 1 FROM reports WHERE id = ?').get(req.params.id);
-  if (!exists) return res.status(404).json({ error: 'Report not found' });
+router.get('/:id/history', authFor('read'), (req, res) => {
+  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  if (!report || !canAccessReport(report, req.user, req)) return res.status(404).json({ error: 'Report not found' });
+  if (!canManageReportHistory(report, req.user, req)) return res.status(403).json({ error: 'Admin access required' });
   const rows = db.prepare(`
     SELECT v.id, v.title, v.saved_at, v.saved_by, u.email AS saved_by_email, u.display_name AS saved_by_name
     FROM report_versions v
@@ -399,10 +442,10 @@ router.get('/:id/history', requireAuth, (req, res) => {
 
 // Restore a version (admin only). Snapshots the current state first so the
 // rollback itself is recoverable, then overwrites the report with the version.
-router.post('/:id/history/:versionId/restore', requireAuth, (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
-  const report = db.prepare('SELECT id FROM reports WHERE id = ?').get(req.params.id);
-  if (!report) return res.status(404).json({ error: 'Report not found' });
+router.post('/:id/history/:versionId/restore', authFor('read'), (req, res) => {
+  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  if (!report || !canAccessReport(report, req.user, req)) return res.status(404).json({ error: 'Report not found' });
+  if (!canManageReportHistory(report, req.user, req)) return res.status(403).json({ error: 'Admin access required' });
   const version = db.prepare(
     'SELECT * FROM report_versions WHERE id = ? AND report_id = ?'
   ).get(req.params.versionId, req.params.id);
@@ -432,15 +475,12 @@ router.post('/:id/history/:versionId/restore', requireAuth, (req, res) => {
 });
 
 // Delete report
-router.delete('/:id', requireAuth, (req, res) => {
-  const result = db.prepare('DELETE FROM reports WHERE id = ? AND user_id = ?').run(
-    req.params.id, req.user.id
-  );
+router.delete('/:id', authFor('read'), (req, res) => {
+  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  if (!report || !canAccessReport(report, req.user, req)) return res.status(404).json({ error: 'Report not found' });
+  if (!canWriteReport(report, req.user, req)) return res.status(403).json({ error: 'Access denied' });
 
-  if (result.changes === 0) {
-    return res.status(404).json({ error: 'Report not found' });
-  }
-
+  db.prepare('DELETE FROM reports WHERE id = ?').run(req.params.id);
   res.json({ message: 'Report deleted' });
 });
 
@@ -449,3 +489,4 @@ module.exports.canAccessReport = canAccessReport;
 module.exports.canAccessModel = canAccessModel;
 module.exports.canWriteModel = canWriteModel;
 module.exports.canReadModel = canReadModel;
+module.exports.canWriteReport = canWriteReport;

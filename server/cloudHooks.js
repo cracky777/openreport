@@ -30,6 +30,18 @@
 //   resolveCacheTtlMs(req) → number|null — per-request result-cache TTL. Cloud
 //       reads the workspace override; a value <= 0 disables the queryCache for
 //       that request. null / no hook → the global TTL applies (OSS default).
+//   canWriteReport(report, user, req) → bool — may the caller mutate a report
+//       (edit / delete / duplicate). OSS: owner or global admin. Cloud: org
+//       admin, or workspace owner/admin/editor, or (personal) owner + org editor.
+//   canManageReportHistory(report, user, req) → bool — view/restore report
+//       versions. OSS: global admin. Cloud: org admin.
+//   listReports(req) → rows — the reports the caller may list. OSS: their own.
+//       Cloud: their own within the active org.
+//   onReportCreate(req, reportId) — post-INSERT tenant-column stamp (cloud:
+//       organization_id). No-op in OSS.
+//   resolveDefaultWorkspace(req) → workspaceId — the fallback personal workspace
+//       for a report with no explicit workspace. OSS: the user's personal ws.
+//       Cloud: their personal ws within the active org.
 const cloudHooks = {
   authz: null,
   resolveQueryTimeoutMs: null,
@@ -41,6 +53,11 @@ const cloudHooks = {
   canUseDatasource: null,
   onModelCreate: null,
   resolveCacheTtlMs: null,
+  canWriteReport: null,
+  canManageReportHistory: null,
+  listReports: null,
+  onReportCreate: null,
+  resolveDefaultWorkspace: null,
 };
 
 module.exports = cloudHooks;
