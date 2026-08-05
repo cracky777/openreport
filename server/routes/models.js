@@ -55,13 +55,12 @@ function columnNameSet(cols) {
 // (the aggregate-expression assembly) live in utils/sqlBuilder/measureAgg.js —
 // imported at the top of this file.
 
-// Hook for cloud edition to override the global query-timeout with a
-// workspace/org-scoped value. Default in OSS just returns the global
-// admin setting. Cloud installs `cloudHooks.resolveQueryTimeoutMs(req)`
-// to look the value up on the request's active workspace.
-const cloudHooks = {
-  resolveQueryTimeoutMs: null,
-};
+// Cloud extension points live in the shared registry (server/cloudHooks.js).
+// All null in OSS → the base behaviour below runs. Cloud assigns them at boot.
+const cloudHooks = require('../cloudHooks');
+
+// Resolve the query timeout: cloud may scope it to the request's workspace/org;
+// OSS falls back to the global admin setting.
 function resolveQueryTimeoutMs(req) {
   if (typeof cloudHooks.resolveQueryTimeoutMs === 'function') {
     try {
@@ -70,6 +69,19 @@ function resolveQueryTimeoutMs(req) {
     } catch { /* fall through to OSS default */ }
   }
   return getQueryTimeoutMs();
+}
+
+// Per-route authorization. OSS: just requireAuth — access is then gated
+// per-resource by canAccessModel inside the handler. Cloud installs
+// cloudHooks.authz to enforce the org read/write role on top (requireOrgRead /
+// requireOrgWrite). `action` is 'read' | 'write'.
+function authFor(action) {
+  return (req, res, next) => {
+    requireAuth(req, res, () => {
+      if (typeof cloudHooks.authz === 'function') return cloudHooks.authz(action, req, res, next);
+      return next();
+    });
+  };
 }
 
 const router = express.Router();
@@ -88,7 +100,7 @@ const inFlightQueries = new Map();
 // and utils/rls.js. See the `require` block at the top of this file.
 
 // List models for current user
-router.get('/', requireAuth, (req, res) => {
+router.get('/', authFor('read'), (req, res) => {
   const models = db.prepare(`
     SELECT m.id, m.name, m.description, m.datasource_id, d.name as datasource_name, m.created_at, m.updated_at
     FROM models m
@@ -100,7 +112,7 @@ router.get('/', requireAuth, (req, res) => {
 });
 
 // Get single model with full details (owner, global admin, or anyone with access to a report using it)
-router.get('/:id', requireAuth, (req, res) => {
+router.get('/:id', authFor('read'), (req, res) => {
   const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
   if (!row || !canAccessModel(row, req.user)) return res.status(404).json({ error: 'Model not found' });
   const model = parseModel(row);
@@ -122,7 +134,7 @@ router.get('/:id', requireAuth, (req, res) => {
 });
 
 // Create model
-router.post('/', requireAuth, (req, res) => {
+router.post('/', authFor('write'), (req, res) => {
   const { name, datasourceId, description } = req.body;
   if (!name || !datasourceId) return res.status(400).json({ error: 'Name and datasourceId are required' });
 
@@ -138,7 +150,7 @@ router.post('/', requireAuth, (req, res) => {
 });
 
 // Update model (dimensions, measures, joins, and optionally datasource)
-router.put('/:id', requireAuth, (req, res) => {
+router.put('/:id', authFor('write'), (req, res) => {
   const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!model) return res.status(404).json({ error: 'Model not found' });
 
@@ -211,7 +223,7 @@ router.put('/:id', requireAuth, (req, res) => {
 
 // Validate model references against the current datasource schema.
 // Returns a list of broken references (missing tables, missing columns).
-router.get('/:id/validate', requireAuth, async (req, res) => {
+router.get('/:id/validate', authFor('write'), async (req, res) => {
   const row = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!row) return res.status(404).json({ error: 'Model not found' });
   const model = parseModel(row);
@@ -321,7 +333,7 @@ router.get('/:id/validate', requireAuth, async (req, res) => {
 });
 
 // Delete model
-router.delete('/:id', requireAuth, (req, res) => {
+router.delete('/:id', authFor('write'), (req, res) => {
   // Check if any reports use this model
   const reportCount = db.prepare('SELECT COUNT(*) as count FROM reports WHERE model_id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (reportCount && reportCount.count > 0) {
@@ -337,7 +349,7 @@ router.delete('/:id', requireAuth, (req, res) => {
 // for per-row user/pattern mapping. Owner-only.
 // Optional `search` param performs a server-side LIKE filter on the primary key column,
 // allowing the UI to look up rows beyond the 1000-row display cap.
-router.get('/:id/rls/rows', requireAuth, async (req, res) => {
+router.get('/:id/rls/rows', authFor('write'), async (req, res) => {
   const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!model) return res.status(404).json({ error: 'Model not found' });
 
@@ -418,7 +430,7 @@ router.get('/:id/rls/rows', requireAuth, async (req, res) => {
 //
 // Body: { table, column, type } where type ∈ {'date','number','boolean','string'}
 // Returns: { ok, sampleSize, validCount, validRatio, invalidExamples: [...] }
-router.post('/:id/validate-column-type', requireAuth, async (req, res) => {
+router.post('/:id/validate-column-type', authFor('write'), async (req, res) => {
   const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!model) return res.status(404).json({ error: 'Model not found' });
 
