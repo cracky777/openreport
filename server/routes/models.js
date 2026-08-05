@@ -8,7 +8,7 @@ const {
   extractColumnRefsFromExpression,
   preWrapIntervalRefs,
 } = require('../utils/columnTypeResolver');
-const { canAccessReport, canAccessModel } = require('./reports');
+const { canAccessReport, canAccessModel, canWriteModel } = require('./reports');
 const { getQueryTimeoutMs } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
@@ -114,7 +114,7 @@ router.get('/', authFor('read'), (req, res) => {
 // Get single model with full details (owner, global admin, or anyone with access to a report using it)
 router.get('/:id', authFor('read'), (req, res) => {
   const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
-  if (!row || !canAccessModel(row, req.user)) return res.status(404).json({ error: 'Model not found' });
+  if (!row || !canAccessModel(row, req.user, req)) return res.status(404).json({ error: 'Model not found' });
   const model = parseModel(row);
 
   // Strip the RLS rules map (other users' email patterns) from the response for anyone
@@ -151,8 +151,9 @@ router.post('/', authFor('write'), (req, res) => {
 
 // Update model (dimensions, measures, joins, and optionally datasource)
 router.put('/:id', authFor('write'), (req, res) => {
-  const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
   if (!model) return res.status(404).json({ error: 'Model not found' });
+  if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
 
   const { name, description, selected_tables, table_positions, dimensions, measures, joins, rls, column_types, dateColumn, datasourceId } = req.body;
 
@@ -224,11 +225,12 @@ router.put('/:id', authFor('write'), (req, res) => {
 // Validate model references against the current datasource schema.
 // Returns a list of broken references (missing tables, missing columns).
 router.get('/:id/validate', authFor('write'), async (req, res) => {
-  const row = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Model not found' });
+  if (!canWriteModel(row, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   const model = parseModel(row);
 
-  const source = db.prepare('SELECT * FROM datasources WHERE id = ? AND user_id = ?').get(model.datasource_id, req.user.id);
+  const source = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
   if (!source) return res.status(404).json({ error: 'Datasource not found' });
 
   const { selected_tables: selectedTables, dimensions, measures, joins } = model;
@@ -334,14 +336,18 @@ router.get('/:id/validate', authFor('write'), async (req, res) => {
 
 // Delete model
 router.delete('/:id', authFor('write'), (req, res) => {
-  // Check if any reports use this model
-  const reportCount = db.prepare('SELECT COUNT(*) as count FROM reports WHERE model_id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
+  if (!model) return res.status(404).json({ error: 'Model not found' });
+  if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
+
+  // Refuse deletion while any report still uses the model (id-scoped: a model
+  // in use by anyone's report blocks deletion).
+  const reportCount = db.prepare('SELECT COUNT(*) as count FROM reports WHERE model_id = ?').get(req.params.id);
   if (reportCount && reportCount.count > 0) {
     return res.status(409).json({ error: `This model is used by ${reportCount.count} report(s). Delete them first.` });
   }
 
-  const result = db.prepare('DELETE FROM models WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Model not found' });
+  db.prepare('DELETE FROM models WHERE id = ?').run(req.params.id);
   res.json({ message: 'Model deleted' });
 });
 
@@ -350,8 +356,9 @@ router.delete('/:id', authFor('write'), (req, res) => {
 // Optional `search` param performs a server-side LIKE filter on the primary key column,
 // allowing the UI to look up rows beyond the 1000-row display cap.
 router.get('/:id/rls/rows', authFor('write'), async (req, res) => {
-  const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
   if (!model) return res.status(404).json({ error: 'Model not found' });
+  if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
 
   const { table, primaryKey, columns, search } = req.query;
   if (!table || !primaryKey) return res.status(400).json({ error: 'table and primaryKey are required' });
@@ -431,8 +438,9 @@ router.get('/:id/rls/rows', authFor('write'), async (req, res) => {
 // Body: { table, column, type } where type ∈ {'date','number','boolean','string'}
 // Returns: { ok, sampleSize, validCount, validRatio, invalidExamples: [...] }
 router.post('/:id/validate-column-type', authFor('write'), async (req, res) => {
-  const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
   if (!model) return res.status(404).json({ error: 'Model not found' });
+  if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
 
   const { table, column, type, dateFormat } = req.body || {};
   if (!table || !column || !type) return res.status(400).json({ error: 'table, column and type are required' });
@@ -552,8 +560,9 @@ router.post('/:id/validate-column-type', authFor('write'), async (req, res) => {
 // Body: { table, column }
 // Returns: { cardinality: '1'|'*', sampleSize, distinct }
 router.post('/:id/detect-cardinality', requireAuth, async (req, res) => {
-  const model = db.prepare('SELECT * FROM models WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
   if (!model) return res.status(404).json({ error: 'Model not found' });
+  if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   const { table, column } = req.body || {};
   if (!table || !column) return res.status(400).json({ error: 'table and column are required' });
 
@@ -638,7 +647,7 @@ router.post('/:id/query', async (req, res) => {
   };
 
   const rawModel = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
-  if (!rawModel || !canAccessModel(rawModel, req.user)) return res.status(404).json({ error: 'Model not found' });
+  if (!rawModel || !canAccessModel(rawModel, req.user, req)) return res.status(404).json({ error: 'Model not found' });
   const model = parseModel(rawModel);
 
   const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
@@ -700,7 +709,7 @@ router.post('/:id/query', async (req, res) => {
     let persisted = {};
     if (reportId) {
       const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(String(reportId));
-      if (report && canAccessReport(report, req.user)) {
+      if (report && canAccessReport(report, req.user, req)) {
         persisted = JSON.parse(report.settings || '{}');
       }
     }
