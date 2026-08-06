@@ -83,11 +83,13 @@ function workspaceIsPersonalOrg(req, ws) {
   return false;
 }
 
-// The admin-bypass fetch for GET /:id (caller isn't a member but may view).
-// OSS: any workspace. Cloud: org-scoped so an org admin can't view another org's.
-function adminViewWorkspace(req) {
-  if (typeof cloudHooks.adminViewWorkspace === 'function') return cloudHooks.adminViewWorkspace(req);
-  return db.prepare('SELECT * FROM workspaces WHERE id = ?').get(req.params.id);
+// The admin-bypass fetch for a workspace the caller isn't a member of but may
+// still act on as an admin. OSS: any workspace. Cloud: org-scoped so an org
+// admin can't reach another org's. Takes an explicit id (customVisuals uses the
+// same cloudHooks.adminViewWorkspace with its own :wsId param).
+function adminViewWorkspace(workspaceId, req) {
+  if (typeof cloudHooks.adminViewWorkspace === 'function') return cloudHooks.adminViewWorkspace(workspaceId, req);
+  return db.prepare('SELECT * FROM workspaces WHERE id = ?').get(workspaceId);
 }
 
 // List workspaces the user has access to. Personal workspaces are returned
@@ -125,7 +127,7 @@ router.get('/:id', authFor('org'), (req, res) => {
   const isAdmin = canAdminAllWorkspaces(req);
   if (!access && !isAdmin) return res.status(404).json({ error: 'Workspace not found' });
 
-  const ws = access?.workspace || adminViewWorkspace(req);
+  const ws = access?.workspace || adminViewWorkspace(req.params.id, req);
   if (!ws) return res.status(404).json({ error: 'Workspace not found' });
   const reportsRaw = db.prepare(`
     SELECT r.id, r.title, r.updated_at, r.is_public, r.live_mode, r.model_id, r.workspace_id,

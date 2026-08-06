@@ -90,9 +90,10 @@ const cloudHooks = {
   validateNewMember: null,
   canSeeWorkspaceMembers: null,
   workspaceIsPersonalOrg: null,
-  // adminViewWorkspace(req) → ws|null — the admin-bypass fetch for GET /:id when
+  // adminViewWorkspace(workspaceId, req) → ws|null — the admin-bypass fetch when
   // the caller isn't a member. OSS: any workspace (global admin). Cloud:
-  // org-scoped (an org admin only sees workspaces in their own org).
+  // org-scoped (an org admin only reaches workspaces in their own org). Shared
+  // by workspaces GET/:id and customVisuals.
   adminViewWorkspace: null,
   // authorizeRollupModel(req, res) → model row|null — load + authorize the model
   // for the rollup endpoints. Sends the 404/403 itself when denied. OSS: owner

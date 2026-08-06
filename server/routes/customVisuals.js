@@ -3,6 +3,7 @@ const multer = require('multer');
 const AdmZip = require('adm-zip');
 const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
+const cloudHooks = require('../cloudHooks');
 
 const router = express.Router();
 
@@ -17,29 +18,38 @@ const upload = multer({
   limits: { fileSize: MAX_PACKAGE_SIZE },
 });
 
-// Workspace access helper — duplicates the one in workspaces.js to keep this
-// route file self-contained. ws_admin OR workspace owner can upload/delete.
-function getWorkspaceAccess(workspaceId, userId) {
-  const ws = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(workspaceId);
+// Workspace access — delegated to cloudHooks.workspaceAccess so the cloud
+// org-scopes it (closes a cross-org gap: this file used to keep its own
+// unscoped copy). OSS: workspace owner (→ admin) or member.
+function wsAccess(req) {
+  if (typeof cloudHooks.workspaceAccess === 'function') return cloudHooks.workspaceAccess(req.params.wsId, req);
+  const ws = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(req.params.wsId);
   if (!ws) return null;
-  if (ws.owner_id === userId) return { workspace: ws, role: 'admin' };
-  const member = db.prepare('SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?').get(workspaceId, userId);
-  if (!member) return null;
-  return { workspace: ws, role: member.role };
+  if (ws.owner_id === req.user.id) return { workspace: ws, role: 'admin' };
+  const member = db.prepare('SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?').get(req.params.wsId, req.user.id);
+  return member ? { workspace: ws, role: member.role } : null;
+}
+
+// Admin bypass. OSS: global admin. Cloud: org admin, but ONLY for a workspace in
+// their own org (org-scoped adminViewWorkspace) — no cross-org bypass.
+function wsAdminBypass(req) {
+  if (typeof cloudHooks.canAdminAllWorkspaces === 'function') {
+    if (!cloudHooks.canAdminAllWorkspaces(req)) return false;
+    return typeof cloudHooks.adminViewWorkspace !== 'function' || !!cloudHooks.adminViewWorkspace(req.params.wsId, req);
+  }
+  return !!(req.user && req.user.role === 'admin');
 }
 
 function requireWorkspaceMember(req, res, next) {
-  const access = getWorkspaceAccess(req.params.wsId, req.user.id);
-  const isGlobalAdmin = req.user.role === 'admin';
-  if (!access && !isGlobalAdmin) return res.status(404).json({ error: 'Workspace not found' });
+  const access = wsAccess(req);
+  if (!access && !wsAdminBypass(req)) return res.status(404).json({ error: 'Workspace not found' });
   req.wsAccess = access || { workspace: { id: req.params.wsId }, role: 'admin' };
   next();
 }
 
 function requireWorkspaceAdmin(req, res, next) {
-  const access = getWorkspaceAccess(req.params.wsId, req.user.id);
-  const isGlobalAdmin = req.user.role === 'admin';
-  if ((!access || access.role !== 'admin') && !isGlobalAdmin) {
+  const access = wsAccess(req);
+  if ((!access || access.role !== 'admin') && !wsAdminBypass(req)) {
     return res.status(403).json({ error: 'Workspace admin access required' });
   }
   next();
