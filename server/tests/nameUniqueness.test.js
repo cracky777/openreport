@@ -37,6 +37,17 @@ describe('Name uniqueness (409)', () => {
     expect((await mk('Team')).status).toBe(409);
   });
 
+  test('file import: a name collision is blocked (409) before the same-file reuse path', async () => {
+    const u = seedUser({ role: 'editor' });
+    // A datasource named 'Sales' already exists (derived name of Sales.csv).
+    expect((await request(app).post('/api/datasources').use(as(u)).send({ name: 'Sales', dbType: 'duckdb', dbName: ':memory:' })).status).toBe(201);
+    // Importing Sales.csv must be refused with 409, not silently reuse/branch.
+    const res = await request(app).post('/api/upload').use(as(u))
+      .attach('file', Buffer.from('a,b\n1,2\n'), 'Sales.csv');
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/already exists/i);
+  });
+
   test('reports: duplicate title within a workspace is rejected, but allowed across workspaces', async () => {
     const u = seedUser({ role: 'editor' });
     const ds = (await request(app).post('/api/datasources').use(as(u)).send({ name: 'RDS', dbType: 'duckdb', dbName: ':memory:' })).body.datasource.id;

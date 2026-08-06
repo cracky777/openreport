@@ -25,6 +25,7 @@ function buildApp() {
   app.use('/api/datasources', require('../../routes/datasources'));
   app.use('/api/models', require('../../routes/models'));
   app.use('/api/workspaces', require('../../routes/workspaces'));
+  app.use('/api/upload', require('../../routes/fileUpload'));
   return app;
 }
 

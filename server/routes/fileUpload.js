@@ -65,7 +65,15 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
   const name = req.body.name || path.basename(file.originalname, ext);
   const tableName = sanitizeTableName(path.basename(file.originalname, ext));
 
-  // Check if a datasource with the same source file already exists → reuse it.
+  // A datasource already carries this name → block and tell the user, rather
+  // than silently branching them onto it. Takes precedence over the same-file
+  // reuse below: re-importing a file yields the same derived name, so the user
+  // gets an explicit "already exists" instead of a surprise reuse.
+  if (nameTaken('datasource', name, req)) {
+    try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+    return res.status(409).json({ error: `A datasource named "${name}" already exists.` });
+  }
+  // Same source file already imported under a still-free name → reuse it.
   const existing = dedupUpload(req, file.originalname);
   if (existing) {
     try { fs.unlinkSync(file.path); } catch { /* ignore */ }
@@ -74,12 +82,6 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
       datasource: { id: existing.id, name: existing.name, db_type: 'duckdb', tableName: extra.tableName, rowCount: extra.rowCount, sourceFile: extra.sourceFile },
       reused: true,
     });
-  }
-  // A DIFFERENT file whose datasource name is already taken → block, don't
-  // silently create a second datasource with the same name.
-  if (nameTaken('datasource', name, req)) {
-    try { fs.unlinkSync(file.path); } catch { /* ignore */ }
-    return res.status(409).json({ error: `A datasource named "${name}" already exists.` });
   }
 
   const dsId = uuidv4();
