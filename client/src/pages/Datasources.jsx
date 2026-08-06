@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
+import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions } from '../components/ImportOptions/ImportOptions';
 import { TbUpload, TbStack3, TbDatabase } from 'react-icons/tb';
 import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
 import { DatasourcesHeader } from '../cloud';
@@ -37,6 +38,8 @@ export default function Datasources() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
+  const [importOpts, setImportOpts] = useState(DEFAULT_IMPORT_OPTIONS);
+  const [selectedFile, setSelectedFile] = useState(null);
   const fileInputRef = useRef(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -109,8 +112,19 @@ export default function Datasources() {
     }
   };
 
-  const handleFileUpload = async (e) => {
+  // Record the pick only — the import options appear next; the upload waits for
+  // the Import button so those options can be set first.
+  const handleFileSelected = (e) => {
     const file = e.target.files?.[0];
+    if (!file) return;
+    setSelectedFile(file);
+    setImportOpts(DEFAULT_IMPORT_OPTIONS);
+    setUploadProgress('');
+    if (fileInputRef.current) fileInputRef.current.value = ''; // allow re-picking the same file
+  };
+
+  const handleFileUpload = async () => {
+    const file = selectedFile;
     if (!file) return;
     setUploading(true);
     setUploadProgress(`Uploading ${file.name}...`);
@@ -118,17 +132,18 @@ export default function Datasources() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('name', file.name.replace(/\.[^.]+$/, ''));
+      appendImportOptions(formData, importOpts);
       const res = await api.post('/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setUploadProgress(`Imported ${res.data.datasource.rowCount?.toLocaleString() || '?'} rows from ${file.name}`);
+      setSelectedFile(null);
       loadDatasources();
       setTimeout(() => setUploadProgress(''), 5000);
     } catch (err) {
       setUploadProgress(`Error: ${err.response?.data?.error || err.message}`);
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -145,7 +160,7 @@ export default function Datasources() {
           <TbStack3 size={16} />Data Models
         </SecondaryButton>
         <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv"
-          style={_hs2} onChange={handleFileUpload} />
+          style={_hs2} onChange={handleFileSelected} />
         <SecondaryButton onClick={() => fileInputRef.current?.click()} disabled={uploading}
           style={_hs3}>
           <TbUpload size={16} />{uploading ? 'Uploading...' : 'Upload File'}
@@ -163,6 +178,21 @@ export default function Datasources() {
             border: `1px solid ${uploadProgress.startsWith('Error') ? '#fca5a5' : '#bbf7d0'}`,
           }}>
             {uploadProgress}
+          </div>
+        )}
+        {selectedFile && (
+          <div style={formCard}>
+            <h2 style={_hs5}>Import file</h2>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
+              Selected: <strong style={{ color: 'var(--text-primary)' }}>{selectedFile.name}</strong>
+            </div>
+            <ImportOptions value={importOpts} onChange={setImportOpts} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+              <PrimaryButton onClick={handleFileUpload} disabled={uploading}>
+                {uploading ? 'Importing...' : 'Import'}
+              </PrimaryButton>
+              <SecondaryButton onClick={() => setSelectedFile(null)} disabled={uploading}>Cancel</SecondaryButton>
+            </div>
           </div>
         )}
         {showForm && (

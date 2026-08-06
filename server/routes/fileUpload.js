@@ -11,6 +11,14 @@ const { nameTaken } = require('../utils/nameUniqueness');
 
 const router = express.Router();
 
+// Whitelisted CSV parse options. The client sends opaque tokens; we map them
+// here to safe DuckDB fragments so nothing user-supplied is ever interpolated
+// raw into the import SQL. An unknown token falls back to auto-detection.
+const CSV_DELIMS = { comma: ',', semicolon: ';', tab: '\t', pipe: '|' };
+const CSV_DECIMALS = { point: '.', comma: ',' };
+const CSV_ENCODINGS = { utf8: 'utf-8', latin1: 'latin-1' };
+const CSV_DATEFORMATS = { dmy_slash: '%d/%m/%Y', mdy_slash: '%m/%d/%Y', iso: '%Y-%m-%d' };
+
 // Access scoping (cloud org-scopes these; OSS scopes by owner).
 function dedupUpload(req, originalFilename) {
   if (typeof cloudHooks.dedupUpload === 'function') return cloudHooks.dedupUpload(req, originalFilename);
@@ -100,17 +108,37 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
     // Many real-world CSVs (e.g. FAOSTAT, exports from Excel) are Windows-1252 / Latin-1
     // and DuckDB returns garbled errors when it tries to parse them as UTF-8.
     if (ext === '.csv' || ext === '.tsv') {
-      const delimiter = ext === '.tsv' ? '\t' : ',';
+      // Resolve parse options from the whitelisted tokens; absent tokens keep
+      // DuckDB's auto-detection.
+      const delim = CSV_DELIMS[req.body.delimiter];  // undefined = auto-detect
+      const header = req.body.hasHeader === 'false' ? 'false' : 'true';
+      const decimal = CSV_DECIMALS[req.body.decimalSeparator];
+      const dateformat = CSV_DATEFORMATS[req.body.dateFormat];
+      const chosenEnc = CSV_ENCODINGS[req.body.encoding];
+
+      const optList = [`header=${header}`, 'sample_size=-1'];
+      // Only pin the delimiter when explicitly chosen — forcing delim=',' makes
+      // the sniffer fail on ';'/tab files ("Delimiter Candidates: ','"). Leaving
+      // it out lets DuckDB try all candidates; .tsv keeps a tab prior.
+      if (delim) optList.push(`delim='${delim}'`);
+      else if (ext === '.tsv') optList.push(`delim='\t'`);
+      if (decimal) optList.push(`decimal_separator='${decimal}'`);
+      if (dateformat) optList.push(`dateformat='${dateformat}'`);
       const buildSQL = (encoding) =>
-        `CREATE TABLE "${tableName}" AS SELECT * FROM read_csv_auto('${filePath}', delim='${delimiter}', header=true, sample_size=-1${encoding ? `, encoding='${encoding}'` : ''})`;
-      try {
-        await dbInstance.run(buildSQL());                 // try UTF-8 (default) first
-      } catch (firstErr) {
-        try { await dbInstance.run(`DROP TABLE IF EXISTS "${tableName}"`); } catch { /* ignore */ }
+        `CREATE TABLE "${tableName}" AS SELECT * FROM read_csv_auto('${filePath}', ${optList.join(', ')}${encoding ? `, encoding='${encoding}'` : ''})`;
+
+      if (chosenEnc) {
+        await dbInstance.run(buildSQL(chosenEnc));        // explicit encoding → no fallback
+      } else {
         try {
-          await dbInstance.run(buildSQL('latin-1'));      // retry with Latin-1
-        } catch {
-          throw firstErr;                                 // surface the original UTF-8 error
+          await dbInstance.run(buildSQL());               // try UTF-8 (default) first
+        } catch (firstErr) {
+          try { await dbInstance.run(`DROP TABLE IF EXISTS "${tableName}"`); } catch { /* ignore */ }
+          try {
+            await dbInstance.run(buildSQL('latin-1'));    // retry with Latin-1
+          } catch {
+            throw firstErr;                               // surface the original UTF-8 error
+          }
         }
       }
       importSQL = null;                                   // already executed above

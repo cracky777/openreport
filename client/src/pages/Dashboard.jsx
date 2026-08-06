@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
-import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbPencil, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbLoader2, TbRefresh } from 'react-icons/tb';
+import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions } from '../components/ImportOptions/ImportOptions';
+import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbPencil, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbLoader2, TbRefresh, TbFileText } from 'react-icons/tb';
 import { formatBytes } from '../utils/formatHuman';
 import { useTheme } from '../hooks/useTheme';
 import { usePermissions } from '../hooks/usePermissions';
@@ -99,7 +100,6 @@ const _hs56 = { display: 'flex', justifyContent: 'flex-end', marginTop: 16 };
 const _hs57 = { marginBottom: 16 };
 const _hs58 = { display: 'flex', gap: 8, justifyContent: 'space-between' };
 const _hs59 = { display: 'none' };
-const _hs60 = { color: 'var(--accent-primary)', fontSize: 14 };
 const _hs61 = { fontSize: 14, color: 'var(--text-secondary)', marginTop: 8 };
 const _hs62 = { fontSize: 12, color: 'var(--text-disabled)', marginTop: 4 };
 const _hs63 = { color: 'var(--state-danger)', fontSize: 12, marginBottom: 8 };
@@ -195,6 +195,8 @@ export default function Dashboard() {
   const [createMode, setCreateMode] = useState(null); // null | 'model' | 'file' | 'connection'
   const [uploadingFile, setUploadingFile] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [importOpts, setImportOpts] = useState(DEFAULT_IMPORT_OPTIONS);
+  const [selectedFile, setSelectedFile] = useState(null);
   const createFileRef = useRef(null);
   const [newWsName, setNewWsName] = useState('');
   const [editingWsName, setEditingWsName] = useState(false);
@@ -318,8 +320,19 @@ export default function Dashboard() {
   }, [selectedWs, lastWsKey]);
 
 
-  const handleFileForReport = async (e) => {
+  // Step 1: just record the pick — the import options only make sense once a
+  // file is in hand, so the actual upload waits for the Import button.
+  const handleFileSelected = (e) => {
     const file = e.target.files?.[0];
+    if (!file) return;
+    setSelectedFile(file);
+    setUploadError('');
+    if (createFileRef.current) createFileRef.current.value = ''; // allow re-picking the same file
+  };
+
+  // Step 2: run the upload → model → report chain for the pending file.
+  const handleFileForReport = async () => {
+    const file = selectedFile;
     if (!file) return;
     setUploadingFile(true);
     setUploadError('');
@@ -328,6 +341,7 @@ export default function Dashboard() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('name', file.name.replace(/\.[^.]+$/, ''));
+      appendImportOptions(formData, importOpts);
       const uploadRes = await api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       const ds = uploadRes.data.datasource;
 
@@ -1215,7 +1229,7 @@ export default function Dashboard() {
                           <span style={_hs51}>Use a data model already configured</span>
                         </button>
                       )}
-                      <button className="btn-hover" onClick={() => setCreateMode('file')} style={sourceCard}>
+                      <button className="btn-hover" onClick={() => { setSelectedFile(null); setUploadError(''); setCreateMode('file'); }} style={sourceCard}>
                         <TbUpload size={28} color="#16a34a" />
                         <span style={_hs52}>Import File</span>
                         <span style={_hs53}>CSV, Excel, Parquet, JSON</span>
@@ -1253,30 +1267,51 @@ export default function Dashboard() {
                 {createMode === 'file' && (
                   <div>
                     <input ref={createFileRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv" style={_hs59}
-                      onChange={handleFileForReport} />
-                    <div
-                      onClick={() => !uploadingFile && createFileRef.current?.click()}
-                      style={{
-                        border: '2px dashed #cbd5e1', borderRadius: 8, padding: '32px 20px', textAlign: 'center',
-                        cursor: uploadingFile ? 'wait' : 'pointer', marginBottom: 12,
-                        background: 'var(--bg-panel-alt)', transition: 'border-color 0.15s',
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--accent-primary)'}
-                      onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border-strong)'}
-                    >
-                      {uploadingFile ? (
-                        <div style={_hs60}>Importing data...</div>
-                      ) : (
-                        <>
-                          <TbUpload size={32} color="var(--text-disabled)" />
-                          <div style={_hs61}>Click to select a file</div>
-                          <div style={_hs62}>CSV, Excel, Parquet, JSON (max 500 Mo)</div>
-                        </>
-                      )}
-                    </div>
+                      onChange={handleFileSelected} />
+                    {!selectedFile ? (
+                      // No file yet → the drop zone.
+                      <div
+                        onClick={() => createFileRef.current?.click()}
+                        style={{
+                          border: '2px dashed #cbd5e1', borderRadius: 8, padding: '32px 20px', textAlign: 'center',
+                          cursor: 'pointer', marginBottom: 12,
+                          background: 'var(--bg-panel-alt)', transition: 'border-color 0.15s',
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--accent-primary)'}
+                        onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border-strong)'}
+                      >
+                        <TbUpload size={32} color="var(--text-disabled)" />
+                        <div style={_hs61}>Click to select a file</div>
+                        <div style={_hs62}>CSV, Excel, Parquet, JSON (max 500 Mo)</div>
+                      </div>
+                    ) : (
+                      // File picked → a compact chip (name + remove) then the options.
+                      // Removing the file restores the drop zone above.
+                      <>
+                        <div style={fileChipStyle}>
+                          <TbFileText size={18} color="var(--accent-primary)" style={{ flexShrink: 0 }} />
+                          <span style={fileChipNameStyle} title={selectedFile.name}>{selectedFile.name}</span>
+                          <button
+                            className="btn-hover"
+                            onClick={() => { setSelectedFile(null); setUploadError(''); }}
+                            disabled={uploadingFile}
+                            title="Remove file"
+                            style={fileChipRemoveStyle}
+                          >
+                            <TbTrash size={16} />
+                          </button>
+                        </div>
+                        <ImportOptions value={importOpts} onChange={setImportOpts} />
+                      </>
+                    )}
                     {uploadError && <div style={_hs63}>{uploadError}</div>}
-                    <div style={_hs64}>
-                      <button className="btn-hover" onClick={() => { setCreateMode(null); setUploadError(''); }} style={secondaryBtn}>← Back</button>
+                    <div style={{ ...(_hs64), justifyContent: 'space-between', gap: 8 }}>
+                      <button className="btn-hover" onClick={() => { setCreateMode(null); setUploadError(''); setSelectedFile(null); }} style={secondaryBtn}>← Back</button>
+                      {selectedFile && (
+                        <button className="btn-hover btn-hover-primary" onClick={handleFileForReport} disabled={uploadingFile} style={{ ...primaryBtn, opacity: uploadingFile ? 0.6 : 1 }}>
+                          {uploadingFile ? 'Importing…' : 'Import'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1739,6 +1774,9 @@ function themeRowBtn(active) {
 }
 const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer' };
 const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: 'var(--bg-panel)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer' };
+const fileChipStyle = { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', marginBottom: 12, borderRadius: 8, border: '1px solid var(--border-default)', background: 'var(--bg-panel-alt)' };
+const fileChipNameStyle = { flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const fileChipRemoveStyle = { display: 'inline-flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 4, borderRadius: 6, flexShrink: 0 };
 const iconBtn = { background: 'transparent', border: '1px solid', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
 const cardStyle = { position: 'relative', backgroundColor: 'var(--bg-panel)', borderRadius: 8, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.15s' };
 // Public reports get a colored border (green = "publicly available")
