@@ -15,6 +15,10 @@ Pour le détail du modèle de permissions (rôles, propriété, RLS, partage pub
   **par route** (aucun router n'est protégé globalement au montage).
 - **Rôles globaux** : `admin` | `editor` | `viewer` (colonne `users.role`).
 - **Format d'erreur** : JSON `{ error: "message" }` avec le code HTTP correspondant.
+- **Unicité des noms** : la création et le renommage rejettent un nom déjà pris (insensible à la
+  casse) avec `409 { error }`. Portée : datasources, modèles et workspaces uniques **par
+  utilisateur** (par **organisation** en édition cloud) ; titres de rapport uniques **par
+  workspace** (le titre par défaut `Untitled Report` est exempté).
 - **Corps JSON** : limité à **10 Mo** (`express.json`).
 - **Colonne « Auth »** ci-dessous : ✅ = `requireAuth`, 🔓 = accessible sans session (voir la
   section dédiée), 👑 = `requireAdmin`.
@@ -157,8 +161,15 @@ Monté sur le préfixe `/api/workspaces` **avant** le router workspaces.
 
 | Méthode | Path | Auth | Permission | Description |
 |---|---|:--:|---|---|
-| `POST` | `/api/upload` | ✅ | soi-même | Upload CSV/XLSX/Parquet/JSON/TSV → crée une datasource DuckDB. Taille max **500 Mo**. |
+| `POST` | `/api/upload` | ✅ | soi-même | Upload CSV/XLSX/Parquet/JSON/TSV → crée une datasource DuckDB. Réutilise la datasource existante si le **même fichier source** a déjà été importé ; sinon `409` si le **nom** est déjà pris. Taille max **500 Mo**. |
 | `GET` | `/api/upload` | ✅ | soi-même | Liste les datasources issues de fichiers. |
+
+**Options de parsing CSV/TSV** (champs multipart optionnels ; omis → auto-détection DuckDB du
+séparateur, de l'encodage UTF-8 avec repli Latin-1, des types et dates) : `delimiter`
+(`comma`|`semicolon`|`tab`|`pipe`), `decimalSeparator` (`point`|`comma`), `dateFormat`
+(`dmy_slash`|`mdy_slash`|`iso`), `encoding` (`utf8`|`latin1`), `hasHeader` (`false` pour désactiver
+la ligne d'en-tête). Les valeurs sont whitelistées côté serveur (jamais interpolées brutes dans le
+SQL) ; un token inconnu retombe sur l'auto-détection.
 
 ## Upload d'images — `/api/images`
 
