@@ -7,6 +7,7 @@ const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
 const { encrypt } = require('../utils/secretCrypto');
 const cloudHooks = require('../cloudHooks');
+const { rejectIfNameTaken } = require('../utils/nameUniqueness');
 
 const router = express.Router();
 
@@ -87,6 +88,7 @@ router.post('/', authFor('write'), (req, res) => {
   if (!name || !dbType || (needsHost && !host) || !dbName) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
+  if (rejectIfNameTaken('datasource', name, req, res)) return;
 
   const id = uuidv4();
 
@@ -116,6 +118,7 @@ router.put('/:id', authFor('write'), (req, res) => {
   if (!name || !newDbType || (needsHost && !newHost) || !newDbName) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
+  if (rejectIfNameTaken('datasource', name, req, res, req.params.id)) return;
 
   // Empty password means "keep existing" (already encrypted) — non-empty replaces
   // it (encrypt the new one).

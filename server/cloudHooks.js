@@ -99,6 +99,10 @@ const cloudHooks = {
   // for the rollup endpoints. Sends the 404/403 itself when denied. OSS: owner
   // or global admin. Cloud: org-scoped + org-owner/admin/model-owner.
   authorizeRollupModel: null,
+  // nameTaken(entity, name, req, excludeId) → bool — is `name` already used by a
+  // datasource/model/workspace in the caller's scope. OSS: per user. Cloud: per
+  // org. Case-insensitive. `entity` ∈ 'datasource' | 'model' | 'workspace'.
+  nameTaken: null,
 };
 
 module.exports = cloudHooks;

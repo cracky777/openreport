@@ -7,6 +7,7 @@ const { authFor } = require('../middleware/auth');
 const db = require('../db');
 const uploadHooks = require('../hooks/upload');
 const cloudHooks = require('../cloudHooks');
+const { nameTaken } = require('../utils/nameUniqueness');
 
 const router = express.Router();
 
@@ -64,7 +65,7 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
   const name = req.body.name || path.basename(file.originalname, ext);
   const tableName = sanitizeTableName(path.basename(file.originalname, ext));
 
-  // Check if a datasource with the same source file already exists
+  // Check if a datasource with the same source file already exists → reuse it.
   const existing = dedupUpload(req, file.originalname);
   if (existing) {
     try { fs.unlinkSync(file.path); } catch { /* ignore */ }
@@ -73,6 +74,12 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
       datasource: { id: existing.id, name: existing.name, db_type: 'duckdb', tableName: extra.tableName, rowCount: extra.rowCount, sourceFile: extra.sourceFile },
       reused: true,
     });
+  }
+  // A DIFFERENT file whose datasource name is already taken → block, don't
+  // silently create a second datasource with the same name.
+  if (nameTaken('datasource', name, req)) {
+    try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+    return res.status(409).json({ error: `A datasource named "${name}" already exists.` });
   }
 
   const dsId = uuidv4();

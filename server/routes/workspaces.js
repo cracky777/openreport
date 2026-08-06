@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const { authFor } = require('../middleware/auth');
 const db = require('../db');
 const cloudHooks = require('../cloudHooks');
+const { rejectIfNameTaken } = require('../utils/nameUniqueness');
 
 const router = express.Router();
 
@@ -113,6 +114,7 @@ router.get('/', authFor('org'), (req, res) => {
 router.post('/', authFor('write'), (req, res) => {
   const { name, description } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
+  if (rejectIfNameTaken('workspace', name, req, res)) return;
   const id = uuidv4();
   db.prepare('INSERT INTO workspaces (id, name, description, owner_id) VALUES (?, ?, ?, ?)').run(
     id, name, description || '', req.user.id
@@ -178,6 +180,7 @@ router.put('/:id', authFor('org'), (req, res) => {
   const access = workspaceAccess(req.params.id, req);
   if (!access || access.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
   const { name, description } = req.body;
+  if (rejectIfNameTaken('workspace', name, req, res, req.params.id)) return;
   db.prepare('UPDATE workspaces SET name = COALESCE(?, name), description = COALESCE(?, description), updated_at = datetime(\'now\') WHERE id = ?')
     .run(name || null, description !== undefined ? description : null, req.params.id);
   res.json({ message: 'Updated' });

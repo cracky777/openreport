@@ -38,6 +38,7 @@ const { buildFromClause } = require('../utils/sqlBuilder/fromClause');
 const { buildTopNOrderLimit } = require('../utils/sqlBuilder/orderLimit');
 const { computeRealFacts, computeJoinedTables } = require('../utils/sqlBuilder/joinGraph');
 const { buildOverrideSubquery } = require('../utils/sqlBuilder/overrideSubquery');
+const { rejectIfNameTaken } = require('../utils/nameUniqueness');
 const { emitMeasureSelects } = require('../utils/sqlBuilder/measureSelect');
 const { tablesReachableFrom, getAllowedRlsKeys } = require('../utils/rls');
 const { parseModel } = require('../db/modelRow');
@@ -138,6 +139,7 @@ router.get('/:id', authFor('read'), (req, res) => {
 router.post('/', authFor('write'), (req, res) => {
   const { name, datasourceId, description } = req.body;
   if (!name || !datasourceId) return res.status(400).json({ error: 'Name and datasourceId are required' });
+  if (rejectIfNameTaken('model', name, req, res)) return;
 
   if (!datasourceUsable(datasourceId, req)) return res.status(404).json({ error: 'Datasource not found' });
 
@@ -158,6 +160,7 @@ router.put('/:id', authFor('write'), (req, res) => {
   if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
 
   const { name, description, selected_tables, table_positions, dimensions, measures, joins, rls, column_types, dateColumn, datasourceId } = req.body;
+  if (rejectIfNameTaken('model', name, req, res, req.params.id)) return;
 
   // If caller is moving the model to a different datasource, verify they may use it
   if (datasourceId && datasourceId !== model.datasource_id) {

@@ -99,6 +99,22 @@ function stampNewReport(req, reportId) {
   if (typeof cloudHooks.onReportCreate === 'function') cloudHooks.onReportCreate(req, reportId);
 }
 
+// A report's title must be unique within its workspace (case-insensitive). The
+// scope is the workspace itself, so no cloud hook is needed. Sends the 409 and
+// returns true on conflict. The default 'Untitled Report' and blank titles are
+// exempt so multiple drafts (and duplicate/import, which suffix the title) work.
+function rejectIfReportTitleTaken(workspaceId, title, res, excludeId) {
+  const t = typeof title === 'string' ? title.trim() : '';
+  if (!t || t === 'Untitled Report' || !workspaceId) return false;
+  const sql = `SELECT id FROM reports WHERE workspace_id = ? AND title = ? COLLATE NOCASE${excludeId ? ' AND id != ?' : ''}`;
+  const args = excludeId ? [workspaceId, t, excludeId] : [workspaceId, t];
+  if (db.prepare(sql).get(...args)) {
+    res.status(409).json({ error: `A report named "${t}" already exists in this workspace.` });
+    return true;
+  }
+  return false;
+}
+
 // List reports for current user
 router.get('/', authFor('read'), (req, res) => {
   // Cloud scopes the list to the active org (cloudHooks.listReports); OSS lists
@@ -288,6 +304,7 @@ router.post('/', authFor('read'), (req, res) => {
   if (!canWriteReport({ workspace_id: targetWs, user_id: req.user.id, organization_id: req.organizationId }, req.user, req)) {
     return res.status(403).json({ error: 'Not authorized to create a report in this workspace' });
   }
+  if (rejectIfReportTitleTaken(targetWs, title, res)) return;
   db.prepare('INSERT INTO reports (id, user_id, model_id, title, workspace_id, settings) VALUES (?, ?, ?, ?, ?, ?)').run(
     id, req.user.id, modelId, title || 'Untitled Report', targetWs, initialSettings
   );
@@ -346,6 +363,9 @@ router.put('/:id', authFor('read'), (req, res) => {
   }
 
   const { title, layout, widgets, settings, is_public, live_mode, workspace_id, pages } = req.body;
+  // Title stays unique within the (possibly new) workspace.
+  if (title !== undefined
+    && rejectIfReportTitleTaken(workspace_id !== undefined ? workspace_id : report.workspace_id, title, res, req.params.id)) return;
 
   // Only build a settings payload when the caller actually supplied one.
   // Returning null lets the COALESCE keep the existing row value — otherwise
