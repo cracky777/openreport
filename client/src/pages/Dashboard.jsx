@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import { toast } from '../components/Toast/toast';
 import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbPencil, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbLoader2, TbRefresh } from 'react-icons/tb';
 import { formatBytes } from '../utils/formatHuman';
 import { useTheme } from '../hooks/useTheme';
@@ -391,12 +392,16 @@ export default function Dashboard() {
 
   const handleCreate = async () => {
     if (!newModelId) return;
-    const res = await api.post('/reports', {
-      title: newTitle || 'Untitled Report', modelId: newModelId,
-      ...(selectedWs ? { workspaceId: selectedWs } : {}),
-      settings: { theme: availableThemes[themeResolved] ? { key: themeResolved, ...availableThemes[themeResolved] } : null },
-    });
-    navigate(`/edit/${res.data.report.id}`);
+    try {
+      const res = await api.post('/reports', {
+        title: newTitle || 'Untitled Report', modelId: newModelId,
+        ...(selectedWs ? { workspaceId: selectedWs } : {}),
+        settings: { theme: availableThemes[themeResolved] ? { key: themeResolved, ...availableThemes[themeResolved] } : null },
+      });
+      navigate(`/edit/${res.data.report.id}`);
+    } catch (err) {
+      toast(err.response?.data?.error || 'Failed to create report');
+    }
   };
 
   const deleteReport = async (id) => {
@@ -414,7 +419,7 @@ export default function Dashboard() {
     if (newVal) {
       const url = `${window.location.origin}/view/${report.id}`;
       navigator.clipboard?.writeText(url);
-      alert(`Public link copied:\n${url}`);
+      toast(`Public link copied: ${url}`, 'success');
     }
   };
 
@@ -432,7 +437,13 @@ export default function Dashboard() {
 
   const createWorkspace = async () => {
     if (!newWsName) return;
-    const res = await api.post('/workspaces', { name: newWsName });
+    let res;
+    try {
+      res = await api.post('/workspaces', { name: newWsName });
+    } catch (err) {
+      toast(err.response?.data?.error || 'Failed to create workspace');
+      return;
+    }
     setWorkspaces((p) => [...p, { ...res.data.workspace, member_role: 'admin', report_count: 0, member_count: 1 }]);
     setShowCreateWs(false);
     setNewWsName('');
@@ -508,7 +519,7 @@ export default function Dashboard() {
       await api.put(`/workspaces/${selectedWs}`, { name });
       setWorkspaces((p) => p.map((w) => w.id === selectedWs ? { ...w, name } : w));
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to rename workspace');
+      toast(err.response?.data?.error || 'Failed to rename workspace');
     }
     setEditingWsName(false);
   };
@@ -519,7 +530,7 @@ export default function Dashboard() {
       const res = await api.post(`/workspaces/${selectedWs}/members`, { email: newMemberEmail, role: newMemberRole });
       setWsMembers((p) => [...p, res.data.member]);
       setNewMemberEmail('');
-    } catch (err) { alert(err.response?.data?.error || 'Failed'); }
+    } catch (err) { toast(err.response?.data?.error || 'Failed'); }
   };
 
   const updateMemberRole = async (userId, role) => {
@@ -601,7 +612,12 @@ export default function Dashboard() {
     if (!renameModal || !renameModal.value.trim()) return;
     const id = renameModal.report.id;
     const newTitle = renameModal.value.trim();
-    await api.put(`/reports/${id}`, { title: newTitle });
+    try {
+      await api.put(`/reports/${id}`, { title: newTitle });
+    } catch (err) {
+      toast(err.response?.data?.error || 'Failed to rename report');
+      return;
+    }
     setReports((p) => p.map((r) => r.id === id ? { ...r, title: newTitle } : r));
     setWsReports((p) => p.map((r) => r.id === id ? { ...r, title: newTitle } : r));
     setRenameModal(null);
@@ -681,10 +697,10 @@ export default function Dashboard() {
     try {
       const res = await api.post(`/cache-schedules/${s.id}/run`);
       const r = res.data?.result;
-      if (r?.error) alert(`Run failed: ${r.error}`);
+      if (r?.error) toast(`Run failed: ${r.error}`);
       await refreshCacheSchedules(s.report_id);
     } catch (err) {
-      alert(err.response?.data?.error || err.message);
+      toast(err.response?.data?.error || err.message);
     } finally {
       setCacheScheduleRunning((prev) => { const n = new Set(prev); n.delete(s.id); return n; });
     }
@@ -1439,7 +1455,7 @@ export default function Dashboard() {
                                   setCardMenu(null);
                                   const url = `${window.location.origin}/view/${report.id}`;
                                   navigator.clipboard?.writeText(url);
-                                  alert(`Public link copied:\n${url}`);
+                                  toast(`Public link copied: ${url}`, 'success');
                                 }}
                                 onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>

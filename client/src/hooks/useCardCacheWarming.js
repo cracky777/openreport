@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../utils/api';
+import { toast } from '../components/Toast/toast';
 
 // Per-report-card cache warming + size stats for the Dashboard. Extracted
 // verbatim from pages/Dashboard.jsx (LOT 6.3) as ONE unit — the /warming poll
@@ -111,7 +112,7 @@ export function useCardCacheWarming(wsReports) {
       setCardWarmingIds((p) => { const n = new Set(p); n.delete(report.id); return n; });
     } catch (err) {
       setCardWarmingIds((p) => { const n = new Set(p); n.delete(report.id); return n; });
-      alert(err.response?.data?.error || 'Failed to refresh');
+      toast(err.response?.data?.error || 'Failed to refresh');
     } finally {
       // POST resolved = build finished server-side (the route awaits the
       // whole build). Drop the local guard; the next poll tick sees the

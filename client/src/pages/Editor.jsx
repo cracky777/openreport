@@ -13,6 +13,7 @@ import PagesColumn, { PAGES_COLUMN_TRANSITION_MS } from '../components/PagesColu
 import { useHistory } from '../hooks/useHistory';
 import { useTheme } from '../hooks/useTheme';
 import api from '../utils/api';
+import { toast } from '../components/Toast/toast';
 import { sanitizeWidgetFilters } from '../utils/widgetFilters';
 import { prepareGlobalRulesForWidget } from '../utils/reportFilterRules';
 import { parseFiltersFromUrl, syncFiltersToUrl } from '../utils/urlFilters';
@@ -1137,7 +1138,7 @@ export default function Editor() {
     // Check for duplicate name
     const isDuplicate = pages.some((p, i) => i !== idx && p.name.toLowerCase() === trimmed.toLowerCase());
     if (isDuplicate) {
-      alert(`A page named "${trimmed}" already exists.`);
+      toast(`A page named "${trimmed}" already exists.`);
       return;
     }
     setPages((prev) => prev.map((p, i) => i === idx ? { ...p, name: trimmed } : p));
@@ -1618,7 +1619,7 @@ export default function Editor() {
     confirmSaveAndLeave, confirmDiscardAndLeave, cancelLeave,
   } = useSaveAndDirtyTracking({
     id, pages, currentPageIdx, pagesDataRef, layout, widgets, title, settings,
-    savedSnapshotRef, setSaveMsg,
+    savedSnapshotRef, setSaveMsg, setTitle,
   });
 
   useAutoRefreshOnImport({ id, model, history, refreshing, handleRefresh, handleSave });
@@ -1848,9 +1849,10 @@ export default function Editor() {
         <div style={{
           position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
           padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 9999,
+          maxWidth: 440, textAlign: 'center', lineHeight: 1.4,
           backgroundColor: saveMsg === 'Saved' ? 'var(--state-success)' : 'var(--state-danger)', color: '#fff',
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)', animation: 'fadeIn 0.2s',
-        }}>{saveMsg === 'Saved' ? '✓ Report saved' : '✗ Save failed'}</div>
+        }}>{saveMsg === 'Saved' ? '✓ Report saved' : `✗ ${saveMsg}`}</div>
       )}
       {navBlocker.state === 'blocked' && (
         <div

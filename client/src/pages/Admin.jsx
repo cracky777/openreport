@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import { toast } from '../components/Toast/toast';
 import { TbShield, TbEdit, TbEye, TbTrash, TbUserPlus, TbKey, TbExternalLink, TbClock } from 'react-icons/tb';
 import { formatDuration, formatBytes } from '../utils/formatHuman';
 import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton } from '../components/PageHeader/PageHeader';
@@ -85,7 +86,7 @@ export default function Admin() {
       const res = await api.put('/admin/settings/query-timeout', { queryTimeoutMs: seconds * 1000 });
       setSettings({ ...settings, queryTimeoutMs: res.data.queryTimeoutMs });
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save');
+      toast(err.response?.data?.error || 'Failed to save');
     } finally {
       setSavingTimeout(false);
     }
@@ -101,7 +102,7 @@ export default function Admin() {
       const res = await api.put('/admin/settings/query-cache', body);
       setSettings({ ...settings, ...res.data });
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save');
+      toast(err.response?.data?.error || 'Failed to save');
     } finally {
       setSavingCache(false);
     }
@@ -123,7 +124,7 @@ export default function Admin() {
         _lastFlushed: { evicted: res.data.evicted, evictedPreAgg: res.data.evictedPreAgg, at: Date.now() },
       });
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to delete cache');
+      toast(err.response?.data?.error || 'Failed to delete cache');
     } finally {
       setFlushingCache(false);
     }
@@ -134,7 +135,7 @@ export default function Admin() {
       await api.put(`/admin/users/${userId}/role`, { role });
       setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, role } : u));
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed');
+      toast(err.response?.data?.error || 'Failed');
     }
   };
 
@@ -151,7 +152,7 @@ export default function Admin() {
       setShowCreate(false);
       setCreateForm({ email: '', password: '', displayName: '', role: 'viewer' });
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed');
+      toast(err.response?.data?.error || 'Failed');
     }
   };
 
@@ -160,9 +161,9 @@ export default function Admin() {
       await api.put(`/admin/users/${userId}/password`, { password: newPw });
       setResetPw(null);
       setNewPw('');
-      alert('Password reset');
+      toast('Password reset', 'success');
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed');
+      toast(err.response?.data?.error || 'Failed');
     }
   };
 

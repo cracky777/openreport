@@ -21,6 +21,7 @@ export function useSaveAndDirtyTracking({
   settings,
   savedSnapshotRef,
   setSaveMsg,
+  setTitle,
 }) {
   const [saving, setSaving] = useState(false);
 
@@ -82,8 +83,14 @@ export function useSaveAndDirtyTracking({
       setTimeout(() => setSaveMsg(null), 2000);
     } catch (err) {
       console.error('Save failed:', err);
-      setSaveMsg('Save failed');
-      setTimeout(() => setSaveMsg(null), 3000);
+      // A 409 means the title clashes with another report in the workspace.
+      // Revert the name to the last saved one (the rest of the edits stay so
+      // the user can re-save) and surface the server's explicit reason.
+      if (err?.response?.status === 409 && typeof setTitle === 'function') {
+        try { setTitle(JSON.parse(savedSnapshotRef.current)?.title || ''); } catch { /* keep current title */ }
+      }
+      setSaveMsg(err?.response?.data?.error || 'Save failed');
+      setTimeout(() => setSaveMsg(null), 4000);
     } finally {
       setSaving(false);
     }

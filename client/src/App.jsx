@@ -13,6 +13,7 @@ import Verify from './pages/Verify';
 // Cloud-edition routes — empty in the OSS build, populated in the cloud build.
 // The same import path resolves to either the stub or the real implementation.
 import cloudRoutes from './cloud';
+import ToastHost from './components/Toast/ToastHost';
 
 const _hs0 = { padding: 40, color: 'var(--text-disabled)' };
 const _hs1 = { padding: 40, color: 'var(--text-disabled)' };
@@ -39,6 +40,7 @@ function RootLayout() {
     <ThemeProvider>
       <AuthProvider>
         <Outlet />
+        <ToastHost />
       </AuthProvider>
     </ThemeProvider>
   );

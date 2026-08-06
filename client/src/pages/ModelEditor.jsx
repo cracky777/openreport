@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Step1Schema from './Step1Schema';
 import api from '../utils/api';
+import { toast } from '../components/Toast/toast';
 import { headerShellStyle, BackButton, PrimaryButton, SecondaryButton, headerBadgeStyle } from '../components/PageHeader/PageHeader';
 import { useTheme } from '../hooks/useTheme';
 import ValidationBadge from '../components/ValidationBadge';
@@ -128,7 +129,7 @@ export default function ModelEditor() {
       setAllDatasources(res.data?.datasources || []);
       setShowDsChange(true);
     } catch (err) {
-      alert(err?.response?.data?.error || 'Failed to load datasources');
+      toast(err?.response?.data?.error || 'Failed to load datasources');
     }
   };
 
@@ -176,7 +177,7 @@ export default function ModelEditor() {
       runValidation();
       setShowDsChange(false);
     } catch (err) {
-      alert(err?.response?.data?.error || 'Failed to change datasource');
+      toast(err?.response?.data?.error || 'Failed to change datasource');
     } finally {
       setSwitchingDs(false);
     }
@@ -438,8 +439,10 @@ export default function ModelEditor() {
       }
     } catch (err) {
       console.error('Save failed:', err);
-      setSaveMsg('Save failed');
-      setTimeout(() => setSaveMsg(null), 3000);
+      // Surface the server's reason (e.g. a duplicate-name 409) rather than a
+      // bare "Save failed" — the toast renders whatever text we set here.
+      setSaveMsg(err?.response?.data?.error || 'Save failed');
+      setTimeout(() => setSaveMsg(null), 4000);
     } finally {
       setSaving(false);
     }
@@ -476,7 +479,7 @@ export default function ModelEditor() {
       });
       navigate(`/edit/${res.data.report.id}`);
     } catch (err) {
-      alert(err?.response?.data?.error || 'Failed to create report');
+      toast(err?.response?.data?.error || 'Failed to create report');
       setCreatingReport(false);
     }
   };
@@ -712,9 +715,10 @@ export default function ModelEditor() {
         <div style={{
           position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
           padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 9999,
+          maxWidth: 420, textAlign: 'center', lineHeight: 1.4,
           backgroundColor: saveMsg === 'Saved' ? 'var(--state-success)' : 'var(--state-danger)', color: '#fff',
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-        }}>{saveMsg === 'Saved' ? '✓ Model saved' : '✗ Save failed'}</div>
+        }}>{saveMsg === 'Saved' ? '✓ Model saved' : `✗ ${saveMsg}`}</div>
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { toast } from '../Toast/toast';
 import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB_TYPES } from '../Widgets';
 import DataPanel from '../DataPanel/DataPanel';
 import DropZone from '../DropZone/DropZone';
@@ -602,7 +603,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                     });
                     if (res.data?.url) updateConfig('url', res.data.url);
                   } catch (err) {
-                    alert(err.response?.data?.error || 'Upload failed');
+                    toast(err.response?.data?.error || 'Upload failed');
                   } finally {
                     e.target.value = '';
                   }

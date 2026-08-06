@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import api from '../../utils/api';
+import { toast } from '../Toast/toast';
 
 const _hs0 = { display: 'flex', gap: 12 };
 const _hs1 = { flex: 1 };
@@ -218,6 +219,9 @@ export async function createModelAndNavigate(navigate, datasource, options = {})
     }
   } catch (err) {
     console.error('Auto-model creation failed:', err);
+    // A duplicate model name (409) lands here — tell the user why the flow
+    // stopped instead of silently returning to the previous screen.
+    toast(err?.response?.data?.error || 'Failed to create model');
   }
   return false;
 }

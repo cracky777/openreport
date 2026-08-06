@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TbDatabase, TbStack3 } from 'react-icons/tb';
 import api from '../utils/api';
+import { toast } from '../components/Toast/toast';
 import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
 
 const _hs0 = { minHeight: '100vh', backgroundColor: 'var(--bg-app)' };
@@ -45,8 +46,12 @@ export default function Models() {
 
   const handleCreate = async () => {
     if (!form.name || !form.datasourceId) return;
-    const res = await api.post('/models', form);
-    navigate(`/models/${res.data.model.id}`);
+    try {
+      const res = await api.post('/models', form);
+      navigate(`/models/${res.data.model.id}`);
+    } catch (err) {
+      toast(err.response?.data?.error || 'Failed to create model');
+    }
   };
 
   const handleDelete = async (id) => {
@@ -55,7 +60,7 @@ export default function Models() {
       await api.delete(`/models/${id}`);
       setModels((prev) => prev.filter((m) => m.id !== id));
     } catch (err) {
-      alert(err.response?.data?.error || 'Delete failed');
+      toast(err.response?.data?.error || 'Delete failed');
     }
   };
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import { toast } from '../components/Toast/toast';
 import { TbUpload, TbStack3, TbDatabase } from 'react-icons/tb';
 import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
 import { DatasourcesHeader } from '../cloud';
@@ -94,7 +95,7 @@ export default function Datasources() {
       });
       setShowForm(true);
     } catch (err) {
-      alert(err.response?.data?.error || 'Could not load datasource');
+      toast(err.response?.data?.error || 'Could not load datasource');
     }
   };
 
@@ -104,7 +105,7 @@ export default function Datasources() {
       await api.delete(`/datasources/${id}`);
       setDatasources((prev) => prev.filter((d) => d.id !== id));
     } catch (err) {
-      alert(err.response?.data?.error || 'Delete failed');
+      toast(err.response?.data?.error || 'Delete failed');
     }
   };
 
