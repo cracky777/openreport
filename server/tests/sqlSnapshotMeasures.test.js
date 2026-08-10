@@ -54,6 +54,28 @@ for (const dbType of ['postgres', 'mysql', 'mssql']) {
     expect(sql).toMatchSnapshot();
   });
 
+  // Custom expression REFERENCING an override-filtered measure → the override
+  // ref is left as a `__OVERRIDE_REF_i__` placeholder by the inliner and
+  // resolved to a scalar subquery AFTER the FROM (models.js overrideRefInfos
+  // loop). Regression guard: that resolver must pass the subquery deps, else
+  // buildOverrideSubquery throws on destructuring `undefined` and /query 500s.
+  test(`custom expr referencing override-filtered measure SQL is stable — ${dbType}`, async () => {
+    const measures = [
+      {
+        name: 'items.amt_x', table: 'items', column: 'amt', aggregation: 'sum', label: 'amt_label_X',
+        overrideFilters: true, filterRules: [{ field: 'items.label', op: 'eq', value: 'X' }],
+      },
+      {
+        name: 'items.amt_x_plus', aggregation: 'custom', label: 'amt_x_plus',
+        expression: '${items.amt_x} + 1',
+      },
+    ];
+    const sql = await compile(dbType, { measures }, {
+      dimensionNames: ['items.label'], measureNames: ['items.amt_x_plus'],
+    });
+    expect(sql).toMatchSnapshot();
+  });
+
   // Filtered measure in INTERSECTION mode (filterRules WITHOUT overrideFilters)
   // → SUM(CASE WHEN <rule> THEN col END), still inside the visual's own WHERE.
   test(`intersection-filtered measure SQL is stable — ${dbType}`, async () => {

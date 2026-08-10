@@ -1,5 +1,11 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`custom expr referencing override-filtered measure SQL is stable — mssql 1`] = `"SELECT [items].[label] AS [label], ((SELECT SUM([items].[amt]) FROM [items] WHERE [items].[label] = 'X') + 1) AS [amt_x_plus] FROM [items] GROUP BY [items].[label] ORDER BY [items].[label] OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY"`;
+
+exports[`custom expr referencing override-filtered measure SQL is stable — mysql 1`] = `"SELECT \`items\`.\`label\` AS \`label\`, ((SELECT SUM(\`items\`.\`amt\`) FROM \`items\` WHERE \`items\`.\`label\` = 'X') + 1) AS \`amt_x_plus\` FROM \`items\` GROUP BY \`items\`.\`label\` ORDER BY \`items\`.\`label\` LIMIT 1000"`;
+
+exports[`custom expr referencing override-filtered measure SQL is stable — postgres 1`] = `"SELECT "items"."label" AS "label", ((SELECT SUM("items"."amt") FROM "items" WHERE "items"."label" = 'X') + 1) AS "amt_x_plus" FROM "items" GROUP BY "items"."label" ORDER BY "items"."label" LIMIT 1000"`;
+
 exports[`custom-expression measure SQL is stable — mssql 1`] = `"SELECT [items].[label] AS [label], (SUM(CAST(items.amt AS DECIMAL(38,10))) / CAST(COUNT(items.id) AS DECIMAL(38,10))) AS [panier_moyen] FROM [items] GROUP BY [items].[label] ORDER BY [items].[label] OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY"`;
 
 exports[`custom-expression measure SQL is stable — mysql 1`] = `"SELECT \`items\`.\`label\` AS \`label\`, (SUM(CAST(items.amt AS DECIMAL(38,10))) / CAST(COUNT(items.id) AS DECIMAL(38,10))) AS \`panier_moyen\` FROM \`items\` GROUP BY \`items\`.\`label\` ORDER BY \`items\`.\`label\` LIMIT 1000"`;
