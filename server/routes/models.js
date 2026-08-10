@@ -36,7 +36,7 @@ const { buildScalarClause } = require('../utils/sqlBuilder/filterClause');
 const { buildMultiFactBody } = require('../utils/sqlBuilder/multiFact');
 const { buildFromClause } = require('../utils/sqlBuilder/fromClause');
 const { buildTopNOrderLimit } = require('../utils/sqlBuilder/orderLimit');
-const { computeRealFacts, computeJoinedTables } = require('../utils/sqlBuilder/joinGraph');
+const { computeRealFacts, computeJoinedTables, computeConnectedComponents } = require('../utils/sqlBuilder/joinGraph');
 const { buildOverrideSubquery } = require('../utils/sqlBuilder/overrideSubquery');
 const { rejectIfNameTaken } = require('../utils/nameUniqueness');
 const { emitMeasureSelects } = require('../utils/sqlBuilder/measureSelect');
@@ -1244,6 +1244,11 @@ router.post('/:id/query', async (req, res) => {
   // lives in utils/sqlBuilder/joinGraph.js — pure functions of the model shape.
   const realFacts = computeRealFacts(allJoins);
   const joinedTables = computeJoinedTables(allJoins);
+  // Connected components of the join graph + the grouping dimensions' tables:
+  // lets emitMeasureSelects spot a measure whose table is unrelated to every
+  // grouping dim and route it to a scalar-subquery total instead of a cross join.
+  const components = computeConnectedComponents(allJoins);
+  const dimTables = new Set(selectedDimensions.map((d) => d && d.table).filter(Boolean));
   const dimOnlyMeasureInfos = [];
 
   // Field list used by every "which tables does this inlined expression touch?"
@@ -1259,6 +1264,7 @@ router.post('/:id/query', async (req, res) => {
     allDimensions, allFieldsForLookup, dbType, columnTypes,
     selectParts, tablesUsed, dimOnlyMeasureInfos, overrideMeasureInfos, groupByParts,
     inlineMeasureRefs, buildRuleClause,
+    components, dimTables,
   });
   if (measureErr) return res.status(400).json(measureErr);
 
@@ -1422,9 +1428,19 @@ router.post('/:id/query', async (req, res) => {
   // utils/sqlBuilder/fromClause.js. It reports back the filter-only tables it
   // had to drop (no join path) so we can strip their now-meaningless WHERE
   // clauses here — the one side effect kept in the handler.
-  const { fromClause, droppedTables } = buildFromClause({
+  const { fromClause, droppedTables, crossJoined } = buildFromClause({
     tablesUsed, allJoins, selectedDimensions, selectedMeasures, dbType,
   });
+  // Required tables with no join path would be comma-cross-joined (Cartesian
+  // product → inflated/repeated measures). Common after a multi-sheet file
+  // import: grouping by dimensions from two unrelated tables. Fail clearly
+  // rather than return wrong numbers.
+  if (crossJoined && crossJoined.size > 0) {
+    const names = [...crossJoined].map((t) => `"${t}"`).join(', ');
+    return res.status(400).json({
+      error: `These fields come from unrelated tables (${names}) with no join between them. Add a join in the model, or build the widget from fields of a single table.`,
+    });
+  }
   if (droppedTables.size > 0) {
     // Strip dim WHERE clauses on the dropped tables. Never drop untagged
     // clauses (field === null): those are RLS / security and unreachable RLS

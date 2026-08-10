@@ -6,20 +6,29 @@
 // (the multi-fact FULL JOIN shape depends on this classification).
 const { extractColumnRefsFromExpression } = require('../columnTypeResolver');
 
-// Fact tables = the "many" side of a join (cardinality "*", or the to_table when
-// a join carries no cardinality hint) that is NOT itself a from_table.
+// Fact tables = a "many" side ("*") that is NEVER a "one" side. A measure on a
+// fact aggregates through its join (it IS the grain); a measure on a pure dim
+// (one-side) would fan out, so it gets the scalar-subquery treatment instead.
+//
+// The many/one sets are read from explicit cardinality; a join with no hint is
+// assumed from=one → to=many (the historical default). Excluding one-side tables
+// (rather than every from_table) is what lets an EXPLICIT fact defined as
+// `fact.fk (*) → dim.pk (1)` — i.e. the fact is the from_table — still count as a
+// fact, while snowflake bridge tables (which ARE a one-side somewhere) stay dims.
 function computeRealFacts(allJoins) {
   const list = Array.isArray(allJoins) ? allJoins : [];
-  const fromTables = new Set();
-  const manyTables = new Set();
+  const many = new Set();
+  const one = new Set();
   for (const j of list) {
     if (!j || !j.from_table || !j.to_table) continue;
-    fromTables.add(j.from_table);
     const c = j.cardinality || {};
-    if (c.to === '*' || (!c.from && !c.to)) manyTables.add(j.to_table);
-    if (c.from === '*') manyTables.add(j.from_table);
+    if (c.from === '*') many.add(j.from_table);
+    if (c.to === '*') many.add(j.to_table);
+    if (c.from === '1') one.add(j.from_table);
+    if (c.to === '1') one.add(j.to_table);
+    if (!c.from && !c.to) { many.add(j.to_table); one.add(j.from_table); }
   }
-  return new Set([...manyTables].filter((t) => !fromTables.has(t)));
+  return new Set([...many].filter((t) => !one.has(t)));
 }
 
 // Every table that participates in at least one join. The dim-only treatment
@@ -51,4 +60,32 @@ function measurePrimaryTable(m) {
   return null;
 }
 
-module.exports = { computeRealFacts, computeJoinedTables, measurePrimaryTable };
+// Connected components of the join graph (union-find). Two tables share a
+// component iff a chain of joins connects them. Tables that appear in no join
+// are absent from the map — `sameComponent` treats an absent table as its own
+// singleton, so an unjoined table is connected only to itself.
+function computeConnectedComponents(allJoins) {
+  const parent = new Map();
+  const find = (x) => {
+    if (!parent.has(x)) parent.set(x, x);
+    let root = x;
+    while (parent.get(root) !== root) root = parent.get(root);
+    let cur = x;
+    while (parent.get(cur) !== root) { const nxt = parent.get(cur); parent.set(cur, root); cur = nxt; }
+    return root;
+  };
+  for (const j of (Array.isArray(allJoins) ? allJoins : [])) {
+    if (j && j.from_table && j.to_table) parent.set(find(j.from_table), find(j.to_table));
+  }
+  const comp = new Map();
+  for (const t of parent.keys()) comp.set(t, find(t));
+  return comp;
+}
+
+// Are two tables in the same join component? An absent table is its own
+// singleton (unjoined → connected only to itself).
+function sameComponent(comp, a, b) {
+  return (comp.get(a) || a) === (comp.get(b) || b);
+}
+
+module.exports = { computeRealFacts, computeJoinedTables, measurePrimaryTable, computeConnectedComponents, sameComponent };

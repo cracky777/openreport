@@ -10,7 +10,7 @@
 // Returns { error } for a bad custom expression (cyclic/invalid ref) so the
 // caller can emit a single 400 — never touches res. Covered by
 // tests/sqlSnapshot*, tests/queryErrors.
-const { measurePrimaryTable } = require('./joinGraph');
+const { measurePrimaryTable, sameComponent } = require('./joinGraph');
 const { preWrapIntervalRefs } = require('../columnTypeResolver');
 const {
   transformAggregates, dialectNumericCast, applyNumericCast, buildMeasureAggExpr,
@@ -23,6 +23,7 @@ function emitMeasureSelects(ctx) {
     allDimensions, allFieldsForLookup, dbType, columnTypes,
     selectParts, tablesUsed, dimOnlyMeasureInfos, overrideMeasureInfos, groupByParts,
     inlineMeasureRefs, buildRuleClause,
+    components, dimTables,
   } = ctx;
 
   for (const m of selectedMeasures) {
@@ -42,9 +43,19 @@ function emitMeasureSelects(ctx) {
     // path so the outer WHERE enforces it — the measure may be
     // fact-inflated but it's never leaky. Owners/admins (rlsApplies =
     // false) get the clean subquery path.
+    // A measure whose table sits in a DIFFERENT join component than every
+    // grouping dimension can't be aggregated per group — pulling it into the
+    // main FROM would cross-join it (Cartesian product → each group shows a
+    // multiple of the grand total). Emit it as its own scalar subquery instead,
+    // so it reads as an honest ungrouped total. Only kicks in when a) there's a
+    // dimension to group by and b) the tables are genuinely unrelated; properly
+    // joined tables share a component and keep the normal join path.
+    const disconnectedFromDims = primaryTable
+      && components && dimTables && dimTables.size > 0
+      && ![...dimTables].some((dt) => sameComponent(components, primaryTable, dt));
+
     const isDimOnlyCandidate = primaryTable
-      && joinedTables.has(primaryTable)
-      && !realFacts.has(primaryTable)
+      && ((joinedTables.has(primaryTable) && !realFacts.has(primaryTable)) || disconnectedFromDims)
       && !(Array.isArray(m.filterRules) && m.filterRules.length > 0)
       && !rlsApplies;
     if (isDimOnlyCandidate) {

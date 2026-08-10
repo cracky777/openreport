@@ -86,6 +86,9 @@ function buildFromClause({ tablesUsed, allJoins, selectedDimensions, selectedMea
   }
   let fromClause = quoteTable(tableList[0], dbType);
   const droppedTables = new Set();
+  // Required tables we had to comma-cross-join (no join path) — the caller turns
+  // a non-empty set into a clear 400 instead of shipping a Cartesian product.
+  const crossJoined = new Set();
   if (tableList.length > 1) {
     const added = new Set([tableList[0]]);
     const remaining = tableList.slice(1);
@@ -118,6 +121,7 @@ function buildFromClause({ tablesUsed, allJoins, selectedDimensions, selectedMea
         for (const t of remaining) {
           if (requiredTables.has(t)) {
             fromClause += `, ${quoteTable(t, dbType)}`;
+            crossJoined.add(t);
           } else {
             droppedTables.add(t);
           }
@@ -130,7 +134,7 @@ function buildFromClause({ tablesUsed, allJoins, selectedDimensions, selectedMea
       added.add(t);
     }
   }
-  return { fromClause, droppedTables };
+  return { fromClause, droppedTables, crossJoined };
 }
 
 module.exports = { buildFromClause };
