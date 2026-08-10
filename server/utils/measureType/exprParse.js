@@ -70,6 +70,12 @@ const SQL_TO_JS_FUNCS = {
 // suspicious identifier, etc.) — safer to fall back than to risk wrong
 // numbers or arbitrary code exec via Function constructor.
 function transpileSqlToJs(expression) {
+  // Reject raw string/index syntax outright. Legitimate measure expressions
+  // never contain quotes or brackets (string literals are already unsupported);
+  // these characters only serve to smuggle code past the transpiler into the
+  // Function constructor by fragmenting banned words / computed member access,
+  // e.g. _v['const'+'ructor']['const'+'ructor']('ret'+'urn ...')().
+  if (typeof expression !== 'string' || /['"`[\]]/.test(expression)) return null;
   let js = expression;
   // 1. Drop CAST(x AS type) wrappers — the cast is a no-op once we're
   //    working with numbers in JS. Loop for nested casts.

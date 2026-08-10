@@ -22,6 +22,7 @@ const {
   recomposeMeasure,
   collectComponentsForVisual,
   avgAliasBase,
+  compileExpression,
 } = require('../utils/measureType');
 
 // Build a `getAtom`-friendly atom map. `simple` is straight ref→value.
@@ -340,5 +341,34 @@ describe('Negative paths — non-decomposable measures stay rejected', () => {
       { name: 'b', table: 't', column: 'b', aggregation: 'sum' },
     ];
     expect(decomposeMeasure(m, all)).toBeNull();
+  });
+});
+
+describe('Security — Function-constructor sandbox escape is rejected', () => {
+  // The transpiler compiles the expression to JS via new Function. A raw
+  // quote/bracket is the only way to fragment banned words or reach computed
+  // member access (e.g. _v['const'+'ructor'](...)); reject it at the door.
+  test('fragmented-string constructor climb → null', () => {
+    expect(compileExpression("_v['const'+'ructor']['const'+'ructor']('ret'+'urn 6*7')()")).toBeNull();
+  });
+
+  test('secret exfiltration via constructor chain → null', () => {
+    expect(compileExpression("_v['const'+'ructor']['const'+'ructor']('ret'+'urn pro'+'cess.env.SESSION_SECRET')()")).toBeNull();
+  });
+
+  test('computed member access via bracket + quote → null', () => {
+    expect(compileExpression('_v["process"].env')).toBeNull();
+  });
+
+  test('any bracket or quote in the raw expression → null', () => {
+    expect(compileExpression('${a} + "x"')).toBeNull();
+    expect(compileExpression('${a}[0]')).toBeNull();
+    expect(compileExpression('${a} + `y`')).toBeNull();
+  });
+
+  test('positive control — a legit additive ${ref} expression still compiles', () => {
+    const fn = compileExpression('${a} + ${b} * 2');
+    expect(typeof fn).toBe('function');
+    expect(fn({ a: 2, b: 3 })).toBe(8);
   });
 });
