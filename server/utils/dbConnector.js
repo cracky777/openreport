@@ -393,7 +393,12 @@ function buildConnector(datasource) {
     const getDb = async () => {
       if (_duckdbInstances.has(dbPath)) return _duckdbInstances.get(dbPath);
       if (!_duckdbPromises.has(dbPath)) {
-        const p = duckdb.Database.create(dbPath).then((db) => {
+        // Open with external filesystem access disabled: the user query path
+        // (POST /datasources/:id/query) only reads tables already materialised
+        // in this .duckdb file, never the server FS. This blocks arbitrary file
+        // reads via read_text/read_csv/read_parquet/glob in a SELECT. The import
+        // pipeline uses its own separate instance (fileUpload.js) and is untouched.
+        const p = duckdb.Database.create(dbPath, { enable_external_access: 'false' }).then((db) => {
           _duckdbInstances.set(dbPath, db);
           _duckdbPromises.delete(dbPath);
           return db;
