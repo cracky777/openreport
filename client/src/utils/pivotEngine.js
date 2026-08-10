@@ -21,7 +21,10 @@ export function resolveCell(acc, fn) {
 function accumulate(target, measures, row) {
   for (const m of measures) {
     if (!target[m]) target[m] = { sum: 0, count: 0, min: Infinity, max: -Infinity };
-    const v = Number(row[m]) || 0;
+    const raw = row[m];
+    if (raw === null || raw === undefined || raw === '') continue;
+    const v = Number(raw);
+    if (!Number.isFinite(v)) continue;
     const a = target[m];
     a.sum += v; a.count += 1;
     a.min = Math.min(a.min, v);
