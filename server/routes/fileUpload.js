@@ -71,7 +71,6 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
 
   const ext = path.extname(file.originalname).toLowerCase();
   const name = req.body.name || path.basename(file.originalname, ext);
-  const tableName = sanitizeTableName(path.basename(file.originalname, ext));
 
   // A datasource already carries this name → block and tell the user, rather
   // than silently branching them onto it. Takes precedence over the same-file
@@ -100,14 +99,29 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
     const duckdb = require('duckdb-async');
     dbInstance = await duckdb.Database.create(duckdbPath);
 
-    // Import based on file type
+    // Import based on file type. Each imported unit becomes a DuckDB table; a
+    // spreadsheet can yield several (one per selected sheet), a flat file one.
     const filePath = file.path.replace(/\\/g, '/'); // DuckDB needs forward slashes
-    let importSQL;
+    const tables = []; // { tableName, rowCount, columns }
+    const usedTableNames = new Set();
+    const uniqueTableName = (base) => {
+      const s = sanitizeTableName(base);
+      let candidate = s, i = 2;
+      while (usedTableNames.has(candidate)) candidate = `${s}_${i++}`;
+      usedTableNames.add(candidate);
+      return candidate;
+    };
+    const describeTable = async (t) => {
+      const cnt = await dbInstance.all(`SELECT COUNT(*) as cnt FROM "${t}"`);
+      const cols = await dbInstance.all(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${t}' ORDER BY ordinal_position`);
+      return { tableName: t, rowCount: Number(cnt[0]?.cnt || 0), columns: cols };
+    };
 
     // CSV/TSV import handled inline so we can fall back to Latin-1 if UTF-8 fails.
     // Many real-world CSVs (e.g. FAOSTAT, exports from Excel) are Windows-1252 / Latin-1
     // and DuckDB returns garbled errors when it tries to parse them as UTF-8.
     if (ext === '.csv' || ext === '.tsv') {
+      const t = uniqueTableName(path.basename(file.originalname, ext));
       // Resolve parse options from the whitelisted tokens; absent tokens keep
       // DuckDB's auto-detection.
       const delim = CSV_DELIMS[req.body.delimiter];  // undefined = auto-detect
@@ -125,7 +139,7 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
       if (decimal) optList.push(`decimal_separator='${decimal}'`);
       if (dateformat) optList.push(`dateformat='${dateformat}'`);
       const buildSQL = (encoding) =>
-        `CREATE TABLE "${tableName}" AS SELECT * FROM read_csv_auto('${filePath}', ${optList.join(', ')}${encoding ? `, encoding='${encoding}'` : ''})`;
+        `CREATE TABLE "${t}" AS SELECT * FROM read_csv_auto('${filePath}', ${optList.join(', ')}${encoding ? `, encoding='${encoding}'` : ''})`;
 
       if (chosenEnc) {
         await dbInstance.run(buildSQL(chosenEnc));        // explicit encoding → no fallback
@@ -133,7 +147,7 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
         try {
           await dbInstance.run(buildSQL());               // try UTF-8 (default) first
         } catch (firstErr) {
-          try { await dbInstance.run(`DROP TABLE IF EXISTS "${tableName}"`); } catch { /* ignore */ }
+          try { await dbInstance.run(`DROP TABLE IF EXISTS "${t}"`); } catch { /* ignore */ }
           try {
             await dbInstance.run(buildSQL('latin-1'));    // retry with Latin-1
           } catch {
@@ -141,33 +155,43 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
           }
         }
       }
-      importSQL = null;                                   // already executed above
+      tables.push(await describeTable(t));
     } else if (ext === '.xlsx' || ext === '.xls') {
-      // Convert Excel to CSV via xlsx library, then import CSV into DuckDB
+      // A workbook can hold several sheets — import each selected one as its own
+      // table. The client sends the chosen sheet names as a JSON array; absent
+      // or invalid → the first sheet only (backward compatible). The header flag
+      // applies here too (first spreadsheet row as column names, or not).
       const XLSX = require('xlsx');
       const workbook = XLSX.readFile(file.path);
-      const sheetName = workbook.SheetNames[0];
-      const csvContent = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
-      const csvPath = file.path + '.csv';
-      fs.writeFileSync(csvPath, csvContent, 'utf-8');
-      const csvPathFwd = csvPath.replace(/\\/g, '/');
-      await dbInstance.run(`CREATE TABLE "${tableName}" AS SELECT * FROM read_csv_auto('${csvPathFwd}', header=true, sample_size=-1)`);
-      try { fs.unlinkSync(csvPath); } catch { /* ignore */ }
+      const header = req.body.hasHeader === 'false' ? 'false' : 'true';
+      let wanted;
+      try { wanted = JSON.parse(req.body.sheets || '[]'); } catch { wanted = []; }
+      if (!Array.isArray(wanted)) wanted = [];
+      wanted = wanted.filter((s) => workbook.SheetNames.includes(s));
+      if (!wanted.length) wanted = [workbook.SheetNames[0]];
+      for (const sheetName of wanted) {
+        const csvContent = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
+        const csvPath = `${file.path}.${uuidv4()}.csv`; // unique temp per sheet
+        fs.writeFileSync(csvPath, csvContent, 'utf-8');
+        const csvPathFwd = csvPath.replace(/\\/g, '/');
+        const t = uniqueTableName(sheetName);
+        await dbInstance.run(`CREATE TABLE "${t}" AS SELECT * FROM read_csv_auto('${csvPathFwd}', header=${header}, sample_size=-1)`);
+        try { fs.unlinkSync(csvPath); } catch { /* ignore */ }
+        tables.push(await describeTable(t));
+      }
     } else if (ext === '.parquet') {
-      importSQL = `CREATE TABLE "${tableName}" AS SELECT * FROM read_parquet('${filePath}')`;
+      const t = uniqueTableName(path.basename(file.originalname, ext));
+      await dbInstance.run(`CREATE TABLE "${t}" AS SELECT * FROM read_parquet('${filePath}')`);
+      tables.push(await describeTable(t));
     } else if (ext === '.json') {
-      importSQL = `CREATE TABLE "${tableName}" AS SELECT * FROM read_json_auto('${filePath}')`;
+      const t = uniqueTableName(path.basename(file.originalname, ext));
+      await dbInstance.run(`CREATE TABLE "${t}" AS SELECT * FROM read_json_auto('${filePath}')`);
+      tables.push(await describeTable(t));
     } else {
       throw new Error(`Unsupported file type: ${ext}`);
     }
 
-    if (importSQL) await dbInstance.run(importSQL);
-
-    // Get row count (convert BigInt to Number)
-    const countResult = await dbInstance.all(`SELECT COUNT(*) as cnt FROM "${tableName}"`);
-    const rowCount = Number(countResult[0]?.cnt || 0);
-
-    const columns = await dbInstance.all(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${tableName}' ORDER BY ordinal_position`);
+    const primary = tables[0];
 
     await dbInstance.close();
 
@@ -180,8 +204,9 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
       VALUES (?, ?, ?, 'duckdb', '', 0, ?, '', '', ?)
     `).run(dsId, req.user.id, name, duckdbPath, JSON.stringify({
       sourceFile: file.originalname,
-      tableName,
-      rowCount,
+      tableName: primary.tableName,   // first table — kept for single-table callers
+      rowCount: primary.rowCount,
+      tables: tables.map((t) => ({ tableName: t.tableName, rowCount: t.rowCount })),
       fileSize: file.size,            // bytes — used by cloud quota enforcement
       importedAt: new Date().toISOString(),
     }));
@@ -194,9 +219,10 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
         db_type: 'duckdb',
         db_name: duckdbPath,
         sourceFile: file.originalname,
-        tableName,
-        rowCount,
-        columns,
+        tableName: primary.tableName,
+        rowCount: primary.rowCount,
+        columns: primary.columns,
+        tables,                        // full per-table detail (name, rowCount, columns)
       },
     });
   } catch (err) {

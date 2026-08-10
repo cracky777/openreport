@@ -1,12 +1,20 @@
 
-// Parse options for the file-import flow. Every field defaults to 'auto', which
-// means "send nothing" so the server keeps its existing auto-detection — the
-// panel is purely additive. Tokens here MUST match the whitelist maps in
+// Import options for the file-import flow. CSV/TSV parse fields default to
+// 'auto' (send nothing → server keeps its auto-detection); Excel gets sheet
+// selection instead. Tokens here MUST match the whitelist maps in
 // server/routes/fileUpload.js (values are mapped server-side, never interpolated
 // raw into SQL).
 export const DEFAULT_IMPORT_OPTIONS = {
-  delimiter: 'auto', decimalSeparator: 'auto', dateFormat: 'auto', encoding: 'auto', hasHeader: true,
+  delimiter: 'auto', decimalSeparator: 'auto', dateFormat: 'auto', encoding: 'auto', hasHeader: true, sheets: [],
 };
+
+// Classify a file by name → drives which options are relevant.
+export function importKind(fileName) {
+  const ext = (fileName || '').toLowerCase().split('.').pop();
+  if (ext === 'csv' || ext === 'tsv') return 'csv';
+  if (ext === 'xlsx' || ext === 'xls') return 'excel';
+  return 'other';
+}
 
 // Append the non-default options onto a FormData before uploading.
 export function appendImportOptions(formData, o) {
@@ -15,6 +23,7 @@ export function appendImportOptions(formData, o) {
   if (o.decimalSeparator && o.decimalSeparator !== 'auto') formData.append('decimalSeparator', o.decimalSeparator);
   if (o.dateFormat && o.dateFormat !== 'auto') formData.append('dateFormat', o.dateFormat);
   if (o.encoding && o.encoding !== 'auto') formData.append('encoding', o.encoding);
+  if (Array.isArray(o.sheets) && o.sheets.length) formData.append('sheets', JSON.stringify(o.sheets));
   // header is on by default server-side; only send when the user turned it off.
   if (o.hasHeader === false) formData.append('hasHeader', 'false');
 }
@@ -34,6 +43,11 @@ const selectStyle = {
 };
 const checkRowStyle = { display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-primary)', alignSelf: 'end' };
 const hintStyle = { gridColumn: '1 / -1', color: 'var(--text-disabled)', fontSize: 12 };
+const sheetListStyle = { display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 };
+const sheetChipStyle = {
+  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 6,
+  border: '1px solid var(--border-default)', background: 'var(--bg-input)', color: 'var(--text-primary)', cursor: 'pointer',
+};
 
 function Select({ label, value, options, onChange }) {
   return (
@@ -46,11 +60,43 @@ function Select({ label, value, options, onChange }) {
   );
 }
 
-// CSV/TSV parse options, always visible. Controlled via `value`/`onChange` so
-// the owning page can append the options to its upload FormData.
-export default function ImportOptions({ value, onChange }) {
+// Import options, always visible. `kind` ('csv' | 'excel' | 'other') selects
+// which controls show; `sheetNames` lists a workbook's tabs for Excel files.
+export default function ImportOptions({ value, onChange, kind = 'csv', sheetNames = [] }) {
   const v = value || DEFAULT_IMPORT_OPTIONS;
   const set = (k, val) => onChange({ ...v, [k]: val });
+
+  if (kind === 'excel') {
+    const selected = Array.isArray(v.sheets) ? v.sheets : [];
+    const toggle = (name) => set('sheets', selected.includes(name) ? selected.filter((s) => s !== name) : [...selected, name]);
+    return (
+      <div style={wrapStyle}>
+        <div style={titleStyle}>Excel import options</div>
+        {sheetNames.length === 0 ? (
+          <div style={{ ...hintStyle, marginTop: 8 }}>Reading sheets…</div>
+        ) : (
+          <>
+            <div style={{ ...labelStyle, marginTop: 8 }}>Sheets to import</div>
+            <div style={sheetListStyle}>
+              {sheetNames.map((name) => (
+                <label key={name} style={sheetChipStyle}>
+                  <input type="checkbox" checked={selected.includes(name)} onChange={() => toggle(name)} />
+                  {name}
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+        <label style={{ ...checkRowStyle, marginTop: 10 }}>
+          <input type="checkbox" checked={v.hasHeader} onChange={(e) => set('hasHeader', e.target.checked)} />
+          First row is header
+        </label>
+      </div>
+    );
+  }
+
+  if (kind !== 'csv') return null; // parquet / json are self-describing
+
   return (
     <div style={wrapStyle}>
       <div style={titleStyle}>CSV import options</div>

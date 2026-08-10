@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
-import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions } from '../components/ImportOptions/ImportOptions';
+import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
+import { readSheetNames } from '../utils/readSheetNames';
 import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbPencil, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbLoader2, TbRefresh, TbFileText } from 'react-icons/tb';
 import { formatBytes } from '../utils/formatHuman';
 import { useTheme } from '../hooks/useTheme';
@@ -197,6 +198,7 @@ export default function Dashboard() {
   const [uploadError, setUploadError] = useState('');
   const [importOpts, setImportOpts] = useState(DEFAULT_IMPORT_OPTIONS);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [sheetNames, setSheetNames] = useState([]);
   const createFileRef = useRef(null);
   const [newWsName, setNewWsName] = useState('');
   const [editingWsName, setEditingWsName] = useState(false);
@@ -321,13 +323,21 @@ export default function Dashboard() {
 
 
   // Step 1: just record the pick — the import options only make sense once a
-  // file is in hand, so the actual upload waits for the Import button.
-  const handleFileSelected = (e) => {
+  // file is in hand, so the actual upload waits for the Import button. For an
+  // Excel workbook we read its sheet names (in-browser) and pre-select them all.
+  const handleFileSelected = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setSelectedFile(file);
     setUploadError('');
+    setImportOpts(DEFAULT_IMPORT_OPTIONS);
+    setSheetNames([]);
     if (createFileRef.current) createFileRef.current.value = ''; // allow re-picking the same file
+    if (importKind(file.name) === 'excel') {
+      const names = await readSheetNames(file);
+      setSheetNames(names);
+      setImportOpts((o) => ({ ...o, sheets: names })); // default: import every sheet
+    }
   };
 
   // Step 2: run the upload → model → report chain for the pending file.
@@ -370,22 +380,36 @@ export default function Dashboard() {
       }
 
       if (needsAutoFlag) {
-        const colRes = await api.get(`/datasources/${ds.id}/tables/${ds.tableName}/columns`);
-        const cols = colRes.data.columns || [];
+        // A fresh upload carries every imported table (name + columns); older or
+        // reused datasources fall back to a single-table fetch.
+        let tbls = ds.tables;
+        if (!tbls || !tbls.length) {
+          const colRes = await api.get(`/datasources/${ds.id}/tables/${ds.tableName}/columns`);
+          tbls = [{ tableName: ds.tableName, columns: colRes.data.columns || [] }];
+        }
         const numericTypes = ['integer', 'bigint', 'numeric', 'decimal', 'real', 'double', 'float', 'int', 'smallint', 'double precision', 'interval'];
         const dateTypes = ['date', 'timestamp', 'timestamptz', 'timestamp with time zone', 'timestamp without time zone', 'datetime', 'time', 'smalldatetime', 'datetime2'];
         const dimensions = [];
         const measures = [];
-        cols.forEach((c) => {
-          const dimName = `${ds.tableName}.${c.column_name}`;
-          const dt = c.data_type?.toLowerCase() || '';
-          const colType = numericTypes.includes(dt) ? 'number' : dateTypes.includes(dt) ? 'date' : 'string';
-          dimensions.push({ name: dimName, table: ds.tableName, column: c.column_name, type: colType, label: c.column_name });
-          if (numericTypes.includes(dt)) {
-            measures.push({ name: `${ds.tableName}.${c.column_name}_sum`, table: ds.tableName, column: c.column_name, aggregation: 'sum', label: c.column_name });
-          }
+        const selectedTables = [];
+        // With several sheets/tables, suffix labels with the sheet so homonym
+        // columns stay distinguishable (and users don't accidentally combine
+        // fields from unrelated tables, which the server now rejects).
+        const multi = tbls.length > 1;
+        const lbl = (t, col) => (multi ? `${col} (${t.tableName})` : col);
+        tbls.forEach((t) => {
+          selectedTables.push(t.tableName);
+          (t.columns || []).forEach((c) => {
+            const dimName = `${t.tableName}.${c.column_name}`;
+            const dt = c.data_type?.toLowerCase() || '';
+            const colType = numericTypes.includes(dt) ? 'number' : dateTypes.includes(dt) ? 'date' : 'string';
+            dimensions.push({ name: dimName, table: t.tableName, column: c.column_name, type: colType, label: lbl(t, c.column_name) });
+            if (numericTypes.includes(dt)) {
+              measures.push({ name: `${t.tableName}.${c.column_name}_sum`, table: t.tableName, column: c.column_name, aggregation: 'sum', label: lbl(t, c.column_name) });
+            }
+          });
         });
-        await api.put(`/models/${modelId}`, { selected_tables: [ds.tableName], dimensions, measures });
+        await api.put(`/models/${modelId}`, { selected_tables: selectedTables, dimensions, measures });
       }
 
       // 4. Create report with this model
@@ -1301,17 +1325,23 @@ export default function Dashboard() {
                             <TbTrash size={16} />
                           </button>
                         </div>
-                        <ImportOptions value={importOpts} onChange={setImportOpts} />
+                        <ImportOptions value={importOpts} onChange={setImportOpts} kind={importKind(selectedFile.name)} sheetNames={sheetNames} />
                       </>
                     )}
                     {uploadError && <div style={_hs63}>{uploadError}</div>}
                     <div style={{ ...(_hs64), justifyContent: 'space-between', gap: 8 }}>
                       <button className="btn-hover" onClick={() => { setCreateMode(null); setUploadError(''); setSelectedFile(null); }} style={secondaryBtn}>← Back</button>
-                      {selectedFile && (
-                        <button className="btn-hover btn-hover-primary" onClick={handleFileForReport} disabled={uploadingFile} style={{ ...primaryBtn, opacity: uploadingFile ? 0.6 : 1 }}>
-                          {uploadingFile ? 'Importing…' : 'Import'}
-                        </button>
-                      )}
+                      {selectedFile && (() => {
+                        // Block only when the sheets are known but none is ticked;
+                        // if we couldn't read them, let the server pick the first.
+                        const noSheets = importKind(selectedFile.name) === 'excel' && sheetNames.length > 0 && !(importOpts.sheets && importOpts.sheets.length);
+                        const disabled = uploadingFile || noSheets;
+                        return (
+                          <button className="btn-hover btn-hover-primary" onClick={handleFileForReport} disabled={disabled} style={{ ...primaryBtn, opacity: disabled ? 0.6 : 1 }}>
+                            {uploadingFile ? 'Importing…' : 'Import'}
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}

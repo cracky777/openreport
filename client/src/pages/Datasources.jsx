@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
-import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions } from '../components/ImportOptions/ImportOptions';
+import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
+import { readSheetNames } from '../utils/readSheetNames';
 import { TbUpload, TbStack3, TbDatabase } from 'react-icons/tb';
 import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
 import { DatasourcesHeader } from '../cloud';
@@ -40,6 +41,7 @@ export default function Datasources() {
   const [uploadProgress, setUploadProgress] = useState('');
   const [importOpts, setImportOpts] = useState(DEFAULT_IMPORT_OPTIONS);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [sheetNames, setSheetNames] = useState([]);
   const fileInputRef = useRef(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -114,13 +116,19 @@ export default function Datasources() {
 
   // Record the pick only — the import options appear next; the upload waits for
   // the Import button so those options can be set first.
-  const handleFileSelected = (e) => {
+  const handleFileSelected = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setSelectedFile(file);
     setImportOpts(DEFAULT_IMPORT_OPTIONS);
+    setSheetNames([]);
     setUploadProgress('');
     if (fileInputRef.current) fileInputRef.current.value = ''; // allow re-picking the same file
+    if (importKind(file.name) === 'excel') {
+      const names = await readSheetNames(file);
+      setSheetNames(names);
+      setImportOpts((o) => ({ ...o, sheets: names })); // default: import every sheet
+    }
   };
 
   const handleFileUpload = async () => {
@@ -186,9 +194,9 @@ export default function Datasources() {
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
               Selected: <strong style={{ color: 'var(--text-primary)' }}>{selectedFile.name}</strong>
             </div>
-            <ImportOptions value={importOpts} onChange={setImportOpts} />
+            <ImportOptions value={importOpts} onChange={setImportOpts} kind={importKind(selectedFile.name)} sheetNames={sheetNames} />
             <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-              <PrimaryButton onClick={handleFileUpload} disabled={uploading}>
+              <PrimaryButton onClick={handleFileUpload} disabled={uploading || (importKind(selectedFile.name) === 'excel' && sheetNames.length > 0 && !(importOpts.sheets && importOpts.sheets.length))}>
                 {uploading ? 'Importing...' : 'Import'}
               </PrimaryButton>
               <SecondaryButton onClick={() => setSelectedFile(null)} disabled={uploading}>Cancel</SecondaryButton>
