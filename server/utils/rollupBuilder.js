@@ -68,9 +68,34 @@ const {
   grainsForWidget, measureNamesForWidget, reportExtras, factConformedDimTables, dimTableOf,
 } = require('./rollupPlanning');
 
+// Free-SQL = a custom aggregation or a raw expression (the two shapes that
+// carry arbitrary SQL). Same predicate the /query gate uses (routes/models.js).
+function isFreeSqlExtra(x) {
+  return !!x && (x.aggregation === 'custom' || typeof x.expression === 'string');
+}
+
+// Drop free-SQL extras unless the report's author is the model owner or an
+// admin. Returns a new extras object; the input is not mutated. Trusted
+// authors (owner / admin) get their extras verbatim.
+function stripUntrustedFreeSql(extras, { authorId, modelOwnerId, authorRole }) {
+  if (authorId === modelOwnerId || authorRole === 'admin') return extras;
+  const keepObj = (obj) => Object.fromEntries(
+    Object.entries(obj || {}).filter(([, v]) => !isFreeSqlExtra(v))
+  );
+  return {
+    ...extras,
+    extraMeasures: (extras.extraMeasures || []).filter((m) => !isFreeSqlExtra(m)),
+    extraDimensions: (extras.extraDimensions || []).filter((d) => !isFreeSqlExtra(d)),
+    measureOverrides: keepObj(extras.measureOverrides),
+    dimensionOverrides: keepObj(extras.dimensionOverrides),
+  };
+}
+
 function planRollupsForModel(modelId) {
   const reports = db.prepare(
-    'SELECT id, widgets, settings FROM reports WHERE model_id = ?'
+    `SELECT r.id, r.user_id, r.widgets, r.settings, u.role AS author_role
+       FROM reports r LEFT JOIN users u ON u.id = r.user_id
+      WHERE r.model_id = ?`
   ).all(modelId);
 
   const plan = [];
@@ -86,9 +111,11 @@ function planRollupsForModel(modelId) {
   // Model measures are the same for every report on this model; parse the
   // DB row once and let loadMeasureDefs merge each report's extras over it.
   let modelMeasureDefs = [];
+  let modelOwnerId = null;
   try {
-    const mr = db.prepare('SELECT dimensions, joins, date_column, measures FROM models WHERE id = ?').get(modelId);
+    const mr = db.prepare('SELECT user_id, dimensions, joins, date_column, measures FROM models WHERE id = ?').get(modelId);
     if (mr) {
+      modelOwnerId = mr.user_id;
       try { modelRowDims = JSON.parse(mr.dimensions || '[]'); } catch { /* malformed */ }
       try { modelJoins = JSON.parse(mr.joins || '[]'); } catch { /* malformed */ }
       dateColumn = mr.date_column || '';
@@ -104,7 +131,14 @@ function planRollupsForModel(modelId) {
     let settings = {};
     try { widgets = JSON.parse(r.widgets || '{}'); } catch { /* malformed */ }
     try { settings = JSON.parse(r.settings || '{}'); } catch { /* malformed */ }
-    const extras = reportExtras(settings);
+    // Defense-in-depth: the build /query runs AS THE MODEL OWNER, which
+    // bypasses the free-SQL gate in models.js /query. So free-SQL extras
+    // authored on a report by anyone OTHER than the model owner (or an admin)
+    // are dropped here — else a user who only reads the model could smuggle
+    // arbitrary SQL into the owner-identity build via their own report.
+    const extras = stripUntrustedFreeSql(reportExtras(settings), {
+      authorId: r.user_id, modelOwnerId, authorRole: r.author_role,
+    });
     const reportFilters = Array.isArray(settings.reportFilters) ? settings.reportFilters : [];
     const { defs: measureDefs, byName: measureByName } = loadMeasureDefs(modelId, extras, modelMeasureDefs);
     // Model + report dimension defs — comparePeriod needs them (N-1
@@ -1120,6 +1154,7 @@ module.exports = {
   baseFilterHashOf,
   normalizeFilterRules,
   rollupTableName,
+  stripUntrustedFreeSql,
   planRollupsForModel,
   buildRollup,
   buildRollupsForModel,

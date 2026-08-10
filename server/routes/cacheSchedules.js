@@ -22,6 +22,7 @@ const cacheScheduler = require('../utils/cacheScheduler');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
 const rollupDuckDB = require('../utils/rollupDuckDB');
+const { canWriteModel } = require('./reports');
 
 // Real on-disk size of THIS report's model store. Each model has its own
 // DuckDB file, so this is now a true per-report (per-model) figure — the
@@ -36,7 +37,7 @@ function rollupDiskBytes(modelId, orgId) {
 const router = express.Router();
 
 function loadReportOrFail(reportId, res) {
-  const r = db.prepare('SELECT id, user_id, workspace_id FROM reports WHERE id = ?').get(reportId);
+  const r = db.prepare('SELECT id, user_id, workspace_id, model_id FROM reports WHERE id = ?').get(reportId);
   if (!r) {
     res.status(404).json({ error: 'Report not found' });
     return null;
@@ -50,6 +51,19 @@ function canManageSchedule(report, user) {
   return report.user_id === user.id;
 }
 
+// Triggering a build runs /query AS THE MODEL OWNER (rollupBuilder), bypassing
+// the free-SQL gate in models.js /query. So creating/enabling/running a build
+// must require write access to the underlying MODEL, not just report ownership
+// — otherwise a user who owns a report on someone else's (read-shared) model
+// could run arbitrary custom SQL under the owner's identity and outside RLS.
+function canTriggerBuild(report, user, req) {
+  if (!canManageSchedule(report, user)) return false;
+  if (!report.model_id) return false;
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(report.model_id);
+  if (!model) return false;
+  return canWriteModel(model, user, req);
+}
+
 router.get('/by-report/:reportId', requireAuth, (req, res) => {
   const report = loadReportOrFail(req.params.reportId, res);
   if (!report) return;
@@ -60,7 +74,7 @@ router.get('/by-report/:reportId', requireAuth, (req, res) => {
 router.post('/by-report/:reportId', requireAuth, (req, res) => {
   const report = loadReportOrFail(req.params.reportId, res);
   if (!report) return;
-  if (!canManageSchedule(report, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  if (!canTriggerBuild(report, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   const { cronExpression, timezone, enabled } = req.body || {};
   const cronErr = cacheSchedules.validateCron(cronExpression);
   if (cronErr) return res.status(400).json({ error: cronErr });
@@ -80,7 +94,7 @@ router.put('/:id', requireAuth, (req, res) => {
   if (!cur) return res.status(404).json({ error: 'Schedule not found' });
   const report = loadReportOrFail(cur.report_id, res);
   if (!report) return;
-  if (!canManageSchedule(report, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  if (!canTriggerBuild(report, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   const { cronExpression, timezone, enabled } = req.body || {};
   const next = { ...cur };
   if (cronExpression !== undefined) {
@@ -111,7 +125,7 @@ router.post('/:id/run', requireAuth, async (req, res) => {
   if (!cur) return res.status(404).json({ error: 'Schedule not found' });
   const report = loadReportOrFail(cur.report_id, res);
   if (!report) return;
-  if (!canManageSchedule(report, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  if (!canTriggerBuild(report, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   const result = await cacheScheduler.runOne(cur.id);
   res.json({ result });
 });
@@ -254,7 +268,7 @@ router.get('/size/:reportId', requireAuth, (req, res) => {
 router.post('/run-now/:reportId', requireAuth, async (req, res) => {
   const report = loadReportOrFail(req.params.reportId, res);
   if (!report) return;
-  if (!canManageSchedule(report, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  if (!canTriggerBuild(report, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   const full = db.prepare('SELECT model_id FROM reports WHERE id = ?').get(report.id);
   if (!full || !full.model_id) return res.status(400).json({ error: 'Report has no model' });
   try {
