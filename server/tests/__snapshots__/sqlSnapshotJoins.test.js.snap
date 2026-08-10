@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`join + filter + limit/offset SQL is stable — mssql 1`] = `"SELECT [customers].[country] AS [country], (SELECT SUM([orders].[amount]) FROM [orders] WHERE [orders].[status] = 'paid') AS [total] FROM [orders] LEFT JOIN [customers] ON [orders].[customer_id] = [customers].[id] WHERE [orders].[status] = 'paid' AND [customers].[country] IN ('FR', 'DE') GROUP BY [customers].[country] ORDER BY [customers].[country] OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY"`;
 

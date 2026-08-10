@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`custom expr referencing override-filtered measure SQL is stable — mssql 1`] = `"SELECT [items].[label] AS [label], ((SELECT SUM([items].[amt]) FROM [items] WHERE [items].[label] = 'X') + 1) AS [amt_x_plus] FROM [items] GROUP BY [items].[label] ORDER BY [items].[label] OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY"`;
 

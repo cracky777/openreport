@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`aggregate SQL is stable — mssql 1`] = `"SELECT [items].[label] AS [label], SUM([items].[amt]) AS [total], AVG([items].[amt]) AS [moyenne], MIN([items].[amt]) AS [mini], MAX([items].[amt]) AS [maxi], SUM([items].[dur]) AS [duree] FROM [items] GROUP BY [items].[label] ORDER BY [items].[label] OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY"`;
 
