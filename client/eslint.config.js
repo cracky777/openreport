@@ -1,5 +1,6 @@
 import js from '@eslint/js'
 import globals from 'globals'
+import react from 'eslint-plugin-react'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
@@ -22,10 +23,19 @@ export default defineConfig([
         sourceType: 'module',
       },
     },
+    plugins: { react },
+    settings: { react: { version: 'detect' } },
     rules: {
-      // Uppercase-named args are React components passed as props (e.g. Section, Field).
-      // ESLint can't see JSX usage without eslint-plugin-react, so mirror varsIgnorePattern
-      // on args to avoid false "unused" reports that invite breaking removals.
+      // Without these two, ESLint parses JSX but doesn't connect `<Foo />` to the
+      // variable `Foo`. A component used in JSX therefore looked both unused (if
+      // imported) and undefined (if not) — the second half being the dangerous
+      // one: a missing import passed lint *and* build, and only surfaced as a
+      // blank error screen at runtime.
+      'react/jsx-uses-vars': 'error',
+      'react/jsx-no-undef': 'error',
+      // Uppercase-named args are React components passed as props (e.g. Section,
+      // Field). jsx-uses-vars now covers the imported ones; the pattern stays for
+      // component props, which are still only ever "used" from JSX.
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^[A-Z_]', ignoreRestSiblings: true }],
       // eslint-plugin-react-hooks v7 promotes the React Compiler lint rules to
       // errors in its recommended config. This codebase doesn't adopt the React
