@@ -1,25 +1,10 @@
-// Shared modal chrome styles + card-action button factory, used by Dashboard
-// and its extracted modal components. Relocated verbatim (LOT 6.3 Phase 1).
+// Shared styles for what goes inside a modal — title, fields, action row — and
+// the card-action button factory. The dialog itself (backdrop, card, portal)
+// belongs to components/Modal.
 
 export const scheduleFieldLabel = {
   display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)',
   marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em',
-};
-
-export const actionModalBackdrop = {
-  position: 'fixed', inset: 0, zIndex: 1000,
-  background: 'rgba(15,23,42,0.35)',
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-};
-
-export const actionModalCard = {
-  background: 'var(--bg-panel)', borderRadius: 10, padding: 20,
-  minWidth: 360, maxWidth: 480,
-  // Cap the height so tall forms (schedule editor with all its fields) don't
-  // run past the viewport. The inner content scrolls when it overflows.
-  maxHeight: '85vh',
-  overflowY: 'auto',
-  boxShadow: '0 10px 30px rgba(15,23,42,0.25)',
 };
 
 export const actionModalTitle = {

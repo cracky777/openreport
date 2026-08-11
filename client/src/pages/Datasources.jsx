@@ -8,6 +8,8 @@ import { TbUpload } from 'react-icons/tb';
 import { PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
 import { DatasourcesHeader } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
+import Portal from '../components/Portal/Portal';
+import Modal from '../components/Modal/Modal';
 import { useGraph } from '../hooks/graphContext';
 import { useJourneyFocus } from '../hooks/useJourneyFocus';
 import { sortActiveFirst } from '../utils/sortActiveFirst';
@@ -208,7 +210,7 @@ export default function Datasources() {
           </div>
         )}
         {selectedFile && (
-          <div style={formCard}>
+          <Modal onClose={uploading ? undefined : () => setSelectedFile(null)} width={560}>
             <h2 style={_hs5}>Import file</h2>
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
               Selected: <strong style={{ color: 'var(--text-primary)' }}>{selectedFile.name}</strong>
@@ -220,10 +222,10 @@ export default function Datasources() {
               </PrimaryButton>
               <SecondaryButton onClick={() => setSelectedFile(null)} disabled={uploading}>Cancel</SecondaryButton>
             </div>
-          </div>
+          </Modal>
         )}
         {showForm && (
-          <div style={formCard}>
+          <Modal onClose={handleCancel} width={620}>
             <h2 style={_hs5}>{editingId ? 'Edit Data Source' : 'New Data Source'}</h2>
             <DatasourceForm
               editingId={editingId}
@@ -231,7 +233,7 @@ export default function Datasources() {
               onSaved={handleSaved}
               onCancel={handleCancel}
             />
-          </div>
+          </Modal>
         )}
 
         {loading ? (
@@ -290,12 +292,14 @@ export default function Datasources() {
         )}
       </main>
       {saveMsg && (
-        <div style={{
-          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-          padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 9999,
-          backgroundColor: saveMsg === 'Saved' ? 'var(--state-success)' : 'var(--state-danger)', color: '#fff',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-        }}>{saveMsg === 'Saved' ? '✓ Datasource saved' : '✗ Save failed'}</div>
+        <Portal>
+          <div style={{
+            position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+            padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 9999,
+            backgroundColor: saveMsg === 'Saved' ? 'var(--state-success)' : 'var(--state-danger)', color: '#fff',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          }}>{saveMsg === 'Saved' ? '✓ Datasource saved' : '✗ Save failed'}</div>
+        </Portal>
       )}
     </div>
   );
@@ -310,11 +314,6 @@ const primaryBtn = {
 const secondaryBtn = {
   padding: '8px 16px', fontSize: 14, background: 'var(--bg-panel)', color: 'var(--text-secondary)',
   border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer',
-};
-
-const formCard = {
-  backgroundColor: 'var(--bg-panel)', padding: 24, borderRadius: 8,
-  border: '1px solid var(--border-default)', marginBottom: 24,
 };
 
 // Card plus the join gutter to its right; the card flexes, the join keeps a

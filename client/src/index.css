@@ -195,6 +195,17 @@ body {
 [data-peek] ::-webkit-scrollbar { width: 0; height: 0; }
 [data-peek] * { scrollbar-width: none; }
 
+/* The join layer floats over the columns, and has to: each column paints an
+   opaque background, so a layer underneath would simply be hidden. A card
+   therefore claims its own place above it — joins stop at the edge of a card,
+   and a curve heading for the next column must not be drawn across the one it
+   starts from. Forms no longer need this: they open as modals, above
+   everything. */
+.journey-card {
+  position: relative;
+  z-index: 4;
+}
+
 /* Narrow window: a card of fixed width no longer fits the column, and squeezing
    it would leave nothing readable. Give the width back to the cards — the joins
    follow, since they are measured from the cards themselves. */

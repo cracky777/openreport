@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import { PrimaryButton } from '../components/PageHeader/PageHeader';
+import Modal from '../components/Modal/Modal';
 import { useGraph } from '../hooks/graphContext';
 import { useJourneyFocus } from '../hooks/useJourneyFocus';
 import { sortActiveFirst } from '../utils/sortActiveFirst';
@@ -96,7 +97,7 @@ export default function Models() {
           <PrimaryButton onClick={openForm}>+ New Model</PrimaryButton>
         </div>
         {showForm && (
-          <div style={formCard}>
+          <Modal onClose={() => setShowForm(false)} width={520}>
             <h2 style={_hs3}>New Data Model</h2>
             <div style={_hs4}>
               <label style={labelStyle}>Name</label>
@@ -141,7 +142,7 @@ export default function Models() {
               <button className="btn-hover" onClick={() => setShowForm(false)} style={secondaryBtn}>Cancel</button>
               <button className="btn-hover btn-hover-primary" onClick={handleCreate} style={primaryBtn}>Create & Configure</button>
             </div>
-          </div>
+          </Modal>
         )}
 
         {loading ? (
@@ -210,17 +211,8 @@ const inputStyle = {
   borderRadius: 6, fontSize: 14, outline: 'none', boxSizing: 'border-box',
 };
 const labelStyle = { display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4, fontWeight: 500 };
-const formCard = {
-  backgroundColor: 'var(--bg-panel)', padding: 24, borderRadius: 8,
-  border: '1px solid var(--border-default)', marginBottom: 24,
-};
-// Card plus the join gutter to its right; the card flexes, the join keeps a
-// fixed width so every arrow and count lines up down the column.
-// The row only anchors the join gutter: the gutter is taken out of the flow
-// so the cards stay centred on the page and the arrows reach past them,
-// towards the stage that lives to the right.
-// A row is just a centred card now — JoinLayer draws the relations over the
-// space either side of it.
+// A row is just a centred card; JoinLayer draws the relations over the space
+// either side of it.
 const joinRowStyle = { display: 'flex', justifyContent: 'center' };
 // Outside the active workspace: dimmed, never hidden — see Datasources.
 const dimmedRowStyle = { ...joinRowStyle, opacity: 0.4 };

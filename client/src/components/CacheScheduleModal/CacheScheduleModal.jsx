@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { TbLoader2, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbTrash } from 'react-icons/tb';
 import { TIMEZONE_OPTIONS, timeToCron, formatCronHuman } from '../../utils/scheduleHelpers';
-import { scheduleFieldLabel, actionModalBackdrop, actionModalCard, actionModalTitle, actionModalInput, actionModalActions, actionModalBtnSecondary, actionModalBtnPrimary, cardActionBtn } from '../dashboardModalStyles';
+import Modal from '../Modal/Modal';
+import { scheduleFieldLabel, actionModalTitle, actionModalInput, actionModalActions, actionModalBtnSecondary, actionModalBtnPrimary, cardActionBtn } from '../dashboardModalStyles';
 
 const _hs106 = { padding: 20, textAlign: 'center', color: 'var(--text-disabled)' };
 const _hs107 = { padding: 12, color: 'var(--state-danger)', fontSize: 13 };
@@ -22,102 +23,100 @@ function CacheScheduleModal({ modal, runningIds, onClose, onCreate, onToggle, on
   const { report, schedules, loading, error } = modal;
   const [editing, setEditing] = useState(false);
   return (
-    <div style={actionModalBackdrop} onClick={onClose}>
-      <div style={{ ...actionModalCard, minWidth: 520, maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ ...actionModalTitle, marginBottom: 14 }}>Schedule refresh — {report.title}</div>
+    <Modal onClose={onClose} width={600}>
+      <div style={{ ...actionModalTitle, marginBottom: 14 }}>Schedule refresh — {report.title}</div>
 
-        {!editing && (
-          <>
-            {loading ? (
-              <div style={_hs106}>Loading...</div>
-            ) : error ? (
-              <div style={_hs107}>{error}</div>
-            ) : schedules.length === 0 ? (
-              <div style={_hs108}>
-                No schedules yet for this report.
-              </div>
-            ) : (
-              <div style={_hs109}>
-                {schedules.map((s) => {
-                  const isRunning = runningIds.has(s.id);
-                  const human = formatCronHuman(s.cron_expression);
-                  const isHuman = human !== s.cron_expression;
-                  return (
-                    <div key={s.id} style={_hs110}>
-                      <div style={_hs111}>
-                        <div style={_hs112}>
-                          {isHuman
-                            ? <span>{human}</span>
-                            : <code style={_hs113}>{s.cron_expression}</code>}
-                          {!s.enabled && (
-                            <span style={_hs114}>paused</span>
-                          )}
-                        </div>
-                        <div style={_hs115}>
-                          {s.timezone}
-                          {s.last_run_at && (
-                            <span style={{ color: s.last_run_status === 'error' ? 'var(--state-danger)' : 'var(--text-muted)' }}>
-                              {' · last run '}{new Date(s.last_run_at).toLocaleString()}{s.last_run_status === 'error' ? ' (error)' : ''}
-                            </span>
-                          )}
-                        </div>
-                        {s.last_run_status === 'error' && s.last_error && (
-                          <div style={_hs116}>
-                            {s.last_error}
-                          </div>
+      {!editing && (
+        <>
+          {loading ? (
+            <div style={_hs106}>Loading...</div>
+          ) : error ? (
+            <div style={_hs107}>{error}</div>
+          ) : schedules.length === 0 ? (
+            <div style={_hs108}>
+              No schedules yet for this report.
+            </div>
+          ) : (
+            <div style={_hs109}>
+              {schedules.map((s) => {
+                const isRunning = runningIds.has(s.id);
+                const human = formatCronHuman(s.cron_expression);
+                const isHuman = human !== s.cron_expression;
+                return (
+                  <div key={s.id} style={_hs110}>
+                    <div style={_hs111}>
+                      <div style={_hs112}>
+                        {isHuman
+                          ? <span>{human}</span>
+                          : <code style={_hs113}>{s.cron_expression}</code>}
+                        {!s.enabled && (
+                          <span style={_hs114}>paused</span>
                         )}
                       </div>
-                      {(() => {
-                        const sendBtn = cardActionBtn('accent');
-                        return (
-                          <button
-                            title={isRunning ? 'Refreshing…' : 'Run now'}
-                            onClick={() => onRunNow(s)}
-                            disabled={isRunning}
-                            {...sendBtn}
-                            style={{ ...sendBtn.style, cursor: isRunning ? 'wait' : 'pointer', opacity: isRunning ? 0.7 : 1 }}
-                          >
-                            {isRunning
-                              ? <TbLoader2 size={14} className="spin" />
-                              : <TbPlayerPlay size={14} />}
-                          </button>
-                        );
-                      })()}
-                      <button title={s.enabled ? 'Pause' : 'Resume'} onClick={() => onToggle(s)} {...cardActionBtn(s.enabled ? 'accent' : 'muted')}>
-                        {s.enabled ? <TbToggleRight size={16} /> : <TbToggleLeft size={16} />}
-                      </button>
-                      <button title="Delete" onClick={() => onDelete(s)} {...cardActionBtn('danger')}>
-                        <TbTrash size={14} />
-                      </button>
+                      <div style={_hs115}>
+                        {s.timezone}
+                        {s.last_run_at && (
+                          <span style={{ color: s.last_run_status === 'error' ? 'var(--state-danger)' : 'var(--text-muted)' }}>
+                            {' · last run '}{new Date(s.last_run_at).toLocaleString()}{s.last_run_status === 'error' ? ' (error)' : ''}
+                          </span>
+                        )}
+                      </div>
+                      {s.last_run_status === 'error' && s.last_error && (
+                        <div style={_hs116}>
+                          {s.last_error}
+                        </div>
+                      )}
                     </div>
-                  );
-                })}
-              </div>
-            )}
-            <div style={{ ...actionModalActions, justifyContent: 'space-between' }}>
-              <button
-                className="btn-hover btn-hover-primary"
-                style={actionModalBtnPrimary}
-                onClick={() => setEditing(true)}
-              >
-                + New schedule
-              </button>
-              <button className="btn-hover" style={actionModalBtnSecondary} onClick={onClose}>Close</button>
+                    {(() => {
+                      const sendBtn = cardActionBtn('accent');
+                      return (
+                        <button
+                          title={isRunning ? 'Refreshing…' : 'Run now'}
+                          onClick={() => onRunNow(s)}
+                          disabled={isRunning}
+                          {...sendBtn}
+                          style={{ ...sendBtn.style, cursor: isRunning ? 'wait' : 'pointer', opacity: isRunning ? 0.7 : 1 }}
+                        >
+                          {isRunning
+                            ? <TbLoader2 size={14} className="spin" />
+                            : <TbPlayerPlay size={14} />}
+                        </button>
+                      );
+                    })()}
+                    <button title={s.enabled ? 'Pause' : 'Resume'} onClick={() => onToggle(s)} {...cardActionBtn(s.enabled ? 'accent' : 'muted')}>
+                      {s.enabled ? <TbToggleRight size={16} /> : <TbToggleLeft size={16} />}
+                    </button>
+                    <button title="Delete" onClick={() => onDelete(s)} {...cardActionBtn('danger')}>
+                      <TbTrash size={14} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-          </>
-        )}
+          )}
+          <div style={{ ...actionModalActions, justifyContent: 'space-between' }}>
+            <button
+              className="btn-hover btn-hover-primary"
+              style={actionModalBtnPrimary}
+              onClick={() => setEditing(true)}
+            >
+              + New schedule
+            </button>
+            <button className="btn-hover" style={actionModalBtnSecondary} onClick={onClose}>Close</button>
+          </div>
+        </>
+      )}
 
-        {editing && (
-          <CacheScheduleEditor
-            onCancel={() => setEditing(false)}
-            onSubmit={async ({ cronExpression, timezone }) => {
-              await onCreate({ cronExpression, timezone });
-              setEditing(false);
-            }}
-          />
-        )}
-      </div>
-    </div>
+      {editing && (
+        <CacheScheduleEditor
+          onCancel={() => setEditing(false)}
+          onSubmit={async ({ cronExpression, timezone }) => {
+            await onCreate({ cronExpression, timezone });
+            setEditing(false);
+          }}
+        />
+      )}
+    </Modal>
   );
 }
 

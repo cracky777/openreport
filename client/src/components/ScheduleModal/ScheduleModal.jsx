@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { TbLoader2, TbPencil, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbTrash } from 'react-icons/tb';
 import { TIMEZONE_OPTIONS, timeToCron, cronToTime, formatCronHuman } from '../../utils/scheduleHelpers';
-import { scheduleFieldLabel, actionModalBackdrop, actionModalCard, actionModalTitle, actionModalInput, actionModalActions, actionModalBtnSecondary, actionModalBtnPrimary, cardActionBtn } from '../dashboardModalStyles';
+import Modal from '../Modal/Modal';
+import { scheduleFieldLabel, actionModalTitle, actionModalInput, actionModalActions, actionModalBtnSecondary, actionModalBtnPrimary, cardActionBtn } from '../dashboardModalStyles';
 
 const _hs120 = { color: 'var(--text-muted)' };
 const _hs121 = { fontWeight: 600 };
@@ -46,129 +47,127 @@ function ScheduleModal({ modal, runningIds, onClose, onStartCreate, onStartEdit,
   const isEditing = editing === 'new' || (editing && typeof editing === 'object');
   const atQuota = !!(limits && limits.maxSchedules != null && (limits.currentSchedules ?? schedules.length) >= limits.maxSchedules);
   return (
-    <div style={actionModalBackdrop} onClick={onClose}>
-      <div style={{ ...actionModalCard, minWidth: 520, maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ ...actionModalTitle, marginBottom: 14 }}>Email schedule — {report.title}</div>
-        {limits && (
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
-            padding: '8px 12px', marginBottom: 12, fontSize: 12,
-            background: atQuota ? 'var(--state-warning-soft)' : 'var(--bg-subtle)',
-            border: `1px solid ${atQuota ? 'var(--state-warning)' : 'var(--border-default)'}`,
-            borderRadius: 6,
-            color: atQuota ? 'var(--state-warning)' : 'var(--text-secondary)',
-          }}>
-            <span>
-              <strong>{limits.planName || limits.plan} plan</strong>
-              {limits.maxSchedules != null
-                ? ` — ${limits.currentSchedules ?? schedules.length}/${limits.maxSchedules} schedule${limits.maxSchedules === 1 ? '' : 's'} used`
-                : ' — unlimited schedules'}
-              {limits.maxFiresPerDay != null && (
-                <span style={_hs120}>{` · max ${limits.maxFiresPerDay} send${limits.maxFiresPerDay === 1 ? '' : 's'}/day per schedule`}</span>
-              )}
-            </span>
-            {atQuota && <span style={_hs121}>Quota reached</span>}
-          </div>
-        )}
+    <Modal onClose={onClose} width={600}>
+      <div style={{ ...actionModalTitle, marginBottom: 14 }}>Email schedule — {report.title}</div>
+      {limits && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+          padding: '8px 12px', marginBottom: 12, fontSize: 12,
+          background: atQuota ? 'var(--state-warning-soft)' : 'var(--bg-subtle)',
+          border: `1px solid ${atQuota ? 'var(--state-warning)' : 'var(--border-default)'}`,
+          borderRadius: 6,
+          color: atQuota ? 'var(--state-warning)' : 'var(--text-secondary)',
+        }}>
+          <span>
+            <strong>{limits.planName || limits.plan} plan</strong>
+            {limits.maxSchedules != null
+              ? ` — ${limits.currentSchedules ?? schedules.length}/${limits.maxSchedules} schedule${limits.maxSchedules === 1 ? '' : 's'} used`
+              : ' — unlimited schedules'}
+            {limits.maxFiresPerDay != null && (
+              <span style={_hs120}>{` · max ${limits.maxFiresPerDay} send${limits.maxFiresPerDay === 1 ? '' : 's'}/day per schedule`}</span>
+            )}
+          </span>
+          {atQuota && <span style={_hs121}>Quota reached</span>}
+        </div>
+      )}
 
-        {!isEditing && (
-          <>
-            {loading ? (
-              <div style={_hs122}>Loading...</div>
-            ) : error ? (
-              <div style={_hs123}>{error}</div>
-            ) : schedules.length === 0 ? (
-              <div style={_hs124}>
-                No schedules yet for this report.
-              </div>
-            ) : (
-              <div style={_hs125}>
-                {schedules.map((s) => (
-                  <div key={s.id} style={_hs126}>
-                    <div style={_hs127}>
-                      <div style={_hs128}>
-                        {s.name}
-                        {!s.enabled && (
-                          <span style={_hs129}>paused</span>
-                        )}
-                      </div>
-                      <div style={_hs130}>
-                        {(() => {
-                          const human = formatCronHuman(s.cron_expression);
-                          return human !== s.cron_expression
-                            ? <span>{human}</span>
-                            : <code style={_hs131}>{s.cron_expression}</code>;
-                        })()}
-                        {' · '}
-                        {s.recipients.length} recipient{s.recipients.length === 1 ? '' : 's'}
-                        {s.last_run_at && (
-                          <span style={{ color: s.last_run_status === 'error' ? 'var(--state-danger)' : 'var(--text-muted)' }}>
-                            {' · last run '}{new Date(s.last_run_at).toLocaleString()}{s.last_run_status === 'error' ? ' (error)' : ''}
-                          </span>
-                        )}
-                      </div>
-                      {s.last_run_status === 'error' && s.last_error && (
-                        <div style={_hs132}>
-                          {s.last_error}
-                        </div>
+      {!isEditing && (
+        <>
+          {loading ? (
+            <div style={_hs122}>Loading...</div>
+          ) : error ? (
+            <div style={_hs123}>{error}</div>
+          ) : schedules.length === 0 ? (
+            <div style={_hs124}>
+              No schedules yet for this report.
+            </div>
+          ) : (
+            <div style={_hs125}>
+              {schedules.map((s) => (
+                <div key={s.id} style={_hs126}>
+                  <div style={_hs127}>
+                    <div style={_hs128}>
+                      {s.name}
+                      {!s.enabled && (
+                        <span style={_hs129}>paused</span>
                       )}
                     </div>
-                    {(() => {
-                      const isRunning = !!(runningIds && runningIds.has(s.id));
-                      const sendBtn = cardActionBtn('accent');
-                      return (
-                        <button
-                          title={isRunning ? 'Sending…' : 'Send now'}
-                          onClick={() => onRunNow(s)}
-                          disabled={isRunning}
-                          {...sendBtn}
-                          style={{ ...sendBtn.style, cursor: isRunning ? 'wait' : 'pointer', opacity: isRunning ? 0.7 : 1 }}
-                        >
-                          {isRunning
-                            ? <TbLoader2 size={14} style={_hs133} />
-                            : <TbPlayerPlay size={14} />}
-                        </button>
-                      );
-                    })()}
-                    <button title={s.enabled ? 'Pause' : 'Resume'} onClick={() => onToggle(s)} {...cardActionBtn(s.enabled ? 'accent' : 'muted')}>
-                      {s.enabled ? <TbToggleRight size={16} /> : <TbToggleLeft size={16} />}
-                    </button>
-                    <button title="Edit" onClick={() => onStartEdit(s)} {...cardActionBtn()}>
-                      <TbPencil size={14} />
-                    </button>
-                    <button title="Delete" onClick={() => onDelete(s)} {...cardActionBtn('danger')}>
-                      <TbTrash size={14} />
-                    </button>
+                    <div style={_hs130}>
+                      {(() => {
+                        const human = formatCronHuman(s.cron_expression);
+                        return human !== s.cron_expression
+                          ? <span>{human}</span>
+                          : <code style={_hs131}>{s.cron_expression}</code>;
+                      })()}
+                      {' · '}
+                      {s.recipients.length} recipient{s.recipients.length === 1 ? '' : 's'}
+                      {s.last_run_at && (
+                        <span style={{ color: s.last_run_status === 'error' ? 'var(--state-danger)' : 'var(--text-muted)' }}>
+                          {' · last run '}{new Date(s.last_run_at).toLocaleString()}{s.last_run_status === 'error' ? ' (error)' : ''}
+                        </span>
+                      )}
+                    </div>
+                    {s.last_run_status === 'error' && s.last_error && (
+                      <div style={_hs132}>
+                        {s.last_error}
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
-            <div style={{ ...actionModalActions, justifyContent: 'space-between' }}>
-              <button
-                className="btn-hover btn-hover-primary"
-                style={atQuota ? { ...actionModalBtnPrimary, opacity: 0.5, cursor: 'not-allowed' } : actionModalBtnPrimary}
-                onClick={onStartCreate}
-                disabled={atQuota}
-                title={atQuota ? 'Schedule quota reached for your plan' : ''}
-              >
-                + New schedule
-              </button>
-              <button className="btn-hover" style={actionModalBtnSecondary} onClick={onClose}>Close</button>
+                  {(() => {
+                    const isRunning = !!(runningIds && runningIds.has(s.id));
+                    const sendBtn = cardActionBtn('accent');
+                    return (
+                      <button
+                        title={isRunning ? 'Sending…' : 'Send now'}
+                        onClick={() => onRunNow(s)}
+                        disabled={isRunning}
+                        {...sendBtn}
+                        style={{ ...sendBtn.style, cursor: isRunning ? 'wait' : 'pointer', opacity: isRunning ? 0.7 : 1 }}
+                      >
+                        {isRunning
+                          ? <TbLoader2 size={14} style={_hs133} />
+                          : <TbPlayerPlay size={14} />}
+                      </button>
+                    );
+                  })()}
+                  <button title={s.enabled ? 'Pause' : 'Resume'} onClick={() => onToggle(s)} {...cardActionBtn(s.enabled ? 'accent' : 'muted')}>
+                    {s.enabled ? <TbToggleRight size={16} /> : <TbToggleLeft size={16} />}
+                  </button>
+                  <button title="Edit" onClick={() => onStartEdit(s)} {...cardActionBtn()}>
+                    <TbPencil size={14} />
+                  </button>
+                  <button title="Delete" onClick={() => onDelete(s)} {...cardActionBtn('danger')}>
+                    <TbTrash size={14} />
+                  </button>
+                </div>
+              ))}
             </div>
-          </>
-        )}
+          )}
+          <div style={{ ...actionModalActions, justifyContent: 'space-between' }}>
+            <button
+              className="btn-hover btn-hover-primary"
+              style={atQuota ? { ...actionModalBtnPrimary, opacity: 0.5, cursor: 'not-allowed' } : actionModalBtnPrimary}
+              onClick={onStartCreate}
+              disabled={atQuota}
+              title={atQuota ? 'Schedule quota reached for your plan' : ''}
+            >
+              + New schedule
+            </button>
+            <button className="btn-hover" style={actionModalBtnSecondary} onClick={onClose}>Close</button>
+          </div>
+        </>
+      )}
 
-        {isEditing && (
-          <ScheduleEditor
-            initial={editing === 'new' ? null : editing}
-            limits={limits}
-            dimensions={dimensions || []}
-            onCancel={onCancelEdit}
-            onSubmit={onSubmit}
-          />
+      {isEditing && (
+        <ScheduleEditor
+          initial={editing === 'new' ? null : editing}
+          limits={limits}
+          dimensions={dimensions || []}
+          onCancel={onCancelEdit}
+          onSubmit={onSubmit}
+        />
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }
 

@@ -14,13 +14,15 @@ import { useCardCacheWarming } from '../hooks/useCardCacheWarming';
 import { TopbarSwitcher, UserMenuExtras } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
 
+import Portal from '../components/Portal/Portal';
+import Modal from '../components/Modal/Modal';
 import { useGraph } from '../hooks/graphContext';
 import { useJourneyFocus } from '../hooks/useJourneyFocus';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
 import CacheInspectorModal from '../components/CacheInspectorModal/CacheInspectorModal';
 import CacheScheduleModal from '../components/CacheScheduleModal/CacheScheduleModal';
 import ScheduleModal from '../components/ScheduleModal/ScheduleModal';
-import { actionModalBackdrop, actionModalCard, actionModalTitle, actionModalInput, actionModalActions, actionModalBtnSecondary, actionModalBtnPrimary, cardActionBtn } from '../components/dashboardModalStyles';
+import { actionModalTitle, actionModalInput, actionModalActions, actionModalBtnSecondary, actionModalBtnPrimary, cardActionBtn } from '../components/dashboardModalStyles';
 
 // Fills the stage slot AppShell gives it — the shell owns the viewport height
 // and the header now.
@@ -805,42 +807,40 @@ export default function Dashboard() {
 
           {/* Import-from-bundle modal */}
           {importBundle && (
-            <div style={modalOverlay} onClick={cancelImport}>
-              <div style={{ ...actionModalCard, width: 460 }} onClick={(e) => e.stopPropagation()}>
-                <h3 style={_hs40}>Import report</h3>
-                <p style={_hs41}>
-                  Source: <strong>{importBundle.report?.title || 'Untitled'}</strong>
-                  {importBundle.report?.model_name && (
-                    <> &middot; originally bound to model <code>{importBundle.report.model_name}</code></>
-                  )}
-                </p>
-                <div style={_hs42}>
-                  <label style={labelStyle}>Bind to data model</label>
-                  <select
-                    value={importModelId}
-                    onChange={(e) => setImportModelId(e.target.value)}
-                    style={inputStyle}
-                  >
-                    <option value="">— pick one —</option>
-                    {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                  </select>
-                  <p style={_hs43}>
-                    Widgets will be re-queried against the model you pick. Field references in the bundle must match this model's dimensions and measures.
-                  </p>
-                </div>
-                {importError && (
-                  <div style={_hs44}>
-                    {importError}
-                  </div>
+            <Modal onClose={cancelImport} width={460}>
+              <h3 style={_hs40}>Import report</h3>
+              <p style={_hs41}>
+                Source: <strong>{importBundle.report?.title || 'Untitled'}</strong>
+                {importBundle.report?.model_name && (
+                  <> &middot; originally bound to model <code>{importBundle.report.model_name}</code></>
                 )}
-                <div style={_hs45}>
-                  <button className="btn-hover" onClick={cancelImport} style={{ ...primaryBtn, background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border-default)' }}>Cancel</button>
-                  <button className="btn-hover btn-hover-primary" onClick={submitImport} disabled={!importModelId || importing} style={primaryBtn}>
-                    {importing ? 'Importing…' : 'Import'}
-                  </button>
-                </div>
+              </p>
+              <div style={_hs42}>
+                <label style={labelStyle}>Bind to data model</label>
+                <select
+                  value={importModelId}
+                  onChange={(e) => setImportModelId(e.target.value)}
+                  style={inputStyle}
+                >
+                  <option value="">— pick one —</option>
+                  {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+                <p style={_hs43}>
+                  Widgets will be re-queried against the model you pick. Field references in the bundle must match this model's dimensions and measures.
+                </p>
               </div>
-            </div>
+              {importError && (
+                <div style={_hs44}>
+                  {importError}
+                </div>
+              )}
+              <div style={_hs45}>
+                <button className="btn-hover" onClick={cancelImport} style={{ ...primaryBtn, background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border-default)' }}>Cancel</button>
+                <button className="btn-hover btn-hover-primary" onClick={submitImport} disabled={!importModelId || importing} style={primaryBtn}>
+                  {importing ? 'Importing…' : 'Import'}
+                </button>
+              </div>
+            </Modal>
           )}
 
           {/* Top-level import error (when file failed to parse before opening the modal) */}
@@ -852,138 +852,136 @@ export default function Dashboard() {
 
           {/* Create report modal — wizard */}
           {showCreate && (
-            <div style={modalOverlay}>
-              <div style={{ ...actionModalCard, width: 480 }}>
-                <h3 style={_hs47}>New Report{selectedWs ? ` in ${wsName}` : ''}</h3>
+            <Modal width={480}>
+              <h3 style={_hs47}>New Report{selectedWs ? ` in ${wsName}` : ''}</h3>
 
-                {/* Title — always visible. Persisted through the database-connection
-                    round trip via URL param so the user gets it back when they
-                    return from the model editor. */}
-                <div style={_hs48}>
-                  <label style={labelStyle}>Title</label>
-                  <input style={inputStyle} value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Report title" />
-                </div>
-
-                {/* Step 1: Choose source type */}
-                {!createMode && (
-                  <div>
-                    <label style={{ ...labelStyle, marginBottom: 10 }}>Data source</label>
-                    <div style={_hs49}>
-                      {models.length > 0 && (
-                        <button className="btn-hover" onClick={() => setCreateMode('model')} style={sourceCard}>
-                          <TbLayoutDashboard size={28} color="var(--accent-primary)" />
-                          <span style={_hs50}>Existing Model</span>
-                          <span style={_hs51}>Use a data model already configured</span>
-                        </button>
-                      )}
-                      <button className="btn-hover" onClick={() => { setSelectedFile(null); setUploadError(''); setCreateMode('file'); }} style={sourceCard}>
-                        <TbUpload size={28} color="#16a34a" />
-                        <span style={_hs52}>Import File</span>
-                        <span style={_hs53}>CSV, Excel, Parquet, JSON</span>
-                      </button>
-                      <button className="btn-hover" onClick={() => setCreateMode('connection')} style={sourceCard}>
-                        <TbDatabase size={28} color="#f59e0b" />
-                        <span style={_hs54}>Database</span>
-                        <span style={_hs55}>Connect to a database</span>
-                      </button>
-                    </div>
-                    <div style={_hs56}>
-                      <button className="btn-hover" onClick={() => { setShowCreate(false); setCreateMode(null); }} style={secondaryBtn}>Cancel</button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Step 2a: Choose existing model */}
-                {createMode === 'model' && (
-                  <div>
-                    <div style={_hs57}>
-                      <label style={labelStyle}>Model</label>
-                      <select style={inputStyle} value={newModelId} onChange={(e) => setNewModelId(e.target.value)}>
-                        <option value="">Select a model...</option>
-                        {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                      </select>
-                    </div>
-                    <div style={_hs58}>
-                      <button className="btn-hover" onClick={() => setCreateMode(null)} style={secondaryBtn}>← Back</button>
-                      <button className="btn-hover btn-hover-primary" onClick={handleCreate} disabled={!newModelId} style={{ ...primaryBtn, opacity: newModelId ? 1 : 0.5 }}>Create Report</button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Step 2b: Upload file */}
-                {createMode === 'file' && (
-                  <div>
-                    <input ref={createFileRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv" style={_hs59}
-                      onChange={handleFileSelected} />
-                    {!selectedFile ? (
-                      // No file yet → the drop zone.
-                      <div
-                        onClick={() => createFileRef.current?.click()}
-                        style={{
-                          border: '2px dashed #cbd5e1', borderRadius: 8, padding: '32px 20px', textAlign: 'center',
-                          cursor: 'pointer', marginBottom: 12,
-                          background: 'var(--bg-panel-alt)', transition: 'border-color 0.15s',
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--accent-primary)'}
-                        onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border-strong)'}
-                      >
-                        <TbUpload size={32} color="var(--text-disabled)" />
-                        <div style={_hs61}>Click to select a file</div>
-                        <div style={_hs62}>CSV, Excel, Parquet, JSON (max 500 Mo)</div>
-                      </div>
-                    ) : (
-                      // File picked → a compact chip (name + remove) then the options.
-                      // Removing the file restores the drop zone above.
-                      <>
-                        <div style={fileChipStyle}>
-                          <TbFileText size={18} color="var(--accent-primary)" style={{ flexShrink: 0 }} />
-                          <span style={fileChipNameStyle} title={selectedFile.name}>{selectedFile.name}</span>
-                          <button
-                            className="btn-hover"
-                            onClick={() => { setSelectedFile(null); setUploadError(''); }}
-                            disabled={uploadingFile}
-                            title="Remove file"
-                            style={fileChipRemoveStyle}
-                          >
-                            <TbTrash size={16} />
-                          </button>
-                        </div>
-                        <ImportOptions value={importOpts} onChange={setImportOpts} kind={importKind(selectedFile.name)} sheetNames={sheetNames} />
-                      </>
-                    )}
-                    {uploadError && <div style={_hs63}>{uploadError}</div>}
-                    <div style={{ ...(_hs64), justifyContent: 'space-between', gap: 8 }}>
-                      <button className="btn-hover" onClick={() => { setCreateMode(null); setUploadError(''); setSelectedFile(null); }} style={secondaryBtn}>← Back</button>
-                      {selectedFile && (() => {
-                        // Block only when the sheets are known but none is ticked;
-                        // if we couldn't read them, let the server pick the first.
-                        const noSheets = importKind(selectedFile.name) === 'excel' && sheetNames.length > 0 && !(importOpts.sheets && importOpts.sheets.length);
-                        const disabled = uploadingFile || noSheets;
-                        return (
-                          <button className="btn-hover btn-hover-primary" onClick={handleFileForReport} disabled={disabled} style={{ ...primaryBtn, opacity: disabled ? 0.6 : 1 }}>
-                            {uploadingFile ? 'Importing…' : 'Import'}
-                          </button>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                )}
-
-                {/* Step 2c: New database connection — create the datasource here, then chain into the model editor */}
-                {createMode === 'connection' && (
-                  <DatasourceForm
-                    onSaved={async ({ datasource, isNew }) => {
-                      setShowCreate(false);
-                      setCreateMode(null);
-                      if (isNew) {
-                        await createModelAndNavigate(navigate, datasource, { then: 'newReport', title: newTitle });
-                      }
-                    }}
-                    onCancel={() => setCreateMode(null)}
-                  />
-                )}
+              {/* Title — always visible. Persisted through the database-connection
+                  round trip via URL param so the user gets it back when they
+                  return from the model editor. */}
+              <div style={_hs48}>
+                <label style={labelStyle}>Title</label>
+                <input style={inputStyle} value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Report title" />
               </div>
-            </div>
+
+              {/* Step 1: Choose source type */}
+              {!createMode && (
+                <div>
+                  <label style={{ ...labelStyle, marginBottom: 10 }}>Data source</label>
+                  <div style={_hs49}>
+                    {models.length > 0 && (
+                      <button className="btn-hover" onClick={() => setCreateMode('model')} style={sourceCard}>
+                        <TbLayoutDashboard size={28} color="var(--accent-primary)" />
+                        <span style={_hs50}>Existing Model</span>
+                        <span style={_hs51}>Use a data model already configured</span>
+                      </button>
+                    )}
+                    <button className="btn-hover" onClick={() => { setSelectedFile(null); setUploadError(''); setCreateMode('file'); }} style={sourceCard}>
+                      <TbUpload size={28} color="#16a34a" />
+                      <span style={_hs52}>Import File</span>
+                      <span style={_hs53}>CSV, Excel, Parquet, JSON</span>
+                    </button>
+                    <button className="btn-hover" onClick={() => setCreateMode('connection')} style={sourceCard}>
+                      <TbDatabase size={28} color="#f59e0b" />
+                      <span style={_hs54}>Database</span>
+                      <span style={_hs55}>Connect to a database</span>
+                    </button>
+                  </div>
+                  <div style={_hs56}>
+                    <button className="btn-hover" onClick={() => { setShowCreate(false); setCreateMode(null); }} style={secondaryBtn}>Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 2a: Choose existing model */}
+              {createMode === 'model' && (
+                <div>
+                  <div style={_hs57}>
+                    <label style={labelStyle}>Model</label>
+                    <select style={inputStyle} value={newModelId} onChange={(e) => setNewModelId(e.target.value)}>
+                      <option value="">Select a model...</option>
+                      {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    </select>
+                  </div>
+                  <div style={_hs58}>
+                    <button className="btn-hover" onClick={() => setCreateMode(null)} style={secondaryBtn}>← Back</button>
+                    <button className="btn-hover btn-hover-primary" onClick={handleCreate} disabled={!newModelId} style={{ ...primaryBtn, opacity: newModelId ? 1 : 0.5 }}>Create Report</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 2b: Upload file */}
+              {createMode === 'file' && (
+                <div>
+                  <input ref={createFileRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv" style={_hs59}
+                    onChange={handleFileSelected} />
+                  {!selectedFile ? (
+                    // No file yet → the drop zone.
+                    <div
+                      onClick={() => createFileRef.current?.click()}
+                      style={{
+                        border: '2px dashed #cbd5e1', borderRadius: 8, padding: '32px 20px', textAlign: 'center',
+                        cursor: 'pointer', marginBottom: 12,
+                        background: 'var(--bg-panel-alt)', transition: 'border-color 0.15s',
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--accent-primary)'}
+                      onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border-strong)'}
+                    >
+                      <TbUpload size={32} color="var(--text-disabled)" />
+                      <div style={_hs61}>Click to select a file</div>
+                      <div style={_hs62}>CSV, Excel, Parquet, JSON (max 500 Mo)</div>
+                    </div>
+                  ) : (
+                    // File picked → a compact chip (name + remove) then the options.
+                    // Removing the file restores the drop zone above.
+                    <>
+                      <div style={fileChipStyle}>
+                        <TbFileText size={18} color="var(--accent-primary)" style={{ flexShrink: 0 }} />
+                        <span style={fileChipNameStyle} title={selectedFile.name}>{selectedFile.name}</span>
+                        <button
+                          className="btn-hover"
+                          onClick={() => { setSelectedFile(null); setUploadError(''); }}
+                          disabled={uploadingFile}
+                          title="Remove file"
+                          style={fileChipRemoveStyle}
+                        >
+                          <TbTrash size={16} />
+                        </button>
+                      </div>
+                      <ImportOptions value={importOpts} onChange={setImportOpts} kind={importKind(selectedFile.name)} sheetNames={sheetNames} />
+                    </>
+                  )}
+                  {uploadError && <div style={_hs63}>{uploadError}</div>}
+                  <div style={{ ...(_hs64), justifyContent: 'space-between', gap: 8 }}>
+                    <button className="btn-hover" onClick={() => { setCreateMode(null); setUploadError(''); setSelectedFile(null); }} style={secondaryBtn}>← Back</button>
+                    {selectedFile && (() => {
+                      // Block only when the sheets are known but none is ticked;
+                      // if we couldn't read them, let the server pick the first.
+                      const noSheets = importKind(selectedFile.name) === 'excel' && sheetNames.length > 0 && !(importOpts.sheets && importOpts.sheets.length);
+                      const disabled = uploadingFile || noSheets;
+                      return (
+                        <button className="btn-hover btn-hover-primary" onClick={handleFileForReport} disabled={disabled} style={{ ...primaryBtn, opacity: disabled ? 0.6 : 1 }}>
+                          {uploadingFile ? 'Importing…' : 'Import'}
+                        </button>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* Step 2c: New database connection — create the datasource here, then chain into the model editor */}
+              {createMode === 'connection' && (
+                <DatasourceForm
+                  onSaved={async ({ datasource, isNew }) => {
+                    setShowCreate(false);
+                    setCreateMode(null);
+                    if (isNew) {
+                      await createModelAndNavigate(navigate, datasource, { then: 'newReport', title: newTitle });
+                    }
+                  }}
+                  onCancel={() => setCreateMode(null)}
+                />
+              )}
+            </Modal>
           )}
 
           {/* Reports grid */}
@@ -1236,86 +1234,80 @@ export default function Dashboard() {
 
       {/* Rename modal */}
       {renameModal && (
-        <div style={actionModalBackdrop} onClick={() => setRenameModal(null)}>
-          <div style={actionModalCard} onClick={(e) => e.stopPropagation()}>
-            <div style={actionModalTitle}>Rename report</div>
-            <input autoFocus value={renameModal.value}
-              onChange={(e) => setRenameModal({ ...renameModal, value: e.target.value })}
-              onKeyDown={(e) => { if (e.key === 'Enter') submitRename(); }}
-              style={actionModalInput} placeholder="Report title" />
-            <div style={actionModalActions}>
-              <button className="btn-hover" style={actionModalBtnSecondary} onClick={() => setRenameModal(null)}>Cancel</button>
-              <button className="btn-hover btn-hover-primary" style={actionModalBtnPrimary} onClick={submitRename} disabled={!renameModal.value.trim()}>Save</button>
-            </div>
+        <Modal onClose={() => setRenameModal(null)}>
+          <div style={actionModalTitle}>Rename report</div>
+          <input autoFocus value={renameModal.value}
+            onChange={(e) => setRenameModal({ ...renameModal, value: e.target.value })}
+            onKeyDown={(e) => { if (e.key === 'Enter') submitRename(); }}
+            style={actionModalInput} placeholder="Report title" />
+          <div style={actionModalActions}>
+            <button className="btn-hover" style={actionModalBtnSecondary} onClick={() => setRenameModal(null)}>Cancel</button>
+            <button className="btn-hover btn-hover-primary" style={actionModalBtnPrimary} onClick={submitRename} disabled={!renameModal.value.trim()}>Save</button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Move modal */}
       {moveModal && (
-        <div style={actionModalBackdrop} onClick={() => setMoveModal(null)}>
-          <div style={actionModalCard} onClick={(e) => e.stopPropagation()}>
+        <Modal onClose={() => setMoveModal(null)}>
             <div style={actionModalTitle}>Move "{moveModal.report.title}"</div>
-            <select value={moveModal.targetWs}
-              onChange={(e) => setMoveModal({ ...moveModal, targetWs: e.target.value })}
-              style={actionModalInput}>
-              {personalWorkspace && (
-                <option value={personalWorkspace.id}>My Reports</option>
-              )}
-              {workspaces.map((ws) => (
-                <option key={ws.id} value={ws.id}>{ws.name}</option>
-              ))}
-            </select>
-            <div style={actionModalActions}>
-              <button className="btn-hover" style={actionModalBtnSecondary} onClick={() => setMoveModal(null)}>Cancel</button>
-              <button className="btn-hover btn-hover-primary" style={actionModalBtnPrimary} onClick={submitMove} disabled={!moveModal.targetWs || moveModal.targetWs === moveModal.report.workspace_id}>Move</button>
-            </div>
+          <select value={moveModal.targetWs}
+            onChange={(e) => setMoveModal({ ...moveModal, targetWs: e.target.value })}
+            style={actionModalInput}>
+            {personalWorkspace && (
+              <option value={personalWorkspace.id}>My Reports</option>
+            )}
+            {workspaces.map((ws) => (
+              <option key={ws.id} value={ws.id}>{ws.name}</option>
+            ))}
+          </select>
+          <div style={actionModalActions}>
+            <button className="btn-hover" style={actionModalBtnSecondary} onClick={() => setMoveModal(null)}>Cancel</button>
+            <button className="btn-hover btn-hover-primary" style={actionModalBtnPrimary} onClick={submitMove} disabled={!moveModal.targetWs || moveModal.targetWs === moveModal.report.workspace_id}>Move</button>
           </div>
-        </div>
+      </Modal>
       )}
 
       {/* History modal — admin only. Lists snapshots; restoring one snapshots
           the current state first so the rollback is itself reversible. */}
       {historyModal && (
-        <div style={actionModalBackdrop} onClick={() => setHistoryModal(null)}>
-          <div style={{ ...actionModalCard, minWidth: 460, maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+        <Modal onClose={() => setHistoryModal(null)} width={520}>
             <div style={actionModalTitle}>History — {historyModal.report.title}</div>
             <div style={_hs81}>
-              The 20 most recent saves. Restoring a version saves the current state as a new entry first.
-            </div>
-            {historyModal.loading ? (
-              <div style={_hs82}>Loading...</div>
-            ) : historyModal.error ? (
-              <div style={_hs83}>{historyModal.error}</div>
-            ) : historyModal.versions.length === 0 ? (
-              <div style={_hs84}>
-                No previous versions yet.
-              </div>
-            ) : (
-              <div style={_hs85}>
-                {historyModal.versions.map((v) => (
-                  <div key={v.id} style={historyRow}>
-                    <div style={_hs86}>
-                      <div style={_hs87}>
-                        {v.title}
-                      </div>
-                      <div style={_hs88}>
-                        {new Date(v.saved_at).toLocaleString()} · {v.saved_by_name || v.saved_by_email || 'unknown'}
-                      </div>
-                    </div>
-                    <button className="btn-hover btn-hover-accent" style={historyRestoreBtn} onClick={() => restoreVersion(v.id)} title="Restore this version">
-                      <TbArrowBackUp size={14} /> Restore
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div style={actionModalActions}>
-              <button className="btn-hover" style={actionModalBtnSecondary} onClick={() => setHistoryModal(null)}>Close</button>
-            </div>
+            The 20 most recent saves. Restoring a version saves the current state as a new entry first.
           </div>
-        </div>
-      )}
+          {historyModal.loading ? (
+            <div style={_hs82}>Loading...</div>
+          ) : historyModal.error ? (
+            <div style={_hs83}>{historyModal.error}</div>
+          ) : historyModal.versions.length === 0 ? (
+            <div style={_hs84}>
+              No previous versions yet.
+            </div>
+          ) : (
+            <div style={_hs85}>
+              {historyModal.versions.map((v) => (
+                <div key={v.id} style={historyRow}>
+                  <div style={_hs86}>
+                    <div style={_hs87}>
+                      {v.title}
+                    </div>
+                    <div style={_hs88}>
+                      {new Date(v.saved_at).toLocaleString()} · {v.saved_by_name || v.saved_by_email || 'unknown'}
+                    </div>
+                  </div>
+                  <button className="btn-hover btn-hover-accent" style={historyRestoreBtn} onClick={() => restoreVersion(v.id)} title="Restore this version">
+                    <TbArrowBackUp size={14} /> Restore
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={actionModalActions}>
+            <button className="btn-hover" style={actionModalBtnSecondary} onClick={() => setHistoryModal(null)}>Close</button>
+          </div>
+      </Modal>
+    )}
 
       {/* Refresh schedules — works in both OSS and cloud. Each tick warms
           the report's queries to populate queryCache + preAggCache. */}
@@ -1351,6 +1343,7 @@ export default function Dashboard() {
 
       {/* Bottom-right transient toast for schedule "Send now" feedback. */}
       {scheduleToast && (
+        <Portal>
         <div style={{
           position: 'fixed', bottom: 24, right: 24, zIndex: 1100,
           padding: '12px 18px', borderRadius: 8,
@@ -1363,6 +1356,7 @@ export default function Dashboard() {
         }}>
           {scheduleToast.message}
         </div>
+        </Portal>
       )}
 
       {/* Per-report cache breakdown — opened by clicking the "Cache: …" line
@@ -1434,7 +1428,6 @@ function formatFileSize(bytes) {
 }
 const inputStyle = { width: '100%', padding: '8px 10px', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box', background: 'var(--bg-panel)', color: 'var(--text-primary)' };
 const labelStyle = { display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4, fontWeight: 500 };
-const modalOverlay = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 };
 const sourceCard = {
   flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
   padding: '20px 12px', border: '1px solid var(--border-default)', borderRadius: 8, background: 'var(--bg-panel)',
