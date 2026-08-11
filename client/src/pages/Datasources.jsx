@@ -4,13 +4,16 @@ import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
 import { readSheetNames } from '../utils/readSheetNames';
-import { TbUpload, TbStack3, TbDatabase } from 'react-icons/tb';
-import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
+import { TbUpload } from 'react-icons/tb';
+import { PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
 import { DatasourcesHeader } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
 
-const _hs0 = { minHeight: '100vh', backgroundColor: 'var(--bg-app)' };
-const _hs1 = { flex: 1 };
+// Fills the stage slot AppShell gives it; the shell owns the viewport height.
+const _hs0 = { flex: 1, overflow: 'auto', backgroundColor: 'var(--bg-app)' };
+// Action bar sitting at the top of the panel — the stage switcher in the shell
+// already says where we are, so this row carries actions only.
+const _hs1 = { display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 20 };
 const _hs2 = { display: 'none' };
 const _hs3 = { color: 'var(--accent-primary)', borderColor: '#ddd6fe', background: 'var(--accent-primary-soft)' };
 const _hs4 = { maxWidth: 800, margin: '0 auto', padding: '32px 20px' };
@@ -157,26 +160,16 @@ export default function Datasources() {
 
   return (
     <div style={_hs0}>
-      <header style={headerShellStyle}>
-        <BackButton to="/" />
-        <h1 style={{ ...headerTitleStyle, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <TbDatabase size={20} color="var(--accent-primary)" />
-          Data Sources
-        </h1>
-        <div style={_hs1} />
-        <SecondaryButton onClick={() => navigate('/models')} title="Go to Data Models">
-          <TbStack3 size={16} />Data Models
-        </SecondaryButton>
-        <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv"
-          style={_hs2} onChange={handleFileSelected} />
-        <SecondaryButton onClick={() => fileInputRef.current?.click()} disabled={uploading}
-          style={_hs3}>
-          <TbUpload size={16} />{uploading ? 'Uploading...' : 'Upload File'}
-        </SecondaryButton>
-        <PrimaryButton onClick={() => { setEditingId(null); setEditingValues(null); setShowForm(true); }}>+ New Connection</PrimaryButton>
-      </header>
-
       <main style={_hs4}>
+        <div style={_hs1}>
+          <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv"
+            style={_hs2} onChange={handleFileSelected} />
+          <SecondaryButton onClick={() => fileInputRef.current?.click()} disabled={uploading}
+            style={_hs3}>
+            <TbUpload size={16} />{uploading ? 'Uploading...' : 'Upload File'}
+          </SecondaryButton>
+          <PrimaryButton onClick={() => { setEditingId(null); setEditingValues(null); setShowForm(true); }}>+ New Connection</PrimaryButton>
+        </div>
         {DatasourcesHeader && <DatasourcesHeader />}
         {uploadProgress && (
           <div style={{

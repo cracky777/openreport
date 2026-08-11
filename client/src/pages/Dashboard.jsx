@@ -18,7 +18,9 @@ import CacheScheduleModal from '../components/CacheScheduleModal/CacheScheduleMo
 import ScheduleModal from '../components/ScheduleModal/ScheduleModal';
 import { actionModalBackdrop, actionModalCard, actionModalTitle, actionModalInput, actionModalActions, actionModalBtnSecondary, actionModalBtnPrimary, cardActionBtn } from '../components/dashboardModalStyles';
 
-const _hs0 = { height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' };
+// Fills the stage slot AppShell gives it — the shell owns the viewport height
+// and the header now.
+const _hs0 = { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, backgroundColor: 'var(--bg-app)' };
 const _hs1 = { fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: -0.5, display: 'flex', alignItems: 'center', gap: 12 };
 const _hs2 = { height: 28 };
 const _hs3 = { display: 'flex', alignItems: 'center', gap: 6 };
@@ -148,11 +150,9 @@ const _hs87 = { fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', whi
 const _hs88 = { fontSize: 11, color: 'var(--text-muted)' };
 
 export default function Dashboard() {
-  const { user, logout } = useAuth();
-  const { mode: themeMode, resolved: themeResolved, setMode: setThemeMode, themes: availableThemes } = useTheme();
-  const logoSrc = themeResolved === 'dark' ? '/logo-dark.png' : '/logo.png';
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const userMenuRef = useRef(null);
+  const { user } = useAuth();
+  // Still needed to stamp the active theme onto exported/shared reports.
+  const { resolved: themeResolved, themes: availableThemes } = useTheme();
   const navigate = useNavigate();
   const [reports, setReports] = useState([]);
   const [models, setModels] = useState([]);
@@ -237,7 +237,7 @@ export default function Dashboard() {
   };
 
   // Cloud-aware permission state (org role, platform-admin, write capability).
-  const { activeOrgRole, isPlatformAdmin, canEditOrg, canEdit } = usePermissions(selectedWs, user, wsUserRole);
+  const { activeOrgRole, canEditOrg, canEdit } = usePermissions(selectedWs, user, wsUserRole);
 
   // Load data
   useEffect(() => {
@@ -287,18 +287,6 @@ export default function Dashboard() {
     const newUrl = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
     window.history.replaceState({}, '', newUrl);
   }, []);
-
-  // Close user menu on outside click / Escape
-  useEffect(() => {
-    if (!userMenuOpen) return;
-    const onClick = (e) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) setUserMenuOpen(false);
-    };
-    const onEsc = (e) => { if (e.key === 'Escape') setUserMenuOpen(false); };
-    document.addEventListener('mousedown', onClick);
-    document.addEventListener('keydown', onEsc);
-    return () => { document.removeEventListener('mousedown', onClick); document.removeEventListener('keydown', onEsc); };
-  }, [userMenuOpen]);
 
   // On first render the user may not yet be loaded (AuthContext fetches async),
   // so the useState initializer runs with lastWsKey=null. Restore once the key becomes known.
@@ -877,113 +865,6 @@ export default function Dashboard() {
 
   return (
     <div style={_hs0}>
-      {/* Header */}
-      <header style={headerStyle}>
-        <h1 style={_hs1}>
-          <img src={logoSrc} alt="Open Report" style={_hs2} />
-          {TopbarSwitcher && <TopbarSwitcher />}
-        </h1>
-        <nav style={_hs3}>
-          {(canEditOrg || user?.role === 'admin') && (
-            <div style={navPillGroup}>
-              {canEditOrg && (
-                <>
-                  <button onClick={() => navigate('/datasources')} style={navBtnStyled}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
-                  >
-                    <TbDatabase size={15} /> <span>Data Sources</span>
-                  </button>
-                  <button onClick={() => navigate('/models')} style={navBtnStyled}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
-                  >
-                    <TbStack3 size={15} /> <span>Data Models</span>
-                  </button>
-                </>
-              )}
-              {user?.role === 'admin' && (
-                <button onClick={() => navigate('/admin')} style={navBtnStyled}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
-                >
-                  <TbShield size={15} /> <span>Admin</span>
-                </button>
-              )}
-              {isPlatformAdmin && (
-                <button onClick={() => navigate('/platform')} style={navBtnStyled}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
-                >
-                  <TbShield size={15} color="var(--accent-primary)" /> <span>Platform</span>
-                </button>
-              )}
-            </div>
-          )}
-          <div ref={userMenuRef} style={_hs4}>
-            <button
-              onClick={() => setUserMenuOpen((v) => !v)}
-              style={userPillStyle}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-primary-border)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent-primary-soft)'; }}
-            >
-              <TbUser size={14} color="var(--accent-primary)" />
-              <span>{user?.display_name || user?.email}</span>
-              <TbChevronDown size={12} style={{ transition: 'transform 0.12s', transform: userMenuOpen ? 'rotate(180deg)' : 'none' }} />
-            </button>
-            {userMenuOpen && (
-              <div style={userMenuDropdown}>
-                <div style={userMenuSectionLabel}>Theme</div>
-                <div style={_hs5}>
-                  {/* "System" follows the OS preference */}
-                  <button className="btn-hover" onClick={() => setThemeMode('system')} style={themeRowBtn(themeMode === 'system')}>
-                    <span style={_hs6}>
-                      <TbDeviceLaptop size={14} />
-                      <span>System</span>
-                    </span>
-                    {themeMode === 'system' && <span style={_hs7}>auto</span>}
-                  </button>
-                  {/* All themes from the JSON definition */}
-                  {Object.entries(availableThemes).map(([key, theme]) => {
-                    const active = themeMode === key;
-                    const Icon = theme.kind === 'dark' ? TbMoon : TbSun;
-                    return (
-                      <button key={key} className="btn-hover" onClick={() => setThemeMode(key)} style={themeRowBtn(active)}>
-                        <span style={_hs8}>
-                          <span style={{
-                            width: 14, height: 14, borderRadius: 3,
-                            background: theme.vars?.['--bg-app'] || '#fff',
-                            border: '1px solid ' + (theme.vars?.['--border-default'] || '#e2e8f0'),
-                            display: 'inline-block',
-                          }} />
-                          <span>{theme.label || key}</span>
-                        </span>
-                        {active && <Icon size={12} style={_hs9} />}
-                      </button>
-                    );
-                  })}
-                </div>
-                {UserMenuExtras && (
-                  <>
-                    <div style={userMenuDivider} />
-                    <UserMenuExtras onNavigate={() => setUserMenuOpen(false)} />
-                  </>
-                )}
-                <div style={userMenuDivider} />
-                <button
-                  onClick={() => { setUserMenuOpen(false); logout(); }}
-                  style={userMenuItem}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                >
-                  <TbLogout size={15} />
-                  <span>Logout</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </nav>
-      </header>
 
       <div style={_hs10}>
         {/* Sidebar — Workspaces */}
@@ -1763,45 +1644,6 @@ export default function Dashboard() {
   );
 }
 
-const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px', backgroundColor: 'var(--bg-panel)', borderBottom: '1px solid var(--border-default)', flexShrink: 0 };
-const navPillGroup = {
-  display: 'flex', alignItems: 'center', gap: 2,
-  padding: '3px 4px', background: 'var(--bg-subtle)',
-  border: '1px solid var(--border-default)', borderRadius: 10,
-};
-const navBtnStyled = {
-  display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
-  background: 'transparent', border: 'none', borderRadius: 7,
-  color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13, fontWeight: 500,
-  transition: 'background 0.15s, box-shadow 0.15s, transform 0.15s',
-};
-const userPillStyle = {
-  display: 'inline-flex', alignItems: 'center', gap: 6,
-  padding: '6px 10px', borderRadius: 8,
-  background: 'var(--accent-primary-soft)', border: '1px solid var(--accent-primary-border)',
-  fontSize: 12, color: 'var(--accent-primary-text)', fontWeight: 500,
-  cursor: 'pointer', transition: 'background 0.12s',
-};
-const userMenuDropdown = {
-  position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 200,
-  minWidth: 220, background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
-  borderRadius: 10, boxShadow: 'var(--shadow-md)', padding: '6px 0',
-};
-const userMenuSectionLabel = { fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '6px 12px 4px' };
-const userMenuDivider = { height: 1, background: 'var(--border-default)', margin: '4px 0' };
-const userMenuItem = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)', textAlign: 'left', transition: 'background 0.12s' };
-function themeRowBtn(active) {
-  return {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    width: '100%', padding: '6px 8px', fontSize: 12, fontWeight: active ? 600 : 500,
-    border: '1px solid ' + (active ? 'var(--accent-primary)' : 'transparent'),
-    borderRadius: 6,
-    background: active ? 'var(--accent-primary-soft)' : 'transparent',
-    color: active ? 'var(--accent-primary-text)' : 'var(--text-secondary)',
-    cursor: 'pointer', transition: 'background 0.12s, border-color 0.12s',
-    textAlign: 'left',
-  };
-}
 const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer' };
 const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: 'var(--bg-panel)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer' };
 const fileChipStyle = { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', marginBottom: 12, borderRadius: 8, border: '1px solid var(--border-default)', background: 'var(--bg-panel-alt)' };

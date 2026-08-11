@@ -13,6 +13,7 @@ import Verify from './pages/Verify';
 // Cloud-edition routes — empty in the OSS build, populated in the cloud build.
 // The same import path resolves to either the stub or the real implementation.
 import cloudRoutes from './cloud';
+import AppShell from './components/AppShell/AppShell';
 import ToastHost from './components/Toast/ToastHost';
 
 const _hs0 = { padding: 40, color: 'var(--text-disabled)' };
@@ -51,10 +52,13 @@ const router = createBrowserRouter([
     element: <RootLayout />,
     children: [
       { path: '/login', element: <PublicRoute><Login /></PublicRoute> },
-      { path: '/', element: <PrivateRoute><Dashboard /></PrivateRoute> },
+      // The three journey stages share one shell; `step` picks which one is on
+      // screen. They stay separate routes so deep links and the editors' back
+      // buttons keep working.
+      { path: '/', element: <PrivateRoute><AppShell step="reports"><Dashboard /></AppShell></PrivateRoute> },
       { path: '/edit/:id', element: <PrivateRoute><Editor /></PrivateRoute> },
-      { path: '/datasources', element: <PrivateRoute><Datasources /></PrivateRoute> },
-      { path: '/models', element: <PrivateRoute><Models /></PrivateRoute> },
+      { path: '/datasources', element: <PrivateRoute><AppShell step="sources"><Datasources /></AppShell></PrivateRoute> },
+      { path: '/models', element: <PrivateRoute><AppShell step="models"><Models /></AppShell></PrivateRoute> },
       { path: '/models/:id', element: <PrivateRoute><ModelEditor /></PrivateRoute> },
       { path: '/admin', element: <PrivateRoute><Admin /></PrivateRoute> },
       { path: '/view/:id', element: <Viewer /> },

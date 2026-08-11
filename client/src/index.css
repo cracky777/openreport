@@ -178,6 +178,25 @@ body {
   to   { opacity: 1; transform: translateY(0);    max-height: 70vh; }
 }
 
+/* Carousel between the Sources → Models → Reports stages. Only the active
+   stage is mounted, so the incoming panel slides in from the side it
+   "comes from": moving forward it enters from the right, moving back from
+   the left. */
+@keyframes stageInFromRight {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes stageInFromLeft {
+  from { opacity: 0; transform: translateX(-28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.stage-enter-forward { animation: stageInFromRight 0.22s ease-out; }
+.stage-enter-back    { animation: stageInFromLeft  0.22s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-enter-forward, .stage-enter-back { animation: none; }
+}
+
 /* Indeterminate loading bar — used on report cards while a rollup
    refresh is in flight (the server only reports busy/idle, not a
    percentage, so an indeterminate sweep is the honest representation). */

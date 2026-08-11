@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TbDatabase, TbStack3 } from 'react-icons/tb';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
-import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
+import { PrimaryButton } from '../components/PageHeader/PageHeader';
 
-const _hs0 = { minHeight: '100vh', backgroundColor: 'var(--bg-app)' };
-const _hs1 = { flex: 1 };
+// Fills the stage slot AppShell gives it; the shell owns the viewport height.
+const _hs0 = { flex: 1, overflow: 'auto', backgroundColor: 'var(--bg-app)' };
+// Action bar sitting at the top of the panel — the stage switcher in the shell
+// already says where we are, so this row carries actions only.
+const _hs1 = { display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 20 };
 const _hs2 = { maxWidth: 800, margin: '0 auto', padding: '32px 20px' };
 const _hs3 = { fontSize: 16, fontWeight: 600, marginBottom: 16 };
 const _hs4 = { marginBottom: 12 };
@@ -66,20 +68,10 @@ export default function Models() {
 
   return (
     <div style={_hs0}>
-      <header style={headerShellStyle}>
-        <BackButton to="/" />
-        <h1 style={{ ...headerTitleStyle, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <TbStack3 size={20} color="var(--accent-primary)" />
-          Data Models
-        </h1>
-        <div style={_hs1} />
-        <SecondaryButton onClick={() => navigate('/datasources')} title="Go to Data Sources">
-          <TbDatabase size={16} />Data Sources
-        </SecondaryButton>
-        <PrimaryButton onClick={() => setShowForm(true)}>+ New Model</PrimaryButton>
-      </header>
-
       <main style={_hs2}>
+        <div style={_hs1}>
+          <PrimaryButton onClick={() => setShowForm(true)}>+ New Model</PrimaryButton>
+        </div>
         {showForm && (
           <div style={formCard}>
             <h2 style={_hs3}>New Data Model</h2>
