@@ -55,6 +55,28 @@ const _hs10 = {
                   background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
                 };
 
+const CASCADE_STEP = 24;
+const CASCADE_MAX = 20;
+
+// New widgets all land on the same centred slot, so a second one hides the
+// first completely and the user thinks the add did nothing. Nudge each
+// collision down-right until the slot is free, clamped inside the page.
+function findFreeSlot(layout, x, y, w, h, pw, ph) {
+  const maxX = Math.max(0, pw - w);
+  const maxY = Math.max(0, ph - h);
+  const taken = (px, py) => layout.some((it) => it.x === px && it.y === py);
+
+  let nx = x;
+  let ny = y;
+  for (let i = 1; i <= CASCADE_MAX && taken(nx, ny); i++) {
+    nx = Math.min(x + i * CASCADE_STEP, maxX);
+    ny = Math.min(y + i * CASCADE_STEP, maxY);
+  }
+  // Still taken after CASCADE_MAX tries (or the cascade hit the page edge):
+  // overlapping beats pushing the widget off-page.
+  return { x: nx, y: ny };
+}
+
 export default function Editor() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -1403,8 +1425,12 @@ export default function Editor() {
         ...prevLayout,
         {
           i: widgetId,
-          x: Math.max(0, Math.round((pw - ww) / 2)),
-          y: Math.max(0, Math.round((ph - wh) / 2)),
+          ...findFreeSlot(
+            prevLayout,
+            Math.max(0, Math.round((pw - ww) / 2)),
+            Math.max(0, Math.round((ph - wh) / 2)),
+            ww, wh, pw, ph
+          ),
           w: ww,
           h: wh,
         },
