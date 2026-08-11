@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
@@ -11,12 +11,15 @@ import DatasourceForm, { createModelAndNavigate } from '../components/Datasource
 import JoinOut from '../components/AppShell/JoinOut';
 import { useGraph } from '../hooks/graphContext';
 import { sortActiveFirst } from '../utils/sortActiveFirst';
+import FilterCrumb from '../components/AppShell/FilterCrumb';
 
 // Fills the stage slot AppShell gives it; the shell owns the viewport height.
 const _hs0 = { flex: 1, overflow: 'auto', backgroundColor: 'var(--bg-app)' };
 // Action bar sitting at the top of the panel — the stage switcher in the shell
 // already says where we are, so this row carries actions only.
-const _hs1 = { display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 20 };
+const _hs1 = { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginBottom: 20 };
+// Pushes the crumb to the left edge, leaving the actions on the right.
+const crumbSlot = { marginRight: 'auto' };
 const _hs2 = { display: 'none' };
 const _hs3 = { color: 'var(--accent-primary)', borderColor: '#ddd6fe', background: 'var(--accent-primary-soft)' };
 const _hs4 = { padding: '32px 24px' };
@@ -44,10 +47,15 @@ export default function Datasources() {
   // Rows come from the shell-level graph so this column is already populated
   // when the carousel slides it in.
   const { datasources, setDatasources, modelsByDatasource, modelSpreadByDatasource, activeDatasourceIds, loading, refresh } = useGraph();
-  const orderedDatasources = useMemo(
-    () => sortActiveFirst(datasources, activeDatasourceIds),
-    [datasources, activeDatasourceIds]
-  );
+  // Arrived by walking a model's join backwards: narrow to that datasource.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const idFilter = searchParams.get('id');
+  const idName = idFilter ? datasources.find((x) => x.id === idFilter)?.name : null;
+
+  const orderedDatasources = useMemo(() => {
+    const scoped = idFilter ? datasources.filter((d) => d.id === idFilter) : datasources;
+    return sortActiveFirst(scoped, activeDatasourceIds);
+  }, [datasources, activeDatasourceIds, idFilter]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
   const [importOpts, setImportOpts] = useState(DEFAULT_IMPORT_OPTIONS);
@@ -163,6 +171,11 @@ export default function Datasources() {
     <div style={_hs0}>
       <main style={_hs4}>
         <div style={_hs1}>
+          {idFilter && (
+            <div style={crumbSlot}>
+              <FilterCrumb label={idName || 'this data source'} verb="Showing" onClear={() => setSearchParams({})} />
+            </div>
+          )}
           <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv"
             style={_hs2} onChange={handleFileSelected} />
           <SecondaryButton onClick={() => fileInputRef.current?.click()} disabled={uploading}
@@ -249,7 +262,8 @@ export default function Datasources() {
                     </button>
                   </div>
                 </div>
-                <div style={joinGutterStyle}><JoinOut count={modelsByDatasource.get(ds.id) || 0} noun="model" targets={modelSpreadByDatasource.get(ds.id)} /></div>
+                <div style={joinGutterStyle}><JoinOut count={modelsByDatasource.get(ds.id) || 0} noun="model" targets={modelSpreadByDatasource.get(ds.id)}
+                    onClick={() => navigate(`/models?source=${ds.id}`)} /></div>
                 </div>
               );
             })}

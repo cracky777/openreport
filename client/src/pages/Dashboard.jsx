@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
@@ -15,6 +15,7 @@ import { TopbarSwitcher, UserMenuExtras } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
 import JoinIn from '../components/AppShell/JoinIn';
 import { useGraph } from '../hooks/graphContext';
+import FilterCrumb from '../components/AppShell/FilterCrumb';
 import CacheInspectorModal from '../components/CacheInspectorModal/CacheInspectorModal';
 import CacheScheduleModal from '../components/CacheScheduleModal/CacheScheduleModal';
 import ScheduleModal from '../components/ScheduleModal/ScheduleModal';
@@ -171,6 +172,7 @@ export default function Dashboard() {
   // Still needed to stamp the active theme onto exported/shared reports.
   const { resolved: themeResolved, themes: availableThemes } = useTheme();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   // Reports and models are shared across the whole journey; the setters stay
   // available so this page keeps applying its optimistic updates (delete,
   // share, live-mode) without waiting for a refetch.
@@ -739,6 +741,14 @@ export default function Dashboard() {
 
   const wsName = selectedWs ? workspaces.find((w) => w.id === selectedWs)?.name || 'Workspace' : 'My Reports';
 
+  // Arrived by following a model's join: narrow the list to that model's
+  // reports. Lives in the URL so it is shareable and Back undoes it.
+  const modelFilter = searchParams.get('model');
+  const modelName = modelFilter ? models.find((m) => m.id === modelFilter)?.name : null;
+  const visibleReports = modelFilter
+    ? wsReports.filter((r) => r.model_id === modelFilter)
+    : wsReports;
+
   return (
     <div style={_hs0}>
 
@@ -749,6 +759,12 @@ export default function Dashboard() {
           <div style={_hs20}>
             <div style={_hs21}>
               <h2 style={_hs23}>{wsName}</h2>
+              {modelFilter && (
+                <FilterCrumb
+                  label={modelName || 'this model'}
+                  onClear={() => setSearchParams({})}
+                />
+              )}
             </div>
             {canEdit && (
               <div style={_hs24}>
@@ -966,9 +982,10 @@ export default function Dashboard() {
             </div>
           ) : (
             <div style={_hs67}>
-              {wsReports.map((report) => (
+              {visibleReports.map((report) => (
                 <div key={report.id} style={joinRowStyle}>
-                <div style={joinGutterStyle}><JoinIn from={report.model_name} /></div>
+                <div style={joinGutterStyle}><JoinIn from={report.model_name}
+                  onClick={report.model_id ? () => navigate(`/models?id=${report.model_id}`) : undefined} /></div>
                 <div style={report.is_public ? { ...cardStyle, ...publicCardAccent } : cardStyle}>
                   {canEdit && (
                     <button

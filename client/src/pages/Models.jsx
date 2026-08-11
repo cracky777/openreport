@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import { PrimaryButton } from '../components/PageHeader/PageHeader';
@@ -7,12 +7,15 @@ import JoinOut from '../components/AppShell/JoinOut';
 import JoinIn from '../components/AppShell/JoinIn';
 import { useGraph } from '../hooks/graphContext';
 import { sortActiveFirst } from '../utils/sortActiveFirst';
+import FilterCrumb from '../components/AppShell/FilterCrumb';
 
 // Fills the stage slot AppShell gives it; the shell owns the viewport height.
 const _hs0 = { flex: 1, overflow: 'auto', backgroundColor: 'var(--bg-app)' };
 // Action bar sitting at the top of the panel — the stage switcher in the shell
 // already says where we are, so this row carries actions only.
-const _hs1 = { display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 20 };
+const _hs1 = { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginBottom: 20 };
+// Pushes the crumb to the left edge, leaving the actions on the right.
+const crumbSlot = { marginRight: 'auto' };
 const _hs2 = { padding: '32px 24px' };
 const _hs3 = { fontSize: 16, fontWeight: 600, marginBottom: 16 };
 const _hs4 = { marginBottom: 12 };
@@ -37,10 +40,20 @@ export default function Models() {
   // Rows come from the shell-level graph so this column is already populated
   // when the carousel slides it in.
   const { models, setModels, datasources, reportsByModel, reportSpreadByModel, activeModelIds, loading } = useGraph();
-  const orderedModels = useMemo(
-    () => sortActiveFirst(models, activeModelIds),
-    [models, activeModelIds]
-  );
+  // Arrived by following a datasource's join: show only what it feeds. The
+  // filter lives in the URL so it is shareable and the back button undoes it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sourceFilter = searchParams.get('source');
+  const idFilter = searchParams.get('id');
+  const sourceName = sourceFilter ? datasources.find((d) => d.id === sourceFilter)?.name : null;
+  const idName = idFilter ? models.find((x) => x.id === idFilter)?.name : null;
+
+  const orderedModels = useMemo(() => {
+    let scoped = models;
+    if (sourceFilter) scoped = scoped.filter((m) => m.datasource_id === sourceFilter);
+    if (idFilter) scoped = scoped.filter((m) => m.id === idFilter);
+    return sortActiveFirst(scoped, activeModelIds);
+  }, [models, activeModelIds, sourceFilter, idFilter]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: '', datasourceId: '', description: '' });
 
@@ -68,6 +81,15 @@ export default function Models() {
     <div style={_hs0}>
       <main style={_hs2}>
         <div style={_hs1}>
+          {(sourceFilter || idFilter) && (
+            <div style={crumbSlot}>
+              <FilterCrumb
+                label={sourceFilter ? (sourceName || 'this data source') : (idName || 'this model')}
+                verb={sourceFilter ? 'Following' : 'Showing'}
+                onClear={() => setSearchParams({})}
+              />
+            </div>
+          )}
           <PrimaryButton onClick={() => setShowForm(true)}>+ New Model</PrimaryButton>
         </div>
         {showForm && (
@@ -133,7 +155,8 @@ export default function Models() {
           <div style={_hs14}>
             {orderedModels.map((m) => (
               <div key={m.id} style={activeModelIds && !activeModelIds.has(m.id) ? dimmedRowStyle : joinRowStyle}>
-              <div style={joinInGutterStyle}><JoinIn from={m.datasource_name} /></div>
+              <div style={joinInGutterStyle}><JoinIn from={m.datasource_name}
+                onClick={m.datasource_id ? () => navigate(`/datasources?id=${m.datasource_id}`) : undefined} /></div>
               <div style={cardStyle}>
                 <div onClick={() => navigate(`/models/${m.id}`)} style={_hs15}>
                   <div style={_hs16}>{m.name}</div>
@@ -147,7 +170,8 @@ export default function Models() {
                   <button className="btn-hover btn-hover-danger" onClick={() => handleDelete(m.id)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px', color: 'var(--state-danger)', borderColor: 'var(--state-danger)' }}>Delete</button>
                 </div>
               </div>
-              <div style={joinGutterStyle}><JoinOut count={reportsByModel.get(m.id) || 0} noun="report" targets={reportSpreadByModel.get(m.id)} /></div>
+              <div style={joinGutterStyle}><JoinOut count={reportsByModel.get(m.id) || 0} noun="report" targets={reportSpreadByModel.get(m.id)}
+                  onClick={() => navigate(`/?model=${m.id}`)} /></div>
               </div>
             ))}
           </div>

@@ -7,7 +7,7 @@ import { JoinRule, JoinArrow } from './JoinLine';
 // The lines fan out across the full height of the row and reach the column's
 // right edge: mid-slide that edge meets the next column's left edge, so each
 // line continues into the block it feeds.
-export default function JoinOut({ count, noun, targets }) {
+export default function JoinOut({ count, noun, targets, onClick }) {
   const label = `${count} ${noun}${count > 1 ? 's' : ''}`;
 
   if (!count) {
@@ -18,13 +18,22 @@ export default function JoinOut({ count, noun, targets }) {
     );
   }
 
+  // Following the link *is* the join: clicking it walks to the next stage with
+  // only these children listed.
+  const Tag = onClick ? 'button' : 'div';
   return (
-    <div style={wrap} title={label}>
+    <Tag
+      onClick={onClick}
+      style={{ ...wrap, cursor: onClick ? 'pointer' : 'default' }}
+      title={onClick ? `Show the ${label} built on this` : label}
+      onMouseEnter={(e) => { if (onClick) e.currentTarget.style.color = 'var(--accent-primary)'; }}
+      onMouseLeave={(e) => { if (onClick) e.currentTarget.style.color = 'var(--accent-primary-text)'; }}
+    >
       <JoinRule />
       <JoinArrow />
       <span style={labelStyle}>{label}</span>
       <Fan count={count} targets={targets} />
-    </div>
+    </Tag>
   );
 }
 
@@ -75,7 +84,11 @@ const baseRow = {
   flex: 1, minWidth: 0, alignSelf: 'stretch',
   fontSize: 13, whiteSpace: 'nowrap',
 };
-const wrap = { ...baseRow, color: 'var(--accent-primary-text)', fontWeight: 500 };
+const wrap = {
+  ...baseRow,
+  padding: 0, border: 'none', background: 'transparent', textAlign: 'left',
+  color: 'var(--accent-primary-text)', fontWeight: 500, transition: 'color 0.12s',
+};
 const emptyWrap = { ...baseRow, alignItems: 'center' };
 const labelStyle = { flexShrink: 0, alignSelf: 'center' };
 const fanBox = { flex: 1, minWidth: 24, alignSelf: 'stretch', position: 'relative' };

@@ -78,34 +78,51 @@ export function GraphProvider({ children }) {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (user) refresh(); }, [user, refresh]);
 
+  // Everything below is scoped to the active workspace, walking the chain
+  // backwards: workspace → its reports → their models → those models'
+  // datasources.
+  //
+  // The counts on the join lines have to use the same scope as the column they
+  // point at, otherwise a model advertises "3 reports" while the Reports stage
+  // — which only lists the workspace's own — shows one.
+  const scopedReports = useMemo(
+    () => (selectedWs ? reports.filter((r) => r.workspace_id === selectedWs) : reports),
+    [reports, selectedWs]
+  );
+
+  // Null when no workspace is active: nothing is dimmed and nothing is scoped.
+  const activeModelIds = useMemo(() => {
+    if (!selectedWs) return null;
+    const ids = new Set();
+    for (const r of scopedReports) if (r.model_id) ids.add(r.model_id);
+    return ids;
+  }, [selectedWs, scopedReports]);
+
+  const scopedModels = useMemo(
+    () => (activeModelIds ? models.filter((m) => activeModelIds.has(m.id)) : models),
+    [models, activeModelIds]
+  );
+
+  // Used to dim what the workspace doesn't touch — never to hide it, since a
+  // datasource no report uses yet still has to be reachable.
+  const activeDatasourceIds = useMemo(() => {
+    if (!activeModelIds) return null;
+    const ids = new Set();
+    for (const m of scopedModels) if (m.datasource_id) ids.add(m.datasource_id);
+    return ids;
+  }, [activeModelIds, scopedModels]);
+
   // Children counts, derived rather than fetched: the lists already carry the
   // parent ids (`datasource_id` on models, `model_id` on reports).
-  const modelsByDatasource = useMemo(() => countBy(models, 'datasource_id'), [models]);
-  const reportsByModel = useMemo(() => countBy(reports, 'model_id'), [reports]);
+  const modelsByDatasource = useMemo(() => countBy(scopedModels, 'datasource_id'), [scopedModels]);
+  const reportsByModel = useMemo(() => countBy(scopedReports, 'model_id'), [scopedReports]);
 
   // Where each child sits in the next stage's column, as a 0–1 fraction. The
   // join curves aim at those heights, so a link to the first row leaves high
   // and a link to the last leaves low — the fan follows the real layout instead
   // of spreading arbitrarily.
-  const modelSpreadByDatasource = useMemo(() => spreadBy(models, 'datasource_id'), [models]);
-  const reportSpreadByModel = useMemo(() => spreadBy(reports, 'model_id'), [reports]);
-
-  // Which models and datasources the active workspace actually reaches, walking
-  // the chain backwards: workspace → its reports → their models → those models'
-  // datasources. Used to dim what the workspace doesn't touch — never to hide
-  // it, since a datasource no report uses yet still has to be reachable.
-  const { activeModelIds, activeDatasourceIds } = useMemo(() => {
-    if (!selectedWs) return { activeModelIds: null, activeDatasourceIds: null };
-    const modelIds = new Set();
-    for (const r of reports) {
-      if (r.workspace_id === selectedWs && r.model_id) modelIds.add(r.model_id);
-    }
-    const dsIds = new Set();
-    for (const m of models) {
-      if (modelIds.has(m.id) && m.datasource_id) dsIds.add(m.datasource_id);
-    }
-    return { activeModelIds: modelIds, activeDatasourceIds: dsIds };
-  }, [selectedWs, reports, models]);
+  const modelSpreadByDatasource = useMemo(() => spreadBy(scopedModels, 'datasource_id'), [scopedModels]);
+  const reportSpreadByModel = useMemo(() => spreadBy(scopedReports, 'model_id'), [scopedReports]);
 
   const value = useMemo(() => ({
     datasources, models, reports, workspaces, personalWorkspace, loading,
