@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
@@ -9,6 +9,7 @@ import { PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHea
 import { DatasourcesHeader } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
 import { useGraph } from '../hooks/graphContext';
+import { useJourneyFocus } from '../hooks/useJourneyFocus';
 import { sortActiveFirst } from '../utils/sortActiveFirst';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
@@ -17,9 +18,15 @@ import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDelete
 const _hs0 = { flex: 1, overflow: 'auto', backgroundColor: 'var(--bg-app)' };
 // Action bar sitting at the top of the panel — the stage switcher in the shell
 // already says where we are, so this row carries actions only.
-const _hs1 = { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginBottom: 20 };
-// Pushes the crumb to the left edge, leaving the actions on the right.
-const crumbSlot = { marginRight: 'auto' };
+// Three columns rather than a centred flex row: the actions sit in the middle
+// one, so they stay on the axis of the cards whether or not the crumb is there.
+// Centring the row itself would shift the buttons every time a filter appears.
+const _hs1 = {
+  display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
+  alignItems: 'center', gap: 8, marginBottom: 20,
+};
+const crumbSlot = { justifySelf: 'start' };
+const actionGroup = { display: 'flex', alignItems: 'center', gap: 8 };
 const _hs2 = { display: 'none' };
 const _hs3 = { color: 'var(--accent-primary)', borderColor: '#ddd6fe', background: 'var(--accent-primary-soft)' };
 const _hs4 = { padding: '32px 24px' };
@@ -47,17 +54,15 @@ export default function Datasources() {
   // Rows come from the shell-level graph so this column is already populated
   // when the carousel slides it in.
   const { datasources, setDatasources, modelsByDatasourceAll, activeDatasourceIds, loading, refresh } = useGraph();
-  // Arrived by walking a model's join backwards: narrow to that datasource.
-  const [searchParams, setSearchParams] = useSearchParams();
-  // Each stage reads its own parameter name: all three columns are mounted at
-  // once, so a shared name would be applied by every one of them.
-  const idFilter = searchParams.get('source');
-  const idName = idFilter ? datasources.find((x) => x.id === idFilter)?.name : null;
+  // The branch the journey is focused on, resolved once for all three stages.
+  const focus = useJourneyFocus();
 
   const orderedDatasources = useMemo(() => {
-    const scoped = idFilter ? datasources.filter((d) => d.id === idFilter) : datasources;
+    const scoped = focus.datasourceIds
+      ? datasources.filter((d) => focus.datasourceIds.has(d.id))
+      : datasources;
     return sortActiveFirst(scoped, activeDatasourceIds);
-  }, [datasources, activeDatasourceIds, idFilter]);
+  }, [datasources, activeDatasourceIds, focus.datasourceIds]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
   const [importOpts, setImportOpts] = useState(DEFAULT_IMPORT_OPTIONS);
@@ -172,18 +177,24 @@ export default function Datasources() {
     <div style={_hs0}>
       <main style={_hs4}>
         <div style={_hs1}>
-          {idFilter && (
-            <div style={crumbSlot}>
-              <FilterCrumb label={idName || 'this data source'} verb="Showing" onClear={() => setSearchParams({})} />
-            </div>
-          )}
-          <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv"
-            style={_hs2} onChange={handleFileSelected} />
-          <SecondaryButton onClick={() => fileInputRef.current?.click()} disabled={uploading}
-            style={_hs3}>
-            <TbUpload size={16} />{uploading ? 'Uploading...' : 'Upload File'}
-          </SecondaryButton>
-          <PrimaryButton onClick={() => { setEditingId(null); setEditingValues(null); setShowForm(true); }}>+ New Connection</PrimaryButton>
+          <div style={crumbSlot}>
+            {focus.active && (
+              <FilterCrumb
+                label={focus.label}
+                verb={focus.stage === 'sources' ? 'Showing' : 'Following'}
+                onClear={focus.clear}
+              />
+            )}
+          </div>
+          <div style={actionGroup}>
+            <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv"
+              style={_hs2} onChange={handleFileSelected} />
+            <SecondaryButton onClick={() => fileInputRef.current?.click()} disabled={uploading}
+              style={_hs3}>
+              <TbUpload size={16} />{uploading ? 'Uploading...' : 'Upload File'}
+            </SecondaryButton>
+            <PrimaryButton onClick={() => { setEditingId(null); setEditingValues(null); setShowForm(true); }}>+ New Connection</PrimaryButton>
+          </div>
         </div>
         {DatasourcesHeader && <DatasourcesHeader />}
         {uploadProgress && (
@@ -228,10 +239,10 @@ export default function Datasources() {
         ) : orderedDatasources.length === 0 && !showForm ? (
           // A filter that matches nothing must say so, otherwise the column just
           // looks broken — and the way out has to be one click away.
-          idFilter ? (
+          focus.active ? (
             <div style={_hs7}>
               <p style={_hs8}>Nothing here for this filter</p>
-              <button className="btn-hover btn-hover-primary" onClick={() => setSearchParams({})} style={primaryBtn}>Show every data source</button>
+              <button className="btn-hover btn-hover-primary" onClick={focus.clear} style={primaryBtn}>Show every data source</button>
             </div>
           ) : (
             <div style={_hs7}>

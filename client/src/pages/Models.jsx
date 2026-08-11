@@ -1,9 +1,10 @@
 import { useState, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import { PrimaryButton } from '../components/PageHeader/PageHeader';
 import { useGraph } from '../hooks/graphContext';
+import { useJourneyFocus } from '../hooks/useJourneyFocus';
 import { sortActiveFirst } from '../utils/sortActiveFirst';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
@@ -12,9 +13,13 @@ import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDelete
 const _hs0 = { flex: 1, overflow: 'auto', backgroundColor: 'var(--bg-app)' };
 // Action bar sitting at the top of the panel — the stage switcher in the shell
 // already says where we are, so this row carries actions only.
-const _hs1 = { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginBottom: 20 };
-// Pushes the crumb to the left edge, leaving the actions on the right.
-const crumbSlot = { marginRight: 'auto' };
+// Three columns: the action sits in the middle one, on the axis of the cards,
+// and stays put whether or not the crumb is showing. See Datasources.
+const _hs1 = {
+  display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
+  alignItems: 'center', gap: 8, marginBottom: 20,
+};
+const crumbSlot = { justifySelf: 'start' };
 const _hs2 = { padding: '32px 24px' };
 const _hs3 = { fontSize: 16, fontWeight: 600, marginBottom: 16 };
 const _hs4 = { marginBottom: 12 };
@@ -39,28 +44,20 @@ export default function Models() {
   // Rows come from the shell-level graph so this column is already populated
   // when the carousel slides it in.
   const { models, setModels, datasources, reportsByModelAll, activeModelIds, loading } = useGraph();
-  // Arrived by following a datasource's join: show only what it feeds. The
-  // filter lives in the URL so it is shareable and the back button undoes it.
-  const [searchParams, setSearchParams] = useSearchParams();
-  const sourceFilter = searchParams.get('modelsOf');
-  const idFilter = searchParams.get('model');
-  const sourceName = sourceFilter ? datasources.find((d) => d.id === sourceFilter)?.name : null;
-  const idName = idFilter ? models.find((x) => x.id === idFilter)?.name : null;
-  const hasFilter = !!(sourceFilter || idFilter);
+  // The branch the journey is focused on, resolved once for all three stages.
+  const focus = useJourneyFocus();
 
   const orderedModels = useMemo(() => {
-    let scoped = models;
-    if (sourceFilter) scoped = scoped.filter((m) => m.datasource_id === sourceFilter);
-    if (idFilter) scoped = scoped.filter((m) => m.id === idFilter);
+    const scoped = focus.modelIds ? models.filter((m) => focus.modelIds.has(m.id)) : models;
     return sortActiveFirst(scoped, activeModelIds);
-  }, [models, activeModelIds, sourceFilter, idFilter]);
+  }, [models, activeModelIds, focus.modelIds]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: '', datasourceId: '', description: '' });
 
-  // Creating from a filtered column pre-picks what we're standing in: arriving
-  // via a datasource's join and then re-choosing it by hand is busywork.
+  // Creating from a focused column pre-picks the datasource we are standing in:
+  // arriving through its join and then re-choosing it by hand is busywork.
   const openForm = () => {
-    if (sourceFilter) setForm((f) => ({ ...f, datasourceId: sourceFilter }));
+    if (focus.stage === 'sources') setForm((f) => ({ ...f, datasourceId: focus.id }));
     setShowForm(true);
   };
 
@@ -87,15 +84,15 @@ export default function Models() {
     <div style={_hs0}>
       <main style={_hs2}>
         <div style={_hs1}>
-          {(sourceFilter || idFilter) && (
-            <div style={crumbSlot}>
+          <div style={crumbSlot}>
+            {focus.active && (
               <FilterCrumb
-                label={sourceFilter ? (sourceName || 'this data source') : (idName || 'this model')}
-                verb={sourceFilter ? 'Following' : 'Showing'}
-                onClear={() => setSearchParams({})}
+                label={focus.label}
+                verb={focus.stage === 'models' ? 'Showing' : 'Following'}
+                onClear={focus.clear}
               />
-            </div>
-          )}
+            )}
+          </div>
           <PrimaryButton onClick={openForm}>+ New Model</PrimaryButton>
         </div>
         {showForm && (
@@ -152,11 +149,11 @@ export default function Models() {
         ) : orderedModels.length === 0 && !showForm ? (
           // A filter that matches nothing must say so, otherwise the column just
           // looks broken — and the way out has to be one click away.
-          hasFilter ? (
+          focus.active ? (
             <div style={_hs11}>
               <p style={_hs12}>Nothing here for this filter</p>
               <p style={_hs13}>No model is linked to it.</p>
-              <button className="btn-hover btn-hover-primary" onClick={() => setSearchParams({})} style={primaryBtn}>Show every model</button>
+              <button className="btn-hover btn-hover-primary" onClick={focus.clear} style={primaryBtn}>Show every model</button>
             </div>
           ) : (
             <div style={_hs11}>

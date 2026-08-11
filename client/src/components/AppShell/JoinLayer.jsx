@@ -17,7 +17,7 @@ import { useGraph } from '../../hooks/graphContext';
 // separate page components and the question — "what is on screen right now" —
 // is precisely what a DOM query answers.
 export default function JoinLayer({ onFollow }) {
-  const { scopedModels, scopedReports, modelsByDatasource, reportsByModel } = useGraph();
+  const { scopedModels, scopedReports } = useGraph();
   const [links, setLinks] = useState([]);
   const hostRef = useRef(null);
 
@@ -32,6 +32,14 @@ export default function JoinLayer({ onFollow }) {
       const el = host.querySelector(`[data-join-anchor="${key.replace(/["\\]/g, '\\$&')}"]`);
       if (!el) return null;
       const r = el.getBoundingClientRect();
+      // A peeking column is clipped to one screen, and a card past that clip is
+      // not on screen however truthful its rect is. Aiming at one would draw a
+      // join to a card nobody can see.
+      const panel = el.closest('[data-stage-panel]');
+      if (panel) {
+        const p = panel.getBoundingClientRect();
+        if (r.bottom <= p.top || r.top >= p.bottom) return null;
+      }
       return {
         left: r.left - box.left,
         right: r.right - box.left,
@@ -45,7 +53,6 @@ export default function JoinLayer({ onFollow }) {
         to: `models:${m.id}`,
         parentId: m.datasource_id,
         parentName: m.datasource_name,
-        count: modelsByDatasource.get(m.datasource_id) || 0,
         noun: 'model',
       })),
       ...scopedReports.filter((r) => r.model_id).map((r) => ({
@@ -53,22 +60,32 @@ export default function JoinLayer({ onFollow }) {
         to: `reports:${r.id}`,
         parentId: r.model_id,
         parentName: r.model_name,
-        count: reportsByModel.get(r.model_id) || 0,
         noun: 'report',
       })),
     ];
 
-    const next = [];
-    const counted = new Set();
-    const origins = new Set();
+    // Both ends must be on screen. Every stage is mounted, so a missing card
+    // means it was filtered out — and a relation to something the user chose to
+    // hide has no business being drawn.
+    const drawable = [];
     for (const edge of edges) {
       const a = at(edge.from);
       const b = at(edge.to);
-      // Both ends must be on screen. Every stage is mounted, so a missing card
-      // means it was filtered out — and a relation to something the user chose
-      // to hide has no business being drawn.
       if (!a || !b || b.left <= a.right) continue;
+      drawable.push({ edge, a, b });
+    }
 
+    // The count is how many lines leave the card, counted from the lines
+    // themselves. Taken from the graph instead, it could claim "3 models" over
+    // a card with one line under it — the tally and the drawing answering the
+    // same question from two different places.
+    const children = new Map();
+    for (const { edge } of drawable) children.set(edge.from, (children.get(edge.from) || 0) + 1);
+
+    const next = [];
+    const counted = new Set();
+    const origins = new Set();
+    for (const { edge, a, b } of drawable) {
       const bend = Math.max(40, (b.left - a.right) * 0.4);
       next.push({
         key: `${edge.from}->${edge.to}`,
@@ -78,11 +95,12 @@ export default function JoinLayer({ onFollow }) {
       // One count per source card, parked just past it, and one origin name per
       // target card. Both stay clickable: the curve shows the relation, these
       // walk it.
-      if (!counted.has(edge.from) && edge.count) {
+      const count = children.get(edge.from) || 0;
+      if (!counted.has(edge.from) && count) {
         counted.add(edge.from);
         next.push({
           key: `count:${edge.from}`,
-          label: `${edge.count} ${edge.noun}${edge.count > 1 ? 's' : ''}`,
+          label: `${count} ${edge.noun}${count > 1 ? 's' : ''}`,
           x: a.right + 34, y: a.mid, align: 'left',
           follow: { dir: 'down', noun: edge.noun, id: edge.parentId },
         });
@@ -98,7 +116,7 @@ export default function JoinLayer({ onFollow }) {
       }
     }
     setLinks(next);
-  }, [scopedModels, scopedReports, modelsByDatasource, reportsByModel]);
+  }, [scopedModels, scopedReports]);
 
   useLayoutEffect(() => {
     measure();

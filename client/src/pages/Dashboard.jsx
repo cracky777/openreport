@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
@@ -15,6 +15,7 @@ import { TopbarSwitcher, UserMenuExtras } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
 
 import { useGraph } from '../hooks/graphContext';
+import { useJourneyFocus } from '../hooks/useJourneyFocus';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
 import CacheInspectorModal from '../components/CacheInspectorModal/CacheInspectorModal';
 import CacheScheduleModal from '../components/CacheScheduleModal/CacheScheduleModal';
@@ -62,14 +63,18 @@ const _hs18 = {
                     textAlign: 'left', transition: 'border-color 0.12s, color 0.12s, background 0.12s',
                   };
 const _hs19 = { flex: 1, overflow: 'auto', padding: '24px 32px' };
-const _hs20 = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 };
-const _hs21 = { display: 'flex', alignItems: 'center', gap: 12 };
+// Three columns: the actions sit in the middle one, on the axis of the cards,
+// and stay put whether or not the crumb is showing. See Datasources.
+const _hs20 = {
+  display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
+  alignItems: 'center', gap: 12, marginBottom: 20,
+};
+const _hs21 = { display: 'flex', alignItems: 'center', gap: 12, justifySelf: 'start' };
 const _hs22 = {
                     fontSize: 18, fontWeight: 600, color: 'var(--text-primary)',
                     background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
                     outline: 'none', borderRadius: 6, padding: '2px 8px', minWidth: 200,
                   };
-const _hs23 = { fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' };
 const _hs24 = { display: 'flex', gap: 8 };
 const _hs25 = { display: 'none' };
 const _hs26 = { fontSize: 13, fontWeight: 600, marginBottom: 8 };
@@ -174,7 +179,8 @@ export default function Dashboard() {
   // Still needed to stamp the active theme onto exported/shared reports.
   const { resolved: themeResolved, themes: availableThemes } = useTheme();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  // The branch the journey is focused on, resolved once for all three stages.
+  const focus = useJourneyFocus();
   // Reports and models are shared across the whole journey; the setters stay
   // available so this page keeps applying its optimistic updates (delete,
   // share, live-mode) without waiting for a refetch.
@@ -359,8 +365,9 @@ export default function Dashboard() {
   const openCreate = () => {
     setNewTitle('');
     setUploadError('');
-    setNewModelId(modelFilter || '');
-    setCreateMode(modelFilter ? 'model' : null);
+    const followed = focus.stage === 'models' ? focus.id : '';
+    setNewModelId(followed);
+    setCreateMode(followed ? 'model' : null);
     setShowCreate(true);
   };
 
@@ -755,10 +762,8 @@ export default function Dashboard() {
 
   // Arrived by following a model's join: narrow the list to that model's
   // reports. Lives in the URL so it is shareable and Back undoes it.
-  const modelFilter = searchParams.get('reportsOf');
-  const modelName = modelFilter ? models.find((m) => m.id === modelFilter)?.name : null;
-  const visibleReports = modelFilter
-    ? wsReports.filter((r) => r.model_id === modelFilter)
+  const visibleReports = focus.reportIds
+    ? wsReports.filter((r) => focus.reportIds.has(r.id))
     : wsReports;
 
   return (
@@ -770,12 +775,8 @@ export default function Dashboard() {
         <main style={_hs19}>
           <div style={_hs20}>
             <div style={_hs21}>
-              <h2 style={_hs23}>{wsName}</h2>
-              {modelFilter && (
-                <FilterCrumb
-                  label={modelName || 'this model'}
-                  onClear={() => setSearchParams({})}
-                />
+              {focus.active && (
+                <FilterCrumb label={focus.label} onClear={focus.clear} />
               )}
             </div>
             {canEdit && (

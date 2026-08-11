@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { TbShield, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop } from 'react-icons/tb';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
@@ -22,6 +22,7 @@ import { STEPS } from './steps';
 // menu stay pinned top-right.
 export default function AppShell({ step }) {
   const navigate = useNavigate();
+  const { search } = useLocation();
   const { user, logout } = useAuth();
   const { mode: themeMode, resolved: themeResolved, setMode: setThemeMode, themes: availableThemes } = useTheme();
   const logoSrc = themeResolved === 'dark' ? '/logo-dark.png' : '/logo.png';
@@ -77,18 +78,22 @@ export default function AppShell({ step }) {
   const columnWidth = Math.max(MIN_COLUMN, viewportWidth - 2 * PEEK);
   const offset = PEEK - index * columnWidth;
 
-  // Following a join is the same navigation the old per-row buttons did.
+  // Following a join focuses the relation's parent and moves to the stage the
+  // click points at. Both directions focus the same node — walking back up a
+  // join is the same branch seen from the other end, not a different filter.
   const follow = ({ dir, noun, id }) => {
-    if (dir === 'up') {
-      navigate(noun === 'model' ? `/datasources?source=${id}` : `/models?model=${id}`);
-    } else {
-      navigate(noun === 'model' ? `/models?modelsOf=${id}` : `/?reportsOf=${id}`);
-    }
+    const stage = noun === 'model' ? 'sources' : 'models';
+    const down = noun === 'model' ? '/models' : '/';
+    const up = noun === 'model' ? '/datasources' : '/models';
+    navigate(`${dir === 'down' ? down : up}?focus=${stage}:${id}`);
   };
 
+  // The focus spans the journey, so it survives the stage switcher — otherwise
+  // stepping one stage over would silently drop it. The crumb, shown on every
+  // stage while it is set, is the way out.
   const go = (key) => {
     const target = STEPS.find((s) => s.key === key);
-    if (target) navigate(target.path);
+    if (target) navigate(target.path + search);
   };
 
   // Alt+← / Alt+→ walk the journey. Plain arrows are left alone — they belong
@@ -102,7 +107,7 @@ export default function AppShell({ step }) {
       const next = visible[at + (e.key === 'ArrowRight' ? 1 : -1)];
       if (!next) return;
       e.preventDefault();
-      navigate(next.path);
+      navigate(next.path + search);
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -239,6 +244,7 @@ export default function AppShell({ step }) {
                 // quiet enough not to compete with the column in focus.
                 opacity: s.key === step ? 1 : 0.45,
               }}
+              data-stage-panel=""
               data-peek={s.key === step ? undefined : ''}
               aria-label={s.label}
               aria-current={s.key === step ? 'page' : undefined}
