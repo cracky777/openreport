@@ -236,6 +236,15 @@ body {
   .join-rule-path { animation: none; opacity: 1; }
 }
 
+/* Narrow window: the gutters no longer have room to draw a readable join, and
+   squeezing them would push the cards down to a useless width. Drop the joins
+   and give the whole width back to the cards — the stage switcher still says
+   where we are, and the counts remain reachable one stage over. */
+@media (max-width: 1100px) {
+  .journey-gutter { display: none; }
+  .journey-card { width: 100%; }
+}
+
 /* Indeterminate loading bar — used on report cards while a rollup
    refresh is in flight (the server only reports busy/idle, not a
    percentage, so an indeterminate sweep is the honest representation). */

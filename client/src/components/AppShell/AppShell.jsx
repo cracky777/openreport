@@ -76,6 +76,23 @@ export default function AppShell({ step }) {
     if (target) navigate(target.path);
   };
 
+  // Alt+← / Alt+→ walk the journey. Plain arrows are left alone — they belong
+  // to whatever the user is typing in or scrolling.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!e.altKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+      const visible = STEPS.filter((s) => stepAllowed(s.key));
+      const at = visible.findIndex((s) => s.key === step);
+      if (at === -1) return;
+      const next = visible[at + (e.key === 'ArrowRight' ? 1 : -1)];
+      if (!next) return;
+      e.preventDefault();
+      navigate(next.path);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  });
+
   return (
     <div style={shellStyle}>
       <header style={headerStyle}>
@@ -172,7 +189,7 @@ export default function AppShell({ step }) {
       {/* Both stages live here while a move is in flight, each filling the
           viewport and sliding together. `key` restarts the animation on every
           stage change. */}
-      <div style={viewportStyle}>
+      <div style={viewportStyle} aria-live="polite">
         {leaving && (
           <div
             key={leaving}
@@ -183,7 +200,12 @@ export default function AppShell({ step }) {
             <Stage step={leaving} />
           </div>
         )}
-        <div key={step} className={forward ? 'stage-enter-forward' : 'stage-enter-back'} style={stageStyle}>
+        <div
+          key={step}
+          className={forward ? 'stage-enter-forward' : 'stage-enter-back'}
+          style={stageStyle}
+          aria-label={STEPS.find((s) => s.key === step)?.label}
+        >
           <Stage step={step} />
         </div>
       </div>

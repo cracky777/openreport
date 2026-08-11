@@ -994,9 +994,9 @@ export default function Dashboard() {
             <div style={_hs67}>
               {visibleReports.map((report) => (
                 <div key={report.id} style={joinRowStyle}>
-                <div style={joinGutterStyle}><JoinIn from={report.model_name}
+                <div className="journey-gutter" style={joinGutterStyle}><JoinIn from={report.model_name}
                   onClick={report.model_id ? () => navigate(`/models?id=${report.model_id}`) : undefined} /></div>
-                <div style={report.is_public ? { ...cardStyle, ...publicCardAccent } : cardStyle}>
+                <div className="journey-card" style={report.is_public ? { ...cardStyle, ...publicCardAccent } : cardStyle}>
                   {canEdit && (
                     <button
                       onClick={(e) => { e.stopPropagation(); deleteReport(report.id); }}
@@ -1228,7 +1228,7 @@ export default function Dashboard() {
                 </div>
                 {/* Reports close the journey — nothing flows out, but the empty
                     gutter keeps the card centred like the other stages. */}
-                <div style={joinGutterStyle} />
+                <div className="journey-gutter" style={joinGutterStyle} />
                 </div>
               ))}
             </div>

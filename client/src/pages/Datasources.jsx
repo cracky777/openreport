@@ -224,11 +224,20 @@ export default function Datasources() {
 
         {loading ? (
           <div style={_hs6}>Loading...</div>
-        ) : datasources.length === 0 && !showForm ? (
-          <div style={_hs7}>
-            <p style={_hs8}>No data sources configured</p>
-            <button className="btn-hover btn-hover-primary" onClick={() => setShowForm(true)} style={primaryBtn}>Add your first data source</button>
-          </div>
+        ) : orderedDatasources.length === 0 && !showForm ? (
+          // A filter that matches nothing must say so, otherwise the column just
+          // looks broken — and the way out has to be one click away.
+          idFilter ? (
+            <div style={_hs7}>
+              <p style={_hs8}>Nothing here for this filter</p>
+              <button className="btn-hover btn-hover-primary" onClick={() => setSearchParams({})} style={primaryBtn}>Show every data source</button>
+            </div>
+          ) : (
+            <div style={_hs7}>
+              <p style={_hs8}>No data sources configured</p>
+              <button className="btn-hover btn-hover-primary" onClick={() => setShowForm(true)} style={primaryBtn}>Add your first data source</button>
+            </div>
+          )
         ) : (
           <div style={_hs9}>
             {orderedDatasources.map((ds) => {
@@ -240,8 +249,8 @@ export default function Datasources() {
                 <div key={ds.id} style={activeDatasourceIds && !activeDatasourceIds.has(ds.id) ? dimmedRowStyle : joinRowStyle}>
                 {/* Sources open the journey — nothing flows in, but the empty
                     gutter keeps the card centred like the other stages. */}
-                <div style={joinInGutterStyle} />
-                <div style={dsCardStyle}>
+                <div className="journey-gutter" style={joinInGutterStyle} />
+                <div className="journey-card" style={dsCardStyle}>
                   <div style={_hs10}>
                     <div style={_hs11}>{ds.name}</div>
                     <div style={_hs12}>
@@ -265,7 +274,7 @@ export default function Datasources() {
                     />
                   </div>
                 </div>
-                <div style={joinGutterStyle}><JoinOut count={modelsByDatasource.get(ds.id) || 0} noun="model" targets={modelSpreadByDatasource.get(ds.id)}
+                <div className="journey-gutter" style={joinGutterStyle}><JoinOut count={modelsByDatasource.get(ds.id) || 0} noun="model" targets={modelSpreadByDatasource.get(ds.id)}
                     onClick={() => navigate(`/models?source=${ds.id}`)} /></div>
                 </div>
               );

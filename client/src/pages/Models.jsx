@@ -48,6 +48,7 @@ export default function Models() {
   const idFilter = searchParams.get('id');
   const sourceName = sourceFilter ? datasources.find((d) => d.id === sourceFilter)?.name : null;
   const idName = idFilter ? models.find((x) => x.id === idFilter)?.name : null;
+  const hasFilter = !!(sourceFilter || idFilter);
 
   const orderedModels = useMemo(() => {
     let scoped = models;
@@ -150,14 +151,24 @@ export default function Models() {
 
         {loading ? (
           <div style={_hs10}>Loading...</div>
-        ) : models.length === 0 && !showForm ? (
-          <div style={_hs11}>
-            <p style={_hs12}>No data models yet</p>
-            <p style={_hs13}>
-              Models define which tables, dimensions, and measures are available in your reports.
-            </p>
-            <button className="btn-hover btn-hover-primary" onClick={openForm} style={primaryBtn}>Create your first model</button>
-          </div>
+        ) : orderedModels.length === 0 && !showForm ? (
+          // A filter that matches nothing must say so, otherwise the column just
+          // looks broken — and the way out has to be one click away.
+          hasFilter ? (
+            <div style={_hs11}>
+              <p style={_hs12}>Nothing here for this filter</p>
+              <p style={_hs13}>No model is linked to it.</p>
+              <button className="btn-hover btn-hover-primary" onClick={() => setSearchParams({})} style={primaryBtn}>Show every model</button>
+            </div>
+          ) : (
+            <div style={_hs11}>
+              <p style={_hs12}>No data models yet</p>
+              <p style={_hs13}>
+                Models define which tables, dimensions, and measures are available in your reports.
+              </p>
+              <button className="btn-hover btn-hover-primary" onClick={openForm} style={primaryBtn}>Create your first model</button>
+            </div>
+          )
         ) : (
           <div style={_hs14}>
             {orderedModels.map((m) => {
@@ -165,9 +176,9 @@ export default function Models() {
               const reportCount = reportsByModelAll.get(m.id) || 0;
               return (
               <div key={m.id} style={activeModelIds && !activeModelIds.has(m.id) ? dimmedRowStyle : joinRowStyle}>
-              <div style={joinInGutterStyle}><JoinIn from={m.datasource_name}
+              <div className="journey-gutter" style={joinInGutterStyle}><JoinIn from={m.datasource_name}
                 onClick={m.datasource_id ? () => navigate(`/datasources?id=${m.datasource_id}`) : undefined} /></div>
-              <div style={cardStyle}>
+              <div className="journey-card" style={cardStyle}>
                 <div onClick={() => navigate(`/models/${m.id}`)} style={_hs15}>
                   <div style={_hs16}>{m.name}</div>
                   <div style={_hs17}>
@@ -183,7 +194,7 @@ export default function Models() {
                   />
                 </div>
               </div>
-              <div style={joinGutterStyle}><JoinOut count={reportsByModel.get(m.id) || 0} noun="report" targets={reportSpreadByModel.get(m.id)}
+              <div className="journey-gutter" style={joinGutterStyle}><JoinOut count={reportsByModel.get(m.id) || 0} noun="report" targets={reportSpreadByModel.get(m.id)}
                   onClick={() => navigate(`/?model=${m.id}`)} /></div>
               </div>
               );
