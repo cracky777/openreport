@@ -12,6 +12,7 @@ import JoinOut from '../components/AppShell/JoinOut';
 import { useGraph } from '../hooks/graphContext';
 import { sortActiveFirst } from '../utils/sortActiveFirst';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
+import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 
 // Fills the stage slot AppShell gives it; the shell owns the viewport height.
 const _hs0 = { flex: 1, overflow: 'auto', backgroundColor: 'var(--bg-app)' };
@@ -46,7 +47,7 @@ export default function Datasources() {
   const navigate = useNavigate();
   // Rows come from the shell-level graph so this column is already populated
   // when the carousel slides it in.
-  const { datasources, setDatasources, modelsByDatasource, modelSpreadByDatasource, activeDatasourceIds, loading, refresh } = useGraph();
+  const { datasources, setDatasources, modelsByDatasource, modelsByDatasourceAll, modelSpreadByDatasource, activeDatasourceIds, loading, refresh } = useGraph();
   // Arrived by walking a model's join backwards: narrow to that datasource.
   const [searchParams, setSearchParams] = useSearchParams();
   const idFilter = searchParams.get('id');
@@ -117,7 +118,6 @@ export default function Datasources() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this datasource?')) return;
     try {
       await api.delete(`/datasources/${id}`);
       setDatasources((prev) => prev.filter((d) => d.id !== id));
@@ -234,6 +234,8 @@ export default function Datasources() {
             {orderedDatasources.map((ds) => {
               const extra = ds.extra_config ? (typeof ds.extra_config === 'string' ? JSON.parse(ds.extra_config) : ds.extra_config) : {};
               const isUploadedFile = !!extra.sourceFile;
+              // Guard on the unscoped count: the server refuses while any model uses it.
+              const modelCount = modelsByDatasourceAll.get(ds.id) || 0;
               return (
                 <div key={ds.id} style={activeDatasourceIds && !activeDatasourceIds.has(ds.id) ? dimmedRowStyle : joinRowStyle}>
                 {/* Sources open the journey — nothing flows in, but the empty
@@ -257,9 +259,10 @@ export default function Datasources() {
                         Edit
                       </button>
                     )}
-                    <button className="btn-hover btn-hover-danger" onClick={() => handleDelete(ds.id)} style={{ ...secondaryBtn, color: 'var(--state-danger)', borderColor: 'var(--state-danger)', fontSize: 12, padding: '4px 10px' }}>
-                      Delete
-                    </button>
+                    <ConfirmDeleteButton
+                      onConfirm={() => handleDelete(ds.id)}
+                      blockedReason={modelCount ? `Used by ${modelCount} model${modelCount > 1 ? 's' : ''} — delete those first` : null}
+                    />
                   </div>
                 </div>
                 <div style={joinGutterStyle}><JoinOut count={modelsByDatasource.get(ds.id) || 0} noun="model" targets={modelSpreadByDatasource.get(ds.id)}

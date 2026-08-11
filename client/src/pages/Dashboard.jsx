@@ -352,6 +352,16 @@ export default function Dashboard() {
     }
   };
 
+  // Creating from a filtered column pre-picks the model we're standing in,
+  // and jumps straight past the source step it would otherwise ask for.
+  const openCreate = () => {
+    setNewTitle('');
+    setUploadError('');
+    setNewModelId(modelFilter || '');
+    setCreateMode(modelFilter ? 'model' : null);
+    setShowCreate(true);
+  };
+
   const handleCreate = async () => {
     if (!newModelId) return;
     try {
@@ -783,7 +793,7 @@ export default function Dashboard() {
                 >
                   Import
                 </button>
-                <button className="btn-hover btn-hover-primary" onClick={() => { setNewTitle(''); setNewModelId(''); setCreateMode(null); setUploadError(''); setShowCreate(true); }} style={primaryBtn}>+ New Report</button>
+                <button className="btn-hover btn-hover-primary" onClick={openCreate} style={primaryBtn}>+ New Report</button>
               </div>
             )}
           </div>

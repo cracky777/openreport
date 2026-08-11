@@ -117,6 +117,11 @@ export function GraphProvider({ children }) {
   const modelsByDatasource = useMemo(() => countBy(scopedModels, 'datasource_id'), [scopedModels]);
   const reportsByModel = useMemo(() => countBy(scopedReports, 'model_id'), [scopedReports]);
 
+  // Unscoped tallies: deletion is refused server-side as soon as *any* child
+  // exists, whatever workspace it belongs to, so the guard must count them all.
+  const modelsByDatasourceAll = useMemo(() => countBy(models, 'datasource_id'), [models]);
+  const reportsByModelAll = useMemo(() => countBy(reports, 'model_id'), [reports]);
+
   // Where each child sits in the next stage's column, as a 0–1 fraction. The
   // join curves aim at those heights, so a link to the first row leaves high
   // and a link to the last leaves low — the fan follows the real layout instead
@@ -129,11 +134,13 @@ export function GraphProvider({ children }) {
     setDatasources, setModels, setReports, setWorkspaces,
     selectedWs, setSelectedWs,
     modelsByDatasource, reportsByModel,
+    modelsByDatasourceAll, reportsByModelAll,
     modelSpreadByDatasource, reportSpreadByModel,
     activeModelIds, activeDatasourceIds,
     refresh,
   }), [datasources, models, reports, workspaces, personalWorkspace, loading,
     selectedWs, modelsByDatasource, reportsByModel,
+    modelsByDatasourceAll, reportsByModelAll,
     modelSpreadByDatasource, reportSpreadByModel,
     activeModelIds, activeDatasourceIds, refresh]);
 

@@ -8,6 +8,7 @@ import JoinIn from '../components/AppShell/JoinIn';
 import { useGraph } from '../hooks/graphContext';
 import { sortActiveFirst } from '../utils/sortActiveFirst';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
+import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 
 // Fills the stage slot AppShell gives it; the shell owns the viewport height.
 const _hs0 = { flex: 1, overflow: 'auto', backgroundColor: 'var(--bg-app)' };
@@ -39,7 +40,7 @@ export default function Models() {
   const navigate = useNavigate();
   // Rows come from the shell-level graph so this column is already populated
   // when the carousel slides it in.
-  const { models, setModels, datasources, reportsByModel, reportSpreadByModel, activeModelIds, loading } = useGraph();
+  const { models, setModels, datasources, reportsByModel, reportsByModelAll, reportSpreadByModel, activeModelIds, loading } = useGraph();
   // Arrived by following a datasource's join: show only what it feeds. The
   // filter lives in the URL so it is shareable and the back button undoes it.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -57,6 +58,13 @@ export default function Models() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: '', datasourceId: '', description: '' });
 
+  // Creating from a filtered column pre-picks what we're standing in: arriving
+  // via a datasource's join and then re-choosing it by hand is busywork.
+  const openForm = () => {
+    if (sourceFilter) setForm((f) => ({ ...f, datasourceId: sourceFilter }));
+    setShowForm(true);
+  };
+
   const handleCreate = async () => {
     if (!form.name || !form.datasourceId) return;
     try {
@@ -68,7 +76,6 @@ export default function Models() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this model?')) return;
     try {
       await api.delete(`/models/${id}`);
       setModels((prev) => prev.filter((m) => m.id !== id));
@@ -90,7 +97,7 @@ export default function Models() {
               />
             </div>
           )}
-          <PrimaryButton onClick={() => setShowForm(true)}>+ New Model</PrimaryButton>
+          <PrimaryButton onClick={openForm}>+ New Model</PrimaryButton>
         </div>
         {showForm && (
           <div style={formCard}>
@@ -149,11 +156,14 @@ export default function Models() {
             <p style={_hs13}>
               Models define which tables, dimensions, and measures are available in your reports.
             </p>
-            <button className="btn-hover btn-hover-primary" onClick={() => setShowForm(true)} style={primaryBtn}>Create your first model</button>
+            <button className="btn-hover btn-hover-primary" onClick={openForm} style={primaryBtn}>Create your first model</button>
           </div>
         ) : (
           <div style={_hs14}>
-            {orderedModels.map((m) => (
+            {orderedModels.map((m) => {
+              // Guard on the unscoped count: the server refuses while any report uses it.
+              const reportCount = reportsByModelAll.get(m.id) || 0;
+              return (
               <div key={m.id} style={activeModelIds && !activeModelIds.has(m.id) ? dimmedRowStyle : joinRowStyle}>
               <div style={joinInGutterStyle}><JoinIn from={m.datasource_name}
                 onClick={m.datasource_id ? () => navigate(`/datasources?id=${m.datasource_id}`) : undefined} /></div>
@@ -167,13 +177,17 @@ export default function Models() {
                 </div>
                 <div style={_hs19}>
                   <button className="btn-hover" onClick={() => navigate(`/models/${m.id}`)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px' }}>Edit</button>
-                  <button className="btn-hover btn-hover-danger" onClick={() => handleDelete(m.id)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px', color: 'var(--state-danger)', borderColor: 'var(--state-danger)' }}>Delete</button>
+                  <ConfirmDeleteButton
+                    onConfirm={() => handleDelete(m.id)}
+                    blockedReason={reportCount ? `Used by ${reportCount} report${reportCount > 1 ? 's' : ''} — delete those first` : null}
+                  />
                 </div>
               </div>
               <div style={joinGutterStyle}><JoinOut count={reportsByModel.get(m.id) || 0} noun="report" targets={reportSpreadByModel.get(m.id)}
                   onClick={() => navigate(`/?model=${m.id}`)} /></div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>
