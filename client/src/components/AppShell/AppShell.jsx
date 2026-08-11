@@ -5,7 +5,11 @@ import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
 import { usePermissions } from '../../hooks/usePermissions';
 import { TopbarSwitcher, UserMenuExtras } from '../../cloud';
+import Datasources from '../../pages/Datasources';
+import Models from '../../pages/Models';
+import Dashboard from '../../pages/Dashboard';
 import StepNav from './StepNav';
+import WorkspacePicker from './WorkspacePicker';
 import { STEPS, stepIndexOf } from './steps';
 
 // Shared chrome for the three journey stages (Sources → Models → Reports).
@@ -13,9 +17,9 @@ import { STEPS, stepIndexOf } from './steps';
 // stage switcher, Admin/Platform links and the user menu — so the three
 // stages read as one screen instead of three unrelated pages.
 //
-// `step` is the stage key; the page below is passed as children and is the
-// only part that swaps. Admin and the user menu stay pinned top-right.
-export default function AppShell({ step, children }) {
+// `step` is the stage key and the only part that swaps. Admin and the user
+// menu stay pinned top-right.
+export default function AppShell({ step }) {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { mode: themeMode, resolved: themeResolved, setMode: setThemeMode, themes: availableThemes } = useTheme();
@@ -48,10 +52,24 @@ export default function AppShell({ step, children }) {
   // with the previous direction and the animation would briefly run backwards.
   const [prevStep, setPrevStep] = useState(step);
   const [forward, setForward] = useState(true);
+  // The stage being left. Kept mounted for the length of the slide so both
+  // columns travel together and their join lines meet mid-move; dropped as
+  // soon as the animation ends. Only the key is stored — the shell renders
+  // stages itself, so it can re-render the outgoing one from its name alone.
+  const [leaving, setLeaving] = useState(null);
+
   if (prevStep !== step) {
     setForward(stepIndexOf(step) >= stepIndexOf(prevStep));
+    setLeaving(prevStep);
     setPrevStep(step);
   }
+
+  useEffect(() => {
+    if (!leaving) return undefined;
+    const ms = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--stage-ms'), 10) || 420;
+    const t = setTimeout(() => setLeaving(null), ms);
+    return () => clearTimeout(t);
+  }, [leaving]);
 
   const go = (key) => {
     const target = STEPS.find((s) => s.key === key);
@@ -64,6 +82,7 @@ export default function AppShell({ step, children }) {
         <div style={leftGroup}>
           <img src={logoSrc} alt="Open Report" style={logoStyle} />
           {TopbarSwitcher && <TopbarSwitcher />}
+          <WorkspacePicker canCreate={canEditOrg} />
         </div>
 
         <StepNav current={step} onGo={go} allowed={stepAllowed} />
@@ -150,12 +169,36 @@ export default function AppShell({ step, children }) {
         </nav>
       </header>
 
-      {/* `key` restarts the animation on every stage change */}
-      <div key={step} className={forward ? 'stage-enter-forward' : 'stage-enter-back'} style={stageStyle}>
-        {children}
+      {/* Both stages live here while a move is in flight, each filling the
+          viewport and sliding together. `key` restarts the animation on every
+          stage change. */}
+      <div style={viewportStyle}>
+        {leaving && (
+          <div
+            key={leaving}
+            className={forward ? 'stage-leave-forward' : 'stage-leave-back'}
+            style={stageStyle}
+            aria-hidden="true"
+          >
+            <Stage step={leaving} />
+          </div>
+        )}
+        <div key={step} className={forward ? 'stage-enter-forward' : 'stage-enter-back'} style={stageStyle}>
+          <Stage step={step} />
+        </div>
       </div>
     </div>
   );
+}
+
+// The shell renders the stages itself rather than taking them as children:
+// during a move it must re-render the stage being left, and it can do that
+// from its name alone.
+const STAGE_COMPONENTS = { sources: Datasources, models: Models, reports: Dashboard };
+
+function Stage({ step }) {
+  const Component = STAGE_COMPONENTS[step];
+  return Component ? <Component /> : null;
 }
 
 const shellStyle = { height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' };
@@ -168,7 +211,10 @@ const leftGroup = { display: 'flex', alignItems: 'center', gap: 12, flex: 1, min
 const rightGroup = { display: 'flex', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'flex-end' };
 const logoStyle = { height: 28 };
 const relStyle = { position: 'relative' };
-const stageStyle = { flex: 1, display: 'flex', minHeight: 0 };
+// The viewport clips the two stages while they slide; each stage is absolutely
+// positioned so the outgoing one doesn't push the incoming one around.
+const viewportStyle = { flex: 1, position: 'relative', overflow: 'hidden', minHeight: 0 };
+const stageStyle = { position: 'absolute', inset: 0, display: 'flex' };
 const themeListStyle = { display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 8px 8px' };
 const themeRowLabel = { display: 'inline-flex', alignItems: 'center', gap: 8 };
 const autoTagStyle = { fontSize: 9, color: 'var(--text-muted)' };

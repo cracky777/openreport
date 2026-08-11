@@ -13,6 +13,8 @@ import { useWorkspaceData } from '../hooks/useWorkspaceData';
 import { useCardCacheWarming } from '../hooks/useCardCacheWarming';
 import { TopbarSwitcher, UserMenuExtras } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
+import JoinIn from '../components/AppShell/JoinIn';
+import { useGraph } from '../hooks/graphContext';
 import CacheInspectorModal from '../components/CacheInspectorModal/CacheInspectorModal';
 import CacheScheduleModal from '../components/CacheScheduleModal/CacheScheduleModal';
 import ScheduleModal from '../components/ScheduleModal/ScheduleModal';
@@ -109,7 +111,10 @@ const _hs63 = { color: 'var(--state-danger)', fontSize: 12, marginBottom: 8 };
 const _hs64 = { display: 'flex', justifyContent: 'flex-start' };
 const _hs65 = { textAlign: 'center', color: 'var(--text-disabled)', marginTop: 60 };
 const _hs66 = { textAlign: 'center', color: 'var(--text-disabled)', marginTop: 60 };
-const _hs67 = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 };
+// One report per row rather than a grid: the journey's other stages are lists
+// with join gutters either side, and a grid leaves nowhere for the incoming
+// join to land.
+const _hs67 = { display: 'flex', flexDirection: 'column', gap: 8 };
 const _hs68 = { cursor: 'pointer', padding: 20, flex: 1, minWidth: 0 };
 const _hs69 = {
                         fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4,
@@ -133,6 +138,18 @@ const _hs76 = { padding: '8px 20px 14px', display: 'flex', gap: 6, alignItems: '
 const _hs77 = { position: 'relative', marginLeft: 'auto' };
 const _hs78 = { padding: '0 20px 12px' };
 const _hs79 = { fontSize: 11, color: 'var(--accent-primary)', marginBottom: 5 };
+const joinRowStyle = { display: 'flex', alignItems: 'stretch' };
+const joinGutterStyle = { flex: 1, minWidth: 0, display: 'flex', alignItems: 'stretch' };
+const cardStyle = { width: 760, flexShrink: 0, position: 'relative', backgroundColor: 'var(--bg-panel)', borderRadius: 8, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.15s' };
+const publicCardAccent = { borderColor: 'var(--state-success)' };
+const cardCloseBtn = {
+  position: 'absolute', top: 6, right: 6, zIndex: 2,
+  width: 22, height: 22, padding: 0,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  border: 'none', background: 'transparent', borderRadius: 4,
+  color: 'var(--text-disabled)', cursor: 'pointer',
+  transition: 'background 0.12s, color 0.12s',
+};
 const _hs80 = {
                           padding: '0 20px 12px', fontSize: 11,
                           color: 'var(--text-disabled)',
@@ -154,30 +171,21 @@ export default function Dashboard() {
   // Still needed to stamp the active theme onto exported/shared reports.
   const { resolved: themeResolved, themes: availableThemes } = useTheme();
   const navigate = useNavigate();
-  const [reports, setReports] = useState([]);
-  const [models, setModels] = useState([]);
-  const [workspaces, setWorkspaces] = useState([]);
-  // The user's personal workspace (auto-created at signup). Stays out of the
-  // workspaces list — it backs the "My Reports" view so reports always have
-  // a workspace_id set (required for custom visuals etc.).
-  const [personalWorkspace, setPersonalWorkspace] = useState(null);
-  // Remember the last-visited workspace per user across reloads / page navigation
-  const lastWsKey = user?.id ? `openreport.lastWorkspace.${user.id}` : null;
-  const [selectedWs, setSelectedWs] = useState(() => {
-    if (typeof window === 'undefined') return null;
-    try {
-      const stored = lastWsKey ? window.localStorage.getItem(lastWsKey) : null;
-      return stored && stored !== 'null' ? stored : null;
-    } catch { return null; }
-  }); // null = My Reports
+  // Reports and models are shared across the whole journey; the setters stay
+  // available so this page keeps applying its optimistic updates (delete,
+  // share, live-mode) without waiting for a refetch.
+  // The active workspace now lives in the shell-level graph — it is a context
+  // shared by the three stages, set from the header picker.
   const {
-    wsReports, wsMembers, wsOwner, wsUserRole, wsIsPersonalOrg, wsCanSeeMembers,
-    setWsReports, setWsMembers,
+    reports, setReports, models, refresh: refreshGraph,
+    workspaces, personalWorkspace,
+    selectedWs, loading,
+  } = useGraph();
+  const {
+    wsReports, wsUserRole,
+    setWsReports,
   } = useWorkspaceData(selectedWs, reports, personalWorkspace);
-  const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
-  const [showCreateWs, setShowCreateWs] = useState(false);
-  const [showMembers, setShowMembers] = useState(false);
   // Per-report cache breakdown modal — fetched lazily on click. Keyed by
   // reportId so it survives navigations and the cache stays warm if the
   // user re-opens.
@@ -200,70 +208,17 @@ export default function Dashboard() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [sheetNames, setSheetNames] = useState([]);
   const createFileRef = useRef(null);
-  const [newWsName, setNewWsName] = useState('');
-  const [editingWsName, setEditingWsName] = useState(false);
-  const [editedWsName, setEditedWsName] = useState('');
   // Import-from-JSON-bundle flow
   const importFileRef = useRef(null);
   const [importBundle, setImportBundle] = useState(null);   // parsed { format, report, ... } or null
   const [importModelId, setImportModelId] = useState('');
   const [importError, setImportError] = useState('');
   const [importing, setImporting] = useState(false);
-  const [newMemberEmail, setNewMemberEmail] = useState('');
-  const [newMemberRole, setNewMemberRole] = useState('viewer');
-  const [userSuggestions, setUserSuggestions] = useState([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const searchTimer = useRef(null);
-
-  const searchUsers = (query) => {
-    setNewMemberEmail(query);
-    if (searchTimer.current) clearTimeout(searchTimer.current);
-    if (query.length < 2) { setUserSuggestions([]); setShowSuggestions(false); return; }
-    searchTimer.current = setTimeout(async () => {
-      try {
-        const res = await api.get(`/auth/users/search?q=${encodeURIComponent(query)}`);
-        // Filter out existing members and owner
-        const existing = new Set([...(wsMembers || []).map((m) => m.id), wsOwner?.id].filter(Boolean));
-        setUserSuggestions((res.data.users || []).filter((u) => !existing.has(u.id)));
-        setShowSuggestions(true);
-      } catch { setUserSuggestions([]); }
-    }, 200);
-  };
-
-  const selectSuggestion = (u) => {
-    setNewMemberEmail(u.email);
-    setShowSuggestions(false);
-    setUserSuggestions([]);
-  };
-
   // Cloud-aware permission state (org role, platform-admin, write capability).
-  const { activeOrgRole, canEditOrg, canEdit } = usePermissions(selectedWs, user, wsUserRole);
+  const { activeOrgRole, canEdit } = usePermissions(selectedWs, user, wsUserRole);
 
-  // Load data
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [reportsRes, modelsRes, wsRes] = await Promise.all([
-          api.get('/reports'),
-          api.get('/models').catch(() => ({ data: { models: [] } })),
-          api.get('/workspaces').catch(() => ({ data: { workspaces: [] } })),
-        ]);
-        setReports(reportsRes.data.reports);
-        setModels(modelsRes.data.models || []);
-        const loadedWs = wsRes.data.workspaces || [];
-        setWorkspaces(loadedWs);
-        setPersonalWorkspace(wsRes.data.personalWorkspace || null);
-        // If the persisted workspace no longer exists (deleted, access removed), reset selection.
-        if (selectedWs && !loadedWs.some((w) => w.id === selectedWs)) {
-          setSelectedWs(null);
-        }
-      } catch (e) { console.error(e); }
-      finally { setLoading(false); }
-    };
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  // Workspaces only — reports and models come from the shell-level graph, which
+  // has already loaded them by the time this column slides in.
   // Resume the new-report wizard when bouncing back from /models/:id?then=newReport.
   // The model editor sends ?newReport=1&modelId=<id>&title=<title> on save in that
   // flow; we re-open the wizard pre-filled with the model + the title the user
@@ -287,27 +242,6 @@ export default function Dashboard() {
     const newUrl = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
     window.history.replaceState({}, '', newUrl);
   }, []);
-
-  // On first render the user may not yet be loaded (AuthContext fetches async),
-  // so the useState initializer runs with lastWsKey=null. Restore once the key becomes known.
-  const restoredRef = useRef(false);
-  useEffect(() => {
-    if (restoredRef.current || !lastWsKey || typeof window === 'undefined') return;
-    restoredRef.current = true;
-    try {
-      const stored = window.localStorage.getItem(lastWsKey);
-      if (stored && stored !== 'null') setSelectedWs(stored);
-    } catch { /* ignore */ }
-  }, [lastWsKey]);
-
-  // Persist the current workspace selection so we come back to it next time
-  useEffect(() => {
-    if (!lastWsKey || typeof window === 'undefined' || !restoredRef.current) return;
-    try {
-      if (selectedWs) window.localStorage.setItem(lastWsKey, selectedWs);
-      else window.localStorage.removeItem(lastWsKey);
-    } catch { /* ignore quota / privacy-mode errors */ }
-  }, [selectedWs, lastWsKey]);
 
 
   // Step 1: just record the pick — the import options only make sense once a
@@ -461,28 +395,6 @@ export default function Dashboard() {
     setWsReports((p) => p.map((r) => r.id === report.id ? { ...r, live_mode: newVal } : r));
   };
 
-  const createWorkspace = async () => {
-    if (!newWsName) return;
-    let res;
-    try {
-      res = await api.post('/workspaces', { name: newWsName });
-    } catch (err) {
-      toast(err.response?.data?.error || 'Failed to create workspace');
-      return;
-    }
-    setWorkspaces((p) => [...p, { ...res.data.workspace, member_role: 'admin', report_count: 0, member_count: 1 }]);
-    setShowCreateWs(false);
-    setNewWsName('');
-    setSelectedWs(res.data.workspace.id);
-  };
-
-  const deleteWorkspace = async (wsId) => {
-    if (!confirm('Delete this workspace? Reports will be moved to My Reports.')) return;
-    await api.delete(`/workspaces/${wsId}`);
-    setWorkspaces((p) => p.filter((w) => w.id !== wsId));
-    if (selectedWs === wsId) setSelectedWs(null);
-  };
-
   // === Import a report bundle (.openreport.json file) ===
 
   const handleImportFile = async (e) => {
@@ -536,39 +448,6 @@ export default function Dashboard() {
     setImportError('');
   };
 
-  const saveWorkspaceName = async () => {
-    const name = editedWsName.trim();
-    if (!name || !selectedWs) { setEditingWsName(false); return; }
-    const current = workspaces.find((w) => w.id === selectedWs);
-    if (current && current.name === name) { setEditingWsName(false); return; }
-    try {
-      await api.put(`/workspaces/${selectedWs}`, { name });
-      setWorkspaces((p) => p.map((w) => w.id === selectedWs ? { ...w, name } : w));
-    } catch (err) {
-      toast(err.response?.data?.error || 'Failed to rename workspace');
-    }
-    setEditingWsName(false);
-  };
-
-  const addMember = async () => {
-    if (!newMemberEmail || !selectedWs) return;
-    try {
-      const res = await api.post(`/workspaces/${selectedWs}/members`, { email: newMemberEmail, role: newMemberRole });
-      setWsMembers((p) => [...p, res.data.member]);
-      setNewMemberEmail('');
-    } catch (err) { toast(err.response?.data?.error || 'Failed'); }
-  };
-
-  const updateMemberRole = async (userId, role) => {
-    await api.put(`/workspaces/${selectedWs}/members/${userId}`, { role });
-    setWsMembers((p) => p.map((m) => m.id === userId ? { ...m, role } : m));
-  };
-
-  const removeMember = async (userId) => {
-    await api.delete(`/workspaces/${selectedWs}/members/${userId}`);
-    setWsMembers((p) => p.filter((m) => m.id !== userId));
-  };
-
   const moveReport = async (reportId, wsId) => {
     // "My Reports" → personal workspace id (everything must live in a real
     // workspace post-migration). Falls back to the legacy null path on older
@@ -579,8 +458,7 @@ export default function Dashboard() {
     } else {
       await api.put(`/reports/${reportId}`, { workspace_id: null });
     }
-    const res = await api.get('/reports');
-    setReports(res.data.reports);
+    await refreshGraph();
   };
 
   // 3-dots menu state (per-card) + the modals it opens.
@@ -626,8 +504,7 @@ export default function Dashboard() {
     // Refresh both views. The "My Reports" tab derives from `reports`, but the
     // workspace view fills `wsReports` from a separate /workspaces/:id fetch
     // that only fires when selectedWs changes — so we re-pull it here too.
-    const reportsRes = await api.get('/reports');
-    setReports(reportsRes.data.reports);
+    await refreshGraph();
     if (selectedWs) {
       const wsRes = await api.get(`/workspaces/${selectedWs}`);
       setWsReports(wsRes.data.reports || []);
@@ -674,8 +551,7 @@ export default function Dashboard() {
     const res = await api.get(`/reports/${historyModal.report.id}/history`);
     setHistoryModal({ ...historyModal, versions: res.data.versions || [] });
     // Refresh the report list so the title in the card reflects the restored state
-    const reportsRes = await api.get('/reports');
-    setReports(reportsRes.data.reports);
+    await refreshGraph();
   };
 
   // Cache-warm schedules — works in OSS and cloud. Each tick fires the
@@ -867,111 +743,12 @@ export default function Dashboard() {
     <div style={_hs0}>
 
       <div style={_hs10}>
-        {/* Sidebar — Workspaces */}
-        <div style={sidebarStyle}>
-          <div style={_hs11}>Workspaces</div>
-
-          <button onClick={() => setSelectedWs(null)}
-            style={{ ...wsItemStyle, fontWeight: !selectedWs ? 700 : 400, background: !selectedWs ? 'var(--bg-active)' : 'transparent', color: !selectedWs ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>
-            <TbFolder size={16} /> My Reports
-          </button>
-
-          {workspaces.map((ws) => (
-            <button key={ws.id} onClick={() => setSelectedWs(ws.id)}
-              style={{ ...wsItemStyle, fontWeight: selectedWs === ws.id ? 700 : 400, background: selectedWs === ws.id ? 'var(--bg-active)' : 'transparent', color: selectedWs === ws.id ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>
-              <TbFolder size={16} />
-              <span style={_hs12}>{ws.name}</span>
-              <span style={_hs13}>{ws.report_count}</span>
-            </button>
-          ))}
-
-          {canEditOrg && (
-            <div style={_hs14}>
-              {showCreateWs ? (
-                <div style={_hs15}>
-                  <input
-                    placeholder="Workspace name" value={newWsName}
-                    onChange={(e) => setNewWsName(e.target.value)}
-                    style={_hs16}
-                    onKeyDown={(e) => e.key === 'Enter' && createWorkspace()} autoFocus
-                  />
-                  <button onClick={createWorkspace}
-                    disabled={!newWsName.trim()}
-                    title="Create"
-                    style={{
-                      width: 22, height: 22, padding: 0, border: 'none',
-                      borderRadius: 5, cursor: newWsName.trim() ? 'pointer' : 'not-allowed',
-                      background: newWsName.trim() ? 'var(--accent-primary)' : 'var(--bg-hover)',
-                      color: newWsName.trim() ? '#fff' : 'var(--text-disabled)',
-                      fontSize: 13, fontWeight: 600, lineHeight: 1,
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      transition: 'background 0.12s',
-                    }}>+</button>
-                  <button onClick={() => { setShowCreateWs(false); setNewWsName(''); }}
-                    title="Cancel"
-                    style={_hs17}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; }}
-                  >
-                    <TbX size={13} />
-                  </button>
-                </div>
-              ) : (
-                <button onClick={() => setShowCreateWs(true)}
-                  style={_hs18}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent-primary)'; e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.background = 'var(--bg-subtle)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
-                >
-                  <TbFolderPlus size={14} /> New workspace
-                </button>
-              )}
-            </div>
-          )}
-        </div>
 
         {/* Main content */}
         <main style={_hs19}>
           <div style={_hs20}>
             <div style={_hs21}>
-              {editingWsName && selectedWs && wsUserRole === 'admin' ? (
-                <input
-                  autoFocus
-                  value={editedWsName}
-                  onChange={(e) => setEditedWsName(e.target.value)}
-                  onBlur={saveWorkspaceName}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') saveWorkspaceName();
-                    else if (e.key === 'Escape') setEditingWsName(false);
-                  }}
-                  style={_hs22}
-                />
-              ) : (
-                <h2 style={_hs23}>{wsName}</h2>
-              )}
-              {selectedWs && (
-                <>
-                  {wsUserRole === 'admin' && !editingWsName && (
-                    <button
-                      className="btn-hover"
-                      onClick={() => { setEditedWsName(wsName); setEditingWsName(true); }}
-                      style={{ ...iconBtn, color: 'var(--text-muted)' }}
-                      title="Rename workspace"
-                    >
-                      <TbEdit size={16} />
-                    </button>
-                  )}
-                  {!wsIsPersonalOrg && wsCanSeeMembers && (
-                    <button className="btn-hover" onClick={() => setShowMembers(!showMembers)} style={{ ...iconBtn, color: 'var(--text-muted)' }} title="Members">
-                      <TbUsers size={16} />
-                    </button>
-                  )}
-                  {wsUserRole === 'admin' && (
-                    <button className="btn-hover btn-hover-danger" onClick={() => deleteWorkspace(selectedWs)} style={{ ...iconBtn, color: 'var(--state-danger)' }} title="Delete workspace">
-                      <TbTrash size={14} />
-                    </button>
-                  )}
-                </>
-              )}
+              <h2 style={_hs23}>{wsName}</h2>
             </div>
             {canEdit && (
               <div style={_hs24}>
@@ -996,70 +773,6 @@ export default function Dashboard() {
           </div>
 
           {/* Members panel */}
-          {showMembers && selectedWs && !wsIsPersonalOrg && wsCanSeeMembers && (
-            <div style={membersPanel}>
-              <div style={_hs26}>Members</div>
-              {wsOwner && (
-                <div style={memberRow}>
-                  <span>{wsOwner.display_name || wsOwner.email}</span>
-                  <span style={_hs27}>Owner</span>
-                </div>
-              )}
-              {wsMembers.map((m) => (
-                <div key={m.id} style={memberRow}>
-                  <span>{m.display_name || m.email}</span>
-                  <div style={_hs28}>
-                    {wsUserRole === 'admin' ? (
-                      <>
-                        <select value={m.role} onChange={(e) => updateMemberRole(m.id, e.target.value)}
-                          style={_hs29}>
-                          <option value="admin">Admin</option>
-                          <option value="editor">Editor</option>
-                          <option value="viewer">Viewer</option>
-                        </select>
-                        <button className="btn-hover btn-hover-danger" onClick={() => removeMember(m.id)} style={{ ...iconBtn, padding: '2px 4px' }}><TbX size={12} /></button>
-                      </>
-                    ) : (
-                      <span style={_hs30}>{m.role}</span>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {wsUserRole === 'admin' && (
-                <div style={_hs31}>
-                  <div style={_hs32}>
-                    <input placeholder="Search user..." value={newMemberEmail}
-                      onChange={(e) => searchUsers(e.target.value)}
-                      onFocus={() => userSuggestions.length > 0 && setShowSuggestions(true)}
-                      onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                      style={_hs33} />
-                    {showSuggestions && userSuggestions.length > 0 && (
-                      <div style={_hs34}>
-                        {userSuggestions.map((u) => (
-                          <div key={u.id} onClick={() => selectSuggestion(u)}
-                            style={_hs35}
-                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-active)'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
-                            <span style={_hs36}>{u.display_name || u.email.split('@')[0]}</span>
-                            <span style={_hs37}>{u.email}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <select value={newMemberRole} onChange={(e) => setNewMemberRole(e.target.value)}
-                    style={_hs38}>
-                    <option value="viewer">Viewer</option>
-                    <option value="editor">Editor</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                  <button className="btn-hover btn-hover-primary" onClick={addMember} style={_hs39}>
-                    <TbUserPlus size={14} />
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Import-from-bundle modal */}
           {importBundle && (
@@ -1254,7 +967,9 @@ export default function Dashboard() {
           ) : (
             <div style={_hs67}>
               {wsReports.map((report) => (
-                <div key={report.id} style={report.is_public ? { ...cardStyle, ...publicCardAccent } : cardStyle}>
+                <div key={report.id} style={joinRowStyle}>
+                <div style={joinGutterStyle}><JoinIn from={report.model_name} /></div>
+                <div style={report.is_public ? { ...cardStyle, ...publicCardAccent } : cardStyle}>
                   {canEdit && (
                     <button
                       onClick={(e) => { e.stopPropagation(); deleteReport(report.id); }}
@@ -1484,6 +1199,10 @@ export default function Dashboard() {
                     );
                   })()}
                 </div>
+                {/* Reports close the journey — nothing flows out, but the empty
+                    gutter keeps the card centred like the other stages. */}
+                <div style={joinGutterStyle} />
+                </div>
               ))}
             </div>
           )}
@@ -1649,21 +1368,6 @@ const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: 'var(--bg-
 const fileChipStyle = { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', marginBottom: 12, borderRadius: 8, border: '1px solid var(--border-default)', background: 'var(--bg-panel-alt)' };
 const fileChipNameStyle = { flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 const fileChipRemoveStyle = { display: 'inline-flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 4, borderRadius: 6, flexShrink: 0 };
-const iconBtn = { background: 'transparent', border: '1px solid', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
-const cardStyle = { position: 'relative', backgroundColor: 'var(--bg-panel)', borderRadius: 8, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.15s' };
-// Public reports get a colored border (green = "publicly available")
-// so an admin scanning the workspace can spot sharable reports at a
-// glance. Background stays the regular panel colour to keep the cards
-// visually quiet — only the rim differs.
-const publicCardAccent = { borderColor: 'var(--state-success)' };
-const cardCloseBtn = {
-  position: 'absolute', top: 6, right: 6, zIndex: 2,
-  width: 22, height: 22, padding: 0,
-  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-  border: 'none', background: 'transparent', borderRadius: 4,
-  color: 'var(--text-disabled)', cursor: 'pointer',
-  transition: 'background 0.12s, color 0.12s',
-};
 
 // 3-dots dropdown shown next to the action row of each report card.
 const cardMenuPanel = {
@@ -1711,7 +1415,3 @@ const sourceCard = {
   padding: '20px 12px', border: '1px solid var(--border-default)', borderRadius: 8, background: 'var(--bg-panel)',
   cursor: 'pointer', textAlign: 'center', transition: 'all 0.15s', color: 'var(--text-primary)',
 };
-const sidebarStyle = { width: 240, backgroundColor: 'var(--bg-panel)', borderRight: '1px solid var(--border-default)', overflow: 'auto', flexShrink: 0 };
-const wsItemStyle = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 16px', border: 'none', cursor: 'pointer', fontSize: 13, textAlign: 'left' };
-const membersPanel = { backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 8, padding: 16, marginBottom: 20 };
-const memberRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: 13, borderBottom: '1px solid var(--bg-subtle)' };

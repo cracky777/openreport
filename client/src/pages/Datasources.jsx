@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
@@ -8,6 +8,9 @@ import { TbUpload } from 'react-icons/tb';
 import { PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
 import { DatasourcesHeader } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
+import JoinOut from '../components/AppShell/JoinOut';
+import { useGraph } from '../hooks/graphContext';
+import { sortActiveFirst } from '../utils/sortActiveFirst';
 
 // Fills the stage slot AppShell gives it; the shell owns the viewport height.
 const _hs0 = { flex: 1, overflow: 'auto', backgroundColor: 'var(--bg-app)' };
@@ -16,7 +19,7 @@ const _hs0 = { flex: 1, overflow: 'auto', backgroundColor: 'var(--bg-app)' };
 const _hs1 = { display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 20 };
 const _hs2 = { display: 'none' };
 const _hs3 = { color: 'var(--accent-primary)', borderColor: '#ddd6fe', background: 'var(--accent-primary-soft)' };
-const _hs4 = { maxWidth: 800, margin: '0 auto', padding: '32px 20px' };
+const _hs4 = { padding: '32px 24px' };
 const _hs5 = { fontSize: 16, fontWeight: 600, marginBottom: 16 };
 const _hs6 = { color: 'var(--text-disabled)', textAlign: 'center', marginTop: 60 };
 const _hs7 = { textAlign: 'center', marginTop: 80 };
@@ -25,7 +28,7 @@ const _hs9 = { display: 'flex', flexDirection: 'column', gap: 8 };
 const _hs10 = { flex: 1 };
 const _hs11 = { fontWeight: 600, color: 'var(--text-primary)', fontSize: 15 };
 const _hs12 = { fontSize: 13, color: 'var(--text-muted)', marginTop: 2 };
-const _hs13 = { display: 'flex', gap: 6 };
+const _hs13 = { display: 'flex', alignItems: 'center', gap: 6 };
 
 const DB_TYPE_LABELS = {
   postgres: 'PostgreSQL',
@@ -38,8 +41,13 @@ const DB_TYPE_LABELS = {
 
 export default function Datasources() {
   const navigate = useNavigate();
-  const [datasources, setDatasources] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Rows come from the shell-level graph so this column is already populated
+  // when the carousel slides it in.
+  const { datasources, setDatasources, modelsByDatasource, modelSpreadByDatasource, activeDatasourceIds, loading, refresh } = useGraph();
+  const orderedDatasources = useMemo(
+    () => sortActiveFirst(datasources, activeDatasourceIds),
+    [datasources, activeDatasourceIds]
+  );
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
   const [importOpts, setImportOpts] = useState(DEFAULT_IMPORT_OPTIONS);
@@ -51,16 +59,9 @@ export default function Datasources() {
   const [editingValues, setEditingValues] = useState(null);
   const [saveMsg, setSaveMsg] = useState(null);
 
-  useEffect(() => {
-    loadDatasources();
-  }, []);
-
-  const loadDatasources = () => {
-    api.get('/datasources')
-      .then((res) => setDatasources(res.data.datasources))
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  };
+  // Mutations re-pull the whole graph: creating a datasource can also create
+  // a model, and the counts on this column have to follow.
+  const loadDatasources = refresh;
 
   const handleSaved = async ({ datasource, isNew }) => {
     setShowForm(false);
@@ -217,11 +218,15 @@ export default function Datasources() {
           </div>
         ) : (
           <div style={_hs9}>
-            {datasources.map((ds) => {
+            {orderedDatasources.map((ds) => {
               const extra = ds.extra_config ? (typeof ds.extra_config === 'string' ? JSON.parse(ds.extra_config) : ds.extra_config) : {};
               const isUploadedFile = !!extra.sourceFile;
               return (
-                <div key={ds.id} style={dsCardStyle}>
+                <div key={ds.id} style={activeDatasourceIds && !activeDatasourceIds.has(ds.id) ? dimmedRowStyle : joinRowStyle}>
+                {/* Sources open the journey — nothing flows in, but the empty
+                    gutter keeps the card centred like the other stages. */}
+                <div style={joinInGutterStyle} />
+                <div style={dsCardStyle}>
                   <div style={_hs10}>
                     <div style={_hs11}>{ds.name}</div>
                     <div style={_hs12}>
@@ -243,6 +248,8 @@ export default function Datasources() {
                       Delete
                     </button>
                   </div>
+                </div>
+                <div style={joinGutterStyle}><JoinOut count={modelsByDatasource.get(ds.id) || 0} noun="model" targets={modelSpreadByDatasource.get(ds.id)} /></div>
                 </div>
               );
             })}
@@ -277,7 +284,18 @@ const formCard = {
   border: '1px solid var(--border-default)', marginBottom: 24,
 };
 
-const dsCardStyle = {
+// Card plus the join gutter to its right; the card flexes, the join keeps a
+// fixed width so every arrow and count lines up down the column.
+// The row only anchors the join gutter: the gutter is taken out of the flow
+// so the cards stay centred on the page and the arrows reach past them,
+// towards the stage that lives to the right.
+const joinRowStyle = { display: 'flex', alignItems: 'stretch' };
+// Outside the active workspace: dimmed, never hidden — a datasource no report
+// uses yet still has to be reachable and editable from here.
+const dimmedRowStyle = { ...joinRowStyle, opacity: 0.4 };
+const joinGutterStyle = { flex: 1, minWidth: 0, display: 'flex', alignItems: 'stretch' };
+const joinInGutterStyle = joinGutterStyle;
+const dsCardStyle = { width: 760, flexShrink: 0,
   backgroundColor: 'var(--bg-panel)', padding: '16px 20px', borderRadius: 8,
   border: '1px solid var(--border-default)', display: 'flex', alignItems: 'center',
 };

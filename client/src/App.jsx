@@ -1,12 +1,10 @@
 import { createBrowserRouter, RouterProvider, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
+import { GraphProvider } from './hooks/useGraph';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
 import Editor from './pages/Editor';
 import Viewer from './pages/Viewer';
-import Datasources from './pages/Datasources';
-import Models from './pages/Models';
 import ModelEditor from './pages/ModelEditor';
 import Admin from './pages/Admin';
 import Verify from './pages/Verify';
@@ -40,8 +38,12 @@ function RootLayout() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <Outlet />
-        <ToastHost />
+        {/* Above the router so the Sources→Models→Reports graph survives moving
+            between stages instead of being refetched on every step. */}
+        <GraphProvider>
+          <Outlet />
+          <ToastHost />
+        </GraphProvider>
       </AuthProvider>
     </ThemeProvider>
   );
@@ -55,10 +57,10 @@ const router = createBrowserRouter([
       // The three journey stages share one shell; `step` picks which one is on
       // screen. They stay separate routes so deep links and the editors' back
       // buttons keep working.
-      { path: '/', element: <PrivateRoute><AppShell step="reports"><Dashboard /></AppShell></PrivateRoute> },
+      { path: '/', element: <PrivateRoute><AppShell step="reports" /></PrivateRoute> },
       { path: '/edit/:id', element: <PrivateRoute><Editor /></PrivateRoute> },
-      { path: '/datasources', element: <PrivateRoute><AppShell step="sources"><Datasources /></AppShell></PrivateRoute> },
-      { path: '/models', element: <PrivateRoute><AppShell step="models"><Models /></AppShell></PrivateRoute> },
+      { path: '/datasources', element: <PrivateRoute><AppShell step="sources" /></PrivateRoute> },
+      { path: '/models', element: <PrivateRoute><AppShell step="models" /></PrivateRoute> },
       { path: '/models/:id', element: <PrivateRoute><ModelEditor /></PrivateRoute> },
       { path: '/admin', element: <PrivateRoute><Admin /></PrivateRoute> },
       { path: '/view/:id', element: <Viewer /> },

@@ -1,15 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import { PrimaryButton } from '../components/PageHeader/PageHeader';
+import JoinOut from '../components/AppShell/JoinOut';
+import JoinIn from '../components/AppShell/JoinIn';
+import { useGraph } from '../hooks/graphContext';
+import { sortActiveFirst } from '../utils/sortActiveFirst';
 
 // Fills the stage slot AppShell gives it; the shell owns the viewport height.
 const _hs0 = { flex: 1, overflow: 'auto', backgroundColor: 'var(--bg-app)' };
 // Action bar sitting at the top of the panel — the stage switcher in the shell
 // already says where we are, so this row carries actions only.
 const _hs1 = { display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 20 };
-const _hs2 = { maxWidth: 800, margin: '0 auto', padding: '32px 20px' };
+const _hs2 = { padding: '32px 24px' };
 const _hs3 = { fontSize: 16, fontWeight: 600, marginBottom: 16 };
 const _hs4 = { marginBottom: 12 };
 const _hs5 = { marginBottom: 12 };
@@ -26,25 +30,19 @@ const _hs15 = { cursor: 'pointer', flex: 1 };
 const _hs16 = { fontWeight: 600, color: 'var(--text-primary)', fontSize: 15 };
 const _hs17 = { fontSize: 13, color: 'var(--text-muted)', marginTop: 2 };
 const _hs18 = { fontSize: 12, color: 'var(--text-disabled)', marginTop: 2 };
-const _hs19 = { display: 'flex', gap: 8 };
+const _hs19 = { display: 'flex', alignItems: 'center', gap: 8 };
 
 export default function Models() {
   const navigate = useNavigate();
-  const [models, setModels] = useState([]);
-  const [datasources, setDatasources] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Rows come from the shell-level graph so this column is already populated
+  // when the carousel slides it in.
+  const { models, setModels, datasources, reportsByModel, reportSpreadByModel, activeModelIds, loading } = useGraph();
+  const orderedModels = useMemo(
+    () => sortActiveFirst(models, activeModelIds),
+    [models, activeModelIds]
+  );
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: '', datasourceId: '', description: '' });
-
-  useEffect(() => {
-    Promise.all([
-      api.get('/models'),
-      api.get('/datasources'),
-    ]).then(([modelsRes, dsRes]) => {
-      setModels(modelsRes.data.models);
-      setDatasources(dsRes.data.datasources);
-    }).finally(() => setLoading(false));
-  }, []);
 
   const handleCreate = async () => {
     if (!form.name || !form.datasourceId) return;
@@ -133,8 +131,10 @@ export default function Models() {
           </div>
         ) : (
           <div style={_hs14}>
-            {models.map((m) => (
-              <div key={m.id} style={cardStyle}>
+            {orderedModels.map((m) => (
+              <div key={m.id} style={activeModelIds && !activeModelIds.has(m.id) ? dimmedRowStyle : joinRowStyle}>
+              <div style={joinInGutterStyle}><JoinIn from={m.datasource_name} /></div>
+              <div style={cardStyle}>
                 <div onClick={() => navigate(`/models/${m.id}`)} style={_hs15}>
                   <div style={_hs16}>{m.name}</div>
                   <div style={_hs17}>
@@ -146,6 +146,8 @@ export default function Models() {
                   <button className="btn-hover" onClick={() => navigate(`/models/${m.id}`)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px' }}>Edit</button>
                   <button className="btn-hover btn-hover-danger" onClick={() => handleDelete(m.id)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px', color: 'var(--state-danger)', borderColor: 'var(--state-danger)' }}>Delete</button>
                 </div>
+              </div>
+              <div style={joinGutterStyle}><JoinOut count={reportsByModel.get(m.id) || 0} noun="report" targets={reportSpreadByModel.get(m.id)} /></div>
               </div>
             ))}
           </div>
@@ -172,7 +174,17 @@ const formCard = {
   backgroundColor: 'var(--bg-panel)', padding: 24, borderRadius: 8,
   border: '1px solid var(--border-default)', marginBottom: 24,
 };
-const cardStyle = {
+// Card plus the join gutter to its right; the card flexes, the join keeps a
+// fixed width so every arrow and count lines up down the column.
+// The row only anchors the join gutter: the gutter is taken out of the flow
+// so the cards stay centred on the page and the arrows reach past them,
+// towards the stage that lives to the right.
+const joinRowStyle = { display: 'flex', alignItems: 'stretch' };
+// Outside the active workspace: dimmed, never hidden — see Datasources.
+const dimmedRowStyle = { ...joinRowStyle, opacity: 0.4 };
+const joinGutterStyle = { flex: 1, minWidth: 0, display: 'flex', alignItems: 'stretch' };
+const joinInGutterStyle = joinGutterStyle;
+const cardStyle = { width: 760, flexShrink: 0,
   backgroundColor: 'var(--bg-panel)', padding: '16px 20px', borderRadius: 8,
   border: '1px solid var(--border-default)', display: 'flex', alignItems: 'center',
 };
