@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TbShield, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop } from 'react-icons/tb';
 import { useAuth } from '../../hooks/useAuth';
@@ -9,8 +9,9 @@ import Datasources from '../../pages/Datasources';
 import Models from '../../pages/Models';
 import Dashboard from '../../pages/Dashboard';
 import StepNav from './StepNav';
+import JoinLayer from './JoinLayer';
 import WorkspacePicker from './WorkspacePicker';
-import { STEPS, stepIndexOf } from './steps';
+import { STEPS } from './steps';
 
 // Shared chrome for the three journey stages (Sources → Models → Reports).
 // It owns what used to be the Dashboard header — logo, cloud org switcher,
@@ -46,30 +47,44 @@ export default function AppShell({ step }) {
   // Sources and Models are org-editor territory, same rule the old nav used.
   const stepAllowed = (key) => (key === 'reports' ? true : canEditOrg);
 
-  // Direction of travel, so the incoming stage slides in from the side it came
-  // from. Derived during render (React's "adjust state when a prop changes"
-  // pattern) rather than in an effect — an effect would paint the first frame
-  // with the previous direction and the animation would briefly run backwards.
-  const [prevStep, setPrevStep] = useState(step);
-  const [forward, setForward] = useState(true);
-  // The stage being left. Kept mounted for the length of the slide so both
-  // columns travel together and their join lines meet mid-move; dropped as
-  // soon as the animation ends. Only the key is stored — the shell renders
-  // stages itself, so it can re-render the outgoing one from its name alone.
-  const [leaving, setLeaving] = useState(null);
+  // Every stage stays mounted side by side on one ribbon; changing step slides
+  // the ribbon rather than swapping what is rendered. Its neighbours therefore
+  // peek in from the edges, which is what lets a join end on a real card in the
+  // next column instead of running off into nothing.
+  const visibleSteps = STEPS.filter((s) => stepAllowed(s.key));
+  const index = Math.max(0, visibleSteps.findIndex((s) => s.key === step));
 
-  if (prevStep !== step) {
-    setForward(stepIndexOf(step) >= stepIndexOf(prevStep));
-    setLeaving(prevStep);
-    setPrevStep(step);
-  }
+  const viewportRef = useRef(null);
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  useLayoutEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return undefined;
+    const read = () => setViewport({ width: el.clientWidth, height: el.clientHeight });
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const { width: viewportWidth, height: viewportHeight } = viewport;
 
-  useEffect(() => {
-    if (!leaving) return undefined;
-    const ms = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--stage-ms'), 10) || 420;
-    const t = setTimeout(() => setLeaving(null), ms);
-    return () => clearTimeout(t);
-  }, [leaving]);
+  // One scroll for the whole ribbon means a stage inherits wherever the last
+  // one was left — you arrive on Reports already scrolled past its first card.
+  // Each stage starts at its top, the way it did when each owned its scroll.
+  useLayoutEffect(() => { if (viewportRef.current) viewportRef.current.scrollTop = 0; }, [step]);
+
+  // The active column is inset by PEEK on both sides, and that inset is exactly
+  // what its neighbours show through.
+  const columnWidth = Math.max(MIN_COLUMN, viewportWidth - 2 * PEEK);
+  const offset = PEEK - index * columnWidth;
+
+  // Following a join is the same navigation the old per-row buttons did.
+  const follow = ({ dir, noun, id }) => {
+    if (dir === 'up') {
+      navigate(noun === 'model' ? `/datasources?source=${id}` : `/models?model=${id}`);
+    } else {
+      navigate(noun === 'model' ? `/models?modelsOf=${id}` : `/?reportsOf=${id}`);
+    }
+  };
 
   const go = (key) => {
     const target = STEPS.find((s) => s.key === key);
@@ -186,27 +201,52 @@ export default function AppShell({ step }) {
         </nav>
       </header>
 
-      {/* Both stages live here while a move is in flight, each filling the
-          viewport and sliding together. `key` restarts the animation on every
-          stage change. */}
-      <div style={viewportStyle} aria-live="polite">
-        {leaving && (
-          <div
-            key={leaving}
-            className={forward ? 'stage-leave-forward' : 'stage-leave-back'}
-            style={stageStyle}
-            aria-hidden="true"
-          >
-            <Stage step={leaving} />
-          </div>
-        )}
+      {/* While a move is in flight both stages ride one ribbon and slide as a
+          single block, so their relative positions hold still and JoinLayer can
+          run a curve from a card in one column to its target in the other. */}
+      <div ref={viewportRef} style={viewportStyle} aria-live="polite">
+        {/* JoinLayer lives on the ribbon, alongside the columns it links. It
+            measures against its own parent, and that parent has to be the
+            element the cards move with — measured against the still viewport,
+            a sliding card would drift away from its curve on every frame. */}
         <div
-          key={step}
-          className={forward ? 'stage-enter-forward' : 'stage-enter-back'}
-          style={stageStyle}
-          aria-label={STEPS.find((s) => s.key === step)?.label}
+          data-journey-ribbon=""
+          style={{
+            ...ribbonStyle,
+            width: columnWidth * visibleSteps.length,
+            // A short stage still has to fill the screen; a tall one grows the
+            // ribbon and, with it, the viewport's scrollbar.
+            minHeight: viewportHeight || undefined,
+            transform: `translateX(${offset}px)`,
+            // Before the first measurement the column width is a placeholder,
+            // so the ribbon would animate from a position that never made
+            // sense. Snap into place instead, then animate on later moves.
+            transition: viewportWidth ? ribbonStyle.transition : 'none',
+          }}
         >
-          <Stage step={step} />
+          {visibleSteps.map((s) => (
+            <div
+              key={s.key}
+              style={{
+                ...panelStyle,
+                width: columnWidth,
+                // Only the column in focus sets the scroll length. A peeking
+                // neighbour is clipped to the screen, otherwise a long list one
+                // stage over would leave the active column scrolling past its
+                // own end.
+                ...(s.key === step ? null : { maxHeight: viewportHeight || undefined, overflow: 'hidden' }),
+                // Neighbours are legible enough to show where a join lands,
+                // quiet enough not to compete with the column in focus.
+                opacity: s.key === step ? 1 : 0.45,
+              }}
+              data-peek={s.key === step ? undefined : ''}
+              aria-label={s.label}
+              aria-current={s.key === step ? 'page' : undefined}
+            >
+              <Stage step={s.key} />
+            </div>
+          ))}
+          <JoinLayer onFollow={follow} />
         </div>
       </div>
     </div>
@@ -233,10 +273,36 @@ const leftGroup = { display: 'flex', alignItems: 'center', gap: 12, flex: 1, min
 const rightGroup = { display: 'flex', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'flex-end' };
 const logoStyle = { height: 28 };
 const relStyle = { position: 'relative' };
-// The viewport clips the two stages while they slide; each stage is absolutely
-// positioned so the outgoing one doesn't push the incoming one around.
-const viewportStyle = { flex: 1, position: 'relative', overflow: 'hidden', minHeight: 0 };
-const stageStyle = { position: 'absolute', inset: 0, display: 'flex' };
+// The viewport clips the stages sideways while they slide, and owns the vertical
+// scroll. Scrolling used to belong to each column, which put the scrollbar at
+// the column's edge — a good 100px short of the window, floating in the middle
+// of the screen. Here it sits against the right edge, where a scrollbar belongs.
+// `scrollbar-gutter` reserves its strip up front so a list crossing the
+// one-screen mark doesn't narrow the columns as it appears.
+const viewportStyle = {
+  flex: 1, position: 'relative', minHeight: 0,
+  overflowX: 'hidden', overflowY: 'auto', scrollbarGutter: 'stable',
+};
+// Twice the viewport, two equal panels: sliding it by -50% swaps one column
+// for the next in a single motion.
+// How much of each neighbour shows past the active column.
+const PEEK = 96;
+const MIN_COLUMN = 360;
+// Relative, not absolute: the ribbon has to take the height of its tallest
+// column so the viewport has something to scroll. It stays the positioning
+// context for JoinLayer, which is why the curves scroll with the cards instead
+// of being re-measured on every frame.
+const ribbonStyle = {
+  position: 'relative', display: 'flex',
+  transition: 'transform var(--stage-ms) cubic-bezier(0.4, 0, 0.2, 1)',
+};
+// Default stretch: every column is as tall as the ribbon, and the ribbon is as
+// tall as the tallest column — the clamped neighbours contributing only up to
+// one screen, so the active column alone decides how far the page scrolls.
+const panelStyle = {
+  display: 'flex', flexShrink: 0, minWidth: 0,
+  transition: 'opacity var(--stage-ms) ease-out',
+};
 const themeListStyle = { display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 8px 8px' };
 const themeRowLabel = { display: 'inline-flex', alignItems: 'center', gap: 8 };
 const autoTagStyle = { fontSize: 9, color: 'var(--text-muted)' };

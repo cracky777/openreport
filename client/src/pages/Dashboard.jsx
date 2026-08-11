@@ -13,7 +13,7 @@ import { useWorkspaceData } from '../hooks/useWorkspaceData';
 import { useCardCacheWarming } from '../hooks/useCardCacheWarming';
 import { TopbarSwitcher, UserMenuExtras } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
-import JoinIn from '../components/AppShell/JoinIn';
+
 import { useGraph } from '../hooks/graphContext';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
 import CacheInspectorModal from '../components/CacheInspectorModal/CacheInspectorModal';
@@ -139,8 +139,10 @@ const _hs76 = { padding: '8px 20px 14px', display: 'flex', gap: 6, alignItems: '
 const _hs77 = { position: 'relative', marginLeft: 'auto' };
 const _hs78 = { padding: '0 20px 12px' };
 const _hs79 = { fontSize: 11, color: 'var(--accent-primary)', marginBottom: 5 };
-const joinRowStyle = { display: 'flex', alignItems: 'stretch' };
-const joinGutterStyle = { flex: 1, minWidth: 0, display: 'flex', alignItems: 'stretch' };
+// A row is just a centred card now — JoinLayer draws the relations over the
+// space either side of it.
+const joinRowStyle = { display: 'flex', justifyContent: 'center' };
+
 const cardStyle = { width: 760, flexShrink: 0, position: 'relative', backgroundColor: 'var(--bg-panel)', borderRadius: 8, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.15s' };
 const publicCardAccent = { borderColor: 'var(--state-success)' };
 const cardCloseBtn = {
@@ -753,7 +755,7 @@ export default function Dashboard() {
 
   // Arrived by following a model's join: narrow the list to that model's
   // reports. Lives in the URL so it is shareable and Back undoes it.
-  const modelFilter = searchParams.get('model');
+  const modelFilter = searchParams.get('reportsOf');
   const modelName = modelFilter ? models.find((m) => m.id === modelFilter)?.name : null;
   const visibleReports = modelFilter
     ? wsReports.filter((r) => r.model_id === modelFilter)
@@ -994,9 +996,7 @@ export default function Dashboard() {
             <div style={_hs67}>
               {visibleReports.map((report) => (
                 <div key={report.id} style={joinRowStyle}>
-                <div className="journey-gutter" style={joinGutterStyle}><JoinIn from={report.model_name}
-                  onClick={report.model_id ? () => navigate(`/models?id=${report.model_id}`) : undefined} /></div>
-                <div className="journey-card" style={report.is_public ? { ...cardStyle, ...publicCardAccent } : cardStyle}>
+                <div className="journey-card" data-join-anchor={`reports:${report.id}`} style={report.is_public ? { ...cardStyle, ...publicCardAccent } : cardStyle}>
                   {canEdit && (
                     <button
                       onClick={(e) => { e.stopPropagation(); deleteReport(report.id); }}
@@ -1226,9 +1226,6 @@ export default function Dashboard() {
                     );
                   })()}
                 </div>
-                {/* Reports close the journey — nothing flows out, but the empty
-                    gutter keeps the card centred like the other stages. */}
-                <div className="journey-gutter" style={joinGutterStyle} />
                 </div>
               ))}
             </div>

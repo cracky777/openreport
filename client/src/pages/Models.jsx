@@ -3,8 +3,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import { PrimaryButton } from '../components/PageHeader/PageHeader';
-import JoinOut from '../components/AppShell/JoinOut';
-import JoinIn from '../components/AppShell/JoinIn';
 import { useGraph } from '../hooks/graphContext';
 import { sortActiveFirst } from '../utils/sortActiveFirst';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
@@ -40,12 +38,12 @@ export default function Models() {
   const navigate = useNavigate();
   // Rows come from the shell-level graph so this column is already populated
   // when the carousel slides it in.
-  const { models, setModels, datasources, reportsByModel, reportsByModelAll, reportSpreadByModel, activeModelIds, loading } = useGraph();
+  const { models, setModels, datasources, reportsByModelAll, activeModelIds, loading } = useGraph();
   // Arrived by following a datasource's join: show only what it feeds. The
   // filter lives in the URL so it is shareable and the back button undoes it.
   const [searchParams, setSearchParams] = useSearchParams();
-  const sourceFilter = searchParams.get('source');
-  const idFilter = searchParams.get('id');
+  const sourceFilter = searchParams.get('modelsOf');
+  const idFilter = searchParams.get('model');
   const sourceName = sourceFilter ? datasources.find((d) => d.id === sourceFilter)?.name : null;
   const idName = idFilter ? models.find((x) => x.id === idFilter)?.name : null;
   const hasFilter = !!(sourceFilter || idFilter);
@@ -176,9 +174,7 @@ export default function Models() {
               const reportCount = reportsByModelAll.get(m.id) || 0;
               return (
               <div key={m.id} style={activeModelIds && !activeModelIds.has(m.id) ? dimmedRowStyle : joinRowStyle}>
-              <div className="journey-gutter" style={joinInGutterStyle}><JoinIn from={m.datasource_name}
-                onClick={m.datasource_id ? () => navigate(`/datasources?id=${m.datasource_id}`) : undefined} /></div>
-              <div className="journey-card" style={cardStyle}>
+              <div className="journey-card" data-join-anchor={`models:${m.id}`} style={cardStyle}>
                 <div onClick={() => navigate(`/models/${m.id}`)} style={_hs15}>
                   <div style={_hs16}>{m.name}</div>
                   <div style={_hs17}>
@@ -194,8 +190,6 @@ export default function Models() {
                   />
                 </div>
               </div>
-              <div className="journey-gutter" style={joinGutterStyle}><JoinOut count={reportsByModel.get(m.id) || 0} noun="report" targets={reportSpreadByModel.get(m.id)}
-                  onClick={() => navigate(`/?model=${m.id}`)} /></div>
               </div>
               );
             })}
@@ -228,11 +222,11 @@ const formCard = {
 // The row only anchors the join gutter: the gutter is taken out of the flow
 // so the cards stay centred on the page and the arrows reach past them,
 // towards the stage that lives to the right.
-const joinRowStyle = { display: 'flex', alignItems: 'stretch' };
+// A row is just a centred card now — JoinLayer draws the relations over the
+// space either side of it.
+const joinRowStyle = { display: 'flex', justifyContent: 'center' };
 // Outside the active workspace: dimmed, never hidden — see Datasources.
 const dimmedRowStyle = { ...joinRowStyle, opacity: 0.4 };
-const joinGutterStyle = { flex: 1, minWidth: 0, display: 'flex', alignItems: 'stretch' };
-const joinInGutterStyle = joinGutterStyle;
 const cardStyle = { width: 760, flexShrink: 0,
   backgroundColor: 'var(--bg-panel)', padding: '16px 20px', borderRadius: 8,
   border: '1px solid var(--border-default)', display: 'flex', alignItems: 'center',

@@ -8,7 +8,6 @@ import { TbUpload } from 'react-icons/tb';
 import { PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
 import { DatasourcesHeader } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
-import JoinOut from '../components/AppShell/JoinOut';
 import { useGraph } from '../hooks/graphContext';
 import { sortActiveFirst } from '../utils/sortActiveFirst';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
@@ -47,10 +46,12 @@ export default function Datasources() {
   const navigate = useNavigate();
   // Rows come from the shell-level graph so this column is already populated
   // when the carousel slides it in.
-  const { datasources, setDatasources, modelsByDatasource, modelsByDatasourceAll, modelSpreadByDatasource, activeDatasourceIds, loading, refresh } = useGraph();
+  const { datasources, setDatasources, modelsByDatasourceAll, activeDatasourceIds, loading, refresh } = useGraph();
   // Arrived by walking a model's join backwards: narrow to that datasource.
   const [searchParams, setSearchParams] = useSearchParams();
-  const idFilter = searchParams.get('id');
+  // Each stage reads its own parameter name: all three columns are mounted at
+  // once, so a shared name would be applied by every one of them.
+  const idFilter = searchParams.get('source');
   const idName = idFilter ? datasources.find((x) => x.id === idFilter)?.name : null;
 
   const orderedDatasources = useMemo(() => {
@@ -247,10 +248,7 @@ export default function Datasources() {
               const modelCount = modelsByDatasourceAll.get(ds.id) || 0;
               return (
                 <div key={ds.id} style={activeDatasourceIds && !activeDatasourceIds.has(ds.id) ? dimmedRowStyle : joinRowStyle}>
-                {/* Sources open the journey — nothing flows in, but the empty
-                    gutter keeps the card centred like the other stages. */}
-                <div className="journey-gutter" style={joinInGutterStyle} />
-                <div className="journey-card" style={dsCardStyle}>
+                <div className="journey-card" data-join-anchor={`sources:${ds.id}`} style={dsCardStyle}>
                   <div style={_hs10}>
                     <div style={_hs11}>{ds.name}</div>
                     <div style={_hs12}>
@@ -274,8 +272,6 @@ export default function Datasources() {
                     />
                   </div>
                 </div>
-                <div className="journey-gutter" style={joinGutterStyle}><JoinOut count={modelsByDatasource.get(ds.id) || 0} noun="model" targets={modelSpreadByDatasource.get(ds.id)}
-                    onClick={() => navigate(`/models?source=${ds.id}`)} /></div>
                 </div>
               );
             })}
@@ -315,12 +311,12 @@ const formCard = {
 // The row only anchors the join gutter: the gutter is taken out of the flow
 // so the cards stay centred on the page and the arrows reach past them,
 // towards the stage that lives to the right.
-const joinRowStyle = { display: 'flex', alignItems: 'stretch' };
+// A row is just a centred card now — the join layer draws over the space
+// either side of it.
+const joinRowStyle = { display: 'flex', justifyContent: 'center' };
 // Outside the active workspace: dimmed, never hidden — a datasource no report
 // uses yet still has to be reachable and editable from here.
 const dimmedRowStyle = { ...joinRowStyle, opacity: 0.4 };
-const joinGutterStyle = { flex: 1, minWidth: 0, display: 'flex', alignItems: 'stretch' };
-const joinInGutterStyle = joinGutterStyle;
 const dsCardStyle = { width: 760, flexShrink: 0,
   backgroundColor: 'var(--bg-panel)', padding: '16px 20px', borderRadius: 8,
   border: '1px solid var(--border-default)', display: 'flex', alignItems: 'center',

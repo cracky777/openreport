@@ -180,68 +180,25 @@ body {
   to   { opacity: 1; transform: translateY(0);    max-height: 70vh; }
 }
 
-/* Carousel between the Sources → Models → Reports stages. During a move both
-   stages are mounted side by side and travel together, so the join lines one
-   column sends out meet the ones the next column receives — the relation is
-   visible exactly while crossing. Once the move ends only the arriving stage
-   stays mounted. */
-@keyframes stageEnterFromRight {
-  from { transform: translateX(100%); }
-  to   { transform: translateX(0); }
-}
-@keyframes stageEnterFromLeft {
-  from { transform: translateX(-100%); }
-  to   { transform: translateX(0); }
-}
-@keyframes stageLeaveToLeft {
-  from { transform: translateX(0); }
-  to   { transform: translateX(-100%); }
-}
-@keyframes stageLeaveToRight {
-  from { transform: translateX(0); }
-  to   { transform: translateX(100%); }
-}
-.stage-enter-forward { animation: stageEnterFromRight var(--stage-ms) cubic-bezier(0.4, 0, 0.2, 1); }
-.stage-enter-back    { animation: stageEnterFromLeft  var(--stage-ms) cubic-bezier(0.4, 0, 0.2, 1); }
-.stage-leave-forward { animation: stageLeaveToLeft    var(--stage-ms) cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-.stage-leave-back    { animation: stageLeaveToRight   var(--stage-ms) cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-
-/* Join lines draw themselves on arrival, left to right, so the link a card
-   sent out on the previous stage reads as continuing into this one rather
-   than as a new decoration that popped in. */
-@keyframes joinDraw {
-  from { transform: scaleX(0); }
-  to   { transform: scaleX(1); }
-}
-.join-rule {
-  transform-origin: left center;
-  animation: joinDraw 0.32s ease-out 0.12s backwards;
-}
-
-/* The fan curves fade in rather than draw: they use non-scaling-stroke, and a
-   stroke-dasharray on top of that is measured in screen space, which shatters
-   the curve into dashes instead of revealing it. */
-@keyframes joinFadePath {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-.join-rule-path {
-  animation: joinFadePath 0.36s ease-out 0.12s backwards;
-}
-
+/* Carousel between the Sources → Models → Reports stages. All three sit on one
+   ribbon whose offset is computed from the viewport width, so a transition on
+   transform carries it between stages and covers both directions without a
+   second animation. Keeping every stage mounted is what lets a neighbour peek
+   in from the edge — and what lets a join end on a real card over there. */
 @media (prefers-reduced-motion: reduce) {
-  .stage-enter-forward, .stage-enter-back,
-  .stage-leave-forward, .stage-leave-back { animation: none; }
-  .join-rule { animation: none; transform: none; }
-  .join-rule-path { animation: none; opacity: 1; }
+  [data-journey-ribbon] { transition: none !important; }
 }
 
-/* Narrow window: the gutters no longer have room to draw a readable join, and
-   squeezing them would push the cards down to a useless width. Drop the joins
-   and give the whole width back to the cards — the stage switcher still says
-   where we are, and the counts remain reachable one stage over. */
+/* A peeking neighbour is a glimpse, not a surface to work in: its scrollbar
+   would otherwise land in the middle of the screen, next to the column that
+   actually has focus. */
+[data-peek] ::-webkit-scrollbar { width: 0; height: 0; }
+[data-peek] * { scrollbar-width: none; }
+
+/* Narrow window: a card of fixed width no longer fits the column, and squeezing
+   it would leave nothing readable. Give the width back to the cards — the joins
+   follow, since they are measured from the cards themselves. */
 @media (max-width: 1100px) {
-  .journey-gutter { display: none; }
   .journey-card { width: 100%; }
 }
 

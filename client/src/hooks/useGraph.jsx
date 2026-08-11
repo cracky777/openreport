@@ -122,44 +122,25 @@ export function GraphProvider({ children }) {
   const modelsByDatasourceAll = useMemo(() => countBy(models, 'datasource_id'), [models]);
   const reportsByModelAll = useMemo(() => countBy(reports, 'model_id'), [reports]);
 
-  // Where each child sits in the next stage's column, as a 0–1 fraction. The
-  // join curves aim at those heights, so a link to the first row leaves high
-  // and a link to the last leaves low — the fan follows the real layout instead
-  // of spreading arbitrarily.
-  const modelSpreadByDatasource = useMemo(() => spreadBy(scopedModels, 'datasource_id'), [scopedModels]);
-  const reportSpreadByModel = useMemo(() => spreadBy(scopedReports, 'model_id'), [scopedReports]);
 
   const value = useMemo(() => ({
     datasources, models, reports, workspaces, personalWorkspace, loading,
+    // Workspace-scoped views. Anything drawing relations must use these, so the
+    // lines it draws agree with the counts computed from the same scope.
+    scopedModels, scopedReports,
     setDatasources, setModels, setReports, setWorkspaces,
     selectedWs, setSelectedWs,
     modelsByDatasource, reportsByModel,
     modelsByDatasourceAll, reportsByModelAll,
-    modelSpreadByDatasource, reportSpreadByModel,
     activeModelIds, activeDatasourceIds,
     refresh,
   }), [datasources, models, reports, workspaces, personalWorkspace, loading,
+    scopedModels, scopedReports,
     selectedWs, modelsByDatasource, reportsByModel,
     modelsByDatasourceAll, reportsByModelAll,
-    modelSpreadByDatasource, reportSpreadByModel,
     activeModelIds, activeDatasourceIds, refresh]);
 
   return <GraphContext.Provider value={value}>{children}</GraphContext.Provider>;
-}
-
-// Positions of each parent's children within the child list, normalised to
-// 0–1 so a consumer can map them onto whatever height it has.
-function spreadBy(rows, key) {
-  const out = new Map();
-  const total = rows.length || 1;
-  rows.forEach((row, i) => {
-    const parent = row[key];
-    if (!parent) return;
-    const at = (i + 0.5) / total;
-    const arr = out.get(parent);
-    if (arr) arr.push(at); else out.set(parent, [at]);
-  });
-  return out;
 }
 
 function countBy(rows, key) {
