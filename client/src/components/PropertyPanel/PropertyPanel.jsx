@@ -2015,7 +2015,10 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onS
           <span style={_hs36}>Data</span>
           {model?.id ? (
             <a
-              href={`/models/${model.id}`}
+              // Opens in its own tab, so the editor has no history to walk
+              // back through. `from` tells its Back button where this report
+              // is, instead of dropping the user on the model list.
+              href={`/models/${model.id}${reportId ? `?from=/edit/${reportId}` : ''}`}
               target="_blank"
               rel="noopener noreferrer"
               title={`${model.name} — open data model`}

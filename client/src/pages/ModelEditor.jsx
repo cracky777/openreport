@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useNavigationType } from 'react-router-dom';
 import Step1Schema from './Step1Schema';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
@@ -70,6 +70,22 @@ export default function ModelEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { resolved: themeResolved, themes: availableThemes } = useTheme();
+
+  // Back means back. This editor is reached from a report card, from a model
+  // card, and from the report editor, and it used to answer "the model list"
+  // to all three — so leaving a report dropped you a stage away from it.
+  //
+  // Nothing behind us means a first entry: a pasted URL, or the new tab the
+  // report editor opens. Then we honour the ?from= the opener left, and fall
+  // back to the list. The `idx` check is what keeps a plain reload — which
+  // turns any arrival into a POP — from forgetting where the user came from.
+  const arrivedBy = useNavigationType();
+  const goBack = () => {
+    if (arrivedBy !== 'POP' || window.history.state?.idx > 0) { navigate(-1); return; }
+    // In-app paths only — `from` comes off the URL, so anyone can write it.
+    const from = new URLSearchParams(window.location.search).get('from') || '';
+    navigate(from.startsWith('/') && !from.startsWith('//') ? from : '/models');
+  };
 
   const [step, setStep] = useState(0);
   const [allTables, setAllTables] = useState([]);
@@ -505,7 +521,7 @@ export default function ModelEditor() {
     <div style={_hs1}>
       {/* Header */}
       <header style={headerShellStyle}>
-        <BackButton to="/models" />
+        <BackButton onClick={goBack} />
         <input
           type="text" value={name} onChange={(e) => setName(e.target.value)}
           style={_hs2}
