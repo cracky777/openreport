@@ -15,7 +15,6 @@ import { Section, SubSection, AlignButtonGroup, Field, DecimalInput, RangeInput,
 import PivotOptionsSection from './PivotOptionsSection';
 import { getWidgetDisplayInfo } from '../../utils/widgetDisplay';
 
-const _hs0 = { color: 'var(--text-disabled)', fontSize: 13, textAlign: 'center', marginTop: 40 };
 const _hs1 = { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4, fontSize: 11, color: 'var(--text-secondary)' };
 const _hs2 = { display: 'flex', flexDirection: 'column', gap: 2 };
 const _hs3 = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' };
@@ -100,33 +99,18 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
     setTimeout(() => onResizeEnd?.(), PANEL_COLLAPSE_TRANSITION_MS + 30);
   };
 
+  // Nothing selected, nothing to configure — so no panel, not a panel saying
+  // there is nothing to configure. It stood there as a fixed column telling
+  // the user to pick a widget, while taking the canvas width they needed to
+  // pick one. Before the collapsed branch: a collapsed rail is still a rail.
+  if (!widgetId || !widget) return null;
+
   if (collapsed) {
     return (
       <div style={collapsedPanelStyle} onClick={() => toggleCollapsed(false)} title="Open config panel">
         <span style={collapsedChevronStyle}><TbChevronsLeft size={14} /></span>
         <TbAdjustments size={14} color="var(--accent-primary)" />
         <span style={collapsedLabelStyle}>Configuration</span>
-      </div>
-    );
-  }
-
-  if (!widgetId || !widget) {
-    return (
-      <div style={dynamicConfigStyle}>
-        <div {...handleProps} />
-        <div style={panelHeader}>
-          <span style={panelHeaderTitle}>
-            <TbAdjustments size={14} color="var(--accent-primary)" />
-            Configuration
-          </span>
-          <button onClick={() => toggleCollapsed(true)} style={chevronBtn} title="Collapse panel"
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--border-strong)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
-          ><TbChevronsRight size={14} /></button>
-        </div>
-        <div style={_hs0}>
-          Select a widget to configure it
-        </div>
       </div>
     );
   }
