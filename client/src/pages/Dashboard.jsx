@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
@@ -21,6 +21,7 @@ import Portal from '../components/Portal/Portal';
 import Modal from '../components/Modal/Modal';
 import { useGraph } from '../hooks/graphContext';
 import { useJourneyFocus } from '../hooks/useJourneyFocus';
+import { groupByParent } from '../utils/groupByParent';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
 import CacheInspectorModal from '../components/CacheInspectorModal/CacheInspectorModal';
 import CacheScheduleModal from '../components/CacheScheduleModal/CacheScheduleModal';
@@ -221,7 +222,7 @@ export default function Dashboard() {
   const {
     reports, setReports, models, refresh: refreshGraph,
     workspaces, personalWorkspace,
-    selectedWs, loading,
+    selectedWs, loading, modelOrder,
   } = useGraph();
   const {
     wsReports, wsUserRole,
@@ -831,9 +832,12 @@ export default function Dashboard() {
 
   // Arrived by following a model's join: narrow the list to that model's
   // reports. Lives in the URL so it is shareable and Back undoes it.
-  const visibleReports = focus.reportIds
-    ? wsReports.filter((r) => focus.reportIds.has(r.id))
-    : wsReports;
+  // Reports follow their model's position in the column before them — the last
+  // link of the chain that keeps the joins from crossing.
+  const visibleReports = useMemo(() => {
+    const scoped = focus.reportIds ? wsReports.filter((r) => focus.reportIds.has(r.id)) : wsReports;
+    return groupByParent(scoped, modelOrder, 'model_id');
+  }, [wsReports, focus.reportIds, modelOrder]);
 
   return (
     <div style={_hs0}>

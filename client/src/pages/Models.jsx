@@ -6,7 +6,6 @@ import { PrimaryButton } from '../components/PageHeader/PageHeader';
 import Modal from '../components/Modal/Modal';
 import { useGraph } from '../hooks/graphContext';
 import { useJourneyFocus } from '../hooks/useJourneyFocus';
-import { sortActiveFirst } from '../utils/sortActiveFirst';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
 import JoinAdd from '../components/AppShell/JoinAdd';
 import SourceIcon from '../components/AppShell/SourceIcon';
@@ -46,14 +45,18 @@ export default function Models() {
   const navigate = useNavigate();
   // Rows come from the shell-level graph so this column is already populated
   // when the carousel slides it in.
-  const { models, setModels, datasources, reportsByModelAll, activeModelIds, loading } = useGraph();
+  const {
+    setModels, datasources, reportsByModelAll, activeModelIds, loading,
+    orderedModels: graphOrderedModels,
+  } = useGraph();
   // The branch the journey is focused on, resolved once for all three stages.
   const focus = useJourneyFocus();
 
-  const orderedModels = useMemo(() => {
-    const scoped = focus.modelIds ? models.filter((m) => focus.modelIds.has(m.id)) : models;
-    return sortActiveFirst(scoped, activeModelIds);
-  }, [models, activeModelIds, focus.modelIds]);
+  // Order comes from the graph — models sit in their source's block, which is
+  // what keeps the joins from crossing. Only the filter is local.
+  const orderedModels = useMemo(() => (
+    focus.modelIds ? graphOrderedModels.filter((m) => focus.modelIds.has(m.id)) : graphOrderedModels
+  ), [graphOrderedModels, focus.modelIds]);
   // Which sources are uploaded files, so a model can say what it actually sits
   // on rather than making the user walk back a column to find out.
   // `extra_config` comes off the row as JSON text.

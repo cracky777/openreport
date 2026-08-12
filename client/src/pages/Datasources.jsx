@@ -12,7 +12,6 @@ import Portal from '../components/Portal/Portal';
 import Modal from '../components/Modal/Modal';
 import { useGraph } from '../hooks/graphContext';
 import { useJourneyFocus } from '../hooks/useJourneyFocus';
-import { sortActiveFirst } from '../utils/sortActiveFirst';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
 import JoinAdd from '../components/AppShell/JoinAdd';
 import SourceIcon from '../components/AppShell/SourceIcon';
@@ -62,16 +61,20 @@ export default function Datasources() {
   const navigate = useNavigate();
   // Rows come from the shell-level graph so this column is already populated
   // when the carousel slides it in.
-  const { datasources, setDatasources, modelsByDatasourceAll, activeDatasourceIds, loading, refresh } = useGraph();
+  const {
+    setDatasources, modelsByDatasourceAll, activeDatasourceIds, loading, refresh,
+    orderedDatasources: graphOrderedDatasources,
+  } = useGraph();
   // The branch the journey is focused on, resolved once for all three stages.
   const focus = useJourneyFocus();
 
-  const orderedDatasources = useMemo(() => {
-    const scoped = focus.datasourceIds
-      ? datasources.filter((d) => focus.datasourceIds.has(d.id))
-      : datasources;
-    return sortActiveFirst(scoped, activeDatasourceIds);
-  }, [datasources, activeDatasourceIds, focus.datasourceIds]);
+  // Order comes from the graph so the three columns agree; filtering is all
+  // that is left to do here, and it preserves it.
+  const orderedDatasources = useMemo(() => (
+    focus.datasourceIds
+      ? graphOrderedDatasources.filter((d) => focus.datasourceIds.has(d.id))
+      : graphOrderedDatasources
+  ), [graphOrderedDatasources, focus.datasourceIds]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
   const [importOpts, setImportOpts] = useState(DEFAULT_IMPORT_OPTIONS);

@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../utils/api';
 import { useAuth } from './useAuth';
 import { GraphContext } from './graphContext';
+import { sortActiveFirst } from '../utils/sortActiveFirst';
+import { groupByParent } from '../utils/groupByParent';
 
 // The Sources → Models → Reports graph, loaded once for the whole journey.
 //
@@ -112,6 +114,30 @@ export function GraphProvider({ children }) {
     return ids;
   }, [activeModelIds, scopedModels]);
 
+  // The order of the three columns, decided here rather than in each stage —
+  // an order is only worth anything if all three agree on it, and a column
+  // cannot see the ones next to it.
+  //
+  // Sources lead: floating what the active workspace reaches to the top is
+  // applied once, at the root, and the grouping carries it down. Within a
+  // parent's block the same rule applies again, so an active model still
+  // precedes a dimmed sibling under the same source.
+  const orderedDatasources = useMemo(
+    () => sortActiveFirst(datasources, activeDatasourceIds),
+    [datasources, activeDatasourceIds],
+  );
+  const orderedModels = useMemo(
+    () => groupByParent(
+      sortActiveFirst(models, activeModelIds),
+      orderedDatasources.map((d) => d.id),
+      'datasource_id',
+    ),
+    [models, activeModelIds, orderedDatasources],
+  );
+  // Reports are listed per workspace by the stage itself, so what it needs from
+  // here is the order to line up with, not the rows.
+  const modelOrder = useMemo(() => orderedModels.map((m) => m.id), [orderedModels]);
+
   // Unscoped tallies: deletion is refused server-side as soon as *any* child
   // exists, whatever workspace it belongs to, so the guard must count them all.
   const modelsByDatasourceAll = useMemo(() => countBy(models, 'datasource_id'), [models]);
@@ -127,12 +153,16 @@ export function GraphProvider({ children }) {
     selectedWs, setSelectedWs,
     modelsByDatasourceAll, reportsByModelAll,
     activeModelIds, activeDatasourceIds,
+    // Column order — see above. A stage that renders its own rows must follow
+    // these, or its joins start crossing the neighbours'.
+    orderedDatasources, orderedModels, modelOrder,
     refresh,
   }), [datasources, models, reports, workspaces, personalWorkspace, loading,
     scopedModels, scopedReports,
     selectedWs,
     modelsByDatasourceAll, reportsByModelAll,
-    activeModelIds, activeDatasourceIds, refresh]);
+    activeModelIds, activeDatasourceIds,
+    orderedDatasources, orderedModels, modelOrder, refresh]);
 
   return <GraphContext.Provider value={value}>{children}</GraphContext.Provider>;
 }
