@@ -123,50 +123,63 @@ const _hs66 = { textAlign: 'center', color: 'var(--text-disabled)', marginTop: 6
 // with join gutters either side, and a grid leaves nowhere for the incoming
 // join to land.
 const _hs67 = { display: 'flex', flexDirection: 'column', gap: 8 };
-const _hs68 = { cursor: 'pointer', padding: 20, flex: 1, minWidth: 0 };
-const _hs69 = {
-                        fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4,
-                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                      };
-const _hs70 = { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4, minWidth: 0 };
-const _hs71 = {
-                            fontSize: 12, color: 'var(--accent-primary)',
-                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                            minWidth: 0, flex: '0 1 auto',
-                          };
-const _hs72 = {
-                              background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
-                              color: 'var(--accent-primary)', opacity: 0.55, transition: 'opacity 0.12s',
-                              display: 'inline-flex', alignItems: 'center', flexShrink: 0,
-                            };
-const _hs73 = { fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 };
-const _hs74 = { fontSize: 12, color: 'var(--text-disabled)' };
-const _hs75 = { fontSize: 12, color: 'var(--text-disabled)' };
-const _hs76 = { padding: '8px 20px 14px', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
-const _hs77 = { position: 'relative', marginLeft: 'auto' };
-const _hs78 = { padding: '0 20px 12px' };
-const _hs79 = { fontSize: 11, color: 'var(--accent-primary)', marginBottom: 5 };
+// Text left, actions right — the layout Sources and Models already use. The
+// card used to stack a padded body over its own action bar, which made it
+// twice the height of the other two stages: the same journey read as three
+// unrelated kinds of object.
+const cardBody = { cursor: 'pointer', flex: 1, minWidth: 0 };
+const cardTitle = {
+  fontSize: 15, fontWeight: 600, color: 'var(--text-primary)',
+  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+};
+// Everything else on one line. nowrap + hidden is what keeps the card a fixed
+// two lines tall whatever the report carries; the model name is the only
+// segment allowed to shrink, so it ellipsises before anything else is clipped.
+const cardMeta = {
+  display: 'flex', alignItems: 'center', gap: 6, marginTop: 2,
+  fontSize: 12, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden',
+};
+const metaDot = { color: 'var(--border-strong)', flexShrink: 0 };
+const metaModel = { display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0 };
+const metaModelName = {
+  color: 'var(--accent-primary)',
+  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+  minWidth: 0, flex: '0 1 auto',
+};
+const metaModelEdit = {
+  background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
+  color: 'var(--accent-primary)', opacity: 0.55, transition: 'opacity 0.12s',
+  display: 'inline-flex', alignItems: 'center', flexShrink: 0,
+};
+const metaSize = { color: 'var(--text-muted)', flexShrink: 0 };
+const metaWhen = { color: 'var(--text-disabled)', flexShrink: 0 };
+const cardActions = { display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 };
+const cardMenuWrap = { position: 'relative' };
+// A refresh in flight stays inside the meta line: as a footer it grew the card
+// mid-refresh and shoved every join below it down a notch.
+const metaProgress = { display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 };
+const metaProgressLabel = { fontSize: 11, color: 'var(--accent-primary)' };
+const metaProgressTrack = { width: 90 };
 // A row is just a centred card now — JoinLayer draws the relations over the
 // space either side of it.
 const joinRowStyle = { display: 'flex', justifyContent: 'center' };
 
-const cardStyle = { width: 760, flexShrink: 0, position: 'relative', backgroundColor: 'var(--bg-panel)', borderRadius: 8, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.15s' };
-const publicCardAccent = { borderColor: 'var(--state-success)' };
-const cardCloseBtn = {
-  position: 'absolute', top: 6, right: 6, zIndex: 2,
-  width: 22, height: 22, padding: 0,
-  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-  border: 'none', background: 'transparent', borderRadius: 4,
-  color: 'var(--text-disabled)', cursor: 'pointer',
-  transition: 'background 0.12s, color 0.12s',
+const cardStyle = { width: 760, flexShrink: 0,
+  backgroundColor: 'var(--bg-panel)', padding: '16px 20px', borderRadius: 8,
+  border: '1px solid var(--border-default)', display: 'flex', alignItems: 'center', gap: 14,
 };
-const _hs80 = {
-                          padding: '0 20px 12px', fontSize: 11,
-                          color: 'var(--text-disabled)',
-                          cursor: 'pointer', textDecoration: 'underline',
-                          textDecorationColor: 'var(--border-default)',
-                          textDecorationStyle: 'dotted',
-                        };
+const publicCardAccent = { borderColor: 'var(--state-success)' };
+// The actions menu carries its own z-index, but it is trapped in the card's
+// stacking context (.journey-card is z-index 4) — so every card further down
+// the list, at that same 4, painted over it. Raising the card lifts the menu
+// with it. Stays well under the shell's own dropdowns at 200.
+const cardMenuOpen = { zIndex: 10 };
+const cardCacheLink = {
+  color: 'var(--text-disabled)', flexShrink: 0,
+  cursor: 'pointer', textDecoration: 'underline',
+  textDecorationColor: 'var(--border-default)',
+  textDecorationStyle: 'dotted',
+};
 const _hs81 = { fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 };
 const _hs82 = { padding: 20, textAlign: 'center', color: 'var(--text-disabled)' };
 const _hs83 = { padding: 12, color: 'var(--state-danger)', fontSize: 13 };
@@ -993,96 +1006,133 @@ export default function Dashboard() {
             </div>
           ) : (
             <div style={_hs67}>
-              {visibleReports.map((report) => (
+              {visibleReports.map((report) => {
+                const stats = cardCacheStats[report.id];
+                const warming = cardWarmingIds.has(report.id);
+                const menuOpen = cardMenu === report.id;
+                const skin = report.is_public || menuOpen
+                  ? { ...cardStyle, ...(report.is_public ? publicCardAccent : null), ...(menuOpen ? cardMenuOpen : null) }
+                  : cardStyle;
+                return (
                 <div key={report.id} style={joinRowStyle}>
-                <div className="journey-card" data-join-anchor={`reports:${report.id}`} style={report.is_public ? { ...cardStyle, ...publicCardAccent } : cardStyle}>
-                  {canEdit && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); deleteReport(report.id); }}
-                      title="Delete"
-                      style={cardCloseBtn}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'var(--state-danger-soft)';
-                        e.currentTarget.style.color = 'var(--state-danger)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.color = 'var(--text-disabled)';
-                      }}
-                    >
-                      <TbX size={14} />
-                    </button>
-                  )}
+                <div className="journey-card" data-join-anchor={`reports:${report.id}`} style={skin}>
                   <div onClick={() => window.open(`/view/${report.id}`, '_blank')}
-                    style={_hs68}>
+                    style={cardBody}>
                     <h3
                       title={report.title}
-                      style={_hs69}
+                      style={cardTitle}
                     >{report.title}</h3>
-                    {report.model_name && (
-                      // Flex row so the long model name still truncates with
-                      // an ellipsis while the edit pencil stays visible on
-                      // the right. Pencil only renders when the user has
-                      // edit rights AND the report carries a model_id (the
-                      // workspaces list endpoint includes it — see
-                      // server/routes/workspaces.js).
-                      <div style={_hs70}>
-                        <span
-                          style={_hs71}
-                          title={report.model_name}
-                        >{report.model_name}</span>
-                        {canEdit && report.model_id && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); navigate(`/models/${report.model_id}`); }}
-                            title="Edit model"
-                            style={_hs72}
-                            onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.55'; }}
+                    <div style={cardMeta}>
+                      {report.model_name && (
+                        // The pencil only renders when the user has edit rights
+                        // AND the report carries a model_id (the workspaces list
+                        // endpoint includes it — see server/routes/workspaces.js).
+                        <>
+                          <span style={metaModel}>
+                            <span
+                              style={metaModelName}
+                              title={report.model_name}
+                            >{report.model_name}</span>
+                            {canEdit && report.model_id && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); navigate(`/models/${report.model_id}`); }}
+                                title="Edit model"
+                                style={metaModelEdit}
+                                onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.55'; }}
+                              >
+                                <TbPencil size={12} />
+                              </button>
+                            )}
+                          </span>
+                          <span style={metaDot}>·</span>
+                        </>
+                      )}
+                      {typeof report.fileSize === 'number' && (
+                        <>
+                          <span style={metaSize}>{formatFileSize(report.fileSize)}</span>
+                          <span style={metaDot}>·</span>
+                        </>
+                      )}
+                      <span style={metaWhen}>Last edit {formatWhen(report.updated_at)}</span>
+                      {stats?.builtAt && (
+                        <>
+                          <span style={metaDot}>·</span>
+                          <span style={metaWhen}>Last refresh {formatWhen(stats.builtAt)}</span>
+                        </>
+                      )}
+                      {/* Cache footprint for this report. Populated lazily —
+                          only after the user clicks Refresh at least once,
+                          so the report list itself loads fast. While a
+                          refresh is in flight the size · rows segment is
+                          replaced by a smoothly-advancing progress bar
+                          (trickle driver above), then restored once the warm
+                          finishes. Click → opens the per-widget breakdown. */}
+                      {warming ? (
+                        <>
+                          <span style={metaDot}>·</span>
+                          <div style={metaProgress}>
+                            <span style={metaProgressLabel}>Refreshing data…</span>
+                            {(() => {
+                              const pct = Math.max(0, Math.min(100, cardWarmingDisplayPct[report.id] ?? 0));
+                              return (
+                                <div
+                                  className="rollup-progress determinate"
+                                  style={metaProgressTrack}
+                                  aria-label="Refreshing data"
+                                  role="progressbar"
+                                  aria-valuenow={Math.round(pct)}
+                                  aria-valuemin={0}
+                                  aria-valuemax={100}
+                                >
+                                  <span style={{ width: `${pct}%` }} />
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        </>
+                      ) : stats ? (
+                        <>
+                          <span style={metaDot}>·</span>
+                          <span
+                            onClick={(e) => { e.stopPropagation(); openCacheInspect(report.id, report.title, report.workspace_id); }}
+                            style={cardCacheLink}
+                            title="Click to see the rollup storage breakdown"
                           >
-                            <TbPencil size={12} />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {typeof report.fileSize === 'number' && (
-                      <p style={_hs73}>
-                        {formatFileSize(report.fileSize)}
-                      </p>
-                    )}
-                    <p style={_hs74}>Last edit {new Date(report.updated_at).toLocaleString()}</p>
-                    {cardCacheStats[report.id]?.builtAt && (
-                      <p style={_hs75}>Last refresh {new Date(cardCacheStats[report.id].builtAt).toLocaleString()}</p>
-                    )}
+                            {stats.rollupCount > 0
+                              ? `${formatBytes(stats.diskBytes || 0)} · ${(stats.totalRows || 0).toLocaleString()} rows`
+                              : 'No cache — Refresh to build'}
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
-                  <div style={_hs76}>
+                  <div style={cardActions}>
                     <button onClick={() => window.open(`/view/${report.id}`, '_blank')} title="View" {...cardActionBtn('accent')}><TbEye size={16} /></button>
                     {canEdit && <button onClick={() => navigate(`/edit/${report.id}`)} title="Edit" {...cardActionBtn()}><TbEdit size={16} /></button>}
-                    {canEdit && (() => {
-                      const warming = cardWarmingIds.has(report.id);
-                      return (
-                        <button
-                          onClick={() => refreshReportCacheFromCard(report)}
-                          disabled={warming}
-                          title={warming ? 'Refreshing cache…' : 'Refresh cache for this report'}
-                          {...cardActionBtn(warming ? 'accent' : 'muted')}
-                        >
-                          {warming
-                            ? <TbLoader2 size={16} className="spin" />
-                            : <TbRefresh size={16} />}
-                        </button>
-                      );
-                    })()}
                     {canEdit && (
-                      <div style={_hs77}
-                        ref={cardMenu === report.id ? cardMenuRef : null}>
+                      <button
+                        onClick={() => refreshReportCacheFromCard(report)}
+                        disabled={warming}
+                        title={warming ? 'Refreshing cache…' : 'Refresh cache for this report'}
+                        {...cardActionBtn(warming ? 'accent' : 'muted')}
+                      >
+                        {warming
+                          ? <TbLoader2 size={16} className="spin" />
+                          : <TbRefresh size={16} />}
+                      </button>
+                    )}
+                    {canEdit && (
+                      <div style={cardMenuWrap}
+                        ref={menuOpen ? cardMenuRef : null}>
                         <button
-                          onClick={(e) => { e.stopPropagation(); setCardMenu(cardMenu === report.id ? null : report.id); }}
+                          onClick={(e) => { e.stopPropagation(); setCardMenu(menuOpen ? null : report.id); }}
                           title="More actions"
-                          {...cardActionBtn(cardMenu === report.id ? 'accent' : 'muted')}
+                          {...cardActionBtn(menuOpen ? 'accent' : 'muted')}
                         >
                           <TbDotsVertical size={16} />
                         </button>
-                        {cardMenu === report.id && (
+                        {menuOpen && (
                           <div style={cardMenuPanel}>
                             <button style={cardMenuItem}
                               onClick={() => { setCardMenu(null); setRenameModal({ report, value: report.title }); }}
@@ -1179,54 +1229,24 @@ export default function Dashboard() {
                         )}
                       </div>
                     )}
-                  </div>
-                  {/* Cache footprint for this report. Populated lazily —
-                      only after the user clicks Refresh at least once,
-                      so the report list itself loads fast. While a
-                      refresh is in flight the size · rows line is
-                      replaced by a smoothly-advancing progress bar
-                      (trickle driver above), then restored once the warm
-                      finishes. Click → opens the per-widget breakdown. */}
-                  {(() => {
-                    const warming = cardWarmingIds.has(report.id);
-                    if (!cardCacheStats[report.id] && !warming) return null;
-                    if (warming) {
-                      const pct = Math.max(0, Math.min(100, cardWarmingDisplayPct[report.id] ?? 0));
-                      return (
-                        <div style={_hs78}>
-                          <div
-                            style={_hs79}
-                          >
-                            Refreshing data…
-                          </div>
-                          <div
-                            className="rollup-progress determinate"
-                            aria-label="Refreshing data"
-                            role="progressbar"
-                            aria-valuenow={Math.round(pct)}
-                            aria-valuemin={0}
-                            aria-valuemax={100}
-                          >
-                            <span style={{ width: `${pct}%` }} />
-                          </div>
-                        </div>
-                      );
-                    }
-                    return (
-                      <div
-                        onClick={(e) => { e.stopPropagation(); openCacheInspect(report.id, report.title, report.workspace_id); }}
-                        style={_hs80}
-                        title="Click to see the rollup storage breakdown"
+                    {/* Delete sat pinned to the card's top-right corner; in a
+                        single row that corner is where the actions now are.
+                        Last in the group, so the destructive one isn't the
+                        neighbour of View. */}
+                    {canEdit && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteReport(report.id); }}
+                        title="Delete"
+                        {...cardActionBtn('danger')}
                       >
-                        {cardCacheStats[report.id].rollupCount > 0
-                          ? `${formatBytes(cardCacheStats[report.id].diskBytes || 0)} · ${(cardCacheStats[report.id].totalRows || 0).toLocaleString()} rows`
-                          : 'No cache — Refresh to build'}
-                      </div>
-                    );
-                  })()}
+                        <TbX size={16} />
+                      </button>
+                    )}
+                  </div>
                 </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </main>
@@ -1419,6 +1439,13 @@ const historyRestoreBtn = {
 };
 
 // Workspace card buttons share the visual language of the editor toolbar / page header.
+
+// Short date + time. The full toLocaleString() spends a third of the meta line
+// on seconds nobody reads, and that line now has to hold the model, the size
+// and the cache footprint too.
+function formatWhen(value) {
+  return new Date(value).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+}
 
 function formatFileSize(bytes) {
   if (!bytes || bytes < 1024) return `${bytes || 0} B`;
