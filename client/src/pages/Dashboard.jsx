@@ -121,7 +121,15 @@ const _hs62 = { fontSize: 12, color: 'var(--text-disabled)', marginTop: 4 };
 const _hs63 = { color: 'var(--state-danger)', fontSize: 12, marginBottom: 8 };
 const _hs64 = { display: 'flex', justifyContent: 'flex-start' };
 const _hs65 = { textAlign: 'center', color: 'var(--text-disabled)', marginTop: 60 };
-const _hs66 = { textAlign: 'center', color: 'var(--text-disabled)', marginTop: 60 };
+// The empty column is where the journey starts, so it gets room rather than a
+// one-line apology. Choices capped at the cards' own width, on their axis.
+const emptyState = {
+  marginTop: 60, display: 'flex', flexDirection: 'column',
+  alignItems: 'center', textAlign: 'center',
+};
+const emptyTitle = { fontSize: 16, color: 'var(--text-muted)', marginBottom: 4 };
+const emptySub = { fontSize: 13, color: 'var(--text-disabled)', marginBottom: 20 };
+const emptyChoices = { display: 'flex', gap: 12, width: 'min(760px, 100%)' };
 // One report per row rather than a grid: the journey's other stages are lists
 // with join gutters either side, and a grid leaves nowhere for the incoming
 // join to land.
@@ -220,6 +228,9 @@ export default function Dashboard() {
     setWsReports,
   } = useWorkspaceData(selectedWs, reports, personalWorkspace);
   const [showCreate, setShowCreate] = useState(false);
+  // The source step was chosen before the dialog opened, so there is no step 1
+  // to go back to — see leaveCreateStep.
+  const [modePreset, setModePreset] = useState(false);
   // Per-report cache breakdown modal — fetched lazily on click. Keyed by
   // reportId so it survives navigations and the cache stays warm if the
   // user re-opens.
@@ -269,6 +280,7 @@ export default function Dashboard() {
     if (mid) {
       setNewModelId(mid);
       setCreateMode('model');
+      setModePreset(true);
       setShowCreate(true);
     }
     setNewTitle(searchParams.get('title') || '');
@@ -377,6 +389,10 @@ export default function Dashboard() {
         ...(selectedWs ? { workspaceId: selectedWs } : {}),
         settings: { theme: availableThemes[themeResolved] ? { key: themeResolved, ...availableThemes[themeResolved] } : null },
       });
+      // Close before leaving, like the database branch already does. The
+      // dialog is state, not a route, so nothing else would ever close it.
+      setShowCreate(false);
+      setCreateMode(null);
       navigate(`/edit/${reportRes.data.report.id}`);
     } catch (err) {
       setUploadError(err.response?.data?.error || err.message);
@@ -388,13 +404,41 @@ export default function Dashboard() {
 
   // Creating from a filtered column pre-picks the model we're standing in,
   // and jumps straight past the source step it would otherwise ask for.
-  const openCreate = () => {
+  //
+  // `mode` lets a caller name the source itself — the empty state puts those
+  // three choices on screen, so re-asking for them in the dialog would be
+  // asking a question the user just answered.
+  const openCreate = (mode) => {
     setNewTitle('');
     setUploadError('');
+    setSelectedFile(null);
     const followed = focus.stage === 'models' ? focus.id : '';
     setNewModelId(followed);
-    setCreateMode(followed ? 'model' : null);
+    const preset = mode || (followed ? 'model' : null);
+    setCreateMode(preset);
+    setModePreset(!!preset);
     setShowCreate(true);
+  };
+
+  const closeCreate = () => {
+    if (uploadingFile) return; // an import in flight owns the dialog
+    setShowCreate(false);
+    setCreateMode(null);
+    setModePreset(false);
+    setUploadError('');
+    setSelectedFile(null);
+  };
+
+  // Backing out of a source step. When the source was picked before the dialog
+  // even opened — from the empty state, a model card's "+", or the model
+  // editor's round trip — step 1 is a screen the user never passed through,
+  // and landing on it reads as the dialog going forwards, not back. There is
+  // nothing behind that choice but the page itself.
+  const leaveCreateStep = () => {
+    if (modePreset) { closeCreate(); return; }
+    setCreateMode(null);
+    setUploadError('');
+    setSelectedFile(null);
   };
 
   const handleCreate = async () => {
@@ -821,7 +865,9 @@ export default function Dashboard() {
                 >
                   Import
                 </button>
-                <button className="btn-hover btn-hover-primary" onClick={openCreate} style={primaryBtn}>+ New Report</button>
+                {/* Wrapped: openCreate takes a source mode, and passing it straight
+                    as a handler would hand it the click event instead. */}
+                <button className="btn-hover btn-hover-primary" onClick={() => openCreate()} style={primaryBtn}>+ New Report</button>
               </div>
             )}
           </div>
@@ -874,8 +920,12 @@ export default function Dashboard() {
           )}
 
           {/* Create report modal — wizard */}
+          {/* Dismissible: the user reached for the browser's Back button to get
+              out of it, which is what a dialog with no way out earns. Escape
+              and the backdrop now close it — except mid-import, where the
+              upload owns the dialog. */}
           {showCreate && (
-            <Modal width={480}>
+            <Modal width={480} onClose={closeCreate}>
               <h3 style={_hs47}>New Report{selectedWs ? ` in ${wsName}` : ''}</h3>
 
               {/* Title — always visible. Persisted through the database-connection
@@ -905,12 +955,12 @@ export default function Dashboard() {
                     </button>
                     <button className="btn-hover" onClick={() => setCreateMode('connection')} style={sourceCard}>
                       <TbDatabase size={28} color="#f59e0b" />
-                      <span style={_hs54}>Database</span>
+                      <span style={_hs54}>Connect Database</span>
                       <span style={_hs55}>Connect to a database</span>
                     </button>
                   </div>
                   <div style={_hs56}>
-                    <button className="btn-hover" onClick={() => { setShowCreate(false); setCreateMode(null); }} style={secondaryBtn}>Cancel</button>
+                    <button className="btn-hover" onClick={closeCreate} style={secondaryBtn}>Cancel</button>
                   </div>
                 </div>
               )}
@@ -926,7 +976,7 @@ export default function Dashboard() {
                     </select>
                   </div>
                   <div style={_hs58}>
-                    <button className="btn-hover" onClick={() => setCreateMode(null)} style={secondaryBtn}>← Back</button>
+                    <button className="btn-hover" onClick={leaveCreateStep} style={secondaryBtn}>{modePreset ? 'Cancel' : '← Back'}</button>
                     <button className="btn-hover btn-hover-primary" onClick={handleCreate} disabled={!newModelId} style={{ ...primaryBtn, opacity: newModelId ? 1 : 0.5 }}>Create Report</button>
                   </div>
                 </div>
@@ -975,7 +1025,7 @@ export default function Dashboard() {
                   )}
                   {uploadError && <div style={_hs63}>{uploadError}</div>}
                   <div style={{ ...(_hs64), justifyContent: 'space-between', gap: 8 }}>
-                    <button className="btn-hover" onClick={() => { setCreateMode(null); setUploadError(''); setSelectedFile(null); }} style={secondaryBtn}>← Back</button>
+                    <button className="btn-hover" onClick={leaveCreateStep} style={secondaryBtn}>{modePreset ? 'Cancel' : '← Back'}</button>
                     {selectedFile && (() => {
                       // Block only when the sheets are known but none is ticked;
                       // if we couldn't read them, let the server pick the first.
@@ -1001,7 +1051,7 @@ export default function Dashboard() {
                       await createModelAndNavigate(navigate, datasource, { then: 'newReport', title: newTitle });
                     }
                   }}
-                  onCancel={() => setCreateMode(null)}
+                  onCancel={leaveCreateStep}
                 />
               )}
             </Modal>
@@ -1011,8 +1061,46 @@ export default function Dashboard() {
           {loading ? (
             <div style={_hs65}>Loading...</div>
           ) : wsReports.length === 0 ? (
-            <div style={_hs66}>
-              No reports{selectedWs ? ' in this workspace' : ''}.
+            // Nothing to list, so the column carries the first step instead of
+            // a sentence about its own emptiness. Same three choices the
+            // dialog asks for, which is why picking one here skips that step.
+            <div style={emptyState}>
+              <p style={emptyTitle}>No reports in {wsName} yet</p>
+              {canEdit ? (
+                <>
+                  <p style={emptySub}>Start from a file, a database, or a model you already have.</p>
+                  <div style={emptyChoices}>
+                    {models.length > 0 && (
+                      <button className="btn-hover" onClick={() => openCreate('model')} style={sourceCard}>
+                        <TbLayoutDashboard size={28} color="var(--accent-primary)" />
+                        <span style={_hs50}>Existing Model</span>
+                        <span style={_hs51}>Use a data model already configured</span>
+                      </button>
+                    )}
+                    <button className="btn-hover" onClick={() => openCreate('file')} style={sourceCard}>
+                      <TbUpload size={28} color="#16a34a" />
+                      <span style={_hs52}>Import File</span>
+                      <span style={_hs53}>CSV, Excel, Parquet, JSON</span>
+                    </button>
+                    <button className="btn-hover" onClick={() => openCreate('connection')} style={sourceCard}>
+                      <TbDatabase size={28} color="#f59e0b" />
+                      <span style={_hs54}>Connect Database</span>
+                      <span style={_hs55}>Connect to a database</span>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p style={emptySub}>Nobody has shared a report here yet.</p>
+              )}
+            </div>
+          ) : visibleReports.length === 0 ? (
+            // Reports exist, the filter just matches none of them. Offering to
+            // create one here would answer a question nobody asked — the way
+            // out is dropping the filter, as on the other two stages.
+            <div style={emptyState}>
+              <p style={emptyTitle}>Nothing here for this filter</p>
+              <p style={emptySub}>No report is built on it.</p>
+              <button className="btn-hover btn-hover-primary" onClick={focus.clear} style={primaryBtn}>Show every report</button>
             </div>
           ) : (
             <div style={_hs67}>
