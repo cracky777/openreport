@@ -15,6 +15,7 @@ import { useJourneyFocus } from '../hooks/useJourneyFocus';
 import { sortActiveFirst } from '../utils/sortActiveFirst';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
 import JoinAdd from '../components/AppShell/JoinAdd';
+import SourceIcon from '../components/AppShell/SourceIcon';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 
 // Fills the stage slot AppShell gives it; the shell owns the viewport height.
@@ -263,6 +264,7 @@ export default function Datasources() {
               return (
                 <div key={ds.id} style={activeDatasourceIds && !activeDatasourceIds.has(ds.id) ? dimmedRowStyle : joinRowStyle}>
                 <div className="journey-card" data-join-anchor={`sources:${ds.id}`} style={dsCardStyle}>
+                  <SourceIcon file={isUploadedFile} />
                   <div style={_hs10}>
                     <div style={_hs11}>{ds.name}</div>
                     <div style={_hs12}>
@@ -336,5 +338,5 @@ const joinRowStyle = { display: 'flex', justifyContent: 'center' };
 const dimmedRowStyle = { ...joinRowStyle, opacity: 0.4 };
 const dsCardStyle = { width: 760, flexShrink: 0,
   backgroundColor: 'var(--bg-panel)', padding: '16px 20px', borderRadius: 8,
-  border: '1px solid var(--border-default)', display: 'flex', alignItems: 'center',
+  border: '1px solid var(--border-default)', display: 'flex', alignItems: 'center', gap: 12,
 };

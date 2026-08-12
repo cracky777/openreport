@@ -21,7 +21,7 @@ function getDatasource(id, req) {
 function listDatasources(req) {
   if (typeof cloudHooks.listDatasources === 'function') return cloudHooks.listDatasources(req);
   return db.prepare(
-    'SELECT id, name, db_type, host, port, db_name, created_at FROM datasources WHERE user_id = ? ORDER BY name'
+    'SELECT id, name, db_type, host, port, db_name, created_at, extra_config FROM datasources WHERE user_id = ? ORDER BY name'
   ).all(req.user.id);
 }
 function stampNewDatasource(req, id) {
@@ -41,9 +41,31 @@ function encryptExtraConfig(extraConfig) {
   return cfg;
 }
 
+// What the client is allowed to read off extra_config. A whitelist, not a
+// blacklist: the same blob carries the BigQuery service-account key, and a
+// field added later must be withheld until someone decides it is safe.
+const PUBLIC_EXTRA_KEYS = ['sourceFile', 'tableName', 'tables', 'rowCount', 'fileSize', 'importedAt'];
+function publicExtraConfig(raw) {
+  let cfg = raw;
+  if (typeof cfg === 'string') {
+    try { cfg = JSON.parse(cfg); } catch { return {}; /* malformed row — no display fields, not a 500 */ }
+  }
+  if (!cfg || typeof cfg !== 'object') return {};
+  const out = {};
+  for (const key of PUBLIC_EXTRA_KEYS) if (cfg[key] !== undefined) out[key] = cfg[key];
+  return out;
+}
+
 // List datasources (write-gated: an org-viewer can't enumerate connections).
+// extra_config comes back sanitised: an imported file is a file whatever engine
+// ends up reading it, and `sourceFile` is the only thing that still says so
+// once db_type has become 'duckdb'.
 router.get('/', authFor('write'), (req, res) => {
-  res.json({ datasources: listDatasources(req) });
+  const datasources = listDatasources(req).map((ds) => ({
+    ...ds,
+    extra_config: publicExtraConfig(ds.extra_config),
+  }));
+  res.json({ datasources });
 });
 
 // Get single datasource — project the safe columns (never secrets).
