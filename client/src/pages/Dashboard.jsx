@@ -141,10 +141,13 @@ const cardMeta = {
 };
 const metaDot = { color: 'var(--border-strong)', flexShrink: 0 };
 const metaModel = { display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0 };
+// A floor, not `minWidth: 0`: it was the only elastic segment on the line, so
+// a crowded card shrank it to nothing and the report lost the one word saying
+// what it was built on. It gives ground before the others, never all of it.
 const metaModelName = {
   color: 'var(--accent-primary)',
   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-  minWidth: 0, flex: '0 1 auto',
+  minWidth: 90, flex: '0 1 auto',
 };
 const metaModelEdit = {
   background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
@@ -174,8 +177,11 @@ const publicCardAccent = { borderColor: 'var(--state-success)' };
 // the list, at that same 4, painted over it. Raising the card lifts the menu
 // with it. Stays well under the shell's own dropdowns at 200.
 const cardMenuOpen = { zIndex: 10 };
+// Last of the line and least load-bearing, so it is the one that gives way.
 const cardCacheLink = {
-  color: 'var(--text-disabled)', flexShrink: 0,
+  color: 'var(--text-disabled)',
+  minWidth: 0, flex: '0 1 auto',
+  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   cursor: 'pointer', textDecoration: 'underline',
   textDecorationColor: 'var(--border-default)',
   textDecorationStyle: 'dotted',
@@ -1057,12 +1063,6 @@ export default function Dashboard() {
                         </>
                       )}
                       <span style={metaWhen}>Last edit {formatWhen(report.updated_at)}</span>
-                      {stats?.builtAt && (
-                        <>
-                          <span style={metaDot}>·</span>
-                          <span style={metaWhen}>Last refresh {formatWhen(stats.builtAt)}</span>
-                        </>
-                      )}
                       {/* Cache footprint for this report. Populated lazily —
                           only after the user clicks Refresh at least once,
                           so the report list itself loads fast. While a
@@ -1099,7 +1099,9 @@ export default function Dashboard() {
                           <span
                             onClick={(e) => { e.stopPropagation(); openCacheInspect(report.id, report.title, report.workspace_id); }}
                             style={cardCacheLink}
-                            title="Click to see the rollup storage breakdown"
+                            title={stats.builtAt
+                              ? `Last refresh ${formatWhen(stats.builtAt)} — click to see the rollup storage breakdown`
+                              : 'Click to see the rollup storage breakdown'}
                           >
                             {stats.rollupCount > 0
                               ? `${formatBytes(stats.diskBytes || 0)} · ${(stats.totalRows || 0).toLocaleString()} rows`
