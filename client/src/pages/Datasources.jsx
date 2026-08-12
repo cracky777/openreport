@@ -30,6 +30,11 @@ const _hs1 = {
   alignItems: 'center', gap: 8, marginBottom: 20,
 };
 const crumbSlot = { justifySelf: 'start' };
+const replaceNote = {
+  fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted)',
+  background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
+  borderRadius: 6, padding: '8px 10px', margin: '10px 0 4px',
+};
 const actionGroup = { display: 'flex', alignItems: 'center', gap: 8 };
 const _hs2 = { display: 'none' };
 const _hs3 = { color: 'var(--accent-primary)', borderColor: '#ddd6fe', background: 'var(--accent-primary-soft)' };
@@ -71,6 +76,8 @@ export default function Datasources() {
   const [uploadProgress, setUploadProgress] = useState('');
   const [importOpts, setImportOpts] = useState(DEFAULT_IMPORT_OPTIONS);
   const [selectedFile, setSelectedFile] = useState(null);
+  // Set while the picker is refreshing an existing source rather than creating one.
+  const [replaceTarget, setReplaceTarget] = useState(null);
   const [sheetNames, setSheetNames] = useState([]);
   const fileInputRef = useRef(null);
   const [showForm, setShowForm] = useState(false);
@@ -153,6 +160,19 @@ export default function Datasources() {
     }
   };
 
+  // Refreshing an existing source reuses the whole picker: same options, same
+  // dialog. Only the endpoint differs — and with it whether models and reports
+  // built on this source survive.
+  const startReplace = (ds) => {
+    setReplaceTarget(ds);
+    fileInputRef.current?.click();
+  };
+
+  const cancelFilePick = () => {
+    setSelectedFile(null);
+    setReplaceTarget(null);
+  };
+
   const handleFileUpload = async () => {
     const file = selectedFile;
     if (!file) return;
@@ -163,11 +183,21 @@ export default function Datasources() {
       formData.append('file', file);
       formData.append('name', file.name.replace(/\.[^.]+$/, ''));
       appendImportOptions(formData, importOpts);
-      const res = await api.post('/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setUploadProgress(`Imported ${res.data.datasource.rowCount?.toLocaleString() || '?'} rows from ${file.name}`);
-      setSelectedFile(null);
+      const headers = { 'Content-Type': 'multipart/form-data' };
+      const res = replaceTarget
+        ? await api.put(`/upload/${replaceTarget.id}`, formData, { headers })
+        : await api.post('/upload', formData, { headers });
+      const rows = res.data.datasource.rowCount?.toLocaleString() || '?';
+      setUploadProgress(replaceTarget
+        ? `${replaceTarget.name} refreshed — ${rows} rows from ${file.name}`
+        : `Imported ${rows} rows from ${file.name}`);
+      // Tables the new file didn't bring back. Said now, while the cause is
+      // still on screen, rather than at the next model open.
+      const missing = res.data.missingTables || [];
+      if (missing.length) {
+        toast(`Models using ${missing.join(', ')} will need fixing — the new file has no such table.`);
+      }
+      cancelFilePick();
       loadDatasources();
       setTimeout(() => setUploadProgress(''), 5000);
     } catch (err) {
@@ -193,7 +223,9 @@ export default function Datasources() {
           <div style={actionGroup}>
             <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv"
               style={_hs2} onChange={handleFileSelected} />
-            <SecondaryButton onClick={() => fileInputRef.current?.click()} disabled={uploading}
+            {/* Clears the refresh target: the OS dialog can be dismissed, which
+                would otherwise leave the next pick aimed at a source. */}
+            <SecondaryButton onClick={() => { setReplaceTarget(null); fileInputRef.current?.click(); }} disabled={uploading}
               style={_hs3}>
               <TbUpload size={16} />{uploading ? 'Uploading...' : 'Upload File'}
             </SecondaryButton>
@@ -212,17 +244,23 @@ export default function Datasources() {
           </div>
         )}
         {selectedFile && (
-          <Modal onClose={uploading ? undefined : () => setSelectedFile(null)} width={560}>
-            <h2 style={_hs5}>Import file</h2>
+          <Modal onClose={uploading ? undefined : cancelFilePick} width={560}>
+            <h2 style={_hs5}>{replaceTarget ? `Refresh ${replaceTarget.name}` : 'Import file'}</h2>
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
               Selected: <strong style={{ color: 'var(--text-primary)' }}>{selectedFile.name}</strong>
             </div>
+            {replaceTarget && (
+              <div style={replaceNote}>
+                Replaces the data behind this source. Models and reports built on it are kept —
+                but a column the new file no longer carries will show up as a broken reference.
+              </div>
+            )}
             <ImportOptions value={importOpts} onChange={setImportOpts} kind={importKind(selectedFile.name)} sheetNames={sheetNames} />
             <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
               <PrimaryButton onClick={handleFileUpload} disabled={uploading || (importKind(selectedFile.name) === 'excel' && sheetNames.length > 0 && !(importOpts.sheets && importOpts.sheets.length))}>
-                {uploading ? 'Importing...' : 'Import'}
+                {uploading ? (replaceTarget ? 'Refreshing...' : 'Importing...') : (replaceTarget ? 'Refresh data' : 'Import')}
               </PrimaryButton>
-              <SecondaryButton onClick={() => setSelectedFile(null)} disabled={uploading}>Cancel</SecondaryButton>
+              <SecondaryButton onClick={cancelFilePick} disabled={uploading}>Cancel</SecondaryButton>
             </div>
           </Modal>
         )}
@@ -277,7 +315,16 @@ export default function Datasources() {
                     </div>
                   </div>
                   <div style={_hs13}>
-                    {!isUploadedFile && (
+                    {isUploadedFile ? (
+                      // A file source has no connection to edit — what it has is
+                      // data that goes stale. Same id, so everything downstream
+                      // survives the refresh.
+                      <button className="btn-hover" onClick={() => startReplace(ds)} disabled={uploading}
+                        style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px' }}
+                        title={`Import a newer ${extra.sourceFile || 'file'} into this source`}>
+                        Refresh data
+                      </button>
+                    ) : (
                       <button className="btn-hover" onClick={() => handleEdit(ds)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px' }}>
                         Edit
                       </button>

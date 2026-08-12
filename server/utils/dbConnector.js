@@ -12,6 +12,32 @@ const { decrypt } = require('./secretCrypto');
 const _duckdbInstances = new Map();
 const _duckdbPromises = new Map();
 
+// Hand an already-open DuckDB instance to the query path.
+//
+// A path this process has opened cannot be opened a second time — not even
+// after close(). The import pipeline has to open its file with external access
+// enabled (it reads a CSV), so if it then let go, the next query would find the
+// path poisoned. It gives us the live instance instead, having first turned
+// external access off for good — that setting is one-way, which is what makes
+// this safe: the query path inherits a handle it could not re-open, already
+// unable to read the server's filesystem.
+function adoptDuckDBInstance(dbPath, instance) {
+  _duckdbPromises.delete(dbPath);
+  _duckdbInstances.set(dbPath, instance);
+}
+
+// Close and forget ONE DuckDB file. Used when a datasource stops pointing at a
+// path (a re-imported file gets a new one): the old instance would otherwise
+// hold the handle until process exit, and on Windows that keeps the obsolete
+// file undeletable.
+async function closeDuckDBFile(dbPath) {
+  const db = _duckdbInstances.get(dbPath);
+  _duckdbInstances.delete(dbPath);
+  _duckdbPromises.delete(dbPath);
+  if (!db) return;
+  try { await db.close(); } catch { /* already gone */ }
+}
+
 async function closeAllDuckDB(log = () => {}) {
   for (const [path, db] of _duckdbInstances.entries()) {
     try { await db.close(); log(`closed ${path}`); }
@@ -497,4 +523,4 @@ function invalidateDatasource(id) {
   } catch { /* already closed */ }
 }
 
-module.exports = { createConnection, invalidateDatasource, closeAllDuckDB };
+module.exports = { createConnection, invalidateDatasource, closeAllDuckDB, closeDuckDBFile, adoptDuckDBInstance };
