@@ -118,7 +118,6 @@ export default function AppShell({ step }) {
       <header style={headerStyle}>
         <div style={leftGroup}>
           <img src={logoSrc} alt="Open Report" style={logoStyle} />
-          {TopbarSwitcher && <TopbarSwitcher />}
           <WorkspacePicker canCreate={canEditOrg} />
         </div>
 
@@ -141,6 +140,11 @@ export default function AppShell({ step }) {
               <TbShield size={15} color="var(--accent-primary)" /> <span>Platform</span>
             </button>
           )}
+
+          {/* CLOUD-HOOK: the org switcher sits with the account controls, left
+              of the user pill — which org you are in is a question about who
+              you are, not about where you are in the journey. Null in OSS. */}
+          {TopbarSwitcher && <TopbarSwitcher />}
 
           <div ref={userMenuRef} style={relStyle}>
             <button
