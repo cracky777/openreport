@@ -1,4 +1,4 @@
-import { TbPlus } from 'react-icons/tb';
+import { AddIcon, ICON_SIZE } from '../actionIcons';
 
 // The "+" that starts the next stage from one card.
 //
@@ -18,7 +18,7 @@ export default function JoinAdd({ title, onClick }) {
       aria-label={title}
       style={addStyle}
     >
-      <TbPlus size={14} />
+      <AddIcon size={ICON_SIZE.modal} />
     </button>
   );
 }

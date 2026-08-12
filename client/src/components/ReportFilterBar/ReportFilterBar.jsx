@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { TbFilter, TbX, TbPlus, TbHandClick } from 'react-icons/tb';
+import { TbFilter, TbX, TbHandClick } from 'react-icons/tb';
+import { AddIcon, ICON_SIZE } from '../actionIcons';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
 
 const _hs0 = { color: 'var(--text-disabled)', flexShrink: 0 };
@@ -208,7 +209,7 @@ export default function ReportFilterBar({ model, rules, onChange, onRefresh, vis
         style={addBtnStyle}
         title="Add a report filter"
       >
-        <TbPlus size={12} />
+        <AddIcon size={ICON_SIZE.chip} />
       </button>
       <div style={chipsRowStyle}>
         {wf.map((r, i) => {

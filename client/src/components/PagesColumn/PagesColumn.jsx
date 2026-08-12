@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { TbChevronsLeft, TbChevronsRight, TbSettings, TbPlus } from 'react-icons/tb';
+import { TbChevronsLeft, TbChevronsRight, TbSettings } from 'react-icons/tb';
+import { AddIcon, ICON_SIZE } from '../actionIcons';
+import ConfirmDeleteButton from '../ConfirmDeleteButton/ConfirmDeleteButton';
 import PageNavSettings from './PageNavSettings';
 
 const _hs0 = {
@@ -155,7 +157,7 @@ export default function PagesColumn({
           Pages
         </div>
         <button onClick={onAdd} title="Add page" style={{ ...floatBtn, marginBottom: 4 }}>
-          <TbPlus size={14} />
+          <AddIcon size={ICON_SIZE.modal} />
         </button>
       </nav>
     );
@@ -352,7 +354,7 @@ export default function PagesColumn({
               title="Add page"
               style={{ ...floatBtn, position: 'absolute', bottom: 8, right: 8 }}
             >
-              <TbPlus size={14} />
+              <AddIcon size={ICON_SIZE.modal} />
             </button>
           </>
         )}
@@ -370,7 +372,7 @@ export default function PagesColumn({
               title="Add page"
               style={{ ...floatBtn, position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)' }}
             >
-              <TbPlus size={14} />
+              <AddIcon size={ICON_SIZE.modal} />
             </button>
           </>
         )}
@@ -397,11 +399,14 @@ export default function PagesColumn({
               onClick={() => { onCopy(contextMenu.idx); setContextMenu(null); }}
               style={ctxItem}
             >Duplicate</button>
+            {/* Arms in place rather than closing on the first click — the menu
+                staying open IS the question being asked. */}
             {pages.length > 1 && (
-              <button
-                onClick={() => { onDelete(contextMenu.idx); setContextMenu(null); }}
+              <ConfirmDeleteButton
+                label="Delete"
                 style={{ ...ctxItem, color: 'var(--state-danger)' }}
-              >Delete</button>
+                onConfirm={() => { onDelete(contextMenu.idx); setContextMenu(null); }}
+              />
             )}
           </div>
         </>

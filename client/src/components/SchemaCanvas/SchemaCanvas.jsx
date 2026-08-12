@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import api from '../../utils/api';
 import ColumnTypePopover from './ColumnTypePopover';
+import ConfirmDialog from '../ConfirmDialog/ConfirmDialog';
 
 const _hs0 = {
           position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
@@ -108,6 +109,9 @@ export default function SchemaCanvas({
   const [collapsedTables, setCollapsedTables] = useState({});
   const [cycleWarning, setCycleWarning] = useState(null);
   const [tableCounts, setTableCounts] = useState({}); // { tableName: { count: number, loading: boolean } }
+  // The SVG node can only raise the question — the dialog answering it is a
+  // Portal, since a <button> has no business inside <svg>.
+  const [pendingRemove, setPendingRemove] = useState(null);
 
   const fetchTableCount = useCallback(async (tableName) => {
     if (!datasourceId) return;
@@ -441,6 +445,17 @@ export default function SchemaCanvas({
       ref={containerRef}
       style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative', cursor: panning ? 'grabbing' : 'grab', userSelect: 'none', WebkitUserSelect: 'none' }}
     >
+      {pendingRemove && (
+        <ConfirmDialog
+          title={`Remove "${pendingRemove}" from the model?`}
+          body="Joins, dimensions and measures referencing this table are removed with it."
+          confirmLabel="Remove table"
+          danger
+          onConfirm={() => { onRemoveTable(pendingRemove); setPendingRemove(null); }}
+          onCancel={() => setPendingRemove(null)}
+        />
+      )}
+
       {/* Cycle warning */}
       {cycleWarning && (
         <div style={_hs0}>
@@ -719,12 +734,7 @@ export default function SchemaCanvas({
                       </text>
                       {onRemoveTable && (
                         <g onMouseDown={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (window.confirm(`Remove table "${tableName}" from the model? Joins, dimensions and measures referencing it will also be removed.`)) {
-                              onRemoveTable(tableName);
-                            }
-                          }}
+                          onClick={(e) => { e.stopPropagation(); setPendingRemove(tableName); }}
                           style={_hs16}>
                           <title>Remove table from model</title>
                           <circle cx={TABLE_WIDTH - 10} cy={12} r={7} fill="rgba(255,255,255,0.15)" />

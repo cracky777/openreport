@@ -6,6 +6,7 @@ import { toast } from '../components/Toast/toast';
 import { headerShellStyle, BackButton, PrimaryButton, SecondaryButton, headerBadgeStyle } from '../components/PageHeader/PageHeader';
 import { useTheme } from '../hooks/useTheme';
 import ValidationBadge from '../components/ValidationBadge';
+import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
 import Step2DimensionsMeasures from './Step2DimensionsMeasures';
 import Step0Tables from './Step0Tables';
 import {
@@ -88,6 +89,8 @@ export default function ModelEditor() {
   };
 
   const [step, setStep] = useState(0);
+  const [pendingDsChange, setPendingDsChange] = useState(null); // datasource id awaiting confirmation
+  const [saveWarnings, setSaveWarnings] = useState(null);       // advisory lines shown before saving
   const [allTables, setAllTables] = useState([]);
   const [selectedTables, setSelectedTables] = useState([]);
   const [tableColumns, setTableColumns] = useState({});
@@ -149,10 +152,15 @@ export default function ModelEditor() {
     }
   };
 
-  const applyDsChange = async (newDsId) => {
+  // Asking is one step, doing is another: the dialog needs a render between
+  // them, so the id waits in state instead of on the stack.
+  const applyDsChange = (newDsId) => {
     if (!newDsId || newDsId === model?.datasource_id) { setShowDsChange(false); return; }
-    const ok = confirm('Change the datasource for this model?\n\nReferences to tables/columns that no longer exist will be flagged so you can fix them. Existing dimensions, measures and joins are preserved.');
-    if (!ok) return;
+    setPendingDsChange(newDsId);
+  };
+
+  const doDsChange = async (newDsId) => {
+    setPendingDsChange(null);
     setSwitchingDs(true);
     try {
       await api.put(`/models/${id}`, { datasourceId: newDsId });
@@ -390,34 +398,32 @@ export default function ModelEditor() {
   const removeMeasure = (measName) => setMeasures((prev) => prev.filter((m) => m.name !== measName));
 
   const [saveMsg, setSaveMsg] = useState(null);
-  const handleSave = async () => {
-    // Sanity check: warn before saving an empty model. Reports built on a
-    // model with no flagged columns can't bind anything and will look broken.
+
+  // Both guards are advisory — the user may legitimately know better than a
+  // 100k-row sample. They used to be two blocking prompts in a row, so a model
+  // that tripped both asked the same question twice. Gathered into one list,
+  // asked once.
+  const handleSave = () => {
+    const warnings = [];
+    // Reports built on a model with nothing flagged can't bind anything.
     if (selectedTables.length > 0 && dimensions.length === 0 && measures.length === 0) {
-      const ok = window.confirm(
-        'No dimensions, measures or date columns have been flagged on this model. '
-        + 'Reports built on it will have nothing to display. Save anyway?'
-      );
-      if (!ok) return;
+      warnings.push('• No dimensions, measures or date columns are flagged — reports built on this model will have nothing to display.');
     }
-    // Advisory guard: if a column was type-tested and its CURRENT type still
-    // fits the sampled data poorly, confirm before saving. Non-blocking — the
-    // user may legitimately know better than a 100k-row sample. Skips stale
-    // results (a type the user changed away from after testing) via r.type.
+    // A column whose CURRENT type still fits the sampled data poorly. Skips
+    // stale results (a type the user changed away from after testing) via r.type.
     const TYPE_MATCH_THRESHOLD = 0.95;
-    const poorlyTyped = dimensions
-      .map((d) => ({ d, r: validationResults[`${d.table}.${d.column}`] }))
-      .filter(({ d, r }) => r && !r.error && r.type === d.type
-        && typeof r.validRatio === 'number' && r.validRatio < TYPE_MATCH_THRESHOLD)
-      .map(({ d, r }) => `• ${d.label || d.column}: "${d.type}" fits only ${Math.round(r.validRatio * 100)}% of sampled rows`);
-    if (poorlyTyped.length > 0) {
-      const ok = window.confirm(
-        'Some columns don’t match their chosen type well:\n\n'
-        + poorlyTyped.join('\n')
-        + '\n\nReports may format or sort them unexpectedly. Save anyway?'
-      );
-      if (!ok) return;
+    for (const { d, r } of dimensions.map((d) => ({ d, r: validationResults[`${d.table}.${d.column}`] }))) {
+      if (r && !r.error && r.type === d.type
+        && typeof r.validRatio === 'number' && r.validRatio < TYPE_MATCH_THRESHOLD) {
+        warnings.push(`• ${d.label || d.column}: "${d.type}" fits only ${Math.round(r.validRatio * 100)}% of sampled rows — reports may format or sort it unexpectedly.`);
+      }
     }
+    if (warnings.length > 0) { setSaveWarnings(warnings); return; }
+    performSave();
+  };
+
+  const performSave = async () => {
+    setSaveWarnings(null);
     setSaving(true);
     try {
       // Persist a lightweight type-mismatch flag on dimensions so the report
@@ -519,6 +525,24 @@ export default function ModelEditor() {
 
   return (
     <div style={_hs1}>
+      {pendingDsChange && (
+        <ConfirmDialog
+          title="Change the datasource for this model?"
+          body="Existing dimensions, measures and joins are preserved. References to tables or columns that no longer exist will be flagged so you can fix them."
+          confirmLabel="Change datasource"
+          onConfirm={() => doDsChange(pendingDsChange)}
+          onCancel={() => setPendingDsChange(null)}
+        />
+      )}
+      {saveWarnings && (
+        <ConfirmDialog
+          title="Save this model anyway?"
+          body={saveWarnings.join('\n')}
+          confirmLabel="Save anyway"
+          onConfirm={performSave}
+          onCancel={() => setSaveWarnings(null)}
+        />
+      )}
       {/* Header */}
       <header style={headerShellStyle}>
         <BackButton onClick={goBack} />

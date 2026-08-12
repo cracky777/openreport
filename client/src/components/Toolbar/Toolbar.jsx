@@ -4,7 +4,9 @@ import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB
 
 // Widget types whose flyout just adds the base type with the chosen sub-type.
 const SUB_TYPE_MENUS = { bar: BAR_SUB_TYPES, line: LINE_SUB_TYPES, combo: COMBO_SUB_TYPES, gauge: GAUGE_SUB_TYPES };
-import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbTrash, TbDownload, TbHandClick, TbFilter, TbToggleLeft, TbToggleRightFilled } from 'react-icons/tb';
+import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbDownload, TbHandClick, TbFilter, TbToggleLeft, TbToggleRightFilled } from 'react-icons/tb';
+import { ICON_SIZE } from '../actionIcons';
+import ConfirmDeleteButton from '../ConfirmDeleteButton/ConfirmDeleteButton';
 import { useCustomVisuals } from '../../hooks/useCustomVisuals';
 
 const _hs0 = {
@@ -202,7 +204,6 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
 
   const handleDeleteVisual = async (visualId) => {
     if (!workspaceId) return;
-    if (!window.confirm('Delete this custom visual? Widgets that use it will stop rendering.')) return;
     try {
       const res = await fetch(`/api/workspaces/${workspaceId}/visuals/${visualId}`, {
         method: 'DELETE', credentials: 'include',
@@ -509,13 +510,17 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                             <div style={_hs35}>v{v.version}</div>
                           </div>
                         </button>
+                        {/* Borderless: a bordered box would outweigh everything
+                            else in this flyout row. The behaviour and the glyph
+                            are the shared ones, only the chrome is lighter. */}
                         {customVisualsApi.canManage && (
-                          <button onClick={() => handleDeleteVisual(v.id)} title="Delete"
+                          <ConfirmDeleteButton
+                            variant="icon"
+                            size={ICON_SIZE.modal}
+                            label="Delete custom visual"
                             style={_hs36}
-                            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--state-danger)'}
-                            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-disabled)'}>
-                            <TbTrash size={14} />
-                          </button>
+                            onConfirm={() => handleDeleteVisual(v.id)}
+                          />
                         )}
                       </div>
                     ))}

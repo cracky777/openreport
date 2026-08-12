@@ -1119,7 +1119,6 @@ export default function Editor() {
 
   const deletePage = useCallback((idx) => {
     if (pages.length <= 1) return;
-    if (!confirm(`Delete "${pages[idx].name}"?`)) return;
     const pageId = pages[idx].id;
     delete pagesDataRef.current[pageId];
     const newPages = pages.filter((_, i) => i !== idx);

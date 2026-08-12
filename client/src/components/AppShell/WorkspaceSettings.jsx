@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { TbX, TbTrash, TbUserPlus } from 'react-icons/tb';
+import { TbX, TbUserPlus } from 'react-icons/tb';
+import { DeleteIcon, ICON_SIZE } from '../actionIcons';
 import api from '../../utils/api';
 import { toast } from '../Toast/toast';
 import { useGraph } from '../../hooks/graphContext';
@@ -173,7 +174,7 @@ export default function WorkspaceSettings({ workspaceId, onClose }) {
               </div>
             ) : (
               <button className="btn-hover btn-hover-danger" onClick={() => setConfirmDelete(true)} style={dangerBtn}>
-                <TbTrash size={14} /> Delete workspace
+                <DeleteIcon size={ICON_SIZE.modal} /> Delete workspace
               </button>
             )}
           </>

@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { TbLoader2, TbPencil, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbTrash } from 'react-icons/tb';
+import { TbLoader2, TbPlayerPlay, TbToggleLeft, TbToggleRight } from 'react-icons/tb';
+import { EditIcon, ICON_SIZE } from '../actionIcons';
+import ConfirmDeleteButton from '../ConfirmDeleteButton/ConfirmDeleteButton';
 import { TIMEZONE_OPTIONS, timeToCron, cronToTime, formatCronHuman } from '../../utils/scheduleHelpers';
 import Modal from '../Modal/Modal';
 import { scheduleFieldLabel, actionModalTitle, actionModalInput, actionModalActions, actionModalBtnSecondary, actionModalBtnPrimary, cardActionBtn } from '../dashboardModalStyles';
@@ -134,11 +136,14 @@ function ScheduleModal({ modal, runningIds, onClose, onStartCreate, onStartEdit,
                     {s.enabled ? <TbToggleRight size={16} /> : <TbToggleLeft size={16} />}
                   </button>
                   <button title="Edit" onClick={() => onStartEdit(s)} {...cardActionBtn()}>
-                    <TbPencil size={14} />
+                    <EditIcon size={ICON_SIZE.modal} />
                   </button>
-                  <button title="Delete" onClick={() => onDelete(s)} {...cardActionBtn('danger')}>
-                    <TbTrash size={14} />
-                  </button>
+                  <ConfirmDeleteButton
+                    variant="icon"
+                    size={ICON_SIZE.modal}
+                    label="Delete schedule"
+                    onConfirm={() => onDelete(s)}
+                  />
                 </div>
               ))}
             </div>

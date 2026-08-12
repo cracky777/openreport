@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { TbLoader2, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbTrash } from 'react-icons/tb';
+import { TbLoader2, TbPlayerPlay, TbToggleLeft, TbToggleRight } from 'react-icons/tb';
+import { ICON_SIZE } from '../actionIcons';
+import ConfirmDeleteButton from '../ConfirmDeleteButton/ConfirmDeleteButton';
 import { TIMEZONE_OPTIONS, timeToCron, formatCronHuman } from '../../utils/scheduleHelpers';
 import Modal from '../Modal/Modal';
 import { scheduleFieldLabel, actionModalTitle, actionModalInput, actionModalActions, actionModalBtnSecondary, actionModalBtnPrimary, cardActionBtn } from '../dashboardModalStyles';
@@ -86,9 +88,12 @@ function CacheScheduleModal({ modal, runningIds, onClose, onCreate, onToggle, on
                     <button title={s.enabled ? 'Pause' : 'Resume'} onClick={() => onToggle(s)} {...cardActionBtn(s.enabled ? 'accent' : 'muted')}>
                       {s.enabled ? <TbToggleRight size={16} /> : <TbToggleLeft size={16} />}
                     </button>
-                    <button title="Delete" onClick={() => onDelete(s)} {...cardActionBtn('danger')}>
-                      <TbTrash size={14} />
-                    </button>
+                    <ConfirmDeleteButton
+                      variant="icon"
+                      size={ICON_SIZE.modal}
+                      label="Delete schedule"
+                      onConfirm={() => onDelete(s)}
+                    />
                   </div>
                 );
               })}

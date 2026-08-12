@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import api from '../../utils/api';
+import ConfirmDialog from '../ConfirmDialog/ConfirmDialog';
 
 const _hs89 = {
         position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)',
@@ -35,14 +36,10 @@ const cellStyle = { padding: '8px 10px', verticalAlign: 'top' };
 function CacheInspectorModal({ reportId, reportTitle, workspaceId, canManage, data, loading, error, onClose, onCleared, formatBytes }) {
   const [clearing, setClearing] = useState(false);
   const [clearMsg, setClearMsg] = useState(null);
+  const [askClear, setAskClear] = useState(false);
   const handleClearWorkspace = async () => {
+    setAskClear(false);
     if (!workspaceId || clearing) return;
-    if (!window.confirm(
-      'Clear ALL cache (rollups + in-memory results) for every model used '
-      + 'by this workspace’s reports?\n\nThe cache rebuilds on the next warm '
-      + 'or query. A model shared with other workspaces will have its cache '
-      + 'cleared too.'
-    )) return;
     setClearing(true);
     setClearMsg(null);
     try {
@@ -61,6 +58,16 @@ function CacheInspectorModal({ reportId, reportTitle, workspaceId, canManage, da
       onClick={onClose}
       style={_hs89}
     >
+      {askClear && (
+        <ConfirmDialog
+          title="Clear this workspace's cache?"
+          body={'Rollups and in-memory results are dropped for every model used by this workspace’s reports.\n\nThe cache rebuilds on the next warm or query. A model shared with other workspaces will have its cache cleared too.'}
+          confirmLabel="Clear cache"
+          danger
+          onConfirm={handleClearWorkspace}
+          onCancel={() => setAskClear(false)}
+        />
+      )}
       <div
         onClick={(e) => e.stopPropagation()}
         style={_hs90}
@@ -72,7 +79,7 @@ function CacheInspectorModal({ reportId, reportTitle, workspaceId, canManage, da
           <div style={_hs94}>
             {canManage && workspaceId && (
               <button
-                onClick={handleClearWorkspace}
+                onClick={() => setAskClear(true)}
                 disabled={clearing}
                 title="Drops all rollups + the in-memory cache for this workspace’s models"
                 style={{

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { TbX, TbPlus, TbTrash, TbAlertTriangle } from 'react-icons/tb';
+import { TbX, TbAlertTriangle } from 'react-icons/tb';
+import { AddIcon, DeleteIcon, ICON_SIZE } from '../actionIcons';
 import api from '../../utils/api';
 
 const _hs0 = { fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 };
@@ -334,7 +335,7 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
                                 onClick={(e) => { e.stopPropagation(); removePattern(key, i); }}
                                 style={chipRemoveStyle}
                                 title="Remove pattern"
-                              ><TbTrash size={10} style={_hs12} /></button>
+                              ><DeleteIcon size={ICON_SIZE.chip} style={_hs12} /></button>
                             </span>
                           ))}
                         </div>
@@ -361,7 +362,7 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
                               style={addBtnStyle}
                               title="Add pattern"
                             >
-                              <TbPlus size={12} style={_hs14} />
+                              <AddIcon size={ICON_SIZE.chip} style={_hs14} />
                             </button>
                           )}
                           {activeRowKey === key && suggestions.length > 0 && (

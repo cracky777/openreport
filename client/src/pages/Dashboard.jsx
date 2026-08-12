@@ -5,7 +5,10 @@ import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
 import { readSheetNames } from '../utils/readSheetNames';
-import { TbEye, TbEdit, TbTrash, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbX, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbPencil, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbLoader2, TbRefresh, TbFileText } from 'react-icons/tb';
+import { TbEye, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbLoader2, TbRefresh, TbFileText } from 'react-icons/tb';
+import { DeleteIcon, EditIcon, ICON_SIZE } from '../components/actionIcons';
+import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
+import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
 import { formatBytes } from '../utils/formatHuman';
 import { useTheme } from '../hooks/useTheme';
 import { usePermissions } from '../hooks/usePermissions';
@@ -408,8 +411,8 @@ export default function Dashboard() {
     }
   };
 
+  // Confirmation belongs to the button that arms itself — see ConfirmDeleteButton.
   const deleteReport = async (id) => {
-    if (!confirm('Are you sure you want to delete this report?')) return;
     await api.delete(`/reports/${id}`);
     setReports((p) => p.filter((r) => r.id !== id));
     setWsReports((p) => p.filter((r) => r.id !== id));
@@ -510,6 +513,7 @@ export default function Dashboard() {
   const [renameModal, setRenameModal] = useState(null);    // { report, value }
   const [moveModal, setMoveModal] = useState(null);        // { report, targetWs }
   const [historyModal, setHistoryModal] = useState(null);  // { report, versions, loading }
+  const [askRestore, setAskRestore] = useState(null);      // versionId awaiting confirmation
   const [scheduleModal, setScheduleModal] = useState(null); // { report, schedules, loading, editing }
   // Cache-warm schedules — separate from the email scheduleModal because
   // they hit /api/cache-schedules (works in OSS too) instead of the
@@ -588,8 +592,8 @@ export default function Dashboard() {
   };
 
   const restoreVersion = async (versionId) => {
+    setAskRestore(null);
     if (!historyModal) return;
-    if (!confirm('Restore this version? The current state will be saved as a new history entry.')) return;
     await api.post(`/reports/${historyModal.report.id}/history/${versionId}/restore`);
     // Refresh the history list to reflect the new "current snapshot" version
     const res = await api.get(`/reports/${historyModal.report.id}/history`);
@@ -628,7 +632,6 @@ export default function Dashboard() {
     await refreshCacheSchedules(s.report_id);
   };
   const deleteCacheSchedule = async (s) => {
-    if (!confirm('Delete this cache schedule?')) return;
     await api.delete(`/cache-schedules/${s.id}`);
     await refreshCacheSchedules(s.report_id);
   };
@@ -745,7 +748,6 @@ export default function Dashboard() {
     await refreshSchedules(s.report_id);
   };
   const deleteSchedule = async (s) => {
-    if (!confirm(`Delete schedule "${s.name}"?`)) return;
     await api.delete(`/cloud/schedules/${s.id}`);
     await refreshSchedules(s.report_id);
   };
@@ -965,7 +967,7 @@ export default function Dashboard() {
                           title="Remove file"
                           style={fileChipRemoveStyle}
                         >
-                          <TbTrash size={16} />
+                          <DeleteIcon size={ICON_SIZE.modal} />
                         </button>
                       </div>
                       <ImportOptions value={importOpts} onChange={setImportOpts} kind={importKind(selectedFile.name)} sheetNames={sheetNames} />
@@ -1049,7 +1051,7 @@ export default function Dashboard() {
                                 onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
                                 onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.55'; }}
                               >
-                                <TbPencil size={12} />
+                                <EditIcon size={ICON_SIZE.chip} />
                               </button>
                             )}
                           </span>
@@ -1113,7 +1115,7 @@ export default function Dashboard() {
                   </div>
                   <div style={cardActions}>
                     <button onClick={() => window.open(`/view/${report.id}`, '_blank')} title="View" {...cardActionBtn('accent')}><TbEye size={16} /></button>
-                    {canEdit && <button onClick={() => navigate(`/edit/${report.id}`)} title="Edit" {...cardActionBtn()}><TbEdit size={16} /></button>}
+                    {canEdit && <button onClick={() => navigate(`/edit/${report.id}`)} title="Edit" {...cardActionBtn()}><EditIcon size={ICON_SIZE.card} /></button>}
                     {canEdit && (
                       <button
                         onClick={() => refreshReportCacheFromCard(report)}
@@ -1142,7 +1144,7 @@ export default function Dashboard() {
                               onClick={() => { setCardMenu(null); setRenameModal({ report, value: report.title }); }}
                               onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                               onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                              <TbPencil size={14} /> Rename
+                              <EditIcon size={ICON_SIZE.modal} /> Rename
                             </button>
                             <button style={cardMenuItem}
                               onClick={() => duplicateReport(report)}
@@ -1238,13 +1240,11 @@ export default function Dashboard() {
                         Last in the group, so the destructive one isn't the
                         neighbour of View. */}
                     {canEdit && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); deleteReport(report.id); }}
-                        title="Delete"
-                        {...cardActionBtn('danger')}
-                      >
-                        <TbX size={16} />
-                      </button>
+                      <ConfirmDeleteButton
+                        variant="icon"
+                        label="Delete report"
+                        onConfirm={() => deleteReport(report.id)}
+                      />
                     )}
                   </div>
                 </div>
@@ -1292,6 +1292,16 @@ export default function Dashboard() {
       </Modal>
       )}
 
+      {askRestore && (
+        <ConfirmDialog
+          title="Restore this version?"
+          body="The current state is saved as a new history entry first, so this rollback is itself reversible."
+          confirmLabel="Restore"
+          onConfirm={() => restoreVersion(askRestore)}
+          onCancel={() => setAskRestore(null)}
+        />
+      )}
+
       {/* History modal — admin only. Lists snapshots; restoring one snapshots
           the current state first so the rollback is itself reversible. */}
       {historyModal && (
@@ -1320,7 +1330,7 @@ export default function Dashboard() {
                       {new Date(v.saved_at).toLocaleString()} · {v.saved_by_name || v.saved_by_email || 'unknown'}
                     </div>
                   </div>
-                  <button className="btn-hover btn-hover-accent" style={historyRestoreBtn} onClick={() => restoreVersion(v.id)} title="Restore this version">
+                  <button className="btn-hover btn-hover-accent" style={historyRestoreBtn} onClick={() => setAskRestore(v.id)} title="Restore this version">
                     <TbArrowBackUp size={14} /> Restore
                   </button>
                 </div>

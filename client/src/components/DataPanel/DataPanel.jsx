@@ -3,6 +3,8 @@ import { useCalcWizard } from '../../hooks/useCalcWizard';
 import { useFieldEdit } from '../../hooks/useFieldEdit';
 import { createPortal } from 'react-dom';
 import { TbChevronDown } from 'react-icons/tb';
+import { ICON_SIZE } from '../actionIcons';
+import ConfirmDeleteButton from '../ConfirmDeleteButton/ConfirmDeleteButton';
 import api from '../../utils/api';
 import SqlExpressionInput from '../SqlExpressionInput/SqlExpressionInput';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
@@ -813,20 +815,17 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
             <div style={_hs20}>
               {m._source === 'report' && (
                 <>
-                  <button
-                    onClick={async () => {
-                      if (!window.confirm(`Delete measure "${m.label || m.name}"?`)) return;
+                  <ConfirmDeleteButton
+                    variant="icon"
+                    size={ICON_SIZE.chip}
+                    label="Delete this report-scoped measure"
+                    style={iconBtn('var(--state-danger)')}
+                    onConfirm={() => {
                       const remaining = ((settings && settings.extraMeasures) || []).filter((x) => x.name !== m.name);
-                      const wrote = updateSettings({ extraMeasures: remaining });
-                      if (!wrote) return;
+                      if (!updateSettings({ extraMeasures: remaining })) return;
                       setEditingField(null);
                     }}
-                    title="Delete this report-scoped measure"
-                    aria-label="Delete measure"
-                    style={iconBtn('var(--state-danger)')}
-                  >
-                    🗑
-                  </button>
+                  />
                   <button
                     onClick={async () => {
                       try {

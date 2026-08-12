@@ -3,7 +3,10 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
-import { TbShield, TbEdit, TbEye, TbTrash, TbUserPlus, TbKey, TbExternalLink, TbClock } from 'react-icons/tb';
+import { TbShield, TbEdit, TbEye, TbUserPlus, TbKey, TbExternalLink, TbClock } from 'react-icons/tb';
+import { ICON_SIZE } from '../components/actionIcons';
+import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
+import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
 import { formatDuration, formatBytes } from '../utils/formatHuman';
 import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton } from '../components/PageHeader/PageHeader';
 // Cloud edition contributes extra admin links here (e.g. Billing). Empty in OSS builds.
@@ -68,6 +71,7 @@ export default function Admin() {
   const [savingTimeout, setSavingTimeout] = useState(false);
   const [savingCache, setSavingCache] = useState(false);
   const [flushingCache, setFlushingCache] = useState(false);
+  const [askFlush, setAskFlush] = useState(false);
 
   useEffect(() => {
     api.get('/admin/users')
@@ -109,8 +113,8 @@ export default function Admin() {
   };
 
   const flushQueryCache = async () => {
+    setAskFlush(false);
     if (!settings) return;
-    if (!confirm('Drop every cached query result on this instance? Next refresh on every report will re-hit the source DB.')) return;
     setFlushingCache(true);
     try {
       const res = await api.post('/admin/settings/query-cache/flush');
@@ -140,7 +144,6 @@ export default function Admin() {
   };
 
   const deleteUser = async (userId) => {
-    if (!confirm('Delete this user?')) return;
     await api.delete(`/admin/users/${userId}`);
     setUsers((prev) => prev.filter((u) => u.id !== userId));
   };
@@ -173,6 +176,16 @@ export default function Admin() {
 
   return (
     <div style={_hs1}>
+      {askFlush && (
+        <ConfirmDialog
+          title="Drop every cached query result?"
+          body="This clears the cache for the whole instance. The next refresh on every report re-hits the source database, so the first queries after this will be slow."
+          confirmLabel="Drop cache"
+          danger
+          onConfirm={flushQueryCache}
+          onCancel={() => setAskFlush(false)}
+        />
+      )}
       <header style={headerShellStyle}>
         <BackButton to="/" />
         <h1 style={{ ...headerTitleStyle, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -231,7 +244,7 @@ export default function Admin() {
               preAggStats={settings.preAggCacheStats}
               lastFlushed={settings._lastFlushed}
               onSave={saveQueryCache}
-              onFlush={flushQueryCache}
+              onFlush={() => setAskFlush(true)}
               saving={savingCache}
               flushing={flushingCache}
             />
@@ -306,9 +319,12 @@ export default function Admin() {
                           <TbKey size={14} />
                         </button>
                         {u.id !== user.id && (
-                          <button className="btn-hover btn-hover-danger" onClick={() => deleteUser(u.id)} title="Delete" style={{ ...iconBtn, color: 'var(--state-danger)' }}>
-                            <TbTrash size={14} />
-                          </button>
+                          <ConfirmDeleteButton
+                            variant="icon"
+                            size={ICON_SIZE.modal}
+                            label="Delete user"
+                            onConfirm={() => deleteUser(u.id)}
+                          />
                         )}
                       </div>
                       {resetPw === u.id && (

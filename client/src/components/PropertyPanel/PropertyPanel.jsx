@@ -7,7 +7,9 @@ import TablePropertySections from './TablePropertySections';
 import DimensionMultiSelect from './DimensionMultiSelect';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
 import FontPicker from '../FontPicker/FontPicker';
-import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbTrash, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase, TbPencil, TbAlignLeft, TbAlignCenter, TbAlignRight, TbLayoutAlignTop, TbLayoutAlignMiddle, TbLayoutAlignBottom } from 'react-icons/tb';
+import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase, TbAlignLeft, TbAlignCenter, TbAlignRight, TbLayoutAlignTop, TbLayoutAlignMiddle, TbLayoutAlignBottom } from 'react-icons/tb';
+import { EditIcon, ICON_SIZE } from '../actionIcons';
+import ConfirmDeleteButton from '../ConfirmDeleteButton/ConfirmDeleteButton';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
 import { parseIntOrNull, parseFloatOrNull } from '../../utils/input';
 import api from '../../utils/api';
@@ -545,9 +547,13 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                   </span>
                 )}
               </div>
-              <button onClick={() => onDelete(widgetId)} style={deleteStyle} title="Delete widget">
-                <TbTrash size={14} />
-              </button>
+              <ConfirmDeleteButton
+                variant="icon"
+                size={ICON_SIZE.modal}
+                label="Delete widget"
+                style={deleteStyle}
+                onConfirm={() => onDelete(widgetId)}
+              />
             </div>
             <div style={_hs5}>
               <button onClick={() => onSendToBack(widgetId)} title="Send to back" style={layerBtn}><TbLayersSubtract size={14} /></button>
@@ -2011,7 +2017,7 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onS
               onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-disabled)'; }}
             >
               <span style={_hs38}>{model.name}</span>
-              <TbPencil size={10} style={_hs39} />
+              <EditIcon size={ICON_SIZE.chip} style={_hs39} />
             </a>
           ) : (model?.name ? (
             <span style={_hs40}>{model.name}</span>
