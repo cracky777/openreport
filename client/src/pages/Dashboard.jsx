@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
@@ -244,29 +244,31 @@ export default function Dashboard() {
 
   // Workspaces only — reports and models come from the shell-level graph, which
   // has already loaded them by the time this column slides in.
-  // Resume the new-report wizard when bouncing back from /models/:id?then=newReport.
-  // The model editor sends ?newReport=1&modelId=<id>&title=<title> on save in that
-  // flow; we re-open the wizard pre-filled with the model + the title the user
-  // had typed before going to the model editor, then strip the params.
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Open the new-report wizard on a model somebody else picked:
+  // ?newReport=1&modelId=<id>. Two callers — the "+" on a model card, and the
+  // model editor bouncing back from /models/:id?then=newReport, which adds
+  // &title=<title> to carry back what the user had typed before leaving.
+  //
+  // Watches the parameters rather than firing on mount: this stage never
+  // unmounts (all three ride the same ribbon), so arriving from Models is a
+  // parameter change and nothing more. Stripping them afterwards keeps a
+  // refresh from re-opening the wizard.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('newReport') !== '1') return;
-    const mid = params.get('modelId');
+    if (searchParams.get('newReport') !== '1') return;
+    const mid = searchParams.get('modelId');
     if (mid) {
       setNewModelId(mid);
       setCreateMode('model');
       setShowCreate(true);
     }
-    const restoredTitle = params.get('title');
-    if (restoredTitle) setNewTitle(restoredTitle);
-    // Strip the params so a refresh doesn't keep re-opening the wizard
-    params.delete('newReport');
-    params.delete('modelId');
-    params.delete('title');
-    const qs = params.toString();
-    const newUrl = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
-    window.history.replaceState({}, '', newUrl);
-  }, []);
+    setNewTitle(searchParams.get('title') || '');
+    const rest = new URLSearchParams(searchParams);
+    rest.delete('newReport');
+    rest.delete('modelId');
+    rest.delete('title');
+    setSearchParams(rest, { replace: true });
+  }, [searchParams, setSearchParams]);
 
 
   // Step 1: just record the pick — the import options only make sense once a

@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useMemo, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import { PrimaryButton } from '../components/PageHeader/PageHeader';
@@ -8,6 +8,7 @@ import { useGraph } from '../hooks/graphContext';
 import { useJourneyFocus } from '../hooks/useJourneyFocus';
 import { sortActiveFirst } from '../utils/sortActiveFirst';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
+import JoinAdd from '../components/AppShell/JoinAdd';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 
 // Fills the stage slot AppShell gives it; the shell owns the viewport height.
@@ -61,6 +62,23 @@ export default function Models() {
     if (focus.stage === 'sources') setForm((f) => ({ ...f, datasourceId: focus.id }));
     setShowForm(true);
   };
+
+  // The "+" on a source card lands here with that source already chosen. This
+  // watches the parameters instead of firing on mount, because the stage never
+  // unmounts — all three ride the same ribbon — so arriving from Sources is a
+  // parameter change and nothing more. Stripping them afterwards keeps a
+  // refresh from re-opening the dialog.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get('newModel') !== '1') return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setForm((f) => ({ ...f, datasourceId: searchParams.get('datasourceId') || '' }));
+    setShowForm(true);
+    const rest = new URLSearchParams(searchParams);
+    rest.delete('newModel');
+    rest.delete('datasourceId');
+    setSearchParams(rest, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const handleCreate = async () => {
     if (!form.name || !form.datasourceId) return;
@@ -187,6 +205,12 @@ export default function Models() {
                     blockedReason={reportCount ? `Used by ${reportCount} report${reportCount > 1 ? 's' : ''} — delete those first` : null}
                   />
                 </div>
+                {/* Same parameters the model editor already sends when it
+                    bounces back into the new-report wizard. */}
+                <JoinAdd
+                  title={`Add a report on ${m.name}`}
+                  onClick={() => navigate(`/?focus=models:${m.id}&newReport=1&modelId=${m.id}`)}
+                />
               </div>
               </div>
               );

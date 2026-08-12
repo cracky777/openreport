@@ -14,6 +14,7 @@ import { useGraph } from '../hooks/graphContext';
 import { useJourneyFocus } from '../hooks/useJourneyFocus';
 import { sortActiveFirst } from '../utils/sortActiveFirst';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
+import JoinAdd from '../components/AppShell/JoinAdd';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 
 // Fills the stage slot AppShell gives it; the shell owns the viewport height.
@@ -284,6 +285,12 @@ export default function Datasources() {
                       blockedReason={modelCount ? `Used by ${modelCount} model${modelCount > 1 ? 's' : ''} — delete those first` : null}
                     />
                   </div>
+                  {/* Hands the Models stage a source already chosen, the same
+                      way the model editor hands the wizard a model. */}
+                  <JoinAdd
+                    title={`Add a data model on ${ds.name}`}
+                    onClick={() => navigate(`/models?focus=sources:${ds.id}&newModel=1&datasourceId=${ds.id}`)}
+                  />
                 </div>
                 </div>
               );
