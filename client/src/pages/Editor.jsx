@@ -282,6 +282,16 @@ export default function Editor() {
   // Ref mirror so click handlers always read the freshest widget state (closures can be stale)
   const widgetsRef = useRef(widgets);
   widgetsRef.current = widgets;
+  // Same mirror for the history object. The cache-warming poll below only reads
+  // it when a rebuild finishes, but depending on it re-ran the whole effect on
+  // every layout mutation — one GET /warming per resize gesture, one per frame
+  // during a drag.
+  const historyRef = useRef(history);
+  historyRef.current = history;
+  // Newest refresh wins, per slicer. Two filter clicks in quick succession leave
+  // two queries in flight; without this the slower one lands last and repaints
+  // the slicer with the values of a filter the user already moved off.
+  const slicerSeqRef = useRef({});
   // Snapshot of the last-saved (or last-loaded) report state — used to detect real modifications
   const savedSnapshotRef = useRef('');
 
@@ -575,6 +585,8 @@ export default function Editor() {
     // doesn't touch data, so a failed fetch keeps the stamp; the
     // user can manual-refresh.
     const cbAtFetchStart = reportRef.current?.cache_built_at || null;
+    const seq = (slicerSeqRef.current[widgetId] || 0) + 1;
+    slicerSeqRef.current[widgetId] = seq;
     history.setSilent((prev) => {
       const cur = prev.widgets?.[widgetId];
       if (!cur) return prev;
@@ -639,6 +651,9 @@ export default function Editor() {
         reportId: id,
         ...reportExtras,
       });
+      // A newer refresh for this slicer started while we were waiting: it owns
+      // the widget now, and it also owns the _loading flag.
+      if (slicerSeqRef.current[widgetId] !== seq) return;
       const rows = res.data?.rows || [];
       const keys = rows.length > 0 ? Object.keys(rows[0]) : [];
       const values = keys.length > 0
@@ -664,6 +679,7 @@ export default function Editor() {
         return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...cur, _loading: false, data: nextData } } };
       });
     } catch {
+      if (slicerSeqRef.current[widgetId] !== seq) return;
       history.setSilent((prev) => {
         const cur = prev.widgets?.[widgetId];
         if (!cur) return prev;
@@ -851,7 +867,7 @@ export default function Editor() {
       // date slicer that was filtered to January by a global filter
       // whose interaction was just disabled would keep showing only
       // January dates even after the cache rebuild).
-      const slicers = history.state.widgets || {};
+      const slicers = historyRef.current.state.widgets || {};
       for (const [wId, w] of Object.entries(slicers)) {
         if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0]) {
           refreshSlicerRef.current?.(wId);
@@ -863,7 +879,7 @@ export default function Editor() {
       setRefreshKind('cache');
       setRefreshCounter((n) => n + 1);
     }
-  }, [id, history]);
+  }, [id]);
   useEffect(() => () => {
     // Editor unmounted mid-rebuild → stop the poll/trickle cleanly.
     const st = cacheWarmCtlRef.current;
@@ -942,7 +958,7 @@ export default function Editor() {
           setCacheWarming(false);
           setCacheWarmPct(0);
           cacheWarmPctRef.current = 0;
-          const slicers = history.state.widgets || {};
+          const slicers = historyRef.current.state.widgets || {};
           for (const [wId, w] of Object.entries(slicers)) {
             if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0]) {
               refreshSlicerRef.current?.(wId);
@@ -961,7 +977,7 @@ export default function Editor() {
       cancelled = true;
       if (localTimer) clearTimeout(localTimer);
     };
-  }, [id, history]);
+  }, [id]);
 
   // NOTE: slicer re-narrowing on global-filter / cross-filter / refresh is
   // now done INSIDE the main fetch effect (search for "Slicers are skipped

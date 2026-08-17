@@ -5,6 +5,12 @@ export default function formatNumber(value, format) {
 
   const decimals = format.decimals ?? 0;
   const thousandSep = format.thousandSep ?? ' ';
+  // The thousands separator was configurable, the decimal one hardcoded to '.',
+  // so a report set to the French convention read "1 234.56" — two number
+  // conventions in one widget. Now configurable; the default stays '.' because
+  // deriving it from thousandSep would silently reformat every report already
+  // written.
+  const decimalSep = format.decimalSep ?? '.';
   const prefix = format.prefix ?? '';
   const suffix = format.suffix ?? '';
 
@@ -18,7 +24,7 @@ export default function formatNumber(value, format) {
   let formatted = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, thousandSep);
 
   if (decPart !== undefined) {
-    formatted += '.' + decPart;
+    formatted += decimalSep + decPart;
   }
 
   return `${prefix}${formatted}${suffix}`;

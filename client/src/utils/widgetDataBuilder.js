@@ -224,7 +224,10 @@ export function buildWidgetData({
     });
     newData = { rows, fields: { dimensions: dimsMeta, measures: measMeta } };
   } else if (w.type === 'pie' || w.type === 'treemap') {
-    newData = { items: rows.map((r) => ({ name: String(r[keys[0]]), value: Number(r[keys[keys.length - 1]]) || 0 })) };
+    // `?? ''` like every other label path in this file: String(null) renders the
+    // word "null" as a slice name, which reads as a category rather than as a
+    // missing one.
+    newData = { items: rows.map((r) => ({ name: String(r[keys[0]] ?? ''), value: Number(r[keys[keys.length - 1]]) || 0 })) };
   } else if (w.type === 'scorecard' || w.type === 'gauge') {
     const firstRow = rows[0];
     if (firstRow) {
@@ -282,11 +285,24 @@ export function buildWidgetData({
       })),
     };
   } else {
-    // Default — single-series bar/line: rows are (axis, value).
-    newData = {
-      labels: rows.map((r) => String(r[keys[0]])),
-      values: rows.map((r) => Number(r[keys[keys.length - 1]]) || 0),
-    };
+    // Default — bar/line without a groupBy: rows are (axis, …measures).
+    const labels = rows.map((r) => String(r[keys[0]] ?? ''));
+    const measureKeys = keys.slice(1);
+    if (measureKeys.length > 1) {
+      // Two measures on a plain bar used to plot the LAST column only, and label
+      // the axis with it: the other measure disappeared without a word. Emit the
+      // same multi-series shape the groupBy branch above already produces, which
+      // the widgets render as-is.
+      newData = {
+        labels,
+        series: measureKeys.map((mk) => ({
+          name: mk,
+          values: rows.map((r) => Number(r[mk]) || 0),
+        })),
+      };
+    } else {
+      newData = { labels, values: rows.map((r) => Number(r[keys[keys.length - 1]]) || 0) };
+    }
   }
 
   // Common metadata stamped on every successful build. Order matters
@@ -294,14 +310,25 @@ export function buildWidgetData({
   // _measures from the pivotTable branch, but _measureFormats from here).
   const mf = {};
   const durationCols = [];
+  // Measures whose value cannot be rebuilt from already-grouped rows. The server
+  // sends one collapsed number per group, so a total can only be recomputed here
+  // when the operation is associative: sum of sums, count of counts, min of
+  // mins, max of maxes. An average is not — averaging per-group averages weighs
+  // a group of one like a group of a thousand — and neither is a distinct count,
+  // a ratio, or a free expression. The pivot blanks their totals rather than
+  // showing a number that contradicts the server's own.
+  const ADDITIVE = new Set(['sum', 'count', 'min', 'max']);
+  const nonAdditiveCols = [];
   meass.forEach((mn) => {
     const md = (effectiveModel?.measures || []).find((x) => x.name === mn);
     if (!md) return;
     const colKey = md.label || md.name;
     if (md.format) mf[colKey] = md.format;
     if (String(md.dataType || '').toLowerCase() === 'interval') durationCols.push(colKey);
+    if (!ADDITIVE.has(String(md.aggregation || '').toLowerCase())) nonAdditiveCols.push(colKey);
   });
   newData._measureFormats = mf;
+  if (nonAdditiveCols.length > 0) newData._nonAdditiveMeasures = nonAdditiveCols;
   if (durationCols.length > 0) newData._durationColumns = durationCols;
   if (dims.length > 0) {
     newData._dimName = dims[0];

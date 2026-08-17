@@ -88,12 +88,17 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
     const q = (newPattern[activeRowKey] || '').trim();
     // Don't autocomplete if it's a wildcard pattern — let the user type freely.
     if (q.length < 2 || q.includes('*')) { setSuggestions([]); return; }
+    // Debouncing thins the requests but doesn't order them: a slow answer for
+    // "ma" still lands after a fast one for "marie" and replaces the list with
+    // suggestions for what was typed before. Abort the previous request, and
+    // ignore anything that comes back from it anyway.
+    const ctl = new AbortController();
     const handle = setTimeout(() => {
-      api.get('/auth/users/search', { params: { q } })
+      api.get('/auth/users/search', { params: { q }, signal: ctl.signal })
         .then((res) => setSuggestions(res.data.users || []))
-        .catch(() => setSuggestions([]));
+        .catch(() => { if (!ctl.signal.aborted) setSuggestions([]); });
     }, 200);
-    return () => clearTimeout(handle);
+    return () => { clearTimeout(handle); ctl.abort(); };
   }, [activeRowKey, newPattern]);
 
   // Fetch rows when the primary key changes or the search query changes (debounced).

@@ -190,6 +190,17 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
   const numMeasures = measures.length;
 
   const durationCols = new Set(data?._durationColumns);
+  // Totals of a measure the server already collapsed. Summing group sums is
+  // sound; averaging group averages is not — a group of one would weigh as much
+  // as a group of a thousand — and neither is a distinct count, a ratio or a
+  // free expression. The re-aggregation used to contradict the same measure read
+  // anywhere else in the report, so these totals say nothing instead. See
+  // `_nonAdditiveMeasures` in widgetDataBuilder.
+  const nonAdditive = new Set(data?._nonAdditiveMeasures || []);
+  const formatTotal = (acc, measure) => (
+    nonAdditive.has(measure) ? '—' : formatVal(resolveCell(acc, getFn(measure)), measure)
+  );
+
   const formatVal = (val, measure) => {
     if (val == null) return '';
     // Interval-typed measures arrive as EPOCH seconds → format as duration.
@@ -448,13 +459,13 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
                   {/* Subtotal values for this group */}
                   {colKeys.map(([ck]) =>
                     measures.map((m, mi) => {
-                      const val = showSubTotals ? resolveCell(subTotals[node.key]?.[ck]?.[m], getFn(m)) : null;
+                      const val = showSubTotals ? formatTotal(subTotals[node.key]?.[ck]?.[m], m) : null;
                       return (
                         <td key={`${ck}-${mi}`} style={{
                           ...getCellStyle(m),
                           backgroundColor: isGroup ? 'var(--bg-subtle)' : undefined,
                         }}>
-                          {val != null ? formatVal(val, m) : ''}
+                          {val != null ? val : ''}
                         </td>
                       );
                     })
@@ -466,7 +477,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
                       secondary` (light gray) — washed out in light
                       mode. */}
                   {showGrandCol && measures.map((m, mi) => {
-                    const val = showSubTotals ? resolveCell(subTotals[node.key]?.__rowTotal__?.[m], getFn(m)) : null;
+                    const val = showSubTotals ? formatTotal(subTotals[node.key]?.__rowTotal__?.[m], m) : null;
                     return (
                       <td key={`rt-${mi}`} style={{
                         padding: cellPad, textAlign: 'right', fontWeight: 600, fontSize: 12,
@@ -474,7 +485,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
                         backgroundColor: 'var(--bg-panel-alt)', borderBottom: hBorder, borderRight: vBorder,
                         ...(valueCellWrapStyle(m) || {}),
                       }}>
-                        {val != null ? formatVal(val, m) : ''}
+                        {val != null ? val : ''}
                       </td>
                     );
                   })}
@@ -533,7 +544,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
                     `--text-primary` rationale as the group-total
                     branch above. */}
                 {showGrandCol && measures.map((m, mi) => {
-                  const val = resolveCell(pivot.rowTotals[rk]?.[m], getFn(m));
+                  const val = formatTotal(pivot.rowTotals[rk]?.[m], m);
                   return (
                     <td key={`rt-${mi}`} style={{
                       padding: cellPad, textAlign: 'right', fontWeight: 600, fontSize: 12,
@@ -561,13 +572,13 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
               {colKeys.map(([ck]) =>
                 measures.map((m, mi) => (
                   <td key={`${ck}-${mi}`} style={totalStyle}>
-                    {formatVal(resolveCell(colTotals[ck]?.[m], getFn(m)), m)}
+                    {formatTotal(colTotals[ck]?.[m], m)}
                   </td>
                 ))
               )}
               {showGrandCol && measures.map((m, mi) => (
                 <td key={`gt-${mi}`} style={{ ...totalStyle, fontWeight: 700, backgroundColor: 'var(--bg-hover)' }}>
-                  {formatVal(resolveCell(grandTotal[m], getFn(m)), m)}
+                  {formatTotal(grandTotal[m], m)}
                 </td>
               ))}
             </tr>

@@ -108,6 +108,10 @@ export default function Viewer() {
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [crossHighlight, setCrossHighlight] = useState(null);
+  // Newest fetch wins, per widget. Clicking two filters in a row leaves both
+  // rounds in flight, and the slower one used to land last — the widget then
+  // showed the numbers of a filter the user had already left.
+  const fetchSeqRef = useRef({});
   const crossHighlightRef = useRef(null);
   crossHighlightRef.current = crossHighlight;
   const crossFilterSourceRef = useRef(null);
@@ -507,6 +511,8 @@ export default function Viewer() {
         dedupMeasures: false,
       });
 
+      const seq = (fetchSeqRef.current[wId] || 0) + 1;
+      fetchSeqRef.current[wId] = seq;
       const mainPromise = bodies.main
         ? api.post(`/models/${model.id}/query`, bodies.main)
         : Promise.resolve({ data: { rows: [] } });
@@ -524,6 +530,7 @@ export default function Viewer() {
         : Promise.resolve(null);
 
       Promise.all([mainPromise, colorPromise, totalPromise, n1Promise, comboLinePromise]).then(([res, colorRes, totalRes, n1Res, comboLineRes]) => {
+        if (fetchSeqRef.current[wId] !== seq) return; // a newer round owns this widget
         const rows = res.data?.rows;
         // Per the bug investigation, the Viewer keeps `[...dims]` for the
         // row dim list so a dim pinned to both row + column zones still
@@ -538,6 +545,7 @@ export default function Viewer() {
         });
         setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data } }));
       }).catch((err) => {
+        if (fetchSeqRef.current[wId] !== seq) return;
         const msg = err?.response?.data?.error || err?.message || 'Query failed';
         const code = err?.response?.data?.code || null;
         const timeoutMs = err?.response?.data?.timeoutMs || null;
