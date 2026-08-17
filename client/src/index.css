@@ -124,33 +124,6 @@ body {
   min-height: 100vh;
 }
 
-.react-grid-item > .react-resizable-handle {
-  position: absolute;
-  width: 24px;
-  height: 24px;
-  bottom: -2px;
-  right: -2px;
-  cursor: se-resize;
-  z-index: 20;
-  background: transparent;
-}
-
-.react-grid-item > .react-resizable-handle::after {
-  content: '';
-  position: absolute;
-  right: 5px;
-  bottom: 5px;
-  width: 10px;
-  height: 10px;
-  border-right: 2px solid var(--text-disabled);
-  border-bottom: 2px solid var(--text-disabled);
-}
-
-.react-grid-item:hover > .react-resizable-handle::after {
-  border-right-color: var(--accent-primary);
-  border-bottom-color: var(--accent-primary);
-}
-
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }

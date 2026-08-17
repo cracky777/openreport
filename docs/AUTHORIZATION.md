@@ -38,32 +38,58 @@ Deux niveaux de rôles, indépendants (pas de matrice croisée en OSS) :
 Défini dans `middleware/auth.js` (passport-local + express-session, session stockée en SQLite) :
 
 - `requireAuth` → **401** `Authentication required` si non authentifié.
-- `requireRole(...roles)` → 401 si non authentifié, **403** si le rôle n'est pas dans la liste.
+- `authFor('read' | 'write')` → la garde effectivement utilisée par les routers.
 - `requireAdmin` → 401 si non authentifié, **403** si `role !== 'admin'`.
+
+`requireRole(...roles)` est défini et exporté mais **n'a aucun appelant** : ne pas s'en servir comme
+description du modèle de rôles.
 
 La désérialisation recharge `id, email, display_name, role` depuis `users`. En mode cloud
 (`OPENREPORT_CLOUD=1`), `email_verified` est exigé ; en OSS, non.
 
+## Édition cloud : où se prennent réellement les décisions
+
+Chaque fonction ci-dessous commence par déléguer à `cloudHooks.<même nom>` quand le module cloud est
+chargé (`OPENREPORT_CLOUD=1`). La logique OSS décrite ici est donc le **repli**, pas la règle
+universelle : en cloud, tout est ré-arbitré par le rôle dans l'organisation active. Toutes prennent
+`(objet, user, req)` — `req` porte `organizationId`.
+
 ## Accès aux rapports et modèles
 
-Deux fonctions portent tout le contrôle d'accès aux données (définies dans le router reports) :
+Quatre fonctions portent le contrôle d'accès aux données (définies dans le router reports) :
 
-**`canAccessReport(report, user)`** — accès accordé si l'**une** des conditions :
+**`canAccessReport(report, user, req)`** — lecture d'un rapport :
 1. `report.is_public` est vrai ; **ou**
 2. `user` existe **et** (`user.role === 'admin'` ; **ou** `user.id === report.user_id` ; **ou**
    le rapport est dans un workspace dont `user` est owner ou membre).
 
-**`canAccessModel(model, user)`** — accès accordé si l'**une** des conditions :
+**`canAccessModel(model, user, req)`** — lecture d'un modèle :
 1. `user.role === 'admin'` ; **ou**
 2. `user.id === model.user_id` (propriétaire) ; **ou**
-3. il existe un rapport qui **utilise ce modèle** et pour lequel `canAccessReport(report, user)` est
-   vrai (un modèle est ainsi atteignable via un rapport public ou partagé).
+3. il existe un rapport qui **utilise ce modèle** et pour lequel `canAccessReport` est vrai (un
+   modèle est ainsi atteignable via un rapport public ou partagé).
+
+**`canWriteModel(model, user, req)`** — OSS : propriétaire du modèle ou admin global.
+
+**`canWriteReport(report, user, req)`** — OSS : propriétaire du rapport ou admin global.
 
 **Lecture vs écriture** :
 - Lecture (`GET /api/reports/:id`, `POST /api/models/:id/query`) : gardée par `canAccessReport` /
   `canAccessModel`, **sans** `requireAuth` → un anonyme peut lire un rapport public.
-- Écriture (`PUT`/`DELETE` reports & models) : **propriétaire uniquement** (clause SQL
-  `WHERE id = ? AND user_id = ?`), l'admin global passant outre.
+- Écriture : par ces fonctions, **pas** par une clause SQL `WHERE user_id = ?`. Cette forme ne
+  subsiste que pour le cadrage des datasources.
+
+**Créer ou modifier un rapport exige `canWriteModel` sur son modèle**, pas seulement
+`canAccessModel`. Lire le modèle d'autrui via un rapport partagé ne suffit donc pas à bâtir dessus :
+sinon n'importe quel compte pouvait créer un rapport sur ce modèle puis le publier, ce qui ouvre
+`/query` en anonyme sur des données qui ne sont pas les siennes.
+
+**Passer `is_public = 1` exige également `canWriteModel`** sur le modèle sous-jacent : publier
+expose la donnée, pas seulement le rapport, et c'est à celui qui détient la donnée d'en décider.
+
+**Le workspace cible est vérifié** à la création comme au déplacement (`canPlaceReportIn`) :
+appartenance réelle, avec un rôle autre que `viewer`. Le refus est identique que le titre demandé
+existe déjà ou non, pour ne pas transformer le 409 d'unicité en oracle d'énumération.
 
 ## Row-Level Security (RLS)
 

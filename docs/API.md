@@ -129,8 +129,8 @@ Monté sur le préfixe `/api/workspaces` **avant** le router workspaces.
 | Méthode | Path | Auth | Permission | Description |
 |---|---|:--:|---|---|
 | `GET` | `/api/workspaces/:wsId/visuals` | ✅ | membre du workspace (ou admin) | Liste les visuels installés. |
-| `GET` | `/api/workspaces/:wsId/visuals/:visualId/bundle.js` | ✅ | membre du workspace (ou admin) | Sert le bundle JS (sandbox iframe). |
-| `GET` | `/api/workspaces/:wsId/visuals/:visualId/icon` | ✅ | membre du workspace (ou admin) | Sert l'icône (`Content-Disposition: attachment`, `nosniff`). |
+| `GET` | `/api/workspaces/:wsId/visuals/:visualId/bundle.js` | ✅ | membre du workspace (ou admin) | Sert le bundle JS (`nosniff`, CSP `sandbox` — l'iframe est le consommateur prévu, y naviguer ne doit rien exécuter). |
+| `GET` | `/api/workspaces/:wsId/visuals/:visualId/icon` | ✅ | membre du workspace (ou admin) | Sert l'icône (`nosniff`, CSP `sandbox`). Pas de `Content-Disposition` : elle doit rester affichable en `<img>`, c'est la CSP qui neutralise un SVG piégé. |
 | `POST` | `/api/workspaces/:wsId/visuals` | ✅ | admin du workspace | Installe un paquet `.zip` (manifest + visual.js + icône). |
 | `DELETE` | `/api/workspaces/:wsId/visuals/:visualId` | ✅ | admin du workspace | Supprime un visuel. |
 

@@ -285,11 +285,23 @@ A custom measure can carry its own `filterRules`. Two distinct modes
    emits `SUM(CASE WHEN <rules> THEN <expr> END)`. The widget/global
    `WHERE` **still applies** to the whole query; the CASE WHEN is an
    *extra* restriction inside the already-filtered rowset. This is
-   **fully rollup-safe**: the CASE-WHEN aggregate is additive, the
-   builder fires `/query` with the baked global filter, the value is
-   stored as a normal additive atom and re-aggregates correctly at any
-   grain. `_filt.*` count-restricted measures and a ratio like
-   `_calc.%` built on them are this mode → served from rollups.
+   rollup-safe **as long as the aggregate is additive**: the CASE-WHEN
+   sum re-aggregates correctly at any grain, so the builder fires
+   `/query` with the baked global filter and stores a normal additive
+   atom. `_filt.*` count-restricted measures and a ratio like `_calc.%`
+   built on them are this mode → served from rollups.
+
+   **Exception: `avg` and `COUNT DISTINCT` carrying `filterRules` are
+   NOT rollup-safe and are refused by the decomposer.** Their atoms are
+   built from the bare column (`SUM(col)` + `COUNT(col)`, or the HLL
+   sketch), so the filter never reaches them: the cube would store the
+   *unfiltered* average and — the alias being hashed from the atom alone
+   — two measures differing only by their filter would collide on one
+   cached value. A mean is not additive: its divisor changes with the
+   filter, unlike a sum's. `decomposeMeasure` returns `null` for these,
+   which means planner MISS → live query, where `/query` emits the
+   correct `AVG(CASE WHEN … END)`. Unfiltered averages keep their
+   decomposition and their acceleration.
 
 2. **Override — `filterRules` WITH `overrideFilters`**. `/query` emits
    a correlated scalar subquery that **drops the visual's `WHERE` on

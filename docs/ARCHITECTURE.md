@@ -3,7 +3,9 @@
 Vue d'ensemble du système, du plus large au plus fin. Doc **courte et volontairement à gros
 grain** : pour le détail, elle renvoie aux sources de vérité plutôt que de les recopier.
 
-- Stack, commandes, carte du code, surfaces sensibles, conventions → **`CLAUDE.md`** (racine).
+- Stack, commandes, carte du code, surfaces sensibles, conventions → `CLAUDE.md` (racine).
+  Ce fichier est **git-ignoré** : il n'existe que sur les postes de développement, un lecteur du
+  dépôt ne l'a pas. Le `README` et les documents de `docs/` sont la référence publique.
 - Spécification du cache de pré-agrégation → **`ROLLUP-CACHE.md`** (racine).
 - Contrat HTTP → **[API.md](API.md)** · modèle de permissions → **[AUTHORIZATION.md](AUTHORIZATION.md)**.
 
@@ -70,7 +72,7 @@ flowchart TB
 ```
 
 Le moteur SQL (`ENG`) concentre la complexité du produit ; c'est aussi le plus gros fichier
-(`routes/models.js`, cible de découpe future — voir *God-files* dans `CLAUDE.md`).
+(`routes/models.js`, cible de découpe future).
 
 ## 2. Modèle conceptuel
 
@@ -111,7 +113,7 @@ expressions free-SQL *report-scoped* sont retirées pour les non-propriétaires.
 ```mermaid
 flowchart TD
   A["Client — POST /api/models/:id/query<br/>dimensions, mesures, filtres, reportId"] --> B{"canAccessModel /<br/>canAccessReport ?<br/>(seule barrière)"}
-  B -->|"refusé"| X["403"]
+  B -->|"refusé"| X["404 — un modèle inaccessible<br/>est annoncé absent, pas interdit"]
   B -->|"autorisé (owner, admin,<br/>membre, ou rapport public)"| C["parseModel — charge le modèle JSON"]
   C --> D{"rollupPlanner :<br/>servable depuis un rollup ?"}
   D -->|"oui — grain compatible"| E["Lire le fichier DuckDB de rollup<br/>+ recomposer les mesures (measureType)"]
@@ -178,7 +180,7 @@ flowchart TD
   IT --> AC
   AC -->|"owner / admin / membre / public"| OK["accès accordé"]
   OK --> RLS["RLS injectée dans le WHERE<br/>(rls.js) — free-SQL strippé pour non-owners"]
-  AC -->|"sinon"| NO["403"]
+  AC -->|"sinon"| NO["404 sur /query<br/>403 sur les routes d'écriture"]
 
   classDef strong fill:#eafaf1,stroke:#27ae60,stroke-width:1px,color:#1e8449;
   class P strong
@@ -186,10 +188,11 @@ flowchart TD
 
 **Limitations connues** (documentées, non des régressions) : la RLS est un filtre SQL appliqué au
 `WHERE` du modèle — le durcissement free-SQL ferme le vecteur principal de contournement, mais ce
-modèle reste applicatif (pas d'isolation au niveau base). Voir `CLAUDE.md` § « Surfaces sensibles ».
+modèle reste applicatif (pas d'isolation au niveau base).
 
 ---
 
-> Pour les emplacements précis dans le code et l'état de la dette, voir `CLAUDE.md` (carte du code,
+> Pour les emplacements précis dans le code et l'état de la dette, voir le `README` et (sur un poste
+> de développement) `CLAUDE.md` (carte du code,
 > god-files, surfaces sensibles). Cette doc évite volontairement les numéros de ligne pour rester
 > valable après refactor.
