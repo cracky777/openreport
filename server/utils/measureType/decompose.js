@@ -36,6 +36,15 @@ function decomposeMeasure(measure, allMeasures) {
   if (simple) return { type: 'simple', innerType: simple };
   // AVG decomposes to SUM + COUNT of the same column.
   if (measure.aggregation === 'avg' && measure.column) {
+    // …but only over the rows the measure actually covers. The atoms below are
+    // built from the bare column, so an intersection filter would be dropped
+    // and the rollup would serve the UNFILTERED average — and, since the alias
+    // is hashed from the atom alone, two measures differing only by their
+    // filter would collide on one cached value. Additive measures survive this
+    // (their CASE WHEN stays inside the aggregate); a mean does not, because
+    // the divisor changes with the filter. No spec → planner MISS → live query,
+    // which builds the AVG(CASE WHEN …) correctly.
+    if (Array.isArray(measure.filterRules) && measure.filterRules.length > 0) return null;
     // Carry dataType so the synthetic SUM component gets the SAME
     // interval→EXTRACT(EPOCH) treatment models.js applies to a normal
     // measure on an INTERVAL column. Without it the numerator is
@@ -118,6 +127,9 @@ function decomposeMeasure(measure, allMeasures) {
     // without the extension is always safe.
     const distinct = detectCountDistinct(measure.expression);
     if (distinct) {
+      // Same reasoning as the AVG path above: the sketch is built from the bare
+      // column, so a filtered distinct count would be sketched over every row.
+      if (Array.isArray(measure.filterRules) && measure.filterRules.length > 0) return null;
       return {
         type: 'distinct',
         kind: 'hll',

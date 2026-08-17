@@ -197,10 +197,15 @@ async function tryServeFromRollup(opts) {
     allDimensions = [],
     allMeasures = [],
     limit,
+    offset,
     rlsApplies,
   } = opts;
 
   if (rlsApplies) return { hit: false, reason: 'rls-restricted' };
+  // Paging was never implemented here: the rollup path ignored `offset` and
+  // returned the first page every time, so "load more" looped on the same rows.
+  // Live handles it correctly — hand it over rather than half-page.
+  if (Number(offset) > 0) return { hit: false, reason: 'offset-unsupported' };
   const mid = modelId || (model && model.id);
   if (!mid) return { hit: false, reason: 'no-model' };
   // X-grain HAVING (bar/line/combo with legend + measure filter) needs the
@@ -472,8 +477,13 @@ async function tryServeFromRollup(opts) {
   // play: the in-memory rank (below) must see ALL rollup rows first, otherwise
   // the true top-N can be cut off by this LIMIT. Rollup rows are one-per-grain,
   // so the 1M cap still bounds the scan.
+  // A measure filter is a HAVING, and it runs in memory further down. Truncating
+  // to `limit` first would hand it an arbitrary slice of the grains: the live
+  // path filters and only then limits, so the two answers differed in row count.
+  // Same reasoning that already exempts top_n.
   const hasTopN = wf.some(isSyntheticTopN);
-  const lim = hasTopN ? 1_000_000 : Math.min(Number(limit) || 1000, 1_000_000);
+  const hasMeasureFilter = wf.some((f) => f && f.isMeasure && !isSyntheticTopN(f) && f.field && f.op);
+  const lim = (hasTopN || hasMeasureFilter) ? 1_000_000 : Math.min(Number(limit) || 1000, 1_000_000);
   sql += ` LIMIT ${lim}`;
 
   // All groups' tables must live in the SAME generation file (one

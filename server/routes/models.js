@@ -1024,6 +1024,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
         allDimensions,
         allMeasures,
         limit,
+        offset,
         rlsApplies: !!rlsApplies,
       });
     } catch (err) {

@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const { authFor } = require('../middleware/auth');
 const db = require('../db');
 const { ensurePersonalWorkspace } = require('../utils/personalWorkspace');
+const queryCache = require('../utils/queryCache');
 // Cloud extension points (null in OSS). See server/cloudHooks.js.
 const cloudHooks = require('../cloudHooks');
 
@@ -121,6 +122,19 @@ function defaultWorkspaceFor(req) {
 // Post-INSERT tenant-column stamp (cloud: organization_id). No-op in OSS.
 function stampNewReport(req, reportId) {
   if (typeof cloudHooks.onReportCreate === 'function') cloudHooks.onReportCreate(req, reportId);
+}
+
+// Did an edit touch anything the cached rows were computed from? Only the
+// report-scoped formulas qualify: everything else in `settings` is presentation.
+function formulasChanged(beforeJson, afterJson) {
+  const pick = (raw) => {
+    try {
+      const s = JSON.parse(raw || '{}');
+      return JSON.stringify([s.extraMeasures || null, s.measureOverrides || null,
+        s.extraDimensions || null, s.dimensionOverrides || null]);
+    } catch { return raw || ''; /* unparseable: treat as changed */ }
+  };
+  return pick(beforeJson) !== pick(afterJson);
 }
 
 // A report's title must be unique within its workspace (case-insensitive). The
@@ -446,6 +460,14 @@ router.put('/:id', authFor('read'), (req, res) => {
     workspace_id !== undefined ? workspace_id : null,
     req.params.id
   );
+
+  // extraMeasures / measureOverrides live in the REPORT, not the model, but the
+  // cache is keyed by model: editing a formula left the previous result being
+  // served until something else happened to evict it. Only when those keys
+  // actually moved — a rename or a layout nudge must not cost a full recompute.
+  if (settingsParam !== null && report.model_id && formulasChanged(report.settings, settingsParam)) {
+    queryCache.invalidateModel(report.model_id);
+  }
 
   const updated = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
   const parsedSettings = JSON.parse(updated.settings);

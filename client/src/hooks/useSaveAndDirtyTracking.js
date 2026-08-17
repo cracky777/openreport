@@ -81,6 +81,7 @@ export function useSaveAndDirtyTracking({
       savedSnapshotRef.current = buildSnapshot(title, settings, pagesForSave);
       setSaveMsg('Saved');
       setTimeout(() => setSaveMsg(null), 2000);
+      return true;
     } catch (err) {
       console.error('Save failed:', err);
       // A 409 means the title clashes with another report in the workspace.
@@ -91,6 +92,9 @@ export function useSaveAndDirtyTracking({
       }
       setSaveMsg(err?.response?.data?.error || 'Save failed');
       setTimeout(() => setSaveMsg(null), 4000);
+      // Swallowed the error but said so: callers that act on the save — leaving
+      // the editor, above — need to know it didn't happen.
+      return false;
     } finally {
       setSaving(false);
     }
@@ -141,13 +145,20 @@ export function useSaveAndDirtyTracking({
     return dirty && pathChanged;
   });
   const [savingFromBlocker, setSavingFromBlocker] = useState(false);
+  // Leave only if the save actually landed. `proceed()` used to sit in a
+  // `finally`, so a 409 on the title — or any refusal, or a dropped connection
+  // — navigated away regardless and the edits were gone, with no error left on
+  // screen to explain it. On failure we cancel the navigation instead: the user
+  // stays in the editor, where handleSave's message is.
   const confirmSaveAndLeave = async () => {
     setSavingFromBlocker(true);
+    let saved = false;
     try {
-      await handleSave();
+      saved = await handleSave();
     } finally {
       setSavingFromBlocker(false);
-      navBlocker.proceed?.();
+      if (saved) navBlocker.proceed?.();
+      else navBlocker.reset?.();
     }
   };
   const confirmDiscardAndLeave = () => navBlocker.proceed?.();

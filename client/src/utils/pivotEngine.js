@@ -8,9 +8,13 @@ export function compositeKey(row, fields) {
 
 export function resolveCell(acc, fn) {
   if (!acc) return null;
+  // Nothing landed in this group — every value was NULL or unparseable. That is
+  // an empty cell, not a zero: `sum` returning its 0 seed and `avg` its 0
+  // fallback both claimed a measured value where there was none.
+  if (!acc.count) return null;
   switch (fn) {
     case 'sum': return acc.sum;
-    case 'avg': return acc.count ? acc.sum / acc.count : 0;
+    case 'avg': return acc.sum / acc.count;
     case 'count': return acc.count;
     case 'min': return acc.min === Infinity ? null : acc.min;
     case 'max': return acc.max === -Infinity ? null : acc.max;
