@@ -636,7 +636,14 @@ router.post('/cancel-query', (req, res) => {
 // Query model: build SQL from selected dimensions + measures.
 // Accessible if the user has access to any report linked to this model
 // (owner, global admin, public report, or workspace member).
-router.post('/:id/query', async (req, res) => {
+// Express 4 does not catch a rejected async handler: the request is simply left
+// hanging until the browser gives up, with no status and no error. The /query
+// body is ~1200 lines long and throws in places that are hard to enumerate
+// (JSON.parse on a report's settings, a cyclic measure reference), so the net
+// goes around the whole handler rather than around each of them.
+const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+
+router.post('/:id/query', asyncRoute(async (req, res) => {
   // Temporary diagnostic — surfaces server-side timing breakdown so we
   // can localise where the 5s perceived latency on cross-filter clicks
   // is actually being spent. The id ties log lines from the same
@@ -1860,7 +1867,7 @@ router.post('/:id/query', async (req, res) => {
   } finally {
     conn?.close();
   }
-});
+}));
 
 module.exports = router;
 module.exports.cloudHooks = cloudHooks;

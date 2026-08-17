@@ -26,6 +26,13 @@ const TTL_SECONDS = 5 * 60; // a warm pass shouldn't take longer than a few seco
 // shared value. Generate with: openssl rand -hex 32.
 function resolveSecret() {
   const secret = process.env.INTERNAL_TOKEN_SECRET;
+  // The published example value is as good as no secret at all — an install that
+  // keeps it hands anyone who read the repo a passport bypass. SESSION_SECRET is
+  // already guarded this way in index.js.
+  if (secret === 'change-me-to-a-different-random-string') {
+    console.error('[startup] FATAL: INTERNAL_TOKEN_SECRET is still the .env.example placeholder. Generate one with: openssl rand -hex 32');
+    process.exit(1);
+  }
   if (!secret || secret.length < 16) {
     console.error('[startup] FATAL: INTERNAL_TOKEN_SECRET must be set to a strong value (>= 16 chars). Generate one with: openssl rand -hex 32');
     process.exit(1);

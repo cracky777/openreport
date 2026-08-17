@@ -9,6 +9,7 @@ const router = express.Router();
 
 const MAX_PACKAGE_SIZE = 5 * 1024 * 1024;       // 5 MB total .zip
 const MAX_BUNDLE_SIZE = 1 * 1024 * 1024;        // 1 MB visual.js
+const MAX_UNPACKED_SIZE = 16 * 1024 * 1024;     // whole package, before inflating
 const MAX_ICON_SIZE = 200 * 1024;               // 200 KB icon
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const ICON_MIMES = { svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
@@ -96,6 +97,11 @@ router.get('/:wsId/visuals/:visualId/bundle.js', requireAuth, requireWorkspaceMe
   const row = db.prepare('SELECT bundle FROM custom_visuals WHERE workspace_id = ? AND visual_id = ?')
     .get(req.params.wsId, req.params.visualId);
   if (!row) return res.status(404).end();
+  // Same reasoning as the icon below: user-supplied content served from our own
+  // origin. The iframe sandbox that imports it is the intended consumer —
+  // navigating to it directly must not run it.
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
   res.type('application/javascript').send(row.bundle);
 });
 
@@ -121,6 +127,14 @@ router.post('/:wsId/visuals', requireAuth, requireWorkspaceAdmin, upload.single(
   catch { return res.status(400).json({ error: 'Could not read .zip file' }); }
 
   const entries = zip.getEntries();
+  // The declared uncompressed size is in the header — read it BEFORE getData(),
+  // which would otherwise inflate gigabytes into memory from a few-KB archive
+  // and take the process down before any size check could run.
+  const declared = entries.reduce((sum, e) => sum + (e.header?.size || 0), 0);
+  if (declared > MAX_UNPACKED_SIZE) {
+    return res.status(400).json({ error: `Package expands to ${Math.round(declared / 1024 / 1024)} MB, over the ${MAX_UNPACKED_SIZE / 1024 / 1024} MB limit` });
+  }
+
   const findEntry = (name) => entries.find((e) => !e.isDirectory && e.entryName.toLowerCase() === name.toLowerCase());
   const findEntryByExt = (...exts) => entries.find((e) => !e.isDirectory && exts.some((ext) => e.entryName.toLowerCase().endsWith(ext)));
 

@@ -3,6 +3,10 @@ client/node_modules
 server/node_modules
 server/data
 .git
-.env
+# Recursive: `.env` alone matched only the root one, so a server/.env carrying
+# real secrets would be baked into the image.
+**/.env
+**/.env.*
+!**/.env.example
 *.md
 .claude

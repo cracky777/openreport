@@ -1,6 +1,7 @@
 const express = require('express');
+const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-const { requireAuth, authFor } = require('../middleware/auth');
+const { authFor } = require('../middleware/auth');
 const db = require('../db');
 const { createConnection, invalidateDatasource } = require('../utils/dbConnector');
 const queryCache = require('../utils/queryCache');
@@ -77,9 +78,19 @@ router.get('/:id', authFor('write'), (req, res) => {
   res.json({ datasource: { id: s.id, name: s.name, db_type: s.db_type, host: s.host, port: s.port, db_name: s.db_name, db_user: s.db_user, created_at: s.created_at } });
 });
 
-// Test connection (without saving)
-router.post('/test', requireAuth, async (req, res) => {
+// Hosts a datasource may never point at. Left unchecked, "test connection"
+// is a network probe: any logged-in account could walk the internal range and
+// read the cloud metadata service, using the returned error text as the oracle.
+const BLOCKED_HOSTS = /^(localhost|127\.|0\.0\.0\.0|::1|169\.254\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i;
+
+// Test connection (without saving). Write-gated: a read-only account has no
+// reason to open outbound connections from the server.
+router.post('/test', authFor('write'), async (req, res) => {
   const { dbType, host, port, dbName, dbUser, dbPassword, extraConfig } = req.body;
+
+  if (host && BLOCKED_HOSTS.test(String(host).trim())) {
+    return res.status(400).json({ success: false, message: 'This host is not reachable from the server.' });
+  }
 
   let conn;
   try {
@@ -114,14 +125,23 @@ router.post('/', authFor('write'), (req, res) => {
 
   const id = uuidv4();
 
+  // A DuckDB db_name is a path on the server, so the caller does not get to pick
+  // it: pointing at someone else's cube would read their tables, and any other
+  // path would have the process create a file wherever it can write. The row
+  // gets a path derived from its own id, inside the managed directory.
+  // ':memory:' stays available — it names no file.
+  const storedDbName = dbType === 'duckdb' && dbName !== ':memory:'
+    ? path.join(__dirname, '..', 'data', 'duckdb', `${id}.duckdb`)
+    : dbName;
+
   db.prepare(`
     INSERT INTO datasources (id, user_id, name, db_type, host, port, db_name, db_user, db_password, extra_config)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, req.user.id, name, dbType, host || '', port || 5432, dbName, dbUser || '', encrypt(dbPassword || ''), JSON.stringify(encryptExtraConfig(extraConfig)));
+  `).run(id, req.user.id, name, dbType, host || '', port || 5432, storedDbName, dbUser || '', encrypt(dbPassword || ''), JSON.stringify(encryptExtraConfig(extraConfig)));
   stampNewDatasource(req, id);
 
   res.status(201).json({
-    datasource: { id, name, db_type: dbType, host: host || '', port: port || 5432, db_name: dbName },
+    datasource: { id, name, db_type: dbType, host: host || '', port: port || 5432, db_name: storedDbName },
   });
 });
 
@@ -136,7 +156,10 @@ router.put('/:id', authFor('write'), (req, res) => {
   const newDbType = dbType || existing.db_type;
   const needsHost = !['bigquery', 'duckdb'].includes(newDbType);
   const newHost = host !== undefined ? host : existing.host;
-  const newDbName = dbName !== undefined ? dbName : existing.db_name;
+  // Same reason as on create: for DuckDB the name IS a server path, so it stays
+  // whatever the import pipeline set. Everything else on the row is editable.
+  const isDuck = newDbType === 'duckdb' || existing.db_type === 'duckdb';
+  const newDbName = (!isDuck && dbName !== undefined) ? dbName : existing.db_name;
   if (!name || !newDbType || (needsHost && !newHost) || !newDbName) {
     return res.status(400).json({ error: 'Missing required fields' });
   }

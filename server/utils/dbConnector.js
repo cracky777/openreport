@@ -1,3 +1,4 @@
+const path = require('path');
 const { Pool, Client } = require('pg');
 const mysql = require('mysql2/promise');
 const { decrypt } = require('./secretCrypto');
@@ -11,6 +12,20 @@ const { decrypt } = require('./secretCrypto');
 // path in `server/index.js` walks them via `closeAllDuckDB()`.
 const _duckdbInstances = new Map();
 const _duckdbPromises = new Map();
+
+// Where a DuckDB-backed datasource is allowed to live. `db_name` is a filesystem
+// path, and nothing stopped it from naming another user's cube — or any path the
+// process can write. The import pipeline is the only thing that should ever pick
+// this path, and it always picks one here.
+const DUCKDB_DIR = path.resolve(__dirname, '..', 'data', 'duckdb');
+
+function assertDuckDBPath(dbName) {
+  if (!dbName) return ':memory:';
+  const resolved = path.resolve(dbName);
+  const inside = resolved === DUCKDB_DIR || resolved.startsWith(DUCKDB_DIR + path.sep);
+  if (!inside) throw new Error('DuckDB datasource path is outside the managed directory');
+  return resolved;
+}
 
 // Hand an already-open DuckDB instance to the query path.
 //
@@ -290,7 +305,10 @@ function buildConnector(datasource) {
       password: db_password,
       options: {
         encrypt: true,
-        trustServerCertificate: db_type === 'mssql',
+        // Same opt-out as pg/mysql, same key. Hardcoded to true, no SQL Server
+        // certificate was ever verified: credentials and results travelled to
+        // whoever answered, unauthenticated.
+        trustServerCertificate: !!extra.allowSelfSignedCert,
       },
       connectionTimeout: connectionTimeoutMs,
       requestTimeout: requestTimeoutMs,
@@ -415,7 +433,7 @@ function buildConnector(datasource) {
   // ─── DuckDB ───
   if (db_type === 'duckdb') {
     const duckdb = require('duckdb-async');
-    const dbPath = db_name || ':memory:';
+    const dbPath = assertDuckDBPath(db_name);
     const getDb = async () => {
       if (_duckdbInstances.has(dbPath)) return _duckdbInstances.get(dbPath);
       if (!_duckdbPromises.has(dbPath)) {

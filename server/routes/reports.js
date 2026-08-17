@@ -87,6 +87,30 @@ function canManageReportHistory(report, user, req) {
   return !!user && user.role === 'admin';
 }
 
+// May the caller put a report in this workspace? Same decision workspaces.js
+// makes, delegated to the same hook so cloud org-scopes it identically.
+//
+// The previous check passed a synthetic row carrying the caller's own user_id
+// to canWriteReport, whose owner test then matched every time: the workspace
+// named in the request was never actually consulted, and a report could be
+// dropped into anyone's workspace.
+function canPlaceReportIn(workspaceId, req) {
+  if (!workspaceId) return false;
+  if (typeof cloudHooks.canAdminAllWorkspaces === 'function'
+    ? cloudHooks.canAdminAllWorkspaces(req)
+    : req.user.role === 'admin') return true;
+  const access = typeof cloudHooks.workspaceAccess === 'function'
+    ? cloudHooks.workspaceAccess(workspaceId, req)
+    : (() => {
+      const ws = db.prepare('SELECT owner_id FROM workspaces WHERE id = ?').get(workspaceId);
+      if (!ws) return null;
+      if (ws.owner_id === req.user.id) return { role: 'admin' };
+      const member = db.prepare('SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?').get(workspaceId, req.user.id);
+      return member ? { role: member.role } : null;
+    })();
+  return !!access && access.role !== 'viewer';
+}
+
 // Fallback workspace for a report with no explicit one. OSS: the user's personal
 // workspace. Cloud: their personal workspace within the active org.
 function defaultWorkspaceFor(req) {
@@ -254,7 +278,7 @@ router.post('/import', authFor('read'), (req, res) => {
   // workspace when they didn't pick one, so custom visuals etc. remain available.
   const targetWs = workspaceId || defaultWorkspaceFor(req);
   // Must be allowed to create a report in the target workspace.
-  if (!canWriteReport({ workspace_id: targetWs, user_id: req.user.id, organization_id: req.organizationId }, req.user, req)) {
+  if (!canPlaceReportIn(targetWs, req)) {
     return res.status(403).json({ error: 'Not authorized to create a report in this workspace' });
   }
   db.prepare(`
@@ -291,9 +315,13 @@ router.post('/', authFor('read'), (req, res) => {
   // create a report on someone else's (RLS-protected) model and later persist
   // custom-SQL measures against it. Checked here (pre-insert) so the not-yet-created
   // report can't grant access to itself via canAccessModel.
+  // Write, not read: a model one can merely read through someone else's shared
+  // report is not a model one may build on. Reading was enough to create a
+  // report on a stranger's model and then flip it public, which opens anonymous
+  // /query on their data. POST /import already guards this way.
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(modelId);
   if (!model) return res.status(404).json({ error: 'Model not found' });
-  if (!canAccessModel(model, req.user, req)) {
+  if (!canWriteModel(model, req.user, req)) {
     return res.status(403).json({ error: 'Not authorized for this model' });
   }
 
@@ -301,7 +329,7 @@ router.post('/', authFor('read'), (req, res) => {
   const initialSettings = settings && typeof settings === 'object' ? JSON.stringify(settings) : '{}';
 
   const targetWs = workspaceId || defaultWorkspaceFor(req);
-  if (!canWriteReport({ workspace_id: targetWs, user_id: req.user.id, organization_id: req.organizationId }, req.user, req)) {
+  if (!canPlaceReportIn(targetWs, req)) {
     return res.status(403).json({ error: 'Not authorized to create a report in this workspace' });
   }
   if (rejectIfReportTitleTaken(targetWs, title, res)) return;
@@ -358,11 +386,24 @@ router.put('/:id', authFor('read'), (req, res) => {
   // is defense-in-depth so a report can't be repointed/edited against a model
   // the caller has lost access to.
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(report.model_id);
-  if (model && !canAccessModel(model, req.user, req)) {
+  if (model && !canWriteModel(model, req.user, req)) {
     return res.status(403).json({ error: 'Not authorized for this model' });
   }
 
   const { title, layout, widgets, settings, is_public, live_mode, workspace_id, pages } = req.body;
+
+  // Publishing exposes the MODEL, not just this report: /query answers anonymous
+  // callers for a public report. Owning the report is therefore not enough —
+  // whoever owns the data has to be the one deciding it goes public.
+  if (is_public && !canWriteModel(model, req.user, req)) {
+    return res.status(403).json({ error: 'Only someone with write access to the underlying model can make a report public' });
+  }
+  // Moving a report is placing it: the destination gets the same check as a
+  // creation, or a report could be pushed into a workspace of someone else.
+  if (workspace_id !== undefined && workspace_id !== report.workspace_id
+    && !canPlaceReportIn(workspace_id, req)) {
+    return res.status(403).json({ error: 'Not authorized to move a report into this workspace' });
+  }
   // Title stays unique within the (possibly new) workspace.
   if (title !== undefined
     && rejectIfReportTitleTaken(workspace_id !== undefined ? workspace_id : report.workspace_id, title, res, req.params.id)) return;

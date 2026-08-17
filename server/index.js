@@ -45,7 +45,26 @@ function buildCorsOrigin() {
   return list.length > 1 ? list : list[0];
 }
 
-// Middleware
+// Baseline security headers on every response. Written by hand rather than
+// pulling in helmet: this is the whole of what helmet would give us here, and
+// the app has no other use for it.
+//
+// No CSP — the client is a Vite bundle that loads ECharts workers and inlines
+// styles, so a policy tight enough to be worth having would need to be built
+// against the real bundle and verified in a browser. The per-file policies on
+// user-supplied content (uploaded images, custom-visual bundles) are the ones
+// that actually matter, and those are set where they are served.
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  // Only meaningful over TLS, and it sticks in the browser for a year — a dev
+  // running http://localhost would be unable to undo it.
+  if (IS_PRODUCTION) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
+
 app.use(cors({
   origin: buildCorsOrigin(),
   credentials: true,
@@ -157,9 +176,17 @@ app.use('/api/upload', fileUploadRoutes);
 app.use('/api/images', imageUploadRoutes);
 // Serve uploaded images to the browser. The path on disk maps 1:1 with
 // the URL returned by /api/images upload responses (`/uploads/images/…`).
+// An uploaded SVG is a script the browser will happily run on our own origin —
+// a logo becomes stored XSS. Same headers customVisuals.js puts on the icon it
+// serves: never sniff the type, never execute, and hand the file over as a
+// download rather than a document.
 app.use('/uploads/images', express.static(path.join(__dirname, 'data', 'uploads', 'images'), {
   maxAge: '7d',
   fallthrough: false,
+  setHeaders: (res) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+  },
 }));
 
 // Health check
@@ -188,16 +215,33 @@ app.get('/api/custom-visual-template.zip', requireAuth, (req, res) => {
   }
 });
 
+// An unmatched /api/* used to fall into the SPA fallback, which answered
+// nothing at all: the connection stayed open until the proxy timed it out, and
+// enough of them exhaust the socket pool. Answer before the fallback, and
+// unconditionally — a typo'd endpoint has to 404 whether or not a client build
+// is present.
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
 // Serve React frontend in production
 const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
 if (fs.existsSync(clientDistPath)) {
   app.use(express.static(clientDistPath));
   app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api/')) {
-      res.sendFile(path.join(clientDistPath, 'index.html'));
-    }
+    res.sendFile(path.join(clientDistPath, 'index.html'));
   });
 }
+
+// Last in the chain, so anything a route hands to next(err) — including a
+// rejected async handler — leaves with a status instead of hanging. The client
+// reads JSON everywhere; Express's own handler would answer HTML.
+// eslint-disable-next-line no-unused-vars -- Express identifies an error handler by its arity
+app.use((err, req, res, next) => {
+  console.error('[unhandled]', req.method, req.originalUrl, err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: err && err.message ? err.message : 'Internal error' });
+});
 
 // Global safety nets — prevent the server from crashing on async DB errors (e.g. ECONNRESET on a pool socket)
 process.on('uncaughtException', (err) => {

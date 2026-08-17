@@ -30,15 +30,21 @@ git clone https://github.com/cracky777/openreport.git .
 
 # 5. Configure environment
 echo "[5/6] Configuring environment..."
+# All three are mandatory — the server refuses to boot without them, so an
+# install that generated only the session secret never started.
 SESSION_SECRET=$(openssl rand -hex 32)
+INTERNAL_TOKEN_SECRET=$(openssl rand -hex 32)
+DATASOURCE_ENC_KEY=$(openssl rand -hex 32)
 
 cat > .env << EOF
 NODE_ENV=production
 PORT=3001
 SESSION_SECRET=${SESSION_SECRET}
+INTERNAL_TOKEN_SECRET=${INTERNAL_TOKEN_SECRET}
+DATASOURCE_ENC_KEY=${DATASOURCE_ENC_KEY}
 EOF
 
-echo "Generated session secret."
+echo "Generated session, internal-token and datasource-encryption secrets."
 
 # 6. Build and start
 echo "[6/6] Building and starting Open Report..."
