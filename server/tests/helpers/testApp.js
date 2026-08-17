@@ -24,8 +24,15 @@ function buildApp() {
   app.use('/api/reports', require('../../routes/reports'));
   app.use('/api/datasources', require('../../routes/datasources'));
   app.use('/api/models', require('../../routes/models'));
+  app.use('/api/admin', require('../../routes/admin'));
+  app.use('/api/cache-schedules', require('../../routes/cacheSchedules'));
+  app.use('/api/rollups', require('../../routes/rollups'));
+  // Same order as index.js: customVisuals first, so its /:wsId/visuals/* routes
+  // win over the workspace router's own /:id handlers.
+  app.use('/api/workspaces', require('../../routes/customVisuals'));
   app.use('/api/workspaces', require('../../routes/workspaces'));
   app.use('/api/upload', require('../../routes/fileUpload'));
+  app.use('/api/images', require('../../routes/imageUpload'));
   return app;
 }
 
@@ -64,4 +71,10 @@ function seedReport({ userId, modelId, isPublic = 0, workspaceId = null, setting
   return id;
 }
 
-module.exports = { buildApp, seedUser, seedDatasource, seedModel, seedReport, db };
+function seedWorkspace({ ownerId, name } = {}) {
+  const id = uuid();
+  db.prepare('INSERT INTO workspaces (id, name, owner_id) VALUES (?,?,?)').run(id, name || `ws-${id.slice(0, 6)}`, ownerId);
+  return id;
+}
+
+module.exports = { buildApp, seedUser, seedDatasource, seedModel, seedReport, seedWorkspace, db };
