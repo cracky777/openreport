@@ -541,6 +541,7 @@ export default function Viewer() {
         const data = buildWidgetData({
           widget: w, rows, meta, effectiveModel,
           colorRes, totalRes, n1Res, comboLineRes,
+          totalComponents: res.data?.totalComponents || null,
           pivotFilterRowDims: false,
         });
         setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data } }));

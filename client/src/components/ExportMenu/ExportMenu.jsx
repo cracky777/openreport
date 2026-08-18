@@ -321,7 +321,12 @@ export default function ExportMenu({
     } else if (w.data.items) {
       sheetData = [['Name', 'Value'], ...w.data.items.map((it) => [it.name, it.value])];
     } else if (w.data.rawRows) {
-      const keys = Object.keys(w.data.rawRows[0] || {});
+      // A pivot's rows also carry the SUM/COUNT atoms behind its average
+      // totals — internal plumbing, not columns the user put in the widget.
+      const hidden = new Set(
+        Object.values(w.data._totalComponents || {}).flatMap((c) => [c.sum, c.count]),
+      );
+      const keys = Object.keys(w.data.rawRows[0] || {}).filter((k) => !hidden.has(k));
       sheetData = [keys, ...w.data.rawRows.map((r) => keys.map((k) => r[k]))];
     } else {
       return 0;

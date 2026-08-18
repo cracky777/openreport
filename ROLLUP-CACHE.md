@@ -732,6 +732,15 @@ Logged as `[qXXXX] rollupPlanner MISS:<reason>`.
   year/date dim is recognised by `comparePeriod` (model dim with
   `datePart`, or int/number whose name matches a year regex); otherwise
   that N-1 query MISSes → live.
+- **Pivot totals of an AVG are blank on a rollup hit.** A pivot asks
+  `/query` for `withTotalComponents`, and the live path appends that
+  measure's `_avg_<hash>_sum` / `_count` atoms so the client can rebuild
+  a true weighted mean at every grain (row, column, sub-total, grand).
+  The planner returns before those atoms are built, so a rollup-served
+  pivot falls back to `—` on those totals. Correct either way — never a
+  wrong number — but inconsistent between the two paths. The rollup
+  already stores the very same atoms, so surfacing them in the planner's
+  projection is the fix; not done.
 - Override / filter-ignoring measures (`filterRules` + `overrideFilters`)
   are auto-detected (`isOverrideTainted`, transitive) and forced
   `supported:false` → planner MISS → live query (always correct, not

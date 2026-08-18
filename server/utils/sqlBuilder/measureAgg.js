@@ -86,6 +86,26 @@ function applyNumericCast(expression, dbType) {
   );
 }
 
+// PostgreSQL's `SUM(real)` returns `real` — 24-bit mantissa, ~7 significant
+// digits — and T-SQL does the same. Harmless for a number the user reads
+// directly, not for an atom that a later division amplifies: a sub-total
+// rebuilt from a truncated sum lands a couple of units away from the single row
+// it sums, which reads as a bug. MySQL and BigQuery already widen SUM to
+// DOUBLE/FLOAT64, and old MySQL has no CAST AS DOUBLE, so leave their SQL alone.
+// DOUBLE rather than NUMERIC on purpose: DuckDB's NUMERIC is DECIMAL(18,3),
+// which would both round and overflow on a large sum.
+const WIDE_FLOAT = {
+  postgres: 'DOUBLE PRECISION',
+  azure_postgres: 'DOUBLE PRECISION',
+  duckdb: 'DOUBLE',
+  mssql: 'FLOAT',
+  azure_sql: 'FLOAT',
+};
+function widenFloat(inner, dbType) {
+  const t = WIDE_FLOAT[dbType];
+  return t ? `CAST(${inner} AS ${t})` : inner;
+}
+
 // Single source for a measure's aggregate SQL expression (the block that was
 // copy-pasted 5× across the /query handler): numeric CAST on a column the user
 // overrode to a numeric type, then SUM/AVG/MIN/MAX(col), then interval →
@@ -97,14 +117,18 @@ function applyNumericCast(expression, dbType) {
 function buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql = null }) {
   const rawCol = quoteCol(m.table, m.column, dbType);
   const ovType = getOverrideType(m.table, m.column, columnTypes);
-  const colExpr = (ovType === 'integer' || ovType === 'decimal' || ovType === 'number')
-    ? castToNumber(rawCol, dbType, ovType, m.dataType)
-    : rawCol;
+  const isInterval = String(m.dataType || '').toLowerCase() === 'interval' || ovType === 'interval';
+  let colExpr = rawCol;
+  if (ovType === 'integer' || ovType === 'decimal' || ovType === 'number') {
+    colExpr = castToNumber(rawCol, dbType, ovType, m.dataType);
+  } else if (m.widenFloat && !isInterval) {
+    // Set only on the synthetic atoms of an average — see widenFloat above.
+    colExpr = widenFloat(rawCol, dbType);
+  }
   const agg = normalizeAggregation(m.aggregation).toUpperCase();
   const aggExpr = caseWhenSql
     ? `${agg}(CASE WHEN ${caseWhenSql} THEN ${colExpr} END)`
     : `${agg}(${colExpr})`;
-  const isInterval = String(m.dataType || '').toLowerCase() === 'interval' || ovType === 'interval';
   const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
   return (isInterval && supportsExtractEpoch) ? `EXTRACT(EPOCH FROM ${aggExpr})` : aggExpr;
 }

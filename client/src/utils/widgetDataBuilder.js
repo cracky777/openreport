@@ -34,6 +34,10 @@ export function buildWidgetData({
   sql,
   bindingKey = null,
   pivotFilterRowDims = false,
+  // { '<measure label>': { sum, count } } — the response's atom columns for the
+  // averages the server was able to decompose. Absent when it wasn't asked, or
+  // when a rollup served the query (which returns before the atoms are built).
+  totalComponents = null,
 }) {
   const w = widget;
   const { dims, meass, grpBy, colDimsB, cbm, clm, sm,
@@ -316,7 +320,8 @@ export function buildWidgetData({
   // mins, max of maxes. An average is not — averaging per-group averages weighs
   // a group of one like a group of a thousand — and neither is a distinct count,
   // a ratio, or a free expression. The pivot blanks their totals rather than
-  // showing a number that contradicts the server's own.
+  // showing a number that contradicts the server's own — unless the response
+  // carries that measure's atoms, from which the exact total is rebuildable.
   const ADDITIVE = new Set(['sum', 'count', 'min', 'max']);
   const nonAdditiveCols = [];
   meass.forEach((mn) => {
@@ -325,10 +330,14 @@ export function buildWidgetData({
     const colKey = md.label || md.name;
     if (md.format) mf[colKey] = md.format;
     if (String(md.dataType || '').toLowerCase() === 'interval') durationCols.push(colKey);
-    if (!ADDITIVE.has(String(md.aggregation || '').toLowerCase())) nonAdditiveCols.push(colKey);
+    if (ADDITIVE.has(String(md.aggregation || '').toLowerCase())) return;
+    if (!totalComponents?.[colKey]) nonAdditiveCols.push(colKey);
   });
   newData._measureFormats = mf;
   if (nonAdditiveCols.length > 0) newData._nonAdditiveMeasures = nonAdditiveCols;
+  if (totalComponents && Object.keys(totalComponents).length > 0) {
+    newData._totalComponents = totalComponents;
+  }
   if (durationCols.length > 0) newData._durationColumns = durationCols;
   if (dims.length > 0) {
     newData._dimName = dims[0];

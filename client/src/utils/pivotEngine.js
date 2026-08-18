@@ -82,12 +82,17 @@ export function flattenHeaderLevels(tree, depth) {
 /**
  * Main pivot function.
  */
-export function pivotData({ rawRows, rowDims, colDims, measures, aggregationFns = {}, defaultAggregation = 'sum' }) {
+// `extraCols` are columns accumulated into every bucket but never rendered as
+// measures: the SUM/COUNT atoms of an average, which let a total be rebuilt as
+// Σsum/Σcount instead of averaging averages. They ride along the same
+// accumulators, so a sub-total gets them as naturally as the grand total.
+export function pivotData({ rawRows, rowDims, colDims, measures, aggregationFns = {}, defaultAggregation = 'sum', extraCols = [] }) {
   if (!rawRows || rawRows.length === 0 || measures.length === 0) {
     return null;
   }
 
   const defaultFn = defaultAggregation;
+  const accCols = extraCols.length > 0 ? [...measures, ...extraCols] : measures;
 
   // Collect unique keys in order
   const rowKeyMap = new Map();
@@ -113,18 +118,18 @@ export function pivotData({ rawRows, rowDims, colDims, measures, aggregationFns 
 
     if (!cellMap[rk]) cellMap[rk] = {};
     if (!cellMap[rk][ck]) cellMap[rk][ck] = {};
-    accumulate(cellMap[rk][ck], measures, row);
+    accumulate(cellMap[rk][ck], accCols, row);
 
     // Row totals
     if (!rowTotals[rk]) rowTotals[rk] = {};
-    accumulate(rowTotals[rk], measures, row);
+    accumulate(rowTotals[rk], accCols, row);
 
     // Col totals
     if (!colTotals[ck]) colTotals[ck] = {};
-    accumulate(colTotals[ck], measures, row);
+    accumulate(colTotals[ck], accCols, row);
 
     // Grand total
-    accumulate(grandTotal, measures, row);
+    accumulate(grandTotal, accCols, row);
   }
 
   // Sub-totals for multi-level row dims
@@ -136,10 +141,10 @@ export function pivotData({ rawRows, rowDims, colDims, measures, aggregationFns 
         const ck = colDims.length > 0 ? compositeKey(row, colDims) : '__all__';
         if (!subTotals[parentKey]) subTotals[parentKey] = {};
         if (!subTotals[parentKey][ck]) subTotals[parentKey][ck] = {};
-        accumulate(subTotals[parentKey][ck], measures, row);
+        accumulate(subTotals[parentKey][ck], accCols, row);
         // Sub-total row total
         if (!subTotals[parentKey].__rowTotal__) subTotals[parentKey].__rowTotal__ = {};
-        accumulate(subTotals[parentKey].__rowTotal__, measures, row);
+        accumulate(subTotals[parentKey].__rowTotal__, accCols, row);
       }
     }
   }

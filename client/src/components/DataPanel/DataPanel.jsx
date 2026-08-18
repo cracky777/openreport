@@ -310,6 +310,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           meta,
           effectiveModel: model,
           colorRes, totalRes, n1Res, comboLineRes,
+          totalComponents: res.data?.totalComponents || null,
           sql, bindingKey,
           // DataPanel kept every selected dim in the pivot row list (no
           // col-pin filtering) — match that (Viewer's behaviour) so migration

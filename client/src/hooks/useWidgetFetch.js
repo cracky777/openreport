@@ -260,6 +260,7 @@ export function useWidgetFetch({
           const data = buildWidgetData({
             widget: w, rows, meta, effectiveModel,
             colorRes, totalRes, n1Res, comboLineRes,
+            totalComponents: res.data?.totalComponents || null,
             sql, bindingKey,
             // Keep every selected dim in `_rowDims` even when the same dim
             // is pinned as a column too — matches Viewer's behaviour. The

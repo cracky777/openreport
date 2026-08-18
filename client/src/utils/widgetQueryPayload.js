@@ -272,6 +272,12 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
     ...(havingGrainDims ? { havingGrainDims } : {}),
     ...(useFilterWidgetDistinct ? { distinct: true } : {}),
     ...(mainQueryId ? { queryId: mainQueryId } : {}),
+    // Only the pivot draws totals, and only an average needs help to total
+    // correctly — the server appends its SUM/COUNT atoms and names them in the
+    // response. Asking for every pivot rather than only when a total is
+    // currently displayed: the toggles are config, and flipping one must not
+    // require a refetch.
+    ...(widget.type === 'pivotTable' ? { withTotalComponents: true } : {}),
     ...commonExtras,
   } : null;
 

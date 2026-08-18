@@ -75,6 +75,16 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
   const measures = data?._measures || [];
   const hasData = rawRows?.length > 0 && measures.length > 0;
 
+  // SUM/COUNT atoms of the averages the server decomposed, keyed by measure.
+  // Accumulated alongside the measures so any total — cell, row, column,
+  // sub-total, grand — can be rebuilt as Σsum/Σcount.
+  const totalComponents = data?._totalComponents || null;
+  const totalComponentCols = useMemo(() => (
+    totalComponents
+      ? Object.values(totalComponents).flatMap((c) => [c.sum, c.count])
+      : []
+  ), [totalComponents]);
+
   const tc = config?.tableConfig || {};
   const pc = config?.pivotConfig || {};
   const grid = getGridConfig(tc);
@@ -163,8 +173,9 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
       rawRows, rowDims, colDims, measures,
       aggregationFns: aggFns,
       defaultAggregation: defaultAgg,
+      extraCols: totalComponentCols,
     });
-  }, [rawRows, rowDims, colDims, measures, hasData, pc.perMeasure, defaultAgg]);
+  }, [rawRows, rowDims, colDims, measures, hasData, pc.perMeasure, defaultAgg, totalComponentCols]);
 
   // Build row tree and flatten
   const rowTree = useMemo(() => {
@@ -193,13 +204,24 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
   // Totals of a measure the server already collapsed. Summing group sums is
   // sound; averaging group averages is not — a group of one would weigh as much
   // as a group of a thousand — and neither is a distinct count, a ratio or a
-  // free expression. The re-aggregation used to contradict the same measure read
-  // anywhere else in the report, so these totals say nothing instead. See
-  // `_nonAdditiveMeasures` in widgetDataBuilder.
+  // free expression. See `_nonAdditiveMeasures` in widgetDataBuilder.
   const nonAdditive = new Set(data?._nonAdditiveMeasures || []);
-  const formatTotal = (acc, measure) => (
-    nonAdditive.has(measure) ? '—' : formatVal(resolveCell(acc, getFn(measure)), measure)
-  );
+  // `accs` is the bucket's whole measure→accumulator map, not one accumulator:
+  // rebuilding an average needs its two atom columns alongside the measure.
+  const formatTotal = (accs, measure) => {
+    const comp = totalComponents?.[measure];
+    // Atoms win over the per-measure aggregation, which only ever offers
+    // operations on the displayed values — and every one of those is wrong on a
+    // column of averages. That setting still governs the measures with no atoms.
+    if (comp) {
+      const s = resolveCell(accs?.[comp.sum], 'sum');
+      const n = resolveCell(accs?.[comp.count], 'sum');
+      // n = 0 means every value under this total was NULL: empty, not zero.
+      return (s == null || !n) ? '' : formatVal(s / n, measure);
+    }
+    if (nonAdditive.has(measure)) return '—';
+    return formatVal(resolveCell(accs?.[measure], getFn(measure)), measure);
+  };
 
   const formatVal = (val, measure) => {
     if (val == null) return '';
@@ -459,7 +481,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
                   {/* Subtotal values for this group */}
                   {colKeys.map(([ck]) =>
                     measures.map((m, mi) => {
-                      const val = showSubTotals ? formatTotal(subTotals[node.key]?.[ck]?.[m], m) : null;
+                      const val = showSubTotals ? formatTotal(subTotals[node.key]?.[ck], m) : null;
                       return (
                         <td key={`${ck}-${mi}`} style={{
                           ...getCellStyle(m),
@@ -477,7 +499,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
                       secondary` (light gray) — washed out in light
                       mode. */}
                   {showGrandCol && measures.map((m, mi) => {
-                    const val = showSubTotals ? formatTotal(subTotals[node.key]?.__rowTotal__?.[m], m) : null;
+                    const val = showSubTotals ? formatTotal(subTotals[node.key]?.__rowTotal__, m) : null;
                     return (
                       <td key={`rt-${mi}`} style={{
                         padding: cellPad, textAlign: 'right', fontWeight: 600, fontSize: 12,
@@ -544,7 +566,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
                     `--text-primary` rationale as the group-total
                     branch above. */}
                 {showGrandCol && measures.map((m, mi) => {
-                  const val = formatTotal(pivot.rowTotals[rk]?.[m], m);
+                  const val = formatTotal(pivot.rowTotals[rk], m);
                   return (
                     <td key={`rt-${mi}`} style={{
                       padding: cellPad, textAlign: 'right', fontWeight: 600, fontSize: 12,
@@ -572,13 +594,13 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
               {colKeys.map(([ck]) =>
                 measures.map((m, mi) => (
                   <td key={`${ck}-${mi}`} style={totalStyle}>
-                    {formatTotal(colTotals[ck]?.[m], m)}
+                    {formatTotal(colTotals[ck], m)}
                   </td>
                 ))
               )}
               {showGrandCol && measures.map((m, mi) => (
                 <td key={`gt-${mi}`} style={{ ...totalStyle, fontWeight: 700, backgroundColor: 'var(--bg-hover)' }}>
-                  {formatTotal(grandTotal[m], m)}
+                  {formatTotal(grandTotal, m)}
                 </td>
               ))}
             </tr>

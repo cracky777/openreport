@@ -702,6 +702,15 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     // smuggle a custom-SQL measure into a /query they don't own) and by
     // cloud to resolve workspace-scoped timeouts.
     reportId,
+    // Pivot totals. The response carries one collapsed number per group, so a
+    // client-side total is only exact for an associative aggregation; an
+    // average of averages is not. When set, the server appends the SUM/COUNT
+    // atoms of every decomposable AVG to the SELECT, and names them in
+    // `totalComponents` so the client can rebuild a true weighted mean at any
+    // grain — row, column, sub-total or grand total — from the same rows.
+    // A flag rather than an always-on: it widens the SELECT, and only the
+    // pivot has totals to draw.
+    withTotalComponents,
   } = req.body;
 
   // Gate `extraMeasures` / `extraDimensions` / overrides: these can carry
@@ -1088,6 +1097,40 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   if (selectedDimensions.length === 0 && selectedMeasures.length === 0) {
     return res.status(400).json({ error: 'Select at least one dimension or measure' });
   }
+
+  // Total components (see `withTotalComponents` above). Reuses the rollup
+  // decomposer, so the two paths agree on which averages are safe to split and
+  // on the alias that names each atom. decomposeMeasure already refuses a
+  // filtered AVG — its atoms are built from the bare column, which would total
+  // the unfiltered mean — so nothing here needs to re-check that.
+  //
+  // The atoms are derived server-side from measures already resolved against
+  // the model; nothing in the request body reaches the SQL. Emitted only on
+  // the live path: a rollup hit returns earlier, without declaring components,
+  // and the client falls back to blanking the total.
+  const totalComponents = {};
+  if (withTotalComponents) {
+    const { decomposeMeasure, avgAliasBase } = require('../utils/measureType');
+    const seen = new Set();
+    for (const m of [...selectedMeasures]) {
+      const spec = decomposeMeasure(m, allMeasures);
+      if (!spec || spec.type !== 'avg') continue;
+      const base = avgAliasBase(spec);
+      totalComponents[m.label || m.name] = { sum: `${base}_sum`, count: `${base}_count` };
+      // Two averages over the same column share one pair of atoms.
+      if (seen.has(base)) continue;
+      seen.add(base);
+      const atom = { table: spec.table, column: spec.column, dataType: spec.dataType };
+      selectedMeasures.push(
+        // widenFloat: the division below amplifies whatever precision the sum
+        // comes back with, and PG hands back SUM(real) as a real.
+        { ...atom, name: `${base}_sum`, label: `${base}_sum`, aggregation: 'sum', widenFloat: true },
+        // COUNT(col), not COUNT(*): SQL AVG skips NULLs, so the divisor must too.
+        { ...atom, name: `${base}_count`, label: `${base}_count`, aggregation: 'count_col' },
+      );
+    }
+  }
+  const totalComponentsOut = Object.keys(totalComponents).length > 0 ? totalComponents : undefined;
 
   // Build SQL
   const selectParts = [];
@@ -1652,7 +1695,8 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   // inspecting a slow / hanging query from the editor without waiting for
   // the server to actually run it.
   if (sqlOnly) {
-    return res.json({ sql, rows: [], rowCount: 0, sqlOnly: true });
+    // The atom columns are in that SQL; the mapping is what makes them readable.
+    return res.json({ sql, rows: [], rowCount: 0, sqlOnly: true, totalComponents: totalComponentsOut });
   }
 
   // Opt-in: dump the exact SQL the rollup builder runs against the source
@@ -1712,6 +1756,9 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
         rowCount: cached.rows.length,
         maxReached: cached.rows.length >= MAX_ROWS,
         sql,
+        // Safe to reuse: the atom columns are part of the SQL, which is the
+        // cache key — an entry built without them can't be served here.
+        totalComponents: totalComponentsOut,
         _cache: {
           hit: true,
           builtAt: cached.builtAt,
@@ -1837,6 +1884,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     __mark(`DB done (${rows.length} rows, queryMs=${Date.now() - startedAt})`);
     res.json({
       rows, rowCount: rows.length, maxReached: rows.length >= MAX_ROWS, sql,
+      totalComponents: totalComponentsOut,
       _cache: {
         hit: false,
         // Same preAgg reason as the queryCache branch — DB hits are the

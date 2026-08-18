@@ -21,7 +21,7 @@ const barWidget = (measures) => ({
 // `meta` is produced by the query-payload builder, not by the data builder.
 // Going through the real function keeps these tests tied to the actual contract
 // instead of a hand-rolled fixture that could drift from it.
-function build(widget, rows) {
+function build(widget, rows, extra = {}) {
   const { meta } = buildWidgetQueryPayload(widget, 'w1', {
     effectiveModel: model,
     reportFilters: {},
@@ -33,7 +33,7 @@ function build(widget, rows) {
     bypassCache: false,
     generateQueryId: () => 'q1',
   });
-  return buildWidgetData({ widget, rows, meta, effectiveModel: model });
+  return buildWidgetData({ widget, rows, meta, effectiveModel: model, ...extra });
 }
 
 describe('bar without a groupBy', () => {
@@ -84,5 +84,29 @@ describe('non-additive measures', () => {
   test('sums are not flagged — summing sums is sound', () => {
     const data = build(barWidget(['sales.amt_sum', 'sales.margin_sum']), [{ Country: 'FR', Sales: 10, Margin: 3 }]);
     expect(data._nonAdditiveMeasures).toBeUndefined();
+  });
+
+  test('an average the server decomposed is no longer flagged', () => {
+    // Atoms present → the total is rebuildable exactly, so blanking it would
+    // now be hiding a number we have.
+    const comps = { 'Avg basket': { sum: '_avg_h_sum', count: '_avg_h_count' } };
+    const data = build(
+      barWidget(['sales.amt_avg']),
+      [{ Country: 'FR', 'Avg basket': 100, _avg_h_sum: 100, _avg_h_count: 1 }],
+      { totalComponents: comps },
+    );
+    expect(data._nonAdditiveMeasures).toBeUndefined();
+    expect(data._totalComponents).toEqual(comps);
+  });
+
+  test('an average left undecomposed stays flagged', () => {
+    // e.g. a filtered average, or a rollup-served response: the atoms are
+    // absent, so the total must go back to saying nothing.
+    const data = build(
+      barWidget(['sales.amt_avg']),
+      [{ Country: 'FR', 'Avg basket': 100 }],
+      { totalComponents: { 'Some other measure': { sum: 's', count: 'c' } } },
+    );
+    expect(data._nonAdditiveMeasures).toEqual(['Avg basket']);
   });
 });
