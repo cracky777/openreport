@@ -1,5 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import api from '../../utils/api';
+import { routeJoin, bezierAt } from '../../utils/joinRouting';
+import { keyRank, sortColumns } from '../../utils/columnKeys';
 import ColumnTypePopover from './ColumnTypePopover';
 import ConfirmDialog from '../ConfirmDialog/ConfirmDialog';
 
@@ -59,17 +61,6 @@ const TABLE_TYPE_COLORS = {
   dimension: { header: '#6d28d9', border: '#7c3aed', badge: '#7c3aed', label: 'DIM' },
   fact: { header: '#9a3412', border: '#f97316', badge: '#f97316', label: 'FACT' },
 };
-
-// Sort columns: id* first, then alphabetical
-function sortColumns(columns) {
-  return [...columns].sort((a, b) => {
-    const aIsId = a.column_name.toLowerCase().startsWith('id');
-    const bIsId = b.column_name.toLowerCase().startsWith('id');
-    if (aIsId && !bIsId) return -1;
-    if (!aIsId && bIsId) return 1;
-    return a.column_name.localeCompare(b.column_name);
-  });
-}
 
 export default function SchemaCanvas({
   tables, // { tableName: [columns] }
@@ -495,17 +486,13 @@ export default function SchemaCanvas({
             </marker>
           </defs>
 
-          {/* Join lines — routed to bend around any non-endpoint table that
-              the actual Bézier curve would cross. We sample the candidate
-              curve at 20 points and check rect intersection; if it crashes
-              into a table, we lift (or drop) the apex above (or below) all
-              X-overlapping tables until the sampled curve is clear. This
-              avoids the heuristic-Y-band false positives of a previous
-              version which produced weird detours when a straight Bézier
-              would have worked. */}
+          {/* Join lines — routing lives in utils/joinRouting.js: curves
+              leave a card perpendicular to its edge with a minimum
+              stiffness, stacked/overlapping cards get a same-side loop
+              around the outside of the stack (facing sides would send the
+              curve behind the cards), and collisions with other cards are
+              resolved by sampling the actual Bézier. */}
           {(() => {
-            const PADDING = 18;
-            const SAMPLES = 20;
             const tableRects = {};
             for (const tableName of tableNames) {
               const pos = positions[tableName] || { x: 0, y: 0 };
@@ -515,91 +502,26 @@ export default function SchemaCanvas({
               const tableHeight = HEADER_HEIGHT + TYPE_BAR_HEIGHT + visibleCols.length * ROW_HEIGHT + toggleHeight + 4;
               tableRects[tableName] = { x: pos.x, y: pos.y, width: TABLE_WIDTH, height: tableHeight };
             }
-            // Cubic Bézier sampler (control points c1,c2)
-            const bezierAt = (p0, p1, p2, p3, t) => {
-              const u = 1 - t;
-              return u*u*u*p0 + 3*u*u*t*p1 + 3*u*t*t*p2 + t*t*t*p3;
-            };
-            const curveCrosses = (from, to, c1x, c1y, c2x, c2y, rects) => {
-              for (let s = 1; s < SAMPLES; s++) {
-                const t = s / SAMPLES;
-                const x = bezierAt(from.x, c1x, c2x, to.x, t);
-                const y = bezierAt(from.y, c1y, c2y, to.y, t);
-                for (const r of rects) {
-                  if (x > r.x && x < r.x + r.width && y > r.y && y < r.y + r.height) return true;
-                }
-              }
-              return false;
-            };
+            // A join can reference a table not (yet) on the canvas — route
+            // it from the origin rather than crashing.
+            const rectOf = (name) => tableRects[name] || { x: 0, y: 0, width: TABLE_WIDTH, height: 0 };
             return joins.map((join, i) => {
-              const fromPos = positions[join.from_table] || { x: 0, y: 0 };
-              const toPos = positions[join.to_table] || { x: 0, y: 0 };
-              const fromCenter = fromPos.x + TABLE_WIDTH / 2;
-              const toCenter = toPos.x + TABLE_WIDTH / 2;
-              const fromSide = fromCenter <= toCenter ? 'right' : 'left';
-              const toSide = fromCenter <= toCenter ? 'left' : 'right';
-              const from = getColumnPos(join.from_table, join.from_column, fromSide);
-              const to = getColumnPos(join.to_table, join.to_column, toSide);
-              const midX = (from.x + to.x) / 2;
+              const obstacles = tableNames
+                .filter((t) => t !== join.from_table && t !== join.to_table)
+                .map((t) => tableRects[t]);
+              const { from, to, c1x, c1y, c2x, c2y } = routeJoin({
+                fromRect: rectOf(join.from_table),
+                toRect: rectOf(join.to_table),
+                getFromPort: (side) => getColumnPos(join.from_table, join.from_column, side),
+                getToPort: (side) => getColumnPos(join.to_table, join.to_column, side),
+                obstacles,
+              });
 
-              // Collect non-endpoint tables that overlap the X span of the
-              // curve. These are the only obstacles the curve could possibly
-              // hit, regardless of vertical position.
-              const xMin = Math.min(from.x, to.x);
-              const xMax = Math.max(from.x, to.x);
-              const xObstacles = [];
-              for (const tableName of tableNames) {
-                if (tableName === join.from_table || tableName === join.to_table) continue;
-                const r = tableRects[tableName];
-                if (!r) continue;
-                if (r.x + r.width < xMin || r.x > xMax) continue;
-                xObstacles.push(r);
-              }
-
-              // Default: straight S-Bézier with control points at the start/
-              // end Y. This collapses to a horizontal line when from.y==to.y.
-              let c1y = from.y, c2y = to.y;
-              let labelY = (from.y + to.y) / 2;
-              const directHits = xObstacles.length > 0
-                && curveCrosses(from, to, midX, c1y, midX, c2y, xObstacles);
-              if (directHits) {
-                // Detour above or below ALL X-overlapping tables (not just
-                // the ones the straight curve hits — picking a tighter
-                // apex risks the new curve crashing into a different table
-                // we hadn't flagged). Pick the side closer to the direct
-                // midline.
-                const topApex = Math.min(...xObstacles.map((r) => r.y)) - PADDING;
-                const botApex = Math.max(...xObstacles.map((r) => r.y + r.height)) + PADDING;
-                const directMidY = (from.y + to.y) / 2;
-                // Bézier with both control points at apexY puts the curve's
-                // peak at (from.y + to.y)/8 + 0.75*ctrlY. Invert to get
-                // ctrlY so the actual peak lands on apexY.
-                const ctrlForApex = (apex) => (apex - (from.y + to.y) / 8) / 0.75;
-                const tryApex = (apex) => {
-                  const cy = ctrlForApex(apex);
-                  return curveCrosses(from, to, midX, cy, midX, cy, xObstacles) ? null : { cy, apex };
-                };
-                const preferTop = Math.abs(directMidY - topApex) <= Math.abs(directMidY - botApex);
-                const choice = preferTop
-                  ? (tryApex(topApex) || tryApex(botApex))
-                  : (tryApex(botApex) || tryApex(topApex));
-                if (choice) {
-                  c1y = choice.cy;
-                  c2y = choice.cy;
-                  labelY = choice.apex;
-                } else {
-                  // No clean detour found (canvas dense on both sides) —
-                  // fall back to the closer apex anyway. Better a routed
-                  // line that grazes than a tangled one through the middle.
-                  const apex = preferTop ? topApex : botApex;
-                  c1y = ctrlForApex(apex);
-                  c2y = c1y;
-                  labelY = apex;
-                }
-              }
-
-              const pathD = `M ${from.x} ${from.y} C ${midX} ${c1y}, ${midX} ${c2y}, ${to.x} ${to.y}`;
-              const labelX = midX;
+              const pathD = `M ${from.x} ${from.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${to.x} ${to.y}`;
+              // Delete button sits on the curve itself (t=0.5), which is the
+              // apex for detoured curves and the outer bulge for loops.
+              const labelX = bezierAt(from.x, c1x, c2x, to.x, 0.5);
+              const labelY = bezierAt(from.y, c1y, c2y, to.y, 0.5);
 
               // Cardinality-driven visuals — replaces the legacy LEFT/INNER
               // pill. Color is derived from the cardinality combo so the
@@ -620,12 +542,11 @@ export default function SchemaCanvas({
 
               // Anchor the cardinality markers along the curve, just inside
               // each table edge: t=0.08 from start, t=0.92 from end (close
-              // enough to the table without overlapping it). Reuses the
-              // bezierAt sampler defined above.
+              // enough to the table without overlapping it).
               const tStart = 0.08, tEnd = 0.92;
-              const fromMarkerX = bezierAt(from.x, midX, midX, to.x, tStart);
+              const fromMarkerX = bezierAt(from.x, c1x, c2x, to.x, tStart);
               const fromMarkerY = bezierAt(from.y, c1y, c2y, to.y, tStart);
-              const toMarkerX = bezierAt(from.x, midX, midX, to.x, tEnd);
+              const toMarkerX = bezierAt(from.x, c1x, c2x, to.x, tEnd);
               const toMarkerY = bezierAt(from.y, c1y, c2y, to.y, tEnd);
 
               const renderMarker = (cx, cy, value, side) => (
@@ -813,7 +734,7 @@ export default function SchemaCanvas({
                     : isNumeric(col.data_type);
                   const isDate = overrideType ? overrideType === 'date' : isDateType?.(col.data_type);
                   const displayType = overrideType || col.data_type;
-                  const isId = col.column_name.toLowerCase().startsWith('id');
+                  const isKey = keyRank(col.column_name) < 2; // id*/pk*/fk* — icon + bold + top of the list
                   // Column type fits the sample poorly (< 95%). A live "Test"
                   // this session wins; otherwise fall back to the flag persisted
                   // on the dimension at the last save, so the ⚠ survives
@@ -839,12 +760,12 @@ export default function SchemaCanvas({
                         <rect x={1} y={HEADER_HEIGHT + TYPE_BAR_HEIGHT + ci * ROW_HEIGHT} width={TABLE_WIDTH - 2} height={ROW_HEIGHT}
                           fill={isDim && isDate ? '#fef3c7' : isDim ? '#f5f3ff' : '#f0fdf4'} />
                       )}
-                      {/* Key icon for id columns */}
-                      {isId && (
+                      {/* Key icon for id/pk/fk columns */}
+                      {isKey && (
                         <text x={8} y={cy + 4} fontSize={9} fill="#f59e0b">K</text>
                       )}
                       {(() => {
-                        const NAME_MAX = isId ? 16 : 17;
+                        const NAME_MAX = isKey ? 16 : 17;
                         const TYPE_MAX = 10;
                         const truncate = (s, n) => (s && s.length > n ? s.slice(0, n - 1) + '…' : s);
                         const nameTruncated = (col.column_name || '').length > NAME_MAX;
@@ -864,7 +785,7 @@ export default function SchemaCanvas({
                         };
                         return (
                           <>
-                            <text x={isId ? 18 : 8} y={cy + 4} fontSize={11} fill="#334155" style={{ fontWeight: isId ? 600 : 400 }}>
+                            <text x={isKey ? 18 : 8} y={cy + 4} fontSize={11} fill="#334155" style={{ fontWeight: isKey ? 600 : 400 }}>
                               {truncate(col.column_name, NAME_MAX)}
                               {nameTruncated && <title>{col.column_name}</title>}
                             </text>
