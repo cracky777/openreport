@@ -9,14 +9,23 @@
     "dev:client": "cd client && npm run dev",
     "build": "cd client && npm run build",
     "start": "cd server && node index.js",
-    "install:all": "npm install && cd client && npm install && cd ../server && npm install"
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install",
+    "test:e2e": "npm run build && playwright test --config e2e/playwright.config.js",
+    "test:e2e:ui": "playwright test --config e2e/playwright.config.js --ui"
   },
-  "keywords": ["reporting", "dataviz", "dashboard", "open-source", "looker-studio"],
+  "keywords": [
+    "reporting",
+    "dataviz",
+    "dashboard",
+    "open-source",
+    "looker-studio"
+  ],
   "license": "SEE LICENSE IN LICENSE",
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "concurrently": "^8.2.2"
   }
 }

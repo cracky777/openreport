@@ -94,3 +94,24 @@ jobs:
 
       - if: always()
         run: docker rm -f or-smoke 2>/dev/null || true
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: cd client && npm ci
+      - run: cd server && npm ci
+      # The suite drives the built client served by the real server, so both
+      # trees are needed — and a browser to drive them with.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 7

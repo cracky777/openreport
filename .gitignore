@@ -12,3 +12,8 @@ coverage/
 !.vscode/extensions.json
 server/data/
 .claude/settings.local.json
+
+# e2e run artefacts (throwaway database, session, traces)
+e2e/.tmp/
+e2e/test-results/
+e2e/playwright-report/
