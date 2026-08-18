@@ -178,8 +178,9 @@ app.use('/api/images', imageUploadRoutes);
 // the URL returned by /api/images upload responses (`/uploads/images/…`).
 // An uploaded SVG is a script the browser will happily run on our own origin —
 // a logo becomes stored XSS. Same headers customVisuals.js puts on the icon it
-// serves: never sniff the type, never execute, and hand the file over as a
-// download rather than a document.
+// serves: never sniff the type, and neutralise the document with `sandbox`
+// (no scripts, opaque origin). Deliberately NOT Content-Disposition: attachment
+// — these are rendered in <img>, which a download header would break.
 app.use('/uploads/images', express.static(path.join(__dirname, 'data', 'uploads', 'images'), {
   maxAge: '7d',
   fallthrough: false,

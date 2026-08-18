@@ -72,6 +72,13 @@ function rowHasSecret(r) {
 // any secrets still stored in plaintext. Installs with no secrets (e.g. only
 // DuckDB file datasources) boot fine without a key.
 function migrateDatasourceSecrets(db) {
+  // A key that is set but malformed is always an operator typo, and resolveKey()
+  // is lazy: on a fresh install it would surface only on the first credential
+  // write — i.e. inside a request, where its process.exit takes the whole server
+  // down instead of failing that one call. Validate the format now; "unset with
+  // no secrets stored" stays legal (below).
+  if (process.env.DATASOURCE_ENC_KEY) resolveKey();
+
   let rows;
   try { rows = db.prepare('SELECT id, db_password, extra_config FROM datasources').all(); }
   catch { return; } // table not present yet

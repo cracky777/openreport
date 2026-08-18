@@ -43,3 +43,54 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t openreport-app:ci .
+
+      # Building the image only proves it compiles. Everything that can break a
+      # deployment happens at *startup*: the three secret gates, the SQLite DDL
+      # and its idempotent ALTERs, the personal-workspace backfill, the native
+      # modules resolving their .node binaries in a runtime image that has no
+      # toolchain. A build-only job ships all of that green.
+      - name: The container boots and answers
+        run: |
+          # Two distinct secrets — the server refuses to start if they match.
+          docker run -d --name or-smoke -p 3001:3001 \
+            -e SESSION_SECRET="$(openssl rand -hex 32)" \
+            -e INTERNAL_TOKEN_SECRET="$(openssl rand -hex 32)" \
+            -e DATASOURCE_ENC_KEY="$(openssl rand -hex 32)" \
+            openreport-app:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3001/api/health | grep -q '"status":"ok"'; then
+              echo "healthy"; exit 0
+            fi
+            # A boot gate exits immediately; no point waiting out the full loop.
+            [ "$(docker inspect -f '{{.State.Running}}' or-smoke)" = "true" ] || break
+            sleep 2
+          done
+          echo "::error::the container never answered /api/health"
+          docker logs or-smoke
+          exit 1
+
+      # The gates are a security control, so assert they actually fire. Without
+      # this, weakening one to a warning would still pass every job above.
+      - name: A bad secret refuses the boot
+        run: |
+          ok=$(openssl rand -hex 32); ok2=$(openssl rand -hex 32)
+          # Each case: the message expected on stderr, then the env it boots with.
+          refuses() {
+            want=$1; shift
+            set +e
+            out=$(timeout 60 docker run --rm "$@" openreport-app:ci 2>&1); code=$?
+            set -e
+            # 124 = timeout expired, i.e. it started and served anyway.
+            if [ "$code" -eq 0 ] || [ "$code" -eq 124 ]; then
+              echo "::error::booted despite $want (exit $code)"; echo "$out"; exit 1
+            fi
+            echo "$out" | grep -q "$want" \
+              || { echo "::error::refused the boot, but not over $want"; echo "$out"; exit 1; }
+            echo "refused as expected: $want"
+          }
+          refuses SESSION_SECRET       -e INTERNAL_TOKEN_SECRET="$ok"  -e DATASOURCE_ENC_KEY="$ok2"
+          refuses INTERNAL_TOKEN_SECRET -e SESSION_SECRET="$ok" -e INTERNAL_TOKEN_SECRET="$ok" -e DATASOURCE_ENC_KEY="$ok2"
+          refuses DATASOURCE_ENC_KEY   -e SESSION_SECRET="$ok" -e INTERNAL_TOKEN_SECRET="$ok2" -e DATASOURCE_ENC_KEY=too-short
+
+      - if: always()
+        run: docker rm -f or-smoke 2>/dev/null || true
