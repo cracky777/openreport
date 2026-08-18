@@ -21,6 +21,12 @@
 //       no public-report path) so a public viewer can query but not enumerate
 //       the full model schema. OSS: canReadModel == canAccessModel. When set,
 //       the hook fully REPLACES the base logic (returns a boolean).
+//   canBuildOnModel(model, user, req) → bool — may the caller AUTHOR a report on
+//       this model. Distinct from canWriteModel on purpose: authoring never
+//       requires the right to edit the model. OSS: owner or global admin — the
+//       point is to exclude someone whose only route to the model is a stranger's
+//       shared report. Cloud: any member of the model's org, so an org viewer who
+//       is editor on a workspace can still author there.
 //   listModels(req) → array          — the models the request may list. OSS:
 //       the caller's own models. Cloud: org models + workspace-shared ones.
 //   canUseDatasource(datasourceId, req) → bool — may the caller bind this
@@ -49,6 +55,7 @@ const cloudHooks = {
   canAccessModel: null,
   canWriteModel: null,
   canReadModel: null,
+  canBuildOnModel: null,
   listModels: null,
   canUseDatasource: null,
   onModelCreate: null,

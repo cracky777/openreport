@@ -79,10 +79,18 @@ Quatre fonctions portent le contrôle d'accès aux données (définies dans le r
 - Écriture : par ces fonctions, **pas** par une clause SQL `WHERE user_id = ?`. Cette forme ne
   subsiste que pour le cadrage des datasources.
 
-**Créer ou modifier un rapport exige `canWriteModel` sur son modèle**, pas seulement
-`canAccessModel`. Lire le modèle d'autrui via un rapport partagé ne suffit donc pas à bâtir dessus :
-sinon n'importe quel compte pouvait créer un rapport sur ce modèle puis le publier, ce qui ouvre
-`/query` en anonyme sur des données qui ne sont pas les siennes.
+**`canBuildOnModel(model, user, req)`** — OSS : propriétaire du modèle ou admin global.
+
+**Créer ou modifier un rapport exige `canBuildOnModel`**, pas seulement `canAccessModel`. Lire le
+modèle d'autrui via un rapport partagé ne suffit donc pas à bâtir dessus : sinon n'importe quel
+compte pouvait créer un rapport sur ce modèle puis le publier, ce qui ouvre `/query` en anonyme sur
+des données qui ne sont pas les siennes.
+
+> `canBuildOnModel` n'est **pas** `canWriteModel`, même si les deux répondent pareil en OSS. Écrire
+> un rapport n'a jamais demandé le droit d'éditer le modèle, et confondre les deux casse le cloud :
+> un membre `viewer` de l'organisation qui est `editor` sur un workspace est un auteur de rapports
+> légitime, sans pour autant pouvoir toucher au modèle. En cloud le hook répond « ce modèle est-il
+> dans ton organisation ? », ce qui exclut toujours le chemin rapport-public visé par le durcissement.
 
 **Passer `is_public = 1` exige également `canWriteModel`** sur le modèle sous-jacent : publier
 expose la donnée, pas seulement le rapport, et c'est à celui qui détient la donnée d'en décider.

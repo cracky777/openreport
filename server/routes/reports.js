@@ -65,6 +65,21 @@ function canWriteModel(model, user, req) {
   return user.id === model.user_id || user.role === 'admin';
 }
 
+// Building a report on a model is not editing it. What this guard has to
+// exclude is the caller whose ONLY route to the model is someone else's shared
+// report: they could build on it, flip the report public, and open anonymous
+// /query on data that is not theirs. OSS has no tenant to lean on, so the
+// honest bar is owner-or-admin. Cloud delegates and answers a different, richer
+// question — "is this model in your org?" — because there a viewer who is
+// editor on a workspace is a legitimate report author, while the public-report
+// path stays excluded. Deliberately NOT canWriteModel: that one means "may edit
+// the model", which authoring a report never requires.
+function canBuildOnModel(model, user, req) {
+  if (typeof cloudHooks.canBuildOnModel === 'function') return cloudHooks.canBuildOnModel(model, user, req);
+  if (!model || !user) return false;
+  return user.id === model.user_id || user.role === 'admin';
+}
+
 // Read access to a model's METADATA (GET /:id). OSS: same as query access.
 // Cloud makes it stricter (org membership only, no public-report path) so a
 // public-report viewer can /query the model but not enumerate its full schema.
@@ -248,7 +263,7 @@ router.post('/import', authFor('read'), (req, res) => {
   // write-role on the model's org).
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(modelId);
   if (!model) return res.status(404).json({ error: 'Target model not found' });
-  if (!canWriteModel(model, req.user, req)) {
+  if (!canBuildOnModel(model, req.user, req)) {
     return res.status(403).json({ error: 'You do not own the target model' });
   }
 
@@ -335,7 +350,7 @@ router.post('/', authFor('read'), (req, res) => {
   // /query on their data. POST /import already guards this way.
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(modelId);
   if (!model) return res.status(404).json({ error: 'Model not found' });
-  if (!canWriteModel(model, req.user, req)) {
+  if (!canBuildOnModel(model, req.user, req)) {
     return res.status(403).json({ error: 'Not authorized for this model' });
   }
 
@@ -400,7 +415,7 @@ router.put('/:id', authFor('read'), (req, res) => {
   // is defense-in-depth so a report can't be repointed/edited against a model
   // the caller has lost access to.
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(report.model_id);
-  if (model && !canWriteModel(model, req.user, req)) {
+  if (model && !canBuildOnModel(model, req.user, req)) {
     return res.status(403).json({ error: 'Not authorized for this model' });
   }
 
@@ -571,5 +586,6 @@ module.exports = router;
 module.exports.canAccessReport = canAccessReport;
 module.exports.canAccessModel = canAccessModel;
 module.exports.canWriteModel = canWriteModel;
+module.exports.canBuildOnModel = canBuildOnModel;
 module.exports.canReadModel = canReadModel;
 module.exports.canWriteReport = canWriteReport;
