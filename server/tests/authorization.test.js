@@ -89,8 +89,12 @@ describe('Report authorization', () => {
 });
 
 describe('Datasource authorization', () => {
-  test('the connection test refuses internal hosts', async () => {
+  test('the connection test refuses internal hosts (when enforcement is on)', async () => {
+    // The block-list is off in default OSS (localhost DBs are legitimate); this
+    // asserts the ENFORCED path, so turn it on for the duration of the test.
+    process.env.OPENREPORT_BLOCK_INTERNAL_HOSTS = '1';
     const user = seedUser({ role: 'editor' });
+    try {
     for (const host of ['127.0.0.1', 'localhost', '169.254.169.254', '10.0.0.5']) {
       const res = await request(app).post('/api/datasources/test')
         .use(as(user))
@@ -99,6 +103,7 @@ describe('Datasource authorization', () => {
       // The message must not describe what was found at the other end.
       expect(res.body.message).not.toMatch(/refused|timeout|ECONN/i);
     }
+    } finally { delete process.env.OPENREPORT_BLOCK_INTERNAL_HOSTS; }
   });
 
   test('a DuckDB datasource cannot name a path of its own choosing', async () => {

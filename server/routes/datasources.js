@@ -98,6 +98,17 @@ const BLOCKED_HOSTS = /^(localhost|127\.|0\.0\.0\.0|::1|169\.254\.|10\.|192\.168
 // reveal it. Closing that fully needs a resolve-and-check in the connector;
 // tracked as a follow-up. This guard still shuts the trivial direct-IP probe.
 function hostIsBlocked(rawHost) {
+  // Policy gate. The block-list defends a MULTI-TENANT host: an untrusted org
+  // member probing the internal range to reach the cloud metadata service. That
+  // is a cloud concern, so it's always on there. A self-hosted OSS instance is
+  // single-operator by default, and pointing a datasource at a localhost /
+  // private-LAN database is the normal setup — blocking it there breaks the
+  // primary use case. So OSS is OFF unless a multi-user instance opts in via
+  // OPENREPORT_BLOCK_INTERNAL_HOSTS=1. Read at call time so a deploy can flip it
+  // without a rebuild. Kept inside the predicate so no call site can forget it.
+  const enforced = process.env.OPENREPORT_CLOUD === '1'
+    || process.env.OPENREPORT_BLOCK_INTERNAL_HOSTS === '1';
+  if (!enforced) return false;
   if (!rawHost) return false;
   let h = String(rawHost).trim().toLowerCase();
   // Strip an IPv6 bracket wrapper and any :port a caller may have appended.
