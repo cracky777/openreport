@@ -78,17 +78,50 @@ router.get('/:id', authFor('write'), (req, res) => {
   res.json({ datasource: { id: s.id, name: s.name, db_type: s.db_type, host: s.host, port: s.port, db_name: s.db_name, db_user: s.db_user, created_at: s.created_at } });
 });
 
-// Hosts a datasource may never point at. Left unchecked, "test connection"
-// is a network probe: any logged-in account could walk the internal range and
-// read the cloud metadata service, using the returned error text as the oracle.
+// Hosts a datasource may never point at. Left unchecked, connecting is a
+// network probe: any logged-in account could walk the internal range and read
+// the cloud metadata service (169.254.169.254), using the returned error text
+// as the oracle. Enforced on EVERY path that persists or opens a connection —
+// not just /test, which an attacker simply skips by saving the row and then
+// hitting /:id/tables or /query.
 const BLOCKED_HOSTS = /^(localhost|127\.|0\.0\.0\.0|::1|169\.254\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i;
+
+// Literal-host block-list. Returns true when `host` is an obvious loopback /
+// link-local / RFC-1918 target, in any of the encodings a regex on the dotted
+// form would miss: bracketed IPv6, IPv4-mapped IPv6 (::ffff:a.b.c.d), and the
+// integer/hex forms of an IPv4 address (2130706433, 0x7f000001) that resolve to
+// 127.0.0.1. A legitimate database host is a name or a dotted quad, never a bare
+// integer, so rejecting those outright costs nothing.
+//
+// This cannot catch a HOSTNAME that resolves to an internal address (DNS
+// rebinding): the literal passes, and only the connect-time resolution would
+// reveal it. Closing that fully needs a resolve-and-check in the connector;
+// tracked as a follow-up. This guard still shuts the trivial direct-IP probe.
+function hostIsBlocked(rawHost) {
+  if (!rawHost) return false;
+  let h = String(rawHost).trim().toLowerCase();
+  // Strip an IPv6 bracket wrapper and any :port a caller may have appended.
+  if (h.startsWith('[')) h = h.slice(1, h.indexOf(']') === -1 ? undefined : h.indexOf(']'));
+  if (BLOCKED_HOSTS.test(h)) return true;
+  // IPv4-mapped / -compatible IPv6: pull out the trailing dotted quad and retest.
+  const mapped = h.match(/^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped && BLOCKED_HOSTS.test(mapped[1])) return true;
+  // A bare integer or 0x-hex host is an alternate IPv4 encoding — decode and test.
+  const asInt = /^0x[0-9a-f]+$/.test(h) ? parseInt(h, 16)
+    : /^\d+$/.test(h) ? parseInt(h, 10) : NaN;
+  if (Number.isInteger(asInt) && asInt >= 0 && asInt <= 0xffffffff) {
+    const dotted = [(asInt >>> 24) & 255, (asInt >>> 16) & 255, (asInt >>> 8) & 255, asInt & 255].join('.');
+    if (BLOCKED_HOSTS.test(dotted)) return true;
+  }
+  return false;
+}
 
 // Test connection (without saving). Write-gated: a read-only account has no
 // reason to open outbound connections from the server.
 router.post('/test', authFor('write'), async (req, res) => {
   const { dbType, host, port, dbName, dbUser, dbPassword, extraConfig } = req.body;
 
-  if (host && BLOCKED_HOSTS.test(String(host).trim())) {
+  if (hostIsBlocked(host)) {
     return res.status(400).json({ success: false, message: 'This host is not reachable from the server.' });
   }
 
@@ -120,6 +153,11 @@ router.post('/', authFor('write'), (req, res) => {
   const needsHost = !['bigquery', 'duckdb'].includes(dbType);
   if (!name || !dbType || (needsHost && !host) || !dbName) {
     return res.status(400).json({ error: 'Missing required fields' });
+  }
+  // Same guard as /test — enforced HERE too, or the row is saved with an
+  // internal host and reached through /:id/tables, /:id/query, etc.
+  if (needsHost && hostIsBlocked(host)) {
+    return res.status(400).json({ error: 'This host is not reachable from the server.' });
   }
   if (rejectIfNameTaken('datasource', name, req, res)) return;
 
@@ -162,6 +200,11 @@ router.put('/:id', authFor('write'), (req, res) => {
   const newDbName = (!isDuck && dbName !== undefined) ? dbName : existing.db_name;
   if (!name || !newDbType || (needsHost && !newHost) || !newDbName) {
     return res.status(400).json({ error: 'Missing required fields' });
+  }
+  // A host change must clear the same bar as a fresh create — otherwise the
+  // guard is a create-time-only formality that an edit walks straight past.
+  if (needsHost && hostIsBlocked(newHost)) {
+    return res.status(400).json({ error: 'This host is not reachable from the server.' });
   }
   if (rejectIfNameTaken('datasource', name, req, res, req.params.id)) return;
 
