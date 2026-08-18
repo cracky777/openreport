@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import { useCalcWizard } from '../../hooks/useCalcWizard';
 import { useFieldEdit } from '../../hooks/useFieldEdit';
+import { useSplitRatio } from '../../hooks/useSplitRatio';
 import { createPortal } from 'react-dom';
-import { TbChevronDown } from 'react-icons/tb';
+import { TbChevronDown, TbFolder } from 'react-icons/tb';
 import { ICON_SIZE } from '../actionIcons';
 import ConfirmDeleteButton from '../ConfirmDeleteButton/ConfirmDeleteButton';
+import { toast } from '../Toast/toast';
 import api from '../../utils/api';
 import SqlExpressionInput from '../SqlExpressionInput/SqlExpressionInput';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
@@ -16,7 +18,6 @@ import { buildWidgetData } from '../../utils/widgetDataBuilder';
 const _hs0 = { marginBottom: 16 };
 const _hs1 = { fontSize: 12, color: 'var(--text-disabled)' };
 const _hs2 = { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 };
-const _hs3 = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' };
 const _hs4 = { padding: 6, background: 'var(--bg-active)', borderRadius: 4, marginBottom: 4, border: '1px solid var(--accent-primary-border)', maxHeight: '100%', overflow: 'auto' };
 const _hs5 = { display: 'flex', gap: 4, marginBottom: 4 };
 const _hs6 = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 };
@@ -35,21 +36,21 @@ const _hs18 = { marginTop: 6 };
 const _hs19 = { marginBottom: 6 };
 const _hs20 = { display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 };
 const _hs21 = { flex: 1 };
-const _hs22 = { marginBottom: 8, flexShrink: 0 };
+// Date Table joins the flexible column flow: content-sized, shrinks with an
+// internal scroll when the panel runs out of height (no fixed max-height).
+const _hs22 = { marginBottom: 8, flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' };
 const _hs23 = {
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                marginBottom: 3, gap: 6,
+                marginBottom: 3, gap: 6, flexShrink: 0,
               };
 const _hs24 = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 };
 const _hs25 = { fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--state-warning-soft)', color: 'var(--state-warning)', fontWeight: 600, border: 'none', cursor: 'pointer' };
-const _hs26 = { border: '1px solid var(--border-default)', borderRadius: 4, maxHeight: 220, overflow: 'auto' };
+const _hs26 = { border: '1px solid var(--border-default)', borderRadius: 4, overflow: 'auto', minHeight: 28 };
 const _hs27 = { display: 'inline-block', width: 14, flexShrink: 0 };
 const _hs28 = { fontSize: 8, color: 'var(--text-disabled)', flexShrink: 0 };
-const _hs29 = { flex: '1 1 75%' };
 const _hs30 = { display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 };
 const _hs31 = { fontSize: 12, color: 'var(--text-disabled)', marginTop: 4 };
 const _hs32 = { fontSize: 11, marginTop: 4, color: 'var(--state-danger)' };
-const _hs33 = { fontSize: 12, color: 'var(--text-disabled)', marginTop: 8 };
 const _hs34 = { display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 3, fontWeight: 500, flexShrink: 0 };
 
 export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, reportId, cacheBuiltAt }) {
@@ -98,6 +99,22 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   // Date Table is collapsed by default — only the main date column is shown,
   // the per-period extension dims (year, month, weekday, …) appear when opened.
   const [dateTableOpen, setDateTableOpen] = useState(false);
+
+  // Measures / Dimensions share the panel height through a draggable split.
+  // Each section is also capped at its content height (max-content), so a
+  // short list gives its unused share back instead of leaving dead space.
+  const measuresSectionRef = useRef(null);
+  const dimsSectionRef = useRef(null);
+  const { ratio: splitRatio, handleProps: splitHandleProps } = useSplitRatio({
+    storageKey: 'openreport.dataPanelSplit',
+    getSpan: () => (measuresSectionRef.current?.offsetHeight || 0) + (dimsSectionRef.current?.offsetHeight || 0),
+  });
+
+  // Field search + per-section collapse (session-scoped). An active search
+  // or an open edit form overrides collapse so nothing relevant is hidden
+  // behind a folded section.
+  const [fieldSearch, setFieldSearch] = useState('');
+  const [sectionCollapsed, setSectionCollapsed] = useState({ measures: false, dimensions: false });
 
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
@@ -413,17 +430,82 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   // Helper to get short table name
   const shortTable = (t) => t.includes('.') ? t.split('.').pop() : t;
 
+  // Wizard / edit form open → give Measures room regardless of the split.
+  const effSplit = (showCalcForm || editingField) ? Math.max(splitRatio, 0.6) : splitRatio;
+
+  // Search matches label, column, technical name, display folder and (short)
+  // table name.
+  const q = fieldSearch.trim().toLowerCase();
+  const fieldMatches = (f) => !q || [f.label, f.column, f.name, f.folder, f.table && shortTable(f.table)]
+    .some((v) => v && String(v).toLowerCase().includes(q));
+  const visibleMeasures = (model.measures || []).filter(fieldMatches);
+  // Display folders (user-defined, presentation-only): loose measures first —
+  // a trailing run of unfoldered rows under a folder header would read as
+  // belonging to it — then folders alphabetically, headers interleaved.
+  const measureRows = (() => {
+    const loose = [];
+    const byFolder = {};
+    for (const m of visibleMeasures) {
+      if (m.folder) (byFolder[m.folder] ||= []).push(m);
+      else loose.push(m);
+    }
+    return [
+      ...loose,
+      ...Object.keys(byFolder).sort((a, b) => a.localeCompare(b))
+        .flatMap((f) => [{ _folderHeader: f }, ...byFolder[f]]),
+    ];
+  })();
+  const measureFolders = [...new Set((model.measures || []).map((m) => m.folder).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+  // Dimension groups (by table), minus the fields shown in the Date Table
+  // block — computed once so the list render and the header count agree.
+  const dimGroups = {};
+  for (const d of model.dimensions || []) {
+    if (d.name === model.dateColumn || d.datePartOf) continue;
+    if (!fieldMatches(d)) continue;
+    const table = shortTable(d.table);
+    (dimGroups[table] ||= []).push(d);
+  }
+  const visibleDimCount = Object.values(dimGroups).reduce((n, arr) => n + arr.length, 0);
+  const measuresCollapsed = sectionCollapsed.measures && !q && !showCalcForm && !editingField;
+  const dimsCollapsed = sectionCollapsed.dimensions && !q && !editingDim;
+
   return (
     <div style={_hs2}>
-      {/* Measures first — fixed height, does not shrink when editing.
-          (The model name + edit link moved to the panel header in
-          PropertyPanel's DataModelPanel so "Data" isn't shown twice.) */}
-      <FieldSection label={
-        <span style={_hs3}>
-          <span>Measures</span>
-          <button onClick={() => setShowCalcForm(!showCalcForm)} style={addCalcBtnSmall}>+ Measure</button>
-        </span>
-      } style={{ flex: '0 0 auto', maxHeight: (showCalcForm || editingField) ? '60%' : '25%', transition: 'max-height 0.25s ease' }}>
+      {/* One search box filters Measures, Date Table and Dimensions at once —
+          scanning long lists is the panel's main cost on wide models. */}
+      {(model.measures?.length > 0 || model.dimensions?.length > 0) && (
+        <div style={searchWrap}>
+          <input
+            type="text"
+            value={fieldSearch}
+            onChange={(e) => setFieldSearch(e.target.value)}
+            placeholder="Search fields…"
+            style={searchInput}
+          />
+          {fieldSearch && (
+            <button onClick={() => setFieldSearch('')} style={searchClear} title="Clear search">×</button>
+          )}
+        </div>
+      )}
+
+      {/* Measures first. (The model name + edit link moved to the panel
+          header in PropertyPanel's DataModelPanel so "Data" isn't shown
+          twice.) Height: the user-draggable split ratio, temporarily boosted
+          while the wizard / edit form needs room; max-content caps a short
+          list so its unused share flows to Dimensions. The ×100 keeps the
+          flex-grow sum ≥ 1 — fractional sums make flexbox distribute only
+          part of the free space. */}
+      <FieldSection
+        sectionRef={measuresSectionRef}
+        title="Measures"
+        count={visibleMeasures.length}
+        collapsed={measuresCollapsed}
+        onToggle={() => setSectionCollapsed((s) => ({ ...s, measures: !s.measures }))}
+        actions={
+          <button onClick={(e) => { e.stopPropagation(); setShowCalcForm(!showCalcForm); }} style={addCalcBtnSmall}>+ Measure</button>
+        }
+        style={measuresCollapsed ? { flex: '0 0 auto' } : { flex: `${effSplit * 100} 1 0%`, maxHeight: 'max-content' }}>
         {/* Unified measure wizard:
               - Aggregation (SUM/AVG/COUNT/MIN/MAX/Custom)
               - Column (or custom SQL when aggregation = 'custom')
@@ -526,13 +608,26 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 setCalcAggregation('sum'); setCalcFilterEnabled(false); setCalcRules([]); setCalcOverride(false);
               }} style={_hs12}>Cancel</button>
               <button
-                disabled={
-                  !calcLabel || calcSaving
-                  || (calcAggregation === 'custom' && !calcExpr)
-                  || (calcAggregation !== 'custom' && calcAggregation !== 'count' && !calcField)
-                  || (calcFilterEnabled && calcRules.length === 0)
-                }
+                disabled={calcSaving}
                 onClick={async () => {
+                  // Click-time validation with an explanation, instead of a
+                  // silently disabled button the user can't interrogate.
+                  if (!calcLabel.trim()) {
+                    toast('Give the measure a label before adding it.');
+                    return;
+                  }
+                  if (calcAggregation === 'custom' && !calcExpr.trim()) {
+                    toast('Write the SQL expression before adding the measure.');
+                    return;
+                  }
+                  if (calcAggregation !== 'custom' && calcAggregation !== 'count' && !calcField) {
+                    toast('Pick the column to aggregate before adding the measure.');
+                    return;
+                  }
+                  if (calcFilterEnabled && calcRules.length === 0) {
+                    toast('Add at least one filter rule, or disable "Add filter".');
+                    return;
+                  }
                   setCalcSaving(true);
                   try {
                     const measName = `_calc.${calcLabel.replace(/\s+/g, '_').toLowerCase()}`;
@@ -588,7 +683,19 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           </div>
         )}
         <div style={listBox}>
-          {(model.measures || []).map((m) => (
+          {q && visibleMeasures.length === 0 && (
+            <div style={noMatchStyle}>No matching measures</div>
+          )}
+          {/* No table grouping on purpose — a measure is a semantic quantity,
+              not a column: one mixing two tables has no honest table group.
+              Organisation is the user's display folders instead (set in the
+              measure edit panel); the source table stays in the row tooltip. */}
+          {measureRows.map((m) => m._folderHeader ? (
+            <div key={`folder:${m._folderHeader}`} style={folderHeader}>
+              <TbFolder size={11} style={{ flexShrink: 0 }} />
+              <span style={{ ...truncatedLabel, fontSize: 'inherit' }}>{m._folderHeader}</span>
+            </div>
+          ) : (
             <Fragment key={m.name}>
               <div
                 draggable
@@ -602,6 +709,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                     setEditingDim(null); // close dimension edit if open
                     setEditForm({
                       label: m.label || m.column,
+                      folder: m.folder || '',
                       aggregation: m.aggregation || 'sum',
                       field: (m.table && m.column && m.column !== '*') ? `${m.table}::${m.column}` : '',
                       // `bareExpression` is the un-wrapped expression — the
@@ -650,7 +758,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 <div ref={(node) => setMeasurePanelMount((cur) => (cur === node ? cur : node))} />
               )}
             </Fragment>
-            ))}
+          ))}
           </div>
         </FieldSection>
 
@@ -665,6 +773,17 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               <span style={editLabel}>Label</span>
               <input type="text" value={editForm.label}
                 onChange={(e) => setEditForm({ ...editForm, label: e.target.value })}
+                style={editInput} />
+            </div>
+            {/* Display folder — free text with completion on the folders
+                already in use. Groups the Measures list only; no effect on
+                queries. Applies to model measures too (stored as a report
+                override, the model itself stays untouched). */}
+            <div style={editRow}>
+              <span style={editLabel}>Folder</span>
+              <input type="text" list="measure-folder-options" value={editForm.folder || ''}
+                placeholder="None"
+                onChange={(e) => setEditForm({ ...editForm, folder: e.target.value })}
                 style={editInput} />
             </div>
 
@@ -851,6 +970,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               )}
               <button onClick={() => setEditingField(null)} style={editCancelBtn}>Close</button>
               <button onClick={async () => {
+                if (!String(editForm.label || '').trim()) {
+                  toast('The measure needs a label.');
+                  return;
+                }
                 try {
                   // Build the patch. For report-scoped measures we let the
                   // user edit every shape field (agg/column/expression/
@@ -931,6 +1054,9 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                       },
                     };
                   }
+                  // Display folder rides along whatever branch built the
+                  // patch; undefined (cleared) removes it from the entry.
+                  patch.folder = (editForm.folder || '').trim() || undefined;
                   let wrote = false;
                   if (m._source === 'report') {
                     // Edit a report-scoped measure: mutate the entry inside
@@ -970,6 +1096,19 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         ), measurePanelMount);
       })()}
 
+      {/* Splitter — drag to rebalance Measures vs Dimensions. Pointless
+          while either section is folded, so it hides with them. */}
+      {model.dimensions?.length > 0 && !measuresCollapsed && !dimsCollapsed && (
+        <div
+          {...splitHandleProps}
+          style={splitterRow}
+          onMouseEnter={(e) => { e.currentTarget.firstChild.style.background = 'var(--accent-primary)'; }}
+          onMouseLeave={(e) => { e.currentTarget.firstChild.style.background = 'var(--border-strong)'; }}
+        >
+          <div style={splitterGrip} />
+        </div>
+      )}
+
       {/* Date table — collapsible block. We render a plain container
           rather than `FieldSection` so the chevron sits in a real header
           (no `<label>` wrapping, no `flex: 1` listBox quirks that made
@@ -978,6 +1117,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         const dateCol = (model.dimensions || []).find((d) => d.name === model.dateColumn);
         if (!dateCol) return null;
         const dateParts = (model.dimensions || []).filter((d) => d.datePartOf === model.dateColumn);
+        // Search: hide the block when nothing in it matches; when only some
+        // parts match, force them visible even if the block is folded.
+        const partsVisible = dateParts.filter(fieldMatches);
+        if (q && !fieldMatches(dateCol) && partsVisible.length === 0) return null;
+        const showParts = dateTableOpen || (q && partsVisible.length > 0);
         return (
           <div style={_hs22}>
             <div
@@ -1036,7 +1180,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 <span style={{ ...dateTag, flexShrink: 0 }}>📅</span>
               </div>
               {/* Date parts — collapsed by default, expanded via the chevron */}
-              {dateTableOpen && dateParts.map((dp) => (
+              {showParts && partsVisible.map((dp) => (
                 <div
                   key={dp.name}
                   draggable
@@ -1060,18 +1204,18 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
 
       {/* Dimensions grouped by table */}
       {model.dimensions?.length > 0 && (
-        <FieldSection label="Dimensions" style={_hs29}>
+        <FieldSection
+          sectionRef={dimsSectionRef}
+          title="Dimensions"
+          count={visibleDimCount}
+          collapsed={dimsCollapsed}
+          onToggle={() => setSectionCollapsed((s) => ({ ...s, dimensions: !s.dimensions }))}
+          style={dimsCollapsed ? { flex: '0 0 auto' } : { flex: `${(1 - effSplit) * 100} 1 0%`, maxHeight: 'max-content' }}>
           <div style={listBoxLarge}>
-            {(() => {
-              // Group dimensions by table (exclude the active dateColumn)
-              const groups = {};
-              for (const d of model.dimensions) {
-                if (d.name === model.dateColumn || d.datePartOf) continue; // shown in Date Table section
-                const table = shortTable(d.table);
-                if (!groups[table]) groups[table] = [];
-                groups[table].push(d);
-              }
-              return Object.entries(groups).map(([table, dims]) => (
+            {q && visibleDimCount === 0 && (
+              <div style={noMatchStyle}>No matching dimensions</div>
+            )}
+            {Object.entries(dimGroups).map(([table, dims]) => (
                 <div key={table}>
                   <div style={tableGroupHeader}>{table}</div>
                   {dims.map((d) => (
@@ -1123,8 +1267,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                     </Fragment>
                   ))}
                 </div>
-              ));
-            })()}
+              ))}
           </div>
         </FieldSection>
       )}
@@ -1211,6 +1354,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               )}
               <button onClick={() => setEditingDim(null)} style={editCancelBtn}>Close</button>
               <button onClick={async () => {
+                if (!String(dimEditForm.label || '').trim()) {
+                  toast('The dimension needs a label.');
+                  return;
+                }
                 try {
                   // All edits stay scoped to the report — never mutate the
                   // underlying model. Label/type changes on a model dim
@@ -1280,27 +1427,74 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         </div>
       )}
 
+      {/* Folder completion source for the measure edit panel (portaled). */}
+      <datalist id="measure-folder-options">
+        {measureFolders.map((f) => <option key={f} value={f} />)}
+      </datalist>
+
       {status?.type === 'error' && (
         <div style={_hs32}>
           Error: {status.message}
         </div>
       )}
 
-      {!widgetId && (
-        <div style={_hs33}>Drag fields onto the widget config panel.</div>
-      )}
     </div>
   );
 }
 
-function FieldSection({ label, children, style }) {
+// Collapsible section: the header line carries a fold chevron, the item
+// count, and an optional right-aligned action (e.g. "+ Measure"). Actions
+// must stopPropagation so they don't toggle the fold.
+function FieldSection({ title, count, actions, children, style, sectionRef, collapsed, onToggle }) {
   return (
-    <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', minHeight: 0, ...style }}>
-      <label style={_hs34}>{label}</label>
-      {children}
+    <div ref={sectionRef} style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', minHeight: 0, ...style }}>
+      {/* A <div>, not a <label>: a label click is natively forwarded to its
+          first labelable descendant — the actions <button> — so folding the
+          section would also trigger the action. */}
+      <div
+        onClick={onToggle}
+        style={{ ..._hs34, display: 'flex', alignItems: 'center', gap: 4, cursor: onToggle ? 'pointer' : 'default', userSelect: 'none' }}
+      >
+        {onToggle && (
+          <TbChevronDown
+            size={12}
+            style={{ flexShrink: 0, transition: 'transform 0.15s', transform: collapsed ? 'rotate(-90deg)' : 'none' }}
+          />
+        )}
+        <span style={{ flex: 1, minWidth: 0 }}>
+          {title}{typeof count === 'number' ? ` (${count})` : ''}
+        </span>
+        {actions}
+      </div>
+      {!collapsed && children}
     </div>
   );
 }
+
+const searchWrap = { position: 'relative', flexShrink: 0, marginBottom: 8 };
+const searchInput = {
+  width: '100%', boxSizing: 'border-box', fontSize: 12, padding: '5px 22px 5px 8px',
+  border: '1px solid var(--border-default)', borderRadius: 4,
+  background: 'var(--bg-panel)', color: 'var(--text-primary)', outline: 'none',
+};
+const searchClear = {
+  position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)',
+  border: 'none', background: 'transparent', color: 'var(--text-muted)',
+  cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '0 4px',
+};
+const noMatchStyle = { fontSize: 11, color: 'var(--text-disabled)', padding: '6px 8px' };
+
+// Divider between the Measures and Dimensions sections — a slim grab row
+// whose grip pill lights up on hover so the resize affordance is
+// discoverable without stealing visual weight.
+const splitterRow = {
+  flexShrink: 0, height: 9, margin: '-4px 0 4px', cursor: 'row-resize',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+};
+const splitterGrip = {
+  width: 36, height: 3, borderRadius: 2, background: 'var(--border-strong)',
+  transition: 'background 0.15s ease',
+};
 
 const sectionTitle = {
   fontSize: 11, fontWeight: 600, color: 'var(--text-disabled)', textTransform: 'uppercase', marginBottom: 0,
@@ -1315,6 +1509,13 @@ const tableGroupHeader = {
   fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase',
   padding: '5px 8px 3px', backgroundColor: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-default)',
   position: 'sticky', top: 0, zIndex: 1, letterSpacing: '0.04em',
+};
+// Measure display-folder header — same chrome as the table group headers,
+// but keeps the user's own casing (folder names are theirs, not SQL) and
+// carries a Tabler folder icon like the rest of the app's iconography.
+const folderHeader = {
+  ...tableGroupHeader, textTransform: 'none',
+  display: 'flex', alignItems: 'center', gap: 4,
 };
 const dragItem = {
   display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px',
