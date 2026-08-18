@@ -1,13 +1,33 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { TbArrowsMaximize, TbArrowsMinimize } from 'react-icons/tb';
+import api from '../../utils/api';
+import { tokenizeSql } from '../../utils/sqlHighlight';
 
 const _hs0 = { position: 'relative' };
-const _hs1 = { display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 4 };
+const _hs1 = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 3, marginBottom: 4 };
 const _hs2 = { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 const _hs3 = { fontSize: 9, color: 'var(--text-disabled)', whiteSpace: 'nowrap', marginLeft: 8, flex: '0 0 auto', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '50%' };
 const _hs4 = { fontSize: 9, color: 'var(--text-disabled)', padding: '3px 8px', borderTop: '1px solid var(--border-default)' };
 
 const SQL_FUNCTIONS = ['SUM', 'AVG', 'COUNT', 'MIN', 'MAX', 'NULLIF', 'COALESCE', 'CASE WHEN', 'DISTINCT', 'ROUND'];
+
+// Highlight palette — keyed by tokenizeSql token types. Monospace bold keeps
+// the same advance width, so styled spans never desync the overlay from the
+// textarea's caret.
+const TOKEN_COLORS = {
+  keyword: { color: 'var(--accent-primary)', fontWeight: 600 },
+  function: { color: '#0891b2', fontWeight: 600 },
+  string: { color: 'var(--state-success)' },
+  number: { color: '#d97706' },
+  identifier: { color: '#7c3aed' },
+  calc: { color: '#b45309', fontWeight: 600 },
+  comment: { color: 'var(--text-disabled)', fontStyle: 'italic' },
+};
+
+const renderTokens = (text) => tokenizeSql(text).map((t, i) => (
+  TOKEN_COLORS[t.type] ? <span key={i} style={TOKEN_COLORS[t.type]}>{t.text}</span> : t.text
+));
 
 export default function SqlExpressionInput({ value, onChange, model, style }) {
   const [suggestions, setSuggestions] = useState([]);
@@ -21,8 +41,41 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
   // open AND while they're visible (on scroll / resize) so the popover
   // tracks the textarea correctly.
   const [anchorRect, setAnchorRect] = useState(null);
+  // Large-editor overlay for long expressions.
+  const [expanded, setExpanded] = useState(false);
+  // Last "Test" run: { status: 'running'|'ok'|'error', value?, message?,
+  // checked } — `checked` is the expression that was tested, so the result
+  // can be greyed out (not hidden) once the user edits further.
+  const [validation, setValidation] = useState(null);
   const textareaRef = useRef(null);
   const suggestionsRef = useRef(null);
+  // Caret index captured when the inline editor hands off to the overlay,
+  // so the big textarea reopens with the cursor where the user clicked.
+  const caretRef = useRef(null);
+
+  // Clicking (or tabbing) into the inline editor escalates straight to the
+  // large overlay — the side panel is too narrow for real SQL work. The
+  // timeout lets the browser finish placing the caret before we read it.
+  const openExpandedFromInline = (e) => {
+    const el = e.target;
+    setTimeout(() => {
+      caretRef.current = el.selectionStart ?? null;
+      setExpanded(true);
+    }, 0);
+  };
+
+  // When the overlay opens, move focus into its textarea and restore the
+  // caret captured from the inline editor.
+  useEffect(() => {
+    if (!expanded) return;
+    const el = textareaRef.current;
+    if (!el) return;
+    el.focus();
+    if (caretRef.current != null) {
+      el.setSelectionRange(caretRef.current, caretRef.current);
+      caretRef.current = null;
+    }
+  }, [expanded]);
 
   // Recompute the anchor rect when the dropdown is open. Listen on scroll
   // (capture phase, so any scrolling ancestor triggers it) and resize.
@@ -41,6 +94,17 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
       window.removeEventListener('resize', update);
     };
   }, [showSuggestions]);
+
+  // Escape closes the overlay (only when the autocomplete isn't the one
+  // consuming the key).
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape' && !showSuggestions) setExpanded(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expanded, showSuggestions]);
 
   // Build all available fields. Three "kinds":
   //   - dim/meas: insert the raw "table"."column"
@@ -180,25 +244,130 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  return (
+  // Real validation: run the expression as a throwaway custom measure
+  // against the actual datasource (LIMIT 1, no dimensions). The server
+  // already accepts unpersisted extras from the model owner/admin — the
+  // same path the widget preview uses — so the dialect, the schema and the
+  // ${calc} inlining are all the real thing. Report-scoped calc measures
+  // ride along as extras so references to them resolve too.
+  const runValidation = async () => {
+    if (!model?.id || !value.trim()) return;
+    const checkName = '_calc.__sql_check';
+    setValidation({ status: 'running', checked: value });
+    try {
+      const reportExtras = (model.measures || [])
+        .filter((m) => m._source === 'report' && m.name !== checkName);
+      const res = await api.post(`/models/${model.id}/query`, {
+        dimensionNames: [],
+        measureNames: [checkName],
+        extraMeasures: [...reportExtras, { name: checkName, label: 'SQL check', aggregation: 'custom', expression: value }],
+        limit: 1,
+      });
+      const row = (res.data.rows || [])[0];
+      const sample = row ? row[Object.keys(row)[0]] : null;
+      setValidation({ status: 'ok', value: sample, checked: value });
+    } catch (err) {
+      setValidation({
+        status: 'error',
+        message: sanitizeDbError(err.response?.data?.error || err.message),
+        checked: value,
+      });
+    }
+  };
+
+  // Driver errors can arrive as half-serialized JSON with control bytes
+  // (DuckDB binder errors, notably). Pull out the embedded message when
+  // possible, strip what isn't printable, and cap the length.
+  const sanitizeDbError = (msg) => {
+    let s = String(msg || 'Unknown error');
+    const embedded = s.match(/exception_message\\?"\s*:\s*\\?"((?:[^"\\]|\\.)+)/);
+    if (embedded) s = embedded[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
+    // Keep printable ASCII, newlines and accented Latin; drop control bytes
+    // and mojibake (replacement chars, stray CJK from corrupt buffers).
+    s = s.replace(/[^\x20-\x7E\nÀ-ſ]/g, '').trim();
+    return s.length > 280 ? s.slice(0, 280) + '…' : s;
+  };
+
+  const formatSample = (v) => {
+    if (v == null) return 'NULL';
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toLocaleString() : String(v);
+  };
+
+  const editorUI = (big) => (
     <div style={_hs0}>
-      {/* Functions bar */}
+      {/* Functions bar + actions */}
       <div style={_hs1}>
         {SQL_FUNCTIONS.map((fn) => (
           <button key={fn} onClick={() => insertFunction(fn)} style={fnChip}>{fn}</button>
         ))}
+        <span style={{ flex: 1 }} />
+        <button
+          onClick={runValidation}
+          disabled={!model?.id || !value.trim() || validation?.status === 'running'}
+          title="Run the expression against the datasource (LIMIT 1) to check it"
+          style={{ ...testBtn, opacity: (!model?.id || !value.trim()) ? 0.5 : 1 }}
+        >
+          {validation?.status === 'running' ? 'Testing…' : '▶ Test'}
+        </button>
+        <button
+          onClick={() => setExpanded(!big)}
+          title={big ? 'Close large editor (Esc)' : 'Open large editor'}
+          style={iconBtn}
+        >
+          {big ? <TbArrowsMinimize size={12} /> : <TbArrowsMaximize size={12} />}
+        </button>
       </div>
 
-      {/* Textarea */}
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={handleInput}
-        onKeyDown={handleKeyDown}
-        placeholder="SQL expression — type a field or measure name (e.g. ${TotalSales}) to see suggestions"
-        rows={3}
-        style={{ ...inputStyle, ...style, fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }}
-      />
+      {/* Editor — a highlighted <pre> and a transparent-text textarea stacked
+          in the same grid cell. The pre's natural height auto-grows the box
+          with the content (the container scrolls past maxHeight), and the
+          identical font metrics keep the caret aligned with the colors. */}
+      <div style={{ ...editorBox, ...(big ? editorBoxBig : editorBoxInline), ...style }}>
+        <pre aria-hidden style={highlightLayer}>{renderTokens(value)}{'\n'}</pre>
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={handleInput}
+          onKeyDown={handleKeyDown}
+          onFocus={big ? undefined : openExpandedFromInline}
+          placeholder="SQL expression — type a field or measure name (e.g. ${TotalSales}) to see suggestions"
+          spellCheck={false}
+          style={{ ...textareaLayer, color: value ? 'transparent' : 'var(--text-disabled)' }}
+        />
+      </div>
+
+      {/* Test result — greyed (not hidden) once the expression is edited
+          past the tested text. */}
+      {validation && validation.status !== 'running' && (
+        <div style={{
+          ...resultLine,
+          color: validation.status === 'ok' ? 'var(--state-success)' : 'var(--state-danger)',
+          opacity: validation.checked === value ? 1 : 0.55,
+        }}>
+          {validation.status === 'ok'
+            ? `✓ Valid — sample result: ${formatSample(validation.value)}`
+            : `✗ ${validation.message}`}
+          {validation.checked !== value ? ' (edited since)' : ''}
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <>
+      {expanded ? createPortal(
+        <div
+          style={overlayBackdrop}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setExpanded(false); }}
+        >
+          <div style={overlayBox}>
+            <div style={overlayTitle}>SQL expression</div>
+            {editorUI(true)}
+          </div>
+        </div>,
+        document.body,
+      ) : editorUI(false)}
 
       {/* Autocomplete dropdown — portalled to <body> so it escapes any
           `overflow: auto` ancestor (e.g. the measure-edit panel). Position
@@ -244,22 +413,72 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
         </div>,
         document.body,
       )}
-    </div>
+    </>
   );
 }
 
-const inputStyle = {
-  width: '100%', padding: '4px 6px', border: '1px solid #ddd6fe', borderRadius: 3,
-  fontSize: 11, outline: 'none', boxSizing: 'border-box',
+// Shared text metrics — MUST stay strictly identical between the highlight
+// <pre> and the textarea, or the caret drifts off the colored glyphs.
+const codeFont = {
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+  fontSize: 12, lineHeight: 1.5, tabSize: 2,
+  padding: '6px 8px', margin: 0,
+  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+  boxSizing: 'border-box', minWidth: 0,
 };
+
+const editorBox = {
+  display: 'grid', overflow: 'auto', position: 'relative',
+  border: '1px solid #ddd6fe', borderRadius: 4,
+  background: 'var(--bg-panel)', width: '100%', boxSizing: 'border-box',
+};
+const editorBoxInline = { minHeight: 72, maxHeight: 240 };
+const editorBoxBig = { minHeight: '35vh', maxHeight: '58vh' };
+
+const highlightLayer = {
+  ...codeFont, gridArea: '1 / 1', pointerEvents: 'none',
+  color: 'var(--text-primary)',
+};
+const textareaLayer = {
+  ...codeFont, gridArea: '1 / 1', width: '100%',
+  resize: 'none', overflow: 'hidden', border: 'none', outline: 'none',
+  background: 'transparent', caretColor: 'var(--text-primary)',
+};
+
+const resultLine = { fontSize: 10, marginTop: 4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' };
 
 const fnChip = {
   fontSize: 9, padding: '1px 5px', border: '1px solid var(--border-default)', borderRadius: 3,
   background: 'var(--bg-panel)', color: 'var(--text-secondary)', cursor: 'pointer', fontFamily: 'monospace',
 };
 
+const testBtn = {
+  fontSize: 9, fontWeight: 600, padding: '1px 6px', border: '1px solid var(--accent-primary-border)',
+  borderRadius: 3, background: 'var(--bg-active)', color: 'var(--accent-primary)', cursor: 'pointer',
+};
+
+const iconBtn = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  padding: '1px 4px', border: '1px solid var(--border-default)', borderRadius: 3,
+  background: 'var(--bg-panel)', color: 'var(--text-secondary)', cursor: 'pointer',
+};
+
+const overlayBackdrop = {
+  position: 'fixed', inset: 0, zIndex: 1500,
+  background: 'rgba(15, 23, 42, 0.45)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+};
+const overlayBox = {
+  width: 'min(860px, 92vw)', maxHeight: '82vh', overflow: 'auto',
+  background: 'var(--bg-panel)', borderRadius: 8, padding: 14,
+  boxShadow: '0 12px 40px rgba(0,0,0,0.3)',
+};
+const overlayTitle = {
+  fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8,
+};
+
 const dropdownStyle = {
-  position: 'fixed', zIndex: 1000,
+  position: 'fixed', zIndex: 2000,
   backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 6,
   boxShadow: '0 4px 12px rgba(0,0,0,0.25)', overflow: 'hidden',
 };
