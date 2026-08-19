@@ -5,7 +5,7 @@ import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
 import { readSheetNames } from '../utils/readSheetNames';
-import { TbEye, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeft, TbToggleRight, TbLoader2, TbRefresh, TbFileText } from 'react-icons/tb';
+import { TbEye, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeftFilled, TbToggleRightFilled, TbLoader2, TbRefresh, TbFileText } from 'react-icons/tb';
 import { DeleteIcon, EditIcon, ICON_SIZE } from '../components/actionIcons';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
@@ -1271,19 +1271,6 @@ export default function Dashboard() {
                                   : <><TbShare size={14} /> Share public link</>}
                               </button>
                             )}
-                            {(wsUserRole === 'admin' || activeOrgRole === 'admin' || user?.role === 'admin') && (
-                              <button style={cardMenuItem}
-                                onClick={() => { setCardMenu(null); toggleLiveMode(report); }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                                title={report.live_mode
-                                  ? 'Switch this report back to the cached (rollup) data source — faster, default.'
-                                  : 'Switch this report to a live source query — bypasses the rollup cache on every widget.'}>
-                                {report.live_mode
-                                  ? <><TbDatabase size={14} /> Use cached data</>
-                                  : <><TbBolt size={14} /> Use live query</>}
-                              </button>
-                            )}
                             {report.is_public ? (
                               <button style={cardMenuItem}
                                 onClick={() => {
@@ -1322,6 +1309,24 @@ export default function Dashboard() {
                                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                                 <TbCalendarTime size={14} /> Schedule email
                               </button>
+                            )}
+                            {(wsUserRole === 'admin' || activeOrgRole === 'admin' || user?.role === 'admin') && (
+                              <>
+                                <div style={cardMenuDivider} />
+                                <button style={liveSwitchRow}
+                                  onClick={() => toggleLiveMode(report)}
+                                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                  title={report.live_mode
+                                    ? 'Live query: every widget queries the source database directly. Click to switch back to the rollup cache (default, faster).'
+                                    : 'Rollup cache (default): widgets are served from pre-aggregated data. Click to switch to live source queries.'}>
+                                  <span style={liveSwitchSide(!report.live_mode)}>Rollup cache</span>
+                                  {report.live_mode
+                                    ? <TbToggleRightFilled size={20} style={liveToggleOn} />
+                                    : <TbToggleLeftFilled size={20} style={liveToggleOff} />}
+                                  <span style={liveSwitchSide(!!report.live_mode)}>Live query</span>
+                                </button>
+                              </>
                             )}
                           </div>
                         )}
@@ -1529,6 +1534,24 @@ const cardMenuItem = {
   color: 'var(--text-secondary)', cursor: 'pointer', textAlign: 'left',
   whiteSpace: 'nowrap', transition: 'background 0.12s',
 };
+// Data-source footer of the card menu: a switch with BOTH labels around
+// it ("Rollup cache ⟷ Live query"), pinned last under a divider. The
+// switch points at the active side and that label is emphasised — the
+// either/or is visible without an action-style item that hides the
+// alternative. Clicking keeps the menu open so the flip is seen.
+const cardMenuDivider = { height: 1, margin: '4px 0', background: 'var(--border-default)' };
+const liveSwitchRow = {
+  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+  padding: '7px 12px', fontSize: 12,
+  background: 'transparent', border: 'none', borderRadius: 4,
+  cursor: 'pointer', whiteSpace: 'nowrap', transition: 'background 0.12s',
+};
+const liveSwitchSide = (active) => ({
+  color: active ? 'var(--text-primary)' : 'var(--text-muted)',
+  fontWeight: active ? 600 : 400,
+});
+const liveToggleOn = { color: 'var(--accent-primary)', flexShrink: 0 };
+const liveToggleOff = { color: 'var(--text-muted)', flexShrink: 0 };
 
 // Row styles for the report-version history modal. The shared modal chrome
 // (`actionModal*`, `cardActionBtn`) lives in components/dashboardModalStyles.
