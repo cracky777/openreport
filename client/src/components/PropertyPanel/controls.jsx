@@ -7,8 +7,8 @@ import { TbChevronDown } from 'react-icons/tb';
 import { parseIntOrNull } from '../../utils/input';
 
 const _hs41 = { marginBottom: 8 };
-const _hs42 = { fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' };
-const _hs43 = { padding: '8px 10px 4px' };
+const _hs42 = { fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' };
+const _hs43 = { padding: '6px 8px 2px' };
 const _hs44 = { marginTop: 6, marginBottom: 6 };
 const _hs45 = { fontSize: 10, fontWeight: 600, color: 'var(--text-disabled)', textTransform: 'uppercase', marginBottom: 4 };
 const _hs46 = { display: 'flex', gap: 2, marginBottom: 6, justifyContent: 'flex-start' };
@@ -23,18 +23,17 @@ const _hs54 = { width: 48, minWidth: 48, padding: '2px 3px', border: '1px solid 
 const _hs55 = { fontSize: 10, color: 'var(--text-disabled)', flexShrink: 0 };
 const _hs56 = { display: 'flex', alignItems: 'center', gap: 3 };
 const _hs57 = {
-      border: '1px solid var(--border-default)', borderRadius: 8,
+      border: '1px solid var(--border-default)', borderRadius: 6,
       overflow: 'hidden', background: 'var(--bg-panel)',
-      boxShadow: '0 1px 1px rgba(15,23,42,0.02)',
     };
 const _hs58 = {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '8px 12px', cursor: 'pointer', userSelect: 'none', gap: 8,
+          padding: '4px 9px', cursor: 'pointer', userSelect: 'none', gap: 8,
           background: 'var(--bg-panel)',
         };
 const _hs59 = { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 };
-const _hs60 = { fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
-const _hs61 = { padding: '8px 10px 4px', borderTop: '1px solid var(--border-default)' };
+const _hs60 = { fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const _hs61 = { padding: '6px 8px 2px', borderTop: '1px solid var(--border-default)' };
 
 function Section({ title, children, defaultOpen, sectionState, bare }) {
   if (bare) {
@@ -52,7 +51,7 @@ function Section({ title, children, defaultOpen, sectionState, bare }) {
         <span style={_hs42}>{title}</span>
         {toggle && (
           <span style={{ display: 'inline-flex', color: 'var(--text-disabled)', transition: 'transform 0.15s', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>
-            <TbChevronDown size={14} />
+            <TbChevronDown size={12} />
           </span>
         )}
       </div>
@@ -332,18 +331,19 @@ const compareInputStyle = {
   background: 'var(--bg-panel)', color: 'var(--text-primary)',
 };
 
+// Dense chrome on purpose: the panel stacks ~8 collapsed sections on the
+// richer widget types, so every px of header height is paid that many times.
 const sectionStyle = {
-  marginBottom: 8,
+  marginBottom: 4,
   border: '1px solid var(--border-default)',
-  borderRadius: 8,
+  borderRadius: 6,
   overflow: 'hidden',
   background: 'var(--bg-panel)',
-  boxShadow: '0 1px 1px rgba(15,23,42,0.02)',
 };
 
 const sectionHeaderStyle = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  padding: '8px 12px',
+  padding: '4px 9px',
   background: 'var(--bg-panel)',
   borderBottom: '1px solid transparent',
   cursor: 'pointer',
@@ -354,7 +354,7 @@ const sectionHeaderStyle = {
 const subSectionStyle = {
   marginTop: 6, marginBottom: 6,
   padding: '8px 8px',
-  border: '1px solid #eef2f7',
+  border: '1px solid var(--border-subtle)',
   borderRadius: 6,
   background: 'var(--bg-subtle)',
   overflow: 'hidden',

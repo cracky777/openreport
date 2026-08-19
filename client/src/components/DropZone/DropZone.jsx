@@ -142,7 +142,7 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
         onDrop={handleDrop}
         style={{
           minHeight: 36,
-          border: isHovering ? '2px dashed #7c3aed' : '1px dashed #cbd5e1',
+          border: isHovering ? '2px dashed var(--accent-primary)' : '1px dashed var(--border-strong)',
           borderRadius: 6,
           padding: 4,
           backgroundColor: isHovering ? 'var(--bg-active)' : 'var(--bg-subtle)',
@@ -169,7 +169,7 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
                   display: 'flex', alignItems: 'center', gap: 3,
                   fontSize: 11, padding: '3px 6px', borderRadius: 4,
                   background: missing ? 'var(--state-danger-soft)' : isDim ? 'var(--bg-active)' : 'var(--state-success-soft)',
-                  color: missing ? 'var(--state-danger)' : isDim ? 'var(--accent-primary)' : '#16a34a',
+                  color: missing ? 'var(--state-danger)' : isDim ? 'var(--accent-primary)' : 'var(--state-success)',
                   fontWeight: 500, opacity: isDragging ? 0.4 : willBeReplaced ? 0.45 : 1,
                   cursor: 'grab', userSelect: 'none',
                   textDecoration: willBeReplaced ? 'line-through' : 'none',

@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, Fragment } from 'react';
 import { useCalcWizard } from '../../hooks/useCalcWizard';
 import { useFieldEdit } from '../../hooks/useFieldEdit';
 import { useSplitRatio } from '../../hooks/useSplitRatio';
+import { usesLegend, usesPivotColumns } from '../../utils/widgetZones';
+import { inputBase, inputCompact, btnPrimary, btnGhost, btnAccentSoft } from '../formTokens';
 import { createPortal } from 'react-dom';
 import { TbChevronDown, TbFolder } from 'react-icons/tb';
 import { ICON_SIZE } from '../actionIcons';
@@ -26,8 +28,6 @@ const _hs8 = { color: 'var(--text-disabled)', cursor: 'help' };
 const _hs9 = { marginTop: 6 };
 const _hs10 = { fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: 4 };
 const _hs11 = { display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 };
-const _hs12 = { fontSize: 11, padding: '2px 8px', border: '1px solid var(--border-default)', borderRadius: 3, background: 'var(--bg-panel)', cursor: 'pointer', color: 'var(--text-muted)' };
-const _hs13 = { fontSize: 11, fontWeight: 600, padding: '2px 8px', border: 'none', borderRadius: 3, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer' };
 const _hs14 = { display: 'flex', gap: 4, marginBottom: 4 };
 const _hs15 = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 };
 const _hs16 = { display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' };
@@ -43,7 +43,7 @@ const _hs23 = {
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 marginBottom: 3, gap: 6, flexShrink: 0,
               };
-const _hs24 = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 };
+const _hs24 = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--text-muted)', fontWeight: 600 };
 const _hs25 = { fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--state-warning-soft)', color: 'var(--state-warning)', fontWeight: 600, border: 'none', cursor: 'pointer' };
 const _hs26 = { border: '1px solid var(--border-default)', borderRadius: 4, overflow: 'auto', minHeight: 28 };
 const _hs27 = { display: 'inline-block', width: 14, flexShrink: 0 };
@@ -51,7 +51,9 @@ const _hs28 = { fontSize: 8, color: 'var(--text-disabled)', flexShrink: 0 };
 const _hs30 = { display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 };
 const _hs31 = { fontSize: 12, color: 'var(--text-disabled)', marginTop: 4 };
 const _hs32 = { fontSize: 11, marginTop: 4, color: 'var(--state-danger)' };
-const _hs34 = { display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 3, fontWeight: 500, flexShrink: 0 };
+// Same header voice as the config panel's sections (10px / 600 / uppercase)
+// so the two side panels read as one design.
+const _hs34 = { display: 'block', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--text-muted)', marginBottom: 3, fontWeight: 600, flexShrink: 0 };
 
 export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, reportId, cacheBuiltAt }) {
   // Patches the report's in-memory `settings` JSON (persisted on the next
@@ -135,8 +137,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   const hasWidget = model && widgetId && widget && !['text', 'image', 'shape'].includes(widget.type);
   const binding = hasWidget ? (widget.dataBinding || {}) : {};
   const selectedDims = binding.selectedDimensions || [];
-  const groupBy = binding.groupBy || [];
-  const columnDims = binding.columnDimensions || [];
+  // Dormant zone keys (kept across visual-type switches) must not light up
+  // fields the current type doesn't actually use.
+  const groupBy = hasWidget && usesLegend(widget.type) ? (binding.groupBy || []) : [];
+  const columnDims = hasWidget && usesPivotColumns(widget.type) ? (binding.columnDimensions || []) : [];
 
   // Build measures list based on widget type
   const isScatter = widget?.type === 'scatter';
@@ -606,7 +610,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               <button onClick={() => {
                 setShowCalcForm(false); setCalcLabel(''); setCalcExpr(''); setCalcBareExpr(''); setCalcField('');
                 setCalcAggregation('sum'); setCalcFilterEnabled(false); setCalcRules([]); setCalcOverride(false);
-              }} style={_hs12}>Cancel</button>
+              }} style={btnGhost}>Cancel</button>
               <button
                 disabled={calcSaving}
                 onClick={async () => {
@@ -676,7 +680,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   } catch (err) { console.error(err); }
                   finally { setCalcSaving(false); }
                 }}
-                style={_hs13}>
+                style={btnPrimary}>
                 {calcSaving ? '...' : 'Add'}
               </button>
             </div>
@@ -1472,11 +1476,7 @@ function FieldSection({ title, count, actions, children, style, sectionRef, coll
 }
 
 const searchWrap = { position: 'relative', flexShrink: 0, marginBottom: 8 };
-const searchInput = {
-  width: '100%', boxSizing: 'border-box', fontSize: 12, padding: '5px 22px 5px 8px',
-  border: '1px solid var(--border-default)', borderRadius: 4,
-  background: 'var(--bg-panel)', color: 'var(--text-primary)', outline: 'none',
-};
+const searchInput = { ...inputBase, padding: '5px 22px 5px 8px' };
 const searchClear = {
   position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)',
   border: 'none', background: 'transparent', color: 'var(--text-muted)',
@@ -1499,11 +1499,15 @@ const splitterGrip = {
 const sectionTitle = {
   fontSize: 11, fontWeight: 600, color: 'var(--text-disabled)', textTransform: 'uppercase', marginBottom: 0,
 };
+// scrollbarGutter stable: rows keep the same width whether the list
+// scrolls or not, so labels don't reflow when content grows past the fold.
 const listBox = {
   flex: 1, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 4, minHeight: 0,
+  scrollbarGutter: 'stable', scrollbarWidth: 'thin',
 };
 const listBoxLarge = {
   flex: 1, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 4, minHeight: 0,
+  scrollbarGutter: 'stable', scrollbarWidth: 'thin',
 };
 const tableGroupHeader = {
   fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase',
@@ -1569,18 +1573,9 @@ const editRow = {
 const editLabel = {
   fontSize: 10, color: 'var(--text-muted)', fontWeight: 500,
 };
-const editInput = {
-  padding: '3px 6px', border: '1px solid var(--border-default)', borderRadius: 3,
-  fontSize: 11, outline: 'none', boxSizing: 'border-box',
-};
-const editCancelBtn = {
-  fontSize: 10, padding: '2px 8px', border: '1px solid var(--border-default)', borderRadius: 3,
-  background: 'var(--bg-panel)', cursor: 'pointer', color: 'var(--text-muted)',
-};
-const editSaveBtn = {
-  fontSize: 10, fontWeight: 600, padding: '2px 8px', border: 'none', borderRadius: 3,
-  background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
-};
+const editInput = { ...inputCompact, width: undefined };
+const editCancelBtn = btnGhost;
+const editSaveBtn = btnPrimary;
 // Square icon-only button. The native `title` attribute renders a tooltip
 // after the OS hover delay so the icon stays compact but stays discoverable.
 const iconBtn = (color) => ({
@@ -1588,11 +1583,5 @@ const iconBtn = (color) => ({
   background: 'var(--bg-panel)', color, cursor: 'pointer', lineHeight: 1,
   width: 24, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
 });
-const addCalcBtnSmall = {
-  fontSize: 10, fontWeight: 600, padding: '1px 6px', border: '1px solid var(--accent-primary)',
-  borderRadius: 3, background: 'var(--bg-active)', color: 'var(--accent-primary)', cursor: 'pointer',
-};
-const calcInputStyle = {
-  width: '100%', padding: '4px 6px', border: '1px solid var(--accent-primary-border)', borderRadius: 3,
-  fontSize: 11, outline: 'none', boxSizing: 'border-box', background: 'var(--bg-panel)', color: 'var(--text-primary)',
-};
+const addCalcBtnSmall = btnAccentSoft;
+const calcInputStyle = { ...inputCompact, borderColor: 'var(--accent-primary-border)' };

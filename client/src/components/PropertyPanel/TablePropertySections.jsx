@@ -6,7 +6,7 @@ import FontPicker from '../FontPicker/FontPicker';
 const _hs0 = { display: 'flex', gap: 2 };
 const _hs1 = { display: 'flex', gap: 2 };
 const _hs2 = { fontSize: 11, color: 'var(--text-disabled)', fontStyle: 'italic' };
-const _hs3 = { fontSize: 10, color: 'var(--state-danger)', background: 'transparent', border: '1px solid #fca5a5', borderRadius: 3, padding: '2px 6px', cursor: 'pointer', marginTop: 4 };
+const _hs3 = { fontSize: 10, color: 'var(--state-danger)', background: 'transparent', border: '1px solid var(--state-danger-border)', borderRadius: 3, padding: '2px 6px', cursor: 'pointer', marginTop: 4 };
 const _hs4 = { display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 };
 const _hs5 = { fontSize: 10, padding: '3px 6px', border: '1px solid var(--border-default)', borderRadius: 3, background: 'var(--bg-panel)', cursor: 'pointer', color: 'var(--text-secondary)' };
 const _hs6 = { fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 };
@@ -107,7 +107,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
           <div style={_hs0}>
             {[['left', 'L'], ['center', 'C'], ['right', 'R']].map(([v, l]) => (
               <button key={v} onClick={() => update('header.alignment', v)}
-                style={{ ...toggleBtn, background: get('header', 'alignment', 'left') === v ? '#7c3aed' : '#fff', color: get('header', 'alignment', 'left') === v ? '#fff' : '#475569' }}>
+                style={{ ...toggleBtn, background: get('header', 'alignment', 'left') === v ? 'var(--accent-primary)' : 'var(--bg-panel)', color: get('header', 'alignment', 'left') === v ? 'var(--text-inverse)' : 'var(--text-secondary)' }}>
                 {l}
               </button>
             ))}
@@ -159,7 +159,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
           <div style={_hs1}>
             {[['auto', 'Auto'], ['left', 'L'], ['center', 'C'], ['right', 'R']].map(([v, l]) => (
               <button key={v} onClick={() => update('values.alignment', v)}
-                style={{ ...toggleBtn, background: get('values', 'alignment', 'auto') === v ? '#7c3aed' : '#fff', color: get('values', 'alignment', 'auto') === v ? '#fff' : '#475569' }}>
+                style={{ ...toggleBtn, background: get('values', 'alignment', 'auto') === v ? 'var(--accent-primary)' : 'var(--bg-panel)', color: get('values', 'alignment', 'auto') === v ? 'var(--text-inverse)' : 'var(--text-secondary)' }}>
                 {l}
               </button>
             ))}
@@ -550,7 +550,7 @@ function IconLevelEditor({ label, icon, color, value, valuePlaceholder, onIconCh
             <div style={presetDropdown}>
               {ICON_PRESETS.map((ic) => (
                 <button key={ic} onClick={() => { onIconChange(ic); setShowPresets(false); }}
-                  style={{ width: 26, height: 26, border: 'none', background: icon === ic ? '#f5f3ff' : '#fff', cursor: 'pointer', fontSize: 14, borderRadius: 3 }}>
+                  style={{ width: 26, height: 26, border: 'none', background: icon === ic ? 'var(--bg-active)' : 'var(--bg-panel)', cursor: 'pointer', fontSize: 14, borderRadius: 3 }}>
                   {ic}
                 </button>
               ))}
@@ -572,7 +572,7 @@ function IconLevelEditor({ label, icon, color, value, valuePlaceholder, onIconCh
 
 const iconLevelStyle = {
   padding: '4px 0',
-  borderBottom: '1px solid #f8fafc',
+  borderBottom: '1px solid var(--border-subtle)',
 };
 
 const presetDropdown = {
@@ -584,7 +584,7 @@ const presetDropdown = {
 
 const colSelectStyle = {
   marginBottom: 8, padding: '4px 0',
-  borderBottom: '1px solid #f1f5f9',
+  borderBottom: '1px solid var(--border-subtle)',
 };
 
 const toggleBtn = {

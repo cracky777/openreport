@@ -7,8 +7,9 @@ import TablePropertySections from './TablePropertySections';
 import DimensionMultiSelect from './DimensionMultiSelect';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
 import FontPicker from '../FontPicker/FontPicker';
-import { TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbAdjustments, TbDatabase, TbAlignLeft, TbAlignCenter, TbAlignRight, TbLayoutAlignTop, TbLayoutAlignMiddle, TbLayoutAlignBottom } from 'react-icons/tb';
+import { TbChartBar, TbChevronsLeft, TbChevronsRight, TbChevronDown, TbDatabase, TbAlignLeft, TbAlignCenter, TbAlignRight, TbLayoutAlignTop, TbLayoutAlignMiddle, TbLayoutAlignBottom } from 'react-icons/tb';
 import { EditIcon, ICON_SIZE } from '../actionIcons';
+import { inputBase } from '../formTokens';
 import ConfirmDeleteButton from '../ConfirmDeleteButton/ConfirmDeleteButton';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
 import { parseIntOrNull, parseFloatOrNull } from '../../utils/input';
@@ -21,7 +22,6 @@ const _hs1 = { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4, f
 const _hs2 = { display: 'flex', flexDirection: 'column', gap: 2 };
 const _hs3 = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' };
 const _hs4 = { fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 };
-const _hs5 = { display: 'flex', gap: 3, marginBottom: 12, justifyContent: 'center' };
 const _hs6 = { display: 'flex', gap: 2, marginBottom: 6, justifyContent: 'center' };
 const _hs7 = { display: 'flex', gap: 2, marginBottom: 6, justifyContent: 'center' };
 const _hs8 = { marginTop: 6 };
@@ -39,7 +39,7 @@ const _hs18 = { fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 };
 const _hs19 = { fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 };
 const _hs20 = { fontSize: 10, color: 'var(--text-disabled)', marginTop: 4 };
 const _hs21 = { display: 'flex', flexDirection: 'column', gap: 8 };
-const _hs22 = { borderBottom: '1px solid #f1f5f9', paddingBottom: 6 };
+const _hs22 = { borderBottom: '1px solid var(--border-subtle)', paddingBottom: 6 };
 const _hs23 = { fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 const _hs24 = { display: 'flex', alignItems: 'center', gap: 6 };
 const _hs25 = { display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 };
@@ -87,35 +87,15 @@ const useSectionState = () => {
 };
 
 // Left column: widget configuration (always present, collapsible)
-export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBringToFront, onSendToBack, onBringForward, onSendBackward, model, onResizeStart, onResizeEnd }) {
-  const [collapsed, setCollapsed] = useState(false);
+export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model, onResizeStart, onResizeEnd }) {
   const sections = useSectionState();
   const { width, handleProps } = useResizableWidth({ storageKey: 'openreport.configPanelWidth', defaultWidth: 210, min: 180, max: 480, onDragStart: onResizeStart, onDragEnd: onResizeEnd });
   const dynamicConfigStyle = { ...configPanelStyle, width, maxWidth: width, position: 'relative' };
 
-  // Toggle: pin the canvas so it doesn't reflow during the column animation, then unpin once
-  // the animation has settled. Same pattern used by the PagesColumn.
-  const toggleCollapsed = (val) => {
-    onResizeStart?.();
-    setCollapsed(val);
-    setTimeout(() => onResizeEnd?.(), PANEL_COLLAPSE_TRANSITION_MS + 30);
-  };
-
   // Nothing selected, nothing to configure — so no panel, not a panel saying
-  // there is nothing to configure. It stood there as a fixed column telling
-  // the user to pick a widget, while taking the canvas width they needed to
-  // pick one. Before the collapsed branch: a collapsed rail is still a rail.
+  // there is nothing to configure (and no collapse machinery either: the
+  // panel appearing only with a selection IS the collapse).
   if (!widgetId || !widget) return null;
-
-  if (collapsed) {
-    return (
-      <div style={collapsedPanelStyle} onClick={() => toggleCollapsed(false)} title="Open config panel">
-        <span style={collapsedChevronStyle}><TbChevronsLeft size={14} /></span>
-        <TbAdjustments size={14} color="var(--accent-primary)" />
-        <span style={collapsedLabelStyle}>Configuration</span>
-      </div>
-    );
-  }
 
   const updateConfig = (key, value) => {
     onUpdate(widgetId, { ...widget, config: { ...widget.config, [key]: value } });
@@ -518,17 +498,6 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
   return (
     <div style={dynamicConfigStyle}>
       <div {...handleProps} />
-      <div style={panelHeader}>
-        <span style={panelHeaderTitle}>
-          <TbAdjustments size={14} color="var(--accent-primary)" />
-          Configuration
-        </span>
-        <button onClick={() => toggleCollapsed(true)} style={chevronBtn} title="Collapse panel"
-          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--border-strong)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
-        ><TbChevronsRight size={14} /></button>
-      </div>
-
       {(() => {
         const info = getWidgetDisplayInfo(widget);
         const Icon = info.icon;
@@ -536,6 +505,28 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
         const maxReached = widget.data?._maxReached;
         return (
           <>
+            {/* Widget title — first element of the panel on purpose: it
+                names the visual, so it reads as the panel's own heading
+                rather than one form field among the sections. The font
+                picker only appears once there is a title to style. */}
+            <div style={titleBlock}>
+              <input
+                type="text"
+                value={widget.config?.title || ''}
+                onChange={(e) => updateConfig('title', e.target.value)}
+                placeholder="Add a title…"
+                style={titleInput}
+                onFocus={(e) => { e.currentTarget.style.borderBottomColor = 'var(--accent-primary)'; e.currentTarget.style.borderBottomStyle = 'solid'; }}
+                onBlur={(e) => { e.currentTarget.style.borderBottomColor = 'var(--border-default)'; e.currentTarget.style.borderBottomStyle = 'dashed'; }}
+              />
+              {(widget.config?.title || '') !== '' && (
+                <div style={titleFontRow}>
+                  <span style={titleFontLabel}>Font</span>
+                  <FontPicker value={widget.config?.titleFontFamily}
+                    onChange={(v) => updateConfig('titleFontFamily', v)} />
+                </div>
+              )}
+            </div>
             <div style={headerStyle}>
               <div style={_hs2}>
                 <span style={_hs3}>
@@ -554,12 +545,6 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
                 style={deleteStyle}
                 onConfirm={() => onDelete(widgetId)}
               />
-            </div>
-            <div style={_hs5}>
-              <button onClick={() => onSendToBack(widgetId)} title="Send to back" style={layerBtn}><TbLayersSubtract size={14} /></button>
-              <button onClick={() => onSendBackward(widgetId)} title="Back one" style={layerBtn}><TbArrowBigDown size={14} /></button>
-              <button onClick={() => onBringForward(widgetId)} title="Forward one" style={layerBtn}><TbArrowBigUp size={14} /></button>
-              <button onClick={() => onBringToFront(widgetId)} title="Bring to front" style={layerBtn}><TbLayersLinked size={14} /></button>
             </div>
           </>
         );
@@ -828,15 +813,6 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, onBrin
           </Section>
         );
       })()}
-
-      <Section title="Title">
-        <input type="text" value={widget.config?.title || ''} onChange={(e) => updateConfig('title', e.target.value)}
-          placeholder="Widget title" style={inputStyle} />
-        <Field label="Font family">
-          <FontPicker value={widget.config?.titleFontFamily}
-            onChange={(v) => updateConfig('titleFontFamily', v)} />
-        </Field>
-      </Section>
 
       {widget.type !== 'text' && widget.type !== 'shape' && widget.type !== 'image' && (
         <Section title="Data" sectionState={sections}>
@@ -2052,6 +2028,11 @@ const PANEL_COLLAPSE_TRANSITION_MS = 200;
 const configPanelStyle = {
   width: 210, maxWidth: 210, backgroundColor: 'var(--bg-panel-alt)', borderLeft: '1px solid var(--border-default)',
   padding: 12, overflowY: 'auto', flexShrink: 0,
+  // Reserve the scrollbar lane permanently: without this, opening a section
+  // (or selecting a widget with more sections) pops the scrollbar in and
+  // shifts every control sideways.
+  scrollbarGutter: 'stable',
+  scrollbarWidth: 'thin',
   transition: `width ${PANEL_COLLAPSE_TRANSITION_MS}ms ease, max-width ${PANEL_COLLAPSE_TRANSITION_MS}ms ease`,
 };
 
@@ -2106,12 +2087,17 @@ const headerStyle = {
   marginBottom: 14, paddingBottom: 10, borderBottom: '1px solid var(--border-default)',
 };
 
-const layerBtn = {
-  color: 'var(--text-secondary)', background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
-  borderRadius: 6, padding: '5px 7px', cursor: 'pointer',
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  transition: 'background 0.12s, border-color 0.12s, color 0.12s',
+// Widget-title block pinned at the very top of the panel. The dashed
+// underline signals editability without the weight of a boxed input.
+const titleBlock = { marginBottom: 10 };
+const titleInput = {
+  width: '100%', boxSizing: 'border-box', fontSize: 14, fontWeight: 600,
+  color: 'var(--text-primary)', background: 'transparent',
+  border: 'none', borderBottom: '1px dashed var(--border-default)',
+  padding: '2px 0 4px', outline: 'none',
 };
+const titleFontRow = { display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 };
+const titleFontLabel = { fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 };
 
 const deleteStyle = {
   color: 'var(--state-danger)', background: 'var(--bg-panel)', border: '1px solid var(--state-danger-border)',
@@ -2120,7 +2106,4 @@ const deleteStyle = {
   transition: 'background 0.12s, border-color 0.12s',
 };
 
-const inputStyle = {
-  width: '100%', padding: '6px 8px', border: '1px solid var(--border-default)', borderRadius: 4,
-  fontSize: 13, marginBottom: 8, outline: 'none', boxSizing: 'border-box',
-};
+const inputStyle = { ...inputBase, marginBottom: 8 };

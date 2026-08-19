@@ -5,7 +5,7 @@ import { Section, Field } from './controls';
 // (or global) value-abbreviation and aggregation. Extracted verbatim from
 // PropertyPanel.jsx (LOT 6.3). Self-contained — its only local state is the
 // currently-edited measure; everything else comes in via props.
-const _hs62 = { marginTop: 8, paddingTop: 6, borderTop: '1px solid #f1f5f9' };
+const _hs62 = { marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-subtle)' };
 
 export default function PivotOptionsSection({ widget, updateConfig, inputStyle, sections }) {
   const pc = widget.config?.pivotConfig || {};

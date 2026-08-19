@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { TbArrowsMaximize, TbArrowsMinimize } from 'react-icons/tb';
 import api from '../../utils/api';
 import { tokenizeSql } from '../../utils/sqlHighlight';
+import { btnAccentSoft } from '../formTokens';
 
 const _hs0 = { position: 'relative' };
 const _hs1 = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 3, marginBottom: 4 };
@@ -17,11 +18,13 @@ const SQL_FUNCTIONS = ['SUM', 'AVG', 'COUNT', 'MIN', 'MAX', 'NULLIF', 'COALESCE'
 // textarea's caret.
 const TOKEN_COLORS = {
   keyword: { color: 'var(--accent-primary)', fontWeight: 600 },
-  function: { color: '#0891b2', fontWeight: 600 },
+  function: { color: 'var(--accent-cyan)', fontWeight: 600 },
   string: { color: 'var(--state-success)' },
+  // Fixed amber: readable on both themes, and no token maps to it
+  // (--state-warning is brown in light mode).
   number: { color: '#d97706' },
-  identifier: { color: '#7c3aed' },
-  calc: { color: '#b45309', fontWeight: 600 },
+  identifier: { color: 'var(--accent-primary)' },
+  calc: { color: 'var(--state-warning)', fontWeight: 600 },
   comment: { color: 'var(--text-disabled)', fontStyle: 'italic' },
 };
 
@@ -394,8 +397,8 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
               <span style={{
                 fontSize: 9, fontWeight: 700, marginRight: 6, padding: '0 3px',
                 borderRadius: 2, flex: '0 0 auto',
-                backgroundColor: s.type === 'dim' ? '#ede9fe' : (s.type === 'calc' ? '#fef3c7' : '#dcfce7'),
-                color: s.type === 'dim' ? '#7c3aed' : (s.type === 'calc' ? '#b45309' : '#16a34a'),
+                backgroundColor: s.type === 'dim' ? 'var(--accent-primary-soft)' : (s.type === 'calc' ? 'var(--state-warning-soft)' : 'var(--state-success-soft)'),
+                color: s.type === 'dim' ? 'var(--accent-primary)' : (s.type === 'calc' ? 'var(--state-warning)' : 'var(--state-success)'),
               }}>
                 {s.type === 'dim' ? 'DIM' : (s.type === 'calc' ? 'ƒ' : 'MES')}
               </span>
@@ -429,7 +432,7 @@ const codeFont = {
 
 const editorBox = {
   display: 'grid', overflow: 'auto', position: 'relative',
-  border: '1px solid #ddd6fe', borderRadius: 4,
+  border: '1px solid var(--accent-primary-border)', borderRadius: 4,
   background: 'var(--bg-panel)', width: '100%', boxSizing: 'border-box',
 };
 const editorBoxInline = { minHeight: 72, maxHeight: 240 };
@@ -452,10 +455,7 @@ const fnChip = {
   background: 'var(--bg-panel)', color: 'var(--text-secondary)', cursor: 'pointer', fontFamily: 'monospace',
 };
 
-const testBtn = {
-  fontSize: 9, fontWeight: 600, padding: '1px 6px', border: '1px solid var(--accent-primary-border)',
-  borderRadius: 3, background: 'var(--bg-active)', color: 'var(--accent-primary)', cursor: 'pointer',
-};
+const testBtn = btnAccentSoft;
 
 const iconBtn = {
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -485,5 +485,5 @@ const dropdownStyle = {
 
 const suggestionItem = {
   display: 'flex', alignItems: 'center', padding: '5px 8px',
-  fontSize: 11, cursor: 'pointer', borderBottom: '1px solid #f8fafc',
+  fontSize: 11, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)',
 };
