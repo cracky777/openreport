@@ -19,6 +19,7 @@ import { prepareGlobalRulesForWidget } from '../utils/reportFilterRules';
 import { parseFiltersFromUrl, syncFiltersToUrl } from '../utils/urlFilters';
 import { filterForTarget } from '../utils/crossFilter';
 import { convertData, buildSnapshot } from '../utils/editorHelpers';
+import { transformBinding } from '../utils/widgetZones';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useAutoRefreshOnImport } from '../hooks/useAutoRefreshOnImport';
 import { useSaveAndDirtyTracking } from '../hooks/useSaveAndDirtyTracking';
@@ -1404,11 +1405,11 @@ export default function Editor() {
       const existing = widgets[selectedWidget];
       const convertedData = convertData(existing.data, existing.type, type);
 
-      // Clean dataBinding: remove fields not supported by the new type
-      const newBinding = { ...existing.dataBinding };
-      if (type !== 'bar') {
-        delete newBinding.groupBy;
-      }
+      // Shared zones survive the switch (fields AND their order); the
+      // type-specific splits (combo bar/line, scatter roles) are projected
+      // by transformBinding, which also keeps dormant zone keys for round
+      // trips — the query payload only reads what the new type consumes.
+      const newBinding = transformBinding(existing.type, type, existing.dataBinding);
 
       // Strip the cache marker so the data panel re-fetches with the new
       // widget type's expected shape instead of reusing the converted (best
@@ -1831,6 +1832,10 @@ export default function Editor() {
               onMergeWith={handleMergeWith}
               onUnmerge={handleUnmergeSelected}
               onToggleSeparator={handleToggleMergeSeparator}
+              onBringToFront={handleBringToFront}
+              onSendToBack={handleSendToBack}
+              onBringForward={handleBringForward}
+              onSendBackward={handleSendBackward}
             />
           </div>
         </div>
@@ -1840,10 +1845,6 @@ export default function Editor() {
           widget={selectedWidget ? widgets[selectedWidget] : null}
           onUpdate={handleUpdateWidget}
           onDelete={handleDeleteWidget}
-          onBringToFront={handleBringToFront}
-          onSendToBack={handleSendToBack}
-          onBringForward={handleBringForward}
-          onSendBackward={handleSendBackward}
           model={effectiveModel}
           onResizeStart={pinCanvas}
           onResizeEnd={unpinCanvas}

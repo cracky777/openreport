@@ -1,5 +1,6 @@
 import { sanitizeWidgetFilters } from './widgetFilters';
 import { filterForTarget } from './crossFilter';
+import { usesLegend, usesPivotColumns } from './widgetZones';
 import {
   hasShiftableFilterForN1,
   shiftFiltersForN1,
@@ -87,8 +88,11 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
       : widget.type === 'gauge'
         ? [...new Set([...(binding.selectedMeasures || []), binding.gaugeThresholdMeasure, binding.gaugeMaxMeasure].filter(Boolean))]
         : (binding.selectedMeasures || []);
-  const grpBy = binding.groupBy || [];
-  const colDimsB = binding.columnDimensions || [];
+  // Zone keys are only consumed by the types that render them: a dormant
+  // legend or pivot-columns key (kept across visual-type switches for
+  // round-trip memory) must not leak into another type's query.
+  const grpBy = usesLegend(widget.type) ? (binding.groupBy || []) : [];
+  const colDimsB = usesPivotColumns(widget.type) ? (binding.columnDimensions || []) : [];
 
   // Drill-down support. Drillable widgets (bar/line/combo/pie/treemap)
   // with >1 dim follow a hierarchy: each drill click pushes one

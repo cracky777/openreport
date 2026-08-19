@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback, useMemo, Fragment } from 'react';
-import { TbMagnet, TbMagnetOff, TbMinus } from 'react-icons/tb';
+import { TbMagnet, TbMagnetOff, TbMinus, TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp } from 'react-icons/tb';
 import { WIDGET_TYPES } from '../Widgets';
 import { getMergeGroups, groupSeams, mergeCorners, edgeMidpoint } from '../../utils/mergeFrames';
 import WidgetItem from './WidgetItem';
@@ -42,6 +42,13 @@ export default function ReportCanvas({
   // Merge the selected widget with a neighbour (called by the on-canvas
   // magnet affordance). No-op in read-only.
   onMergeWith,
+  // Z-order handlers for the floating bar pinned above the selected widget.
+  // Layer order is a canvas concern, so its controls live next to the
+  // object they move rather than in the config panel.
+  onBringToFront,
+  onSendToBack,
+  onBringForward,
+  onSendBackward,
   // Unmerge the currently-selected widget from its group, and toggle the
   // group's separator. Same handlers as the PropertyPanel actions — also
   // surfaced on-canvas at each seam of the selected widget's group.
@@ -478,6 +485,40 @@ export default function ReportCanvas({
             the entire shared edge, the button fades in only when the
             cursor enters that strip. Keeps the canvas clean by
             default and matches the on-seam merged-cluster behaviour. */}
+        {/* Floating z-order bar above the selected widget. Hidden during
+            edit-interactions (that mode has its own per-widget overlays). */}
+        {!readOnly && !editInteractions && selectedWidget && onBringToFront && (() => {
+          const sel = layout.find((l) => l.i === selectedWidget);
+          if (!sel || !widgets[selectedWidget]) return null;
+          const BAR_H = 28;
+          // Above the widget; when it touches the page top, BELOW it — never
+          // inside, where it would sit on top of the widget's own title.
+          const top = (sel.y || 0) >= BAR_H + 8
+            ? (sel.y || 0) - BAR_H - 6
+            : (sel.y || 0) + (sel.h || 0) + 6;
+          const left = (sel.x || 0) + (sel.w || 0) / 2;
+          const actions = [
+            { title: 'Send to back', Icon: TbLayersSubtract, fn: onSendToBack },
+            { title: 'Backward one', Icon: TbArrowBigDown, fn: onSendBackward },
+            { title: 'Forward one', Icon: TbArrowBigUp, fn: onBringForward },
+            { title: 'Bring to front', Icon: TbLayersLinked, fn: onBringToFront },
+          ];
+          return (
+            <div
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              style={{ ...zOrderBar, top, left }}
+            >
+              {actions.map(({ title, Icon, fn }) => (
+                <button key={title} className="btn-hover" title={title}
+                  onClick={() => fn?.(selectedWidget)} style={zOrderBtn}>
+                  <Icon size={13} />
+                </button>
+              ))}
+            </div>
+          );
+        })()}
+
         {mergeMagnets.map((mag) => {
           const isHovered = hoveredMagnetId === mag.id;
           // Trigger zone — 12px thick (6 on each side of the seam),
@@ -539,3 +580,18 @@ export default function ReportCanvas({
 }
 
 
+
+// Floating z-order bar — pill of icon buttons pinned above the selection.
+// High zIndex: layout `z` values grow unbounded as the user stacks widgets,
+// so the bar must clear them all.
+const zOrderBar = {
+  position: 'absolute', transform: 'translateX(-50%)',
+  display: 'flex', gap: 2, padding: 3, zIndex: 500,
+  background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
+  borderRadius: 6, boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+};
+const zOrderBtn = {
+  width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center',
+  padding: 0, border: 'none', borderRadius: 4, background: 'transparent',
+  color: 'var(--text-secondary)', cursor: 'pointer',
+};
