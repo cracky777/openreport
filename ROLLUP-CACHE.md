@@ -88,13 +88,15 @@ that widget might `GROUP BY`. The builder enumerates, per widget:
 | `selectedDimensions` (+ drill prefixes for drillable widgets) | **yes** |
 | `groupBy` | **yes** |
 | `columnDimensions` | **yes** |
-| cross-filter dims contributed by sibling widgets (every subset) | **yes** |
+| cross-filter dims contributed by sibling widgets (unioned) | **yes** |
 | widget-own fixed `widgetFilters` dims (non-measure) | **yes** |
 | **global filter bar dims** | **NO — baked, see §4** |
 
 A widget with hierarchy dims `[A,B,C]` and a drillable type yields one
 grain per drill prefix: `[A]`, `[A,B]`, `[A,B,C]` (each also unioned
-with groupBy/colDims and crossed with every cross-filter subset).
+with groupBy/colDims and the full cross-filter dim set — subsets are
+not enumerated: the builder consolidates per baked filter by unioning
+every grain anyway, so only the union ever mattered).
 
 Empty grain (pure scorecard: no display/drill/cross-filter/own-filter
 dims) **IS materialised** as a 1-row grand-total rollup, one per
@@ -127,7 +129,7 @@ Consequences:
 - **Leaf cross-filter**: only at the deepest level does W emit a filter
   on the **leaf** dim to sibling widgets. The builder covers this
   because `crossFilterDimsForWidget` folds a source widget's display
-  dims into every other widget's cross-filter subsets, so the target
+  dims into every other widget's cross-filter dim union, so the target
   widget's grain contains the leaf dim and the planner applies the
   cross-filter `WHERE` at runtime.
 - Intermediate drill levels do **not** cross-filter siblings (only the
@@ -217,8 +219,8 @@ live query (safe, just slower).
 | Cross-filter (sibling → widget) | grain dim | runtime `WHERE` on rollup |
 | Drill parent-pin (own widget) | grain dim | runtime `WHERE` on rollup |
 | Widget-own fixed filter | grain dim | runtime `WHERE` on rollup |
-| Measure filter (HAVING) | — | not rolled up; widget falls through |
-| `top_n` / `bottom_n` | — | applied in memory after rollup query |
+| Measure filter (HAVING) | — | numeric ops applied in memory on the recomposed rows, before top_n/LIMIT (SQL order); non-numeric ops → MISS → live |
+| `top_n` / `bottom_n` | — | applied in memory after rollup query; a **valid** n (finite > 0) replaces the request LIMIT exactly like live, an invalid one is skipped and the LIMIT applies |
 
 ---
 
@@ -589,6 +591,18 @@ Owner/admin (no RLS) is served normally.
    `measureNames = that fact's decomposed fire-names`, `widgetFilters =
    baked global rules`, `reportId` + extras, `_rollupBuilder: true`
    (skips the planner, gets a 10-min timeout, bypasses queryCache).
+   The build fetch is **uncapped by default**: the builder sends
+   `limit: 0` and `/query` emits **no LIMIT clause** for builder
+   requests (the public-route 1M clamp stays for everything else). A
+   truncated rollup would re-aggregate into silently **wrong** totals at
+   every coarser grain, so the builder must see every grain row.
+   `ROLLUP_MAX_ROWS>0` restores a cap; a fetch that HITS that cap
+   **fails that item's build** (the old gen keeps serving, the planner
+   falls to live — always correct) instead of materialising partial
+   data. Same rule on the serve side: a top_n / measure-filter scan
+   reads the rollup **without LIMIT** (the rank/HAVING must see every
+   row; rollup rows are one-per-grain-bucket so the scan is bounded by
+   what the build materialised).
 4a. **Skip a fact group with no materialisable atoms.** If
    `componentPlanForMeasures` yields zero atom columns (every measure of
    the group is override-tainted §6a or non-decomposable §6), the build
@@ -645,8 +659,14 @@ opt-in, **not implemented in v1** — throws 501).
 
 Triggers: `POST /api/rollups/run-now/:modelId`, the report Refresh
 button (`/api/cache-schedules/run-now/:reportId`), and scheduled
-`cache_warm` (`cacheScheduler`). No boot-warm — rollups persist across
-restarts. Model edit / datasource change → `dropAllRollups` deletes the
+`cache_warm` (`cacheScheduler`). Whatever the trigger, every build that
+materialised ≥1 rollup ends with the same coherence step inside
+`buildRollupsForModel`: the model's queryCache entries are invalidated
+(planner-MISS shapes would otherwise keep serving stale pre-rebuild
+rows until their TTL) and `reports.cache_built_at` is stamped on
+**every** report of the model (rollups are model-scoped) so the
+Editor's skip-fetch check re-fetches on next open. No boot-warm —
+rollups persist across restarts. Model edit / datasource change → `dropAllRollups` deletes the
 model's whole DuckDB file (schema changed → rows invalid regardless;
 this is the only path that deletes a store, and it's safe because the
 data is invalid, not merely stale).
@@ -680,8 +700,11 @@ In `POST /api/models/:id/query`, before any fact SQL:
    fact groups must share one gen (a single connection can't FULL JOIN
    across two DuckDB files) — else `MISS:mixed-gen` (transient, only
    after a partially-failed multi-fact build; next build reunifies).
-   Execute against that gen file; apply `top_n/bottom_n` in memory;
-   return with `_cache.fromRollup` + `rollupMatch`.
+   Execute against that gen file; apply the in-memory measure-filter
+   (HAVING), then `top_n/bottom_n` — or, when no valid top_n replaced
+   it, re-apply the request LIMIT (the HAVING/top_n scan runs without a
+   SQL LIMIT, so this keeps the row count identical to live: HAVING →
+   LIMIT). Return with `_cache.fromRollup` + `rollupMatch`.
 
 Any MISS → fall through to the existing live fact-query path unchanged.
 

@@ -272,39 +272,16 @@ router.post('/run-now/:reportId', requireAuth, async (req, res) => {
   const full = db.prepare('SELECT model_id FROM reports WHERE id = ?').get(report.id);
   if (!full || !full.model_id) return res.status(400).json({ error: 'Report has no model' });
   try {
+    // Post-build coherence (queryCache invalidate + cache_built_at stamp on
+    // the model's reports) is handled inside buildRollupsForModel, so every
+    // trigger path — this route, the cron tick, /api/rollups/run-now —
+    // behaves identically.
     const result = await rollupBuilder.buildRollupsForModel({
       modelId: full.model_id,
       internalUserId: req.user.id,
       orgId: req.organizationId || null,
       log: process.env.ROLLUP_LOG !== '0',
     });
-    // Stamp the rebuild time on the report so the Editor invalidates
-    // its saved widget binding keys on next open — otherwise a rebuild
-    // triggered from the workspace card silently runs but the saved
-    // `_fetchedBinding` on each widget makes the Editor's skip-fetch
-    // check pass on next open, and the user sees pre-rebuild data.
-    try {
-      db.prepare('UPDATE reports SET cache_built_at = ? WHERE id = ?')
-        .run(new Date().toISOString(), report.id);
-    } catch (e) {
-      // Best-effort — even if the timestamp update fails, the rebuild
-      // itself succeeded, so don't fail the response.
-      console.warn('[cache-schedules] cache_built_at update failed:', e.message);
-    }
-    // Drop every queryCache entry for this model. The rollup planner
-    // serves freshly-built rollup data on HIT, but queries that MISS
-    // the planner (live SQL fallback for distinct / unsupported
-    // shapes / RLS-restricted users / …) hit queryCache afterwards
-    // — and queryCache is keyed by SHA(sql) + rlsContext, NOT by the
-    // rebuild timestamp, so a stale entry from before the rebuild
-    // would survive and feed the client pre-rebuild numbers. The
-    // model-scoped invalidate iterates by `modelId` prefix in the key
-    // and drops them all at once.
-    try {
-      queryCache.invalidateModel(full.model_id);
-    } catch (e) {
-      console.warn('[cache-schedules] queryCache invalidate failed:', e.message);
-    }
     res.json({ result });
   } catch (err) {
     if (err.code === 'ROLLUP_STORAGE_UNSUPPORTED') {

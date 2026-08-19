@@ -4,9 +4,10 @@
  *
  * Pipeline per grain:
  *   1. POST /api/models/:modelId/query over loopback with
- *      { dimensionNames: grain, measureNames: union, limit: MAX_ROWS }.
- *      This reuses the full SQL builder (joins, dialect quoting, RLS,
- *      measure decomposition) for free.
+ *      { dimensionNames: grain, measureNames: union, limit: 0 } —
+ *      uncapped by default (see MAX_ROLLUP_ROWS below). This reuses the
+ *      full SQL builder (joins, dialect quoting, RLS, measure
+ *      decomposition) for free.
  *   2. The response rows are already aggregated at the requested grain.
  *      Land them in the storage backend:
  *        - storage_mode='duckdb' (default): write into the embedded
@@ -20,13 +21,20 @@ const { v4: uuidv4 } = require('uuid');
 
 const db = require('../db');
 const internalToken = require('./internalToken');
+const queryCache = require('./queryCache');
 const rollupDuckDB = require('./rollupDuckDB');
 const { prepareGlobalRulesForWidget } = require('./reportFilterRules');
 const { shiftWidgetFiltersForN1 } = require('./comparePeriod');
 const { componentPlanForMeasures, factsForMeasure, effectiveMeasureName } = require('./measureType');
 const { safeParse } = require('../db/modelRow');
 
-const MAX_ROLLUP_ROWS = Number(process.env.ROLLUP_MAX_ROWS || 1_000_000);
+// Build-fetch row cap. 0 (default) = uncapped — /query emits no LIMIT for
+// builder requests, because a truncated rollup re-aggregates into silently
+// WRONG totals at every coarser grain. ROLLUP_MAX_ROWS>0 restores a cap;
+// a fetch that hits it FAILS that item's build (the old gen keeps serving,
+// the planner falls to live — always correct) instead of materialising
+// partial data.
+const MAX_ROLLUP_ROWS = Math.max(0, Number(process.env.ROLLUP_MAX_ROWS) || 0);
 
 // Model ids whose rollups are currently being (re)built. The cache
 // dashboard polls this so a spinner survives an F5 mid-build.
@@ -387,6 +395,15 @@ function fetchRollupRows({
         }
         try {
           const p = JSON.parse(text);
+          // maxReached = the configured ROLLUP_MAX_ROWS cap truncated the
+          // fetch (never set on the uncapped default). Fail the build for
+          // this item rather than materialise a rollup with missing grain
+          // buckets — partial sums re-aggregate into wrong totals.
+          if (p && p.maxReached) {
+            return reject(new Error(
+              `/query hit the ROLLUP_MAX_ROWS cap (${MAX_ROLLUP_ROWS} rows) — refusing to materialise a truncated rollup`
+            ));
+          }
           resolve(Array.isArray(p && p.rows) ? p.rows : []);
         } catch (e) {
           reject(new Error(`/query returned non-JSON: ${e.message}`));
@@ -459,25 +476,42 @@ function loadMeasureDefs(modelId, extras, preloadedDefs) {
   return { defs, byName };
 }
 
+// Least common DuckDB type of two observed cell types. Same family widens
+// (BIGINT+DOUBLE → DOUBLE, DATE+TIMESTAMP → TIMESTAMP); disjoint families
+// fall back to VARCHAR (DuckDB casts anything to text, never silently
+// rounds the way a DOUBLE→BIGINT insert would).
+function widenType(a, b) {
+  if (a === null || a === b) return b;
+  const pair = new Set([a, b]);
+  if (pair.has('BIGINT') && pair.has('DOUBLE')) return 'DOUBLE';
+  if (pair.has('DATE') && pair.has('TIMESTAMP')) return 'TIMESTAMP';
+  return 'VARCHAR';
+}
+
+// Widen across ALL rows, not just the first non-null value: a numeric
+// column whose first value happens to be an integer would otherwise be
+// typed BIGINT and DuckDB would round the later floats on INSERT —
+// corrupted grain values, so runtime filters stop matching.
 function inferColumnType(rows, col) {
+  let type = null; // null = only nulls seen so far
   for (const row of rows) {
     const v = row[col];
     if (v === null || v === undefined) continue;
-    if (typeof v === 'number') {
-      return Number.isInteger(v) ? 'BIGINT' : 'DOUBLE';
-    }
-    if (typeof v === 'boolean') return 'BOOLEAN';
-    if (v instanceof Date) return 'TIMESTAMP';
-    if (typeof v === 'string') {
+    let t;
+    if (typeof v === 'number') t = Number.isInteger(v) ? 'BIGINT' : 'DOUBLE';
+    else if (typeof v === 'boolean') t = 'BOOLEAN';
+    else if (v instanceof Date) t = 'TIMESTAMP';
+    else if (typeof v === 'string') {
       // ISO date heuristic — keeps date-typed dims as DATE so range
       // filters in the planner emit correctly.
-      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return 'DATE';
-      if (/^\d{4}-\d{2}-\d{2}T/.test(v)) return 'TIMESTAMP';
-      return 'VARCHAR';
-    }
-    return 'VARCHAR';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) t = 'DATE';
+      else if (/^\d{4}-\d{2}-\d{2}T/.test(v)) t = 'TIMESTAMP';
+      else t = 'VARCHAR';
+    } else t = 'VARCHAR';
+    type = widenType(type, t);
+    if (type === 'VARCHAR') break; // can't widen further — stop scanning
   }
-  return 'VARCHAR'; // all-null column — VARCHAR is the safe default
+  return type || 'VARCHAR'; // all-null column — VARCHAR is the safe default
 }
 
 async function buildRollupToDuckDB({ modelId, orgId, gen, tableName, grain, atoms, rows, dimLabel, measureLabel }) {
@@ -974,6 +1008,22 @@ async function _buildRollupsForModelInner({ modelId, internalUserId, orgId, log 
       } catch (err) {
         if (log) console.warn(`[rollup] gen-file prune failed: ${err.message}`);
       }
+    }
+
+    // Post-build cache coherence, for EVERY trigger path (report Refresh,
+    // schedule cron tick, /api/rollups/run-now). Queries that MISS the
+    // planner land on the SQL-keyed queryCache, which knows nothing about
+    // this rebuild — a stale entry would keep feeding pre-rebuild numbers
+    // until its TTL. Drop the model's entries. Stamp cache_built_at on the
+    // model's reports too, so the Editor invalidates its saved widget
+    // binding keys on next open (rollups are model-scoped: a rebuild
+    // refreshes every report on the model, not just the triggering one).
+    try { queryCache.invalidateModel(modelId); } catch { /* best-effort */ }
+    try {
+      db.prepare('UPDATE reports SET cache_built_at = ? WHERE model_id = ?')
+        .run(new Date().toISOString(), modelId);
+    } catch (err) {
+      console.warn(`[rollup] cache_built_at stamp failed: ${err.message}`);
     }
   }
 

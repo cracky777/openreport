@@ -31,15 +31,36 @@ const {
 // Per-key indexing so we can invalidate "every entry for model X" or
 // "every entry for datasource Y" without scanning the LRU. Each entry
 // also records a model-id hint when the caller provides it.
-const cache = new LRUCache({
-  max: 5000, // hard ceiling — actual cap comes from settings on each set
-  ttl: 60_000, // overridden per-entry on set
-  ttlAutopurge: true,
-  // Approximate sizing — caller can pass `size` in setOpts if known
-});
 const indexByModel = new Map();      // modelId → Set<key>
 const indexByDatasource = new Map(); // datasourceId → Set<key>
 const indexByOrg = new Map();        // orgId → Set<key> (cloud only — OSS never populates this)
+const keyMeta = new Map();           // key → { modelId, datasourceId, orgId }
+
+const cache = new LRUCache({
+  max: 5000, // hard RAM ceiling — the admin cap (settings) is enforced in set()
+  ttl: 60_000, // overridden per-entry on set
+  ttlAutopurge: true,
+  // Every removal (LRU evict, TTL expiry, explicit delete, replace) must
+  // also drop the key from the per-model/datasource/org indexes — without
+  // this, a long-running server accumulates dead SHA keys in those Sets
+  // without bound (only entries, not index keys, were ever purged).
+  dispose: (_value, key) => {
+    const meta = keyMeta.get(key);
+    if (!meta) return;
+    keyMeta.delete(key);
+    indexDel(indexByModel, meta.modelId, key);
+    indexDel(indexByDatasource, meta.datasourceId, key);
+    indexDel(indexByOrg, meta.orgId, key);
+  },
+});
+
+function indexDel(map, id, key) {
+  if (!id) return;
+  const set = map.get(id);
+  if (!set) return;
+  set.delete(key);
+  if (set.size === 0) map.delete(id);
+}
 
 // Per-org RAM quota hook. Cloud installs `setOrgQuotaResolver(orgId => maxBytes)`
 // at boot so `set()` can refuse new entries when the calling org has filled
@@ -91,7 +112,24 @@ function set(opts, payload) {
     }
   }
   const key = buildKey(opts);
+  // Enforce the admin-configured entry cap (it was previously only shown in
+  // stats, never applied): evict least-recently-used entries to make room.
+  // The constructor max (5000) stays the hard ceiling above any
+  // misconfigured setting.
+  const maxEntries = Math.min(getQueryCacheMaxEntries(), 5000);
+  while (!cache.has(key) && cache.size >= maxEntries) {
+    const lru = cache.rkeys().next().value;
+    if (lru === undefined) break;
+    cache.delete(lru);
+  }
   cache.set(key, payload, { ttl });
+  // After cache.set: replacing an existing key fires dispose (which clears
+  // the old index entries), so the re-add must come last.
+  keyMeta.set(key, {
+    modelId: opts.modelId || null,
+    datasourceId: opts.datasourceId || null,
+    orgId: opts.orgId || null,
+  });
   if (opts.modelId) indexAdd(indexByModel, opts.modelId, key);
   if (opts.datasourceId) indexAdd(indexByDatasource, opts.datasourceId, key);
   if (opts.orgId) indexAdd(indexByOrg, opts.orgId, key);
@@ -124,10 +162,11 @@ function invalidateDatasource(datasourceId) {
 
 function flush() {
   const n = cache.size;
-  cache.clear();
+  cache.clear(); // fires dispose per entry — indexes/keyMeta empty after this
   indexByModel.clear();
   indexByDatasource.clear();
   indexByOrg.clear();
+  keyMeta.clear();
   return n;
 }
 
@@ -197,13 +236,11 @@ function bytesForOrg(orgId) {
   const set = indexByOrg.get(orgId);
   if (!set) return 0;
   let n = 0;
-  // Prune stale keys (model/datasource invalidation deletes the entry but
-  // can't reach into indexByOrg). Lazy cleanup keeps the index honest
-  // without a full reverse-index walk.
+  // The dispose hook keeps this index honest (every removal path also
+  // deletes the key here), so a live key always resolves.
   for (const key of set) {
     const v = cache.get(key);
     if (v) n += entryBytes(v);
-    else set.delete(key);
   }
   return n;
 }

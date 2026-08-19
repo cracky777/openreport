@@ -81,21 +81,12 @@ function rollupTableName({ modelId, grainHash, baseFilterHash, factTable, orgId,
 //     widget types)
 //   - widget.dataBinding.groupBy
 //   - widget.dataBinding.columnDimensions
-//   - cross-filter dims contributed by sibling widgets (per subset)
+//   - cross-filter dims contributed by sibling widgets (unioned)
 //   - widgetOwnFilters dim names with fixed values (so a single rollup
 //     covers the WHERE for that widget at runtime — per user decision)
 //
 // The union of measures across every walked widget becomes the rollup's
 // measure column set: each rollup stores every measure the model needs.
-
-function powerSet(arr) {
-  const result = [[]];
-  for (const item of arr) {
-    const len = result.length;
-    for (let i = 0; i < len; i++) result.push([...result[i], item]);
-  }
-  return result;
-}
 
 function crossFilterDimsForWidget(widgets, targetWId) {
   const out = new Set();
@@ -148,29 +139,30 @@ function grainsForWidget(w, widgetId, allWidgets) {
     : (baseDims.length > 0 ? [baseDims] : [[]]);
 
   const xfDims = crossFilterDimsForWidget(allWidgets, widgetId);
-  const xfSubsets = powerSet(xfDims);
   // Only the widget's OWN fixed filters fold into the grain (so the
   // planner can re-apply them at runtime). The report's GLOBAL filter
   // bar is NOT in the grain — it's baked into the rollup at build time
-  // (see planRollupsForModel / fetchRollupRows). Cross-filter dims are
-  // covered by the xf subsets above.
+  // (see planRollupsForModel / fetchRollupRows).
   const filterDims = fixedFilterDims(b.widgetFilters);
 
+  // Cross-filter dims fold in as their full UNION, not the 2^n subset
+  // enumeration this used to do: the builder consolidates per baked
+  // filter by unioning every grain anyway (planRollupsForModel slot.dims),
+  // so the subsets only ever contributed their union — identical plan,
+  // exponentially less work on dashboards with many cross-filter dims.
   const out = [];
   const seen = new Set();
   for (const grain of baseGrains) {
-    for (const xf of xfSubsets) {
-      const combined = [...new Set([...grain, ...xf, ...filterDims])];
-      // Empty combined = a pure scorecard (no display/drill/xf/own-filter
-      // dims). We DO materialise it as a grand-total rollup (1 row =
-      // the aggregate over the baked-global-filter slice) so the planner
-      // serves it exact instead of falling through to Postgres on every
-      // drill / cross-filter refresh.
-      const key = combined.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join('|'); // '' for the empty grain
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(combined);
-    }
+    const combined = [...new Set([...grain, ...xfDims, ...filterDims])];
+    // Empty combined = a pure scorecard (no display/drill/xf/own-filter
+    // dims). We DO materialise it as a grand-total rollup (1 row =
+    // the aggregate over the baked-global-filter slice) so the planner
+    // serves it exact instead of falling through to Postgres on every
+    // drill / cross-filter refresh.
+    const key = combined.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join('|'); // '' for the empty grain
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(combined);
   }
   return out;
 }

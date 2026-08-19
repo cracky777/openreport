@@ -473,18 +473,19 @@ async function tryServeFromRollup(opts) {
 
   let sql = `SELECT ${[...finalDimSelects, ...finalAtomSelects].join(', ')} FROM ${fromSql}`;
   if (dimNameCols.length > 0) sql += ` ORDER BY ${dimNameCols[0]}`;
-  // Don't pre-truncate with the arbitrary LIMIT when a top_n/bottom_n is in
-  // play: the in-memory rank (below) must see ALL rollup rows first, otherwise
-  // the true top-N can be cut off by this LIMIT. Rollup rows are one-per-grain,
-  // so the 1M cap still bounds the scan.
-  // A measure filter is a HAVING, and it runs in memory further down. Truncating
-  // to `limit` first would hand it an arbitrary slice of the grains: the live
-  // path filters and only then limits, so the two answers differed in row count.
-  // Same reasoning that already exempts top_n.
+  // No LIMIT at all when a top_n/bottom_n or measure filter (HAVING) is in
+  // play: both run in memory below and must see EVERY rollup row first —
+  // the true top-N can be cut off by a LIMIT, and a pre-truncated HAVING
+  // would filter an arbitrary slice of the grains (the live path filters
+  // and only then limits). Rollup rows are one-per-grain-bucket, so the
+  // scan is bounded by what the build materialised (uncapped by default —
+  // no fixed ceiling here either, or a >cap rollup would rank/filter
+  // wrong). Plain queries keep the client's requested page size.
   const hasTopN = wf.some(isSyntheticTopN);
   const hasMeasureFilter = wf.some((f) => f && f.isMeasure && !isSyntheticTopN(f) && f.field && f.op);
-  const lim = (hasTopN || hasMeasureFilter) ? 1_000_000 : Math.min(Number(limit) || 1000, 1_000_000);
-  sql += ` LIMIT ${lim}`;
+  if (!hasTopN && !hasMeasureFilter) {
+    sql += ` LIMIT ${Math.min(Number(limit) || 1000, 1_000_000)}`;
+  }
 
   // All groups' tables must live in the SAME generation file (one
   // connection can't FULL JOIN across two DuckDB files). A successful
@@ -544,30 +545,45 @@ async function tryServeFromRollup(opts) {
     rows = rows.filter((r) => numericHavingMatch(r[key], f.op, f.value, f.values) === true);
   }
 
-  // top_n / bottom_n applied in memory, same as the fact path.
+  // top_n / bottom_n applied in memory, same as the fact path. Live
+  // semantics: a VALID top_n (finite n > 0) replaces ORDER BY + LIMIT
+  // entirely; an invalid one is skipped and the normal LIMIT applies.
   const topN = wf.find(isSyntheticTopN);
+  let topNApplied = false;
   if (topN && topN.field) {
-    const n = Math.max(1, Math.floor(topN.value || 0));
-    if (n > 0 && rows.length > n) {
-      // top_n widgetFilter `field` = the originally-requested measure
-      // name (client sets `field: <measureName>`). Match it against the
-      // requested name first (robust to label/override differences), then
-      // fall back to the manifest output name / response key. Rows are
-      // keyed by respKey, so that's what we sort on.
-      const pair = reqOutputs.find(
-        (x) => x.reqName === topN.field
-          || x.o.name === topN.field
-          || x.respKey === topN.field
-      );
-      const key = pair ? pair.respKey : topN.field;
-      const dir = topN.op === 'top_n' ? 'desc' : 'asc';
-      rows = [...rows].sort((a, b) => {
-        const va = Number(a[key]); const vb = Number(b[key]);
-        const na = Number.isFinite(va) ? va : 0;
-        const nb = Number.isFinite(vb) ? vb : 0;
-        return dir === 'desc' ? nb - na : na - nb;
-      }).slice(0, n);
+    const n = parseInt(topN.value, 10);
+    if (Number.isFinite(n) && n > 0) {
+      topNApplied = true;
+      if (rows.length > n) {
+        // top_n widgetFilter `field` = the originally-requested measure
+        // name (client sets `field: <measureName>`). Match it against the
+        // requested name first (robust to label/override differences), then
+        // fall back to the manifest output name / response key. Rows are
+        // keyed by respKey, so that's what we sort on.
+        const pair = reqOutputs.find(
+          (x) => x.reqName === topN.field
+            || x.o.name === topN.field
+            || x.respKey === topN.field
+        );
+        const key = pair ? pair.respKey : topN.field;
+        const dir = topN.op === 'top_n' ? 'desc' : 'asc';
+        rows = [...rows].sort((a, b) => {
+          const va = Number(a[key]); const vb = Number(b[key]);
+          const na = Number.isFinite(va) ? va : 0;
+          const nb = Number.isFinite(vb) ? vb : 0;
+          return dir === 'desc' ? nb - na : na - nb;
+        }).slice(0, n);
+      }
     }
+  }
+
+  // Mirror the live path's LIMIT: HAVING runs before it, and a valid
+  // top_n replaces it. The measure-filter scan above is fetched without
+  // a SQL LIMIT, so without this cap a filtered rollup returned every
+  // surviving grain row where live returns at most `limit` rows.
+  if (!topNApplied) {
+    const lim = Math.min(Number(limit) || 1000, 1_000_000);
+    if (rows.length > lim) rows = rows.slice(0, lim);
   }
 
   return {

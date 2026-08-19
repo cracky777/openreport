@@ -1660,6 +1660,12 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   }
 
   const MAX_ROWS = 1000000;
+  // Rollup-builder fetches may run uncapped (no LIMIT clause at all): a
+  // truncated build re-aggregates into silently wrong totals, so the builder
+  // must see every grain row. Tracked here so maxReached below reflects the
+  // cap actually applied to THIS query, not the runtime MAX_ROWS clamp.
+  let builderUncapped = false;
+  let builderCapLimit = MAX_ROWS;
   // Top/Bottom N filter (set above) replaces both the default ORDER BY (which
   // is by the first dimension for stability) and the configured LIMIT.
   if (topNOverride) {
@@ -1679,14 +1685,25 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     // offset/limit arrive straight from the request body, and this route is
     // reachable unauthenticated via public reports — coerce to bounded ints
     // before interpolation (a raw `offset` is otherwise an injection vector).
-    const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 1000), MAX_ROWS);
-    const safeOffset = Math.max(0, parseInt(offset, 10) || 0);
-    if (dbType === 'azure_sql' || dbType === 'mssql') {
-      sql += ` OFFSET ${safeOffset} ROWS FETCH NEXT ${safeLimit} ROWS ONLY`;
+    // Exception: a rollup-builder request (internal, signed token) with
+    // limit ≤ 0 runs UNCAPPED — no LIMIT clause. ROLLUP_MAX_ROWS>0 sends a
+    // positive limit instead, honoured even above MAX_ROWS (still an int).
+    const parsedLimit = parseInt(limit, 10) || 0;
+    if (isRollupBuilderRequest && parsedLimit <= 0) {
+      builderUncapped = true;
     } else {
-      sql += ` LIMIT ${safeLimit}`;
-      if (safeOffset > 0) {
-        sql += ` OFFSET ${safeOffset}`;
+      const safeLimit = isRollupBuilderRequest
+        ? Math.max(1, parsedLimit)
+        : Math.min(Math.max(1, parsedLimit || 1000), MAX_ROWS);
+      builderCapLimit = safeLimit;
+      const safeOffset = Math.max(0, parseInt(offset, 10) || 0);
+      if (dbType === 'azure_sql' || dbType === 'mssql') {
+        sql += ` OFFSET ${safeOffset} ROWS FETCH NEXT ${safeLimit} ROWS ONLY`;
+      } else {
+        sql += ` LIMIT ${safeLimit}`;
+        if (safeOffset > 0) {
+          sql += ` OFFSET ${safeOffset}`;
+        }
       }
     }
   }
@@ -1883,7 +1900,15 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     }
     __mark(`DB done (${rows.length} rows, queryMs=${Date.now() - startedAt})`);
     res.json({
-      rows, rowCount: rows.length, maxReached: rows.length >= MAX_ROWS, sql,
+      rows,
+      rowCount: rows.length,
+      // For a builder fetch, maxReached means "the applied cap truncated the
+      // result" (never true when uncapped) — the builder fails that item's
+      // build on it rather than materialise a partial rollup.
+      maxReached: isRollupBuilderRequest
+        ? (!builderUncapped && rows.length >= builderCapLimit)
+        : rows.length >= MAX_ROWS,
+      sql,
       totalComponents: totalComponentsOut,
       _cache: {
         hit: false,
