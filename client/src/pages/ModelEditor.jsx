@@ -270,17 +270,30 @@ export default function ModelEditor() {
       const res = await api.get(`/datasources/${model.datasource_id}/tables/${t}/columns`);
       setTableColumns((prev) => ({ ...prev, [t]: res.data.columns }));
     }
-    // Assign default positions for tables without one
+    // Assign default positions for tables without one, skipping any grid
+    // cell already covered by an existing card — on a saved model the tables
+    // keep their (possibly dragged) positions, and a naive cursor restarting
+    // at (40,40) dropped every newly added table on top of the first one.
     setTablePositions((prev) => {
       const next = { ...prev };
-      let x = 40;
-      let y = 40;
+      const taken = Object.values(next).filter((p) => p && typeof p.x === 'number');
+      // A cell is free when no card sits within roughly one card footprint.
+      const isFree = (x, y) => taken.every((p) => Math.abs(p.x - x) >= 240 || Math.abs(p.y - y) >= 280);
+      let col = 0;
+      let row = 0;
+      const advance = () => { col += 1; if (col > 2) { col = 0; row += 1; } };
       selectedTables.forEach((t) => {
-        if (!next[t]) {
-          next[t] = { x, y };
-          x += 260;
-          if (x > 800) { x = 40; y += 300; }
+        if (next[t]) return;
+        let cell = { x: 40 + col * 260, y: 40 + row * 300 };
+        let guard = 0;
+        while (!isFree(cell.x, cell.y) && guard < 200) {
+          advance();
+          cell = { x: 40 + col * 260, y: 40 + row * 300 };
+          guard += 1;
         }
+        next[t] = cell;
+        taken.push(cell);
+        advance();
       });
       return next;
     });
