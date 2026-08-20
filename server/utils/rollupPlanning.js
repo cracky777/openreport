@@ -249,22 +249,27 @@ function factConformedDimTables(joins) {
     adj.get(a).push([b, cardOf(b, j) === '1']);
     adj.get(b).push([a, cardOf(a, j) === '1']);
   };
-  // A FACT is the "many" endpoint of a join AND is never a `from_table`
-  // (nothing is parented BY a fact). This distinguishes a real fact from
-  // a snowflake CHILD dim, which is also a `*` side (`d_client(1) →
-  // d_destinataire(*)`) but additionally parents the fact
-  // (`d_destinataire(1) → f_fin(*)`) so it appears as a from_table.
-  const fromTables = new Set();
+  // A FACT is a table on a `*` (many) side that is NEVER a `1` side — the
+  // same rule as sqlBuilder/joinGraph.computeRealFacts, direction-agnostic.
+  // An explicitly declared `fact.fk (*) → dim.pk (1)` (fact as from_table)
+  // counts as a fact; a snowflake CHILD dim, also a `*` side (`d_client(1)
+  // → d_destinataire(*)`), is a `1` side in its join to the real fact
+  // (`d_destinataire(1) → f_fin(*)`) so it stays a dim. The previous rule
+  // (exclude every from_table) silently produced facts=∅ for reverse-declared
+  // joins → plan=[] → the model was never cached at all.
   const manyTables = new Set();
+  const oneTables = new Set();
   for (const j of list) {
     if (!j || !j.from_table || !j.to_table) continue;
     link(j.from_table, j.to_table, j);
-    fromTables.add(j.from_table);
     const c = j.cardinality || {};
-    if (c.to === '*' || (!c.from && !c.to)) manyTables.add(j.to_table); // dim→fact
-    if (c.from === '*') manyTables.add(j.from_table);                    // reverse-declared
+    if (c.from === '*') manyTables.add(j.from_table);
+    if (c.to === '*') manyTables.add(j.to_table);
+    if (c.from === '1') oneTables.add(j.from_table);
+    if (c.to === '1') oneTables.add(j.to_table);
+    if (!c.from && !c.to) { oneTables.add(j.from_table); manyTables.add(j.to_table); } // legacy dim→fact
   }
-  const facts = new Set([...manyTables].filter((t) => !fromTables.has(t)));
+  const facts = new Set([...manyTables].filter((t) => !oneTables.has(t)));
   const conformed = new Map();
   for (const f of facts) {
     const dims = new Set();

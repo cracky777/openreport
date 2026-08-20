@@ -75,6 +75,7 @@ const {
   grainHashOf, normalizeFilterRules, baseFilterHashOf, rollupTableName,
   grainsForWidget, measureNamesForWidget, reportExtras, factConformedDimTables, dimTableOf,
 } = require('./rollupPlanning');
+const { computeJoinedTables } = require('./sqlBuilder/joinGraph');
 
 // Free-SQL = a custom aggregation or a raw expression (the two shapes that
 // carry arbitrary SQL). Same predicate the /query gate uses (routes/models.js).
@@ -131,6 +132,11 @@ function planRollupsForModel(modelId) {
     }
   } catch { /* model row missing */ }
   const { conformed: factConformed, facts: realFacts } = factConformedDimTables(modelJoins);
+  // Tables that participate in at least one join. A table joined to nothing
+  // (single-table model, unjoined Excel sheet) can't fan out, so it is safe
+  // to roll up as its own fact — same reasoning as the live path's
+  // joinedTables guard in measureSelect.
+  const joinedTables = computeJoinedTables(modelJoins);
   // `_date.*` date-part extras live on the model's date table.
   const dateTable = dateColumn ? dateColumn.split('.').slice(0, -1).join('.') : '';
 
@@ -148,6 +154,14 @@ function planRollupsForModel(modelId) {
       authorId: r.user_id, modelOwnerId, authorRole: r.author_role,
     });
     const reportFilters = Array.isArray(settings.reportFilters) ? settings.reportFilters : [];
+    // A multi-page report keeps only page 1 in the top-level `widgets`
+    // column; the full set lives in settings.pages[].widgets. Plan over
+    // EVERY page — otherwise widgets on pages 2+ are never rolled up and
+    // silently query live forever. Grain/cross-filter context stays PER
+    // PAGE (a slicer scopes the page it lives on), matching the Viewer.
+    const pageWidgetGroups = (Array.isArray(settings.pages) && settings.pages.length > 0)
+      ? settings.pages.map((p) => (p && p.widgets && typeof p.widgets === 'object') ? p.widgets : {})
+      : [widgets];
     const { defs: measureDefs, byName: measureByName } = loadMeasureDefs(modelId, extras, modelMeasureDefs);
     // Model + report dimension defs — comparePeriod needs them (N-1
     // detection) and dimTableOf needs them (conformed-grain filtering).
@@ -165,7 +179,7 @@ function planRollupsForModel(modelId) {
     // _avg_*_sum/_count via the existing decompose path).
     const reportMeasures = new Set();
     const synthByName = new Map(); // effName -> synthetic measure def
-    for (const w of Object.values(widgets)) {
+    for (const w of pageWidgetGroups.flatMap((g) => Object.values(g))) {
       if (!w || !w.dataBinding) continue;
       if (w.type === 'text' || w.type === 'shape') continue;
       const aggOv = (w.dataBinding.measureAggOverrides && typeof w.dataBinding.measureAggOverrides === 'object')
@@ -225,7 +239,14 @@ function planRollupsForModel(modelId) {
       const facts = factsForMeasure(def, measureDefsEff);
       if (facts.length !== 1) continue; // cross-fact / unresolved → not rolled up
       const f = facts[0];
-      if (!realFacts.has(f)) continue; // dim-only measure → live always
+      if (!realFacts.has(f)) {
+        // Joined but not a fact → dim-only measure, live always (rolling it
+        // up would inflate counts through a bridge join). Unjoined → the
+        // table can't fan out: roll it up as its own fact, conformed to
+        // nothing so its grain only ever carries its own (or unknown) dims.
+        if (joinedTables.has(f)) continue;
+        if (!factConformed.has(f)) factConformed.set(f, new Set());
+      }
       if (!factGroups.has(f)) factGroups.set(f, []);
       factGroups.get(f).push(mn);
     }
@@ -255,11 +276,11 @@ function planRollupsForModel(modelId) {
     const onlyRules = (arr) => (Array.isArray(arr) ? arr : []).filter(
       (rule) => rule && !rule.isMeasure && typeof rule.field === 'string' && rule.field && rule.op
     );
-    for (const [wId, w] of Object.entries(widgets)) {
+    for (const group of pageWidgetGroups) for (const [wId, w] of Object.entries(group)) {
       if (!w || !w.dataBinding) continue;
       if (w.type === 'text' || w.type === 'shape') continue;
       const baseFilters = onlyRules(prepareGlobalRulesForWidget(reportFilters, wId));
-      const grains = grainsForWidget(w, wId, widgets);
+      const grains = grainsForWidget(w, wId, group);
       const slot = slotFor(baseFilters);
       for (const grain of grains) for (const d of grain) slot.dims.add(d);
       // Bake the N-1 (year shifted -1) slice too, if this widget's baked
