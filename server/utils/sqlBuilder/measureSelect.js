@@ -150,7 +150,12 @@ function emitMeasureSelects(ctx) {
             }
           }
         } else if (m.aggregation === 'count' || (m.column === '*' && !m.table)) {
-          selectParts.push(`COUNT(CASE WHEN ${whenSql} THEN 1 END) AS ${quoteIdent(m.label || m.name, dbType)}`);
+          // Column-aware, mirroring the unfiltered branch below: a count on a
+          // picked column stays a non-null count under the filter.
+          const filteredCount = (m.aggregation === 'count' && m.table && m.column && m.column !== '*')
+            ? `COUNT(CASE WHEN ${whenSql} THEN ${quoteCol(m.table, m.column, dbType)} END)`
+            : `COUNT(CASE WHEN ${whenSql} THEN 1 END)`;
+          selectParts.push(`${filteredCount} AS ${quoteIdent(m.label || m.name, dbType)}`);
         } else if (m.table && m.column) {
           selectParts.push(`${buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql: whenSql })} AS ${quoteIdent(m.label || m.name, dbType)}`);
         }
@@ -188,7 +193,8 @@ function emitMeasureSelects(ctx) {
       // (measureType.collectComponentsForVisual): COUNT of NON-NULL
       // values of the column, so a rolled-up AVG = SUM(x)/COUNT(x)
       // matches SQL AVG (NULLs skipped). Distinct from user `count`
-      // measures, which stay COUNT(*) (next branch).
+      // measures (next branch), which are COUNT(col) only when the wizard
+      // picked a column and COUNT(*) otherwise.
       selectParts.push(`COUNT(${quoteCol(m.table, m.column, dbType)}) AS ${quoteIdent(m.label || m.name, dbType)}`);
     } else if (m.aggregation === 'hll' && m.table && m.column) {
       // Internal kind used ONLY by the rollup builder's DISTINCT-via-HLL

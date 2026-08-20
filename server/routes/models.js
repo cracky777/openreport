@@ -897,6 +897,12 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
             return `(${wrapped})`;
           }
           if (target.aggregation === 'count' || (target.column === '*' && !target.table)) {
+            // Column-aware: COUNT(CASE WHEN … THEN col END) counts non-null
+            // matching values, mirroring the unfiltered COUNT(col) semantics.
+            if (target.aggregation === 'count' && target.table && target.column && target.column !== '*') {
+              tablesUsed.add(target.table);
+              return `COUNT(CASE WHEN ${whenSql} THEN ${quoteCol(target.table, target.column, dbType)} END)`;
+            }
             return `COUNT(CASE WHEN ${whenSql} THEN 1 END)`;
           }
           if (target.table && target.column) {
@@ -924,8 +930,17 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       if (target.aggregation === 'custom' && target.expression) {
         return `(${inlineMeasureRefs(target.expression, [...pathStack, trimmed])})`;
       }
-      // Regular measure paths.
+      // Regular measure paths. `count` follows the standalone semantics
+      // (measureSelect.js): COUNT(col) — non-null count — when a column was
+      // picked, COUNT(*) for the no-column / legacy '*' shapes. The rollup
+      // build fires referenced measures through the standalone path, so this
+      // keeps the inlined ref, the standalone measure, and the rollup atoms
+      // in agreement when the column has NULLs.
       if (target.aggregation === 'count' || (target.column === '*' && !target.table)) {
+        if (target.aggregation === 'count' && target.table && target.column && target.column !== '*') {
+          tablesUsed.add(target.table);
+          return `COUNT(${quoteCol(target.table, target.column, dbType)})`;
+        }
         return 'COUNT(*)';
       }
       if (target.table && target.column) {
