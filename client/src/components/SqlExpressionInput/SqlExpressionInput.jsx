@@ -62,21 +62,29 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
   const openExpandedFromInline = (e) => {
     const el = e.target;
     setTimeout(() => {
-      caretRef.current = el.selectionStart ?? null;
+      // Snapshot the value alongside the caret: a keystroke can race the
+      // handoff (focus → overlay mount), and restoring a caret captured
+      // before that keystroke would scramble everything typed after it.
+      caretRef.current = { caret: el.selectionStart ?? null, value: el.value };
       setExpanded(true);
     }, 0);
   };
 
   // When the overlay opens, move focus into its textarea and restore the
-  // caret captured from the inline editor.
+  // caret captured from the inline editor — but only if nothing was typed
+  // in between; otherwise fall back to end-of-text so fast typing through
+  // the handoff stays in order.
   useEffect(() => {
     if (!expanded) return;
     const el = textareaRef.current;
     if (!el) return;
     el.focus();
-    if (caretRef.current != null) {
-      el.setSelectionRange(caretRef.current, caretRef.current);
-      caretRef.current = null;
+    const snap = caretRef.current;
+    caretRef.current = null;
+    if (snap && snap.caret != null && snap.value === el.value) {
+      el.setSelectionRange(snap.caret, snap.caret);
+    } else {
+      el.setSelectionRange(el.value.length, el.value.length);
     }
   }, [expanded]);
 
