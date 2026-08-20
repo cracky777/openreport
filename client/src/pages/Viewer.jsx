@@ -136,17 +136,24 @@ export default function Viewer() {
     };
     const saved = pageStateRef.current[idx];
     setCurrentPageIdx(idx);
-    skipNextRefetch.current = true;
     if (saved) {
+      // Revisited page: its state already holds this user's fetched data —
+      // restoring it must not trigger a refetch.
+      skipNextRefetch.current = true;
       setWidgets(saved.widgets);
       setReportFilters(saved.reportFilters);
       setSlicerSelections(saved.slicerSelections || {});
       setCrossHighlight(saved.crossHighlight);
     } else {
+      // First visit: the persisted page widgets carry no usable data (the
+      // server strips it for non-owners; for the owner it's the stale save
+      // snapshot, not an RLS-aware fresh query). Force the fetch loop —
+      // skipping here left pages 2+ permanently blank for viewers.
       setWidgets(pages[idx]?.widgets || {});
       setReportFilters({});
       setSlicerSelections({});
       setCrossHighlight(null);
+      setRefreshCounter((n) => n + 1);
     }
   }, [currentPageIdx, pages, slicerSelections]);
 
