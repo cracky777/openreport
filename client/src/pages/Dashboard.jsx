@@ -152,14 +152,16 @@ const cardMeta = {
   fontSize: 12, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden',
 };
 const metaDot = { color: 'var(--border-strong)', flexShrink: 0 };
-const metaModel = { display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0 };
-// A floor, not `minWidth: 0`: it was the only elastic segment on the line, so
-// a crowded card shrank it to nothing and the report lost the one word saying
-// what it was built on. It gives ground before the others, never all of it.
+// The 90px floor lives on the GROUP (name + pencil), not the name: on the name
+// it inflated short names to 90px and pushed the pencil away from the text.
+// Here the pencil hugs the name (gap 3) and any leftover width sits after it,
+// while a crowded card still can't shrink the segment below the floor — the
+// report keeps the one word saying what it was built on.
+const metaModel = { display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 90, flex: '0 1 auto' };
 const metaModelName = {
   color: 'var(--accent-primary)',
   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-  minWidth: 90, flex: '0 1 auto',
+  minWidth: 0, flex: '0 1 auto',
 };
 const metaModelEdit = {
   background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
@@ -1151,8 +1153,14 @@ export default function Dashboard() {
                         </>
                       )}
                       {typeof report.fileSize === 'number' && (
+                        // Two byte counts can share this line (source file here,
+                        // rollup cache after Last edit) — prefix both so they
+                        // read unambiguously.
                         <>
-                          <span style={metaSize}>{formatFileSize(report.fileSize)}</span>
+                          <span
+                            style={metaSize}
+                            title={`Imported source file${report.sourceFile ? ` (${report.sourceFile})` : ''}`}
+                          >{`file ${formatFileSize(report.fileSize)}`}</span>
                           <span style={metaDot}>·</span>
                         </>
                       )}
@@ -1198,7 +1206,7 @@ export default function Dashboard() {
                               : 'Click to see the rollup storage breakdown'}
                           >
                             {stats.rollupCount > 0
-                              ? `${formatBytes(stats.diskBytes || 0)} · ${(stats.totalRows || 0).toLocaleString()} rows`
+                              ? `cache ${formatBytes(stats.diskBytes || 0)} · ${(stats.totalRows || 0).toLocaleString()} rows`
                               : 'No cache — Refresh to build'}
                           </span>
                         </>
