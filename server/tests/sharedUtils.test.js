@@ -37,6 +37,7 @@ const FILTER_CASES = [
 const WF_CASES = [
   [{ field: 'yr', values: ['2024', '2020'] }],
   [{ field: 'd', value: '2024-05-01' }],
+  [{ field: 'd', op: 'between', value: ['2026-01-01', '2026-08-29'] }], // range slicer / filter-bar shape
   [{ field: 'status', values: ['x'] }],
   [null],
   [],
@@ -73,5 +74,25 @@ describe('LOT 6.2 — server/client shared helpers stay aligned', () => {
       expect(serverRF.prepareGlobalRulesForWidget(rules, wid))
         .toEqual(clientRF.prepareGlobalRulesForWidget(rules, wid));
     }
+  });
+});
+
+// A `between` rule carries its two bounds as an ARRAY in `value` (the shape
+// range slicers and the report filter bar emit). The scalar path used to
+// stringify the array, shift only the first year, and the malformed bound
+// list dropped the BETWEEN clause downstream — so the N-1 slice was built
+// and queried UNFILTERED (compared against all-time instead of Y-1).
+describe('shiftWidgetFiltersForN1 — between rule with array value', () => {
+  const DIMS_D = [{ name: 'd', type: 'date' }];
+  const RULE = [{ field: 'd', op: 'between', value: ['2026-01-01', '2026-08-29'] }];
+
+  test('server: both bounds shift a year back, array shape preserved', () => {
+    const [out] = serverCP.shiftWidgetFiltersForN1(RULE, DIMS_D);
+    expect(out.value).toEqual(['2025-01-01', '2025-08-29']);
+  });
+
+  test('client mirror: identical result', () => {
+    const [out] = clientCP.shiftWidgetFiltersForN1(RULE, DIMS_D);
+    expect(out.value).toEqual(['2025-01-01', '2025-08-29']);
   });
 });

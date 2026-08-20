@@ -90,6 +90,18 @@ export function shiftWidgetFiltersForN1(widgetFilters, dimensions) {
       });
       return { ...f, values: nextValues };
     }
+    // `between` carries its two bounds as an ARRAY in `value` — shift each
+    // bound. Treating it as a scalar stringified the array ("a,b"), shifted
+    // only the first year, and the malformed bound list then made the
+    // downstream BETWEEN clause drop entirely → N-1 compared against
+    // all-time instead of the previous-year window.
+    if (Array.isArray(f.value)) {
+      const next = f.value.map((v) => {
+        const s = shiftValue(v, dimDef);
+        return s == null ? v : s;
+      });
+      return { ...f, value: next };
+    }
     if (f.value != null) {
       const s = shiftValue(f.value, dimDef);
       if (s == null) return f;
