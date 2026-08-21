@@ -90,6 +90,73 @@ router.put('/users/:id/password', requireAdmin, (req, res) => {
   res.json({ message: 'Password reset' });
 });
 
+// ─── Groups ────────────────────────────────────────────────
+// User groups back the `group:<name>` RLS patterns. Admin-only management:
+// in OSS the instance operator owns access policy, and a self-managed group
+// would let any member widen their own RLS scope.
+
+// A group name lands verbatim inside RLS rules (`group:<name>`), so keep it
+// to a shape that can't be confused with an email pattern or swallow the
+// rule separator logic later.
+const GROUP_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9 _.-]{0,63}$/;
+
+router.get('/groups', requireAdmin, (req, res) => {
+  const groups = db.prepare(`
+    SELECT g.id, g.name, g.created_at, COUNT(gm.user_id) AS member_count
+    FROM groups g LEFT JOIN group_members gm ON gm.group_id = g.id
+    GROUP BY g.id ORDER BY g.name COLLATE NOCASE
+  `).all();
+  res.json({ groups });
+});
+
+router.get('/groups/:id/members', requireAdmin, (req, res) => {
+  const group = db.prepare('SELECT id, name FROM groups WHERE id = ?').get(req.params.id);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const members = db.prepare(`
+    SELECT u.id, u.email, u.display_name
+    FROM group_members gm JOIN users u ON u.id = gm.user_id
+    WHERE gm.group_id = ? ORDER BY u.email
+  `).all(req.params.id);
+  res.json({ group, members });
+});
+
+router.post('/groups', requireAdmin, (req, res) => {
+  const name = String(req.body.name || '').trim();
+  if (!GROUP_NAME_RE.test(name)) {
+    return res.status(400).json({ error: 'Group name must be 1-64 characters: letters, digits, spaces, . _ -' });
+  }
+  const existing = db.prepare('SELECT id FROM groups WHERE name = ? COLLATE NOCASE').get(name);
+  if (existing) return res.status(409).json({ error: 'A group with this name already exists' });
+  const id = uuidv4();
+  db.prepare('INSERT INTO groups (id, name) VALUES (?, ?)').run(id, name);
+  res.status(201).json({ group: { id, name, member_count: 0 } });
+});
+
+router.delete('/groups/:id', requireAdmin, (req, res) => {
+  const done = db.prepare('DELETE FROM groups WHERE id = ?').run(req.params.id);
+  if (done.changes === 0) return res.status(404).json({ error: 'Group not found' });
+  // RLS rules referencing the deleted name simply stop matching anyone —
+  // fail-closed, same as an email pattern for a departed user.
+  res.json({ message: 'Group deleted' });
+});
+
+router.post('/groups/:id/members', requireAdmin, (req, res) => {
+  const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(req.params.id);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const email = String(req.body.email || '').trim();
+  const user = db.prepare('SELECT id, email, display_name FROM users WHERE email = ? COLLATE NOCASE').get(email);
+  if (!user) return res.status(404).json({ error: 'No user with this email' });
+  db.prepare('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)').run(req.params.id, user.id);
+  res.status(201).json({ member: user });
+});
+
+router.delete('/groups/:id/members/:userId', requireAdmin, (req, res) => {
+  const done = db.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?')
+    .run(req.params.id, req.params.userId);
+  if (done.changes === 0) return res.status(404).json({ error: 'Not a member of this group' });
+  res.json({ message: 'Member removed' });
+});
+
 // ─── Settings ──────────────────────────────────────────────
 // Global app settings, admin-only. Currently exposes the query
 // timeout (clamped to [QUERY_TIMEOUT_MIN_MS, QUERY_TIMEOUT_MAX_MS]

@@ -71,10 +71,19 @@ function seedReport({ userId, modelId, isPublic = 0, workspaceId = null, setting
   return id;
 }
 
+function seedGroup({ name, memberIds = [] } = {}) {
+  const id = uuid();
+  db.prepare('INSERT INTO groups (id, name) VALUES (?, ?)').run(id, name || `g-${id.slice(0, 6)}`);
+  for (const uid of memberIds) {
+    db.prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)').run(id, uid);
+  }
+  return id;
+}
+
 function seedWorkspace({ ownerId, name } = {}) {
   const id = uuid();
   db.prepare('INSERT INTO workspaces (id, name, owner_id) VALUES (?,?,?)').run(id, name || `ws-${id.slice(0, 6)}`, ownerId);
   return id;
 }
 
-module.exports = { buildApp, seedUser, seedDatasource, seedModel, seedReport, seedWorkspace, db };
+module.exports = { buildApp, seedUser, seedDatasource, seedModel, seedReport, seedWorkspace, seedGroup, db };

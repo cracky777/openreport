@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
-import { TbShield, TbEdit, TbEye, TbUserPlus, TbKey, TbExternalLink, TbClock } from 'react-icons/tb';
+import { TbShield, TbEdit, TbEye, TbUserPlus, TbKey, TbExternalLink, TbClock, TbUsersGroup, TbChevronDown, TbChevronRight } from 'react-icons/tb';
 import { ICON_SIZE } from '../components/actionIcons';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
@@ -341,7 +341,165 @@ export default function Admin() {
             </tbody>
           </table>
         )}
+
+        <GroupsSection />
       </main>
+    </div>
+  );
+}
+
+// User groups — back the `group:<name>` RLS patterns. Kept self-contained
+// (own fetch + state) so the section can move or lazy-load without touching
+// the users table above.
+function GroupsSection() {
+  const [groups, setGroups] = useState([]);
+  const [newName, setNewName] = useState('');
+  const [openId, setOpenId] = useState(null); // expanded group id
+  const [members, setMembers] = useState({}); // { groupId: [{id,email,display_name}] }
+  const [memberEmail, setMemberEmail] = useState('');
+
+  useEffect(() => {
+    api.get('/admin/groups')
+      .then((res) => setGroups(res.data.groups || []))
+      .catch(() => { /* admin gate handled by the page's users fetch */ });
+  }, []);
+
+  const createGroup = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    try {
+      const res = await api.post('/admin/groups', { name });
+      setGroups((prev) => [...prev, res.data.group].sort((a, b) => a.name.localeCompare(b.name)));
+      setNewName('');
+    } catch (err) {
+      toast(err.response?.data?.error || 'Failed to create group');
+    }
+  };
+
+  const deleteGroup = async (id) => {
+    try {
+      await api.delete(`/admin/groups/${id}`);
+      setGroups((prev) => prev.filter((g) => g.id !== id));
+      if (openId === id) setOpenId(null);
+    } catch (err) {
+      toast(err.response?.data?.error || 'Failed to delete group');
+    }
+  };
+
+  const toggleOpen = async (id) => {
+    if (openId === id) { setOpenId(null); return; }
+    setOpenId(id);
+    setMemberEmail('');
+    try {
+      const res = await api.get(`/admin/groups/${id}/members`);
+      setMembers((prev) => ({ ...prev, [id]: res.data.members }));
+    } catch (err) {
+      toast(err.response?.data?.error || 'Failed to load members');
+    }
+  };
+
+  const addMember = async (id) => {
+    const email = memberEmail.trim();
+    if (!email) return;
+    try {
+      const res = await api.post(`/admin/groups/${id}/members`, { email });
+      setMembers((prev) => {
+        const cur = prev[id] || [];
+        if (cur.some((m) => m.id === res.data.member.id)) return prev;
+        return { ...prev, [id]: [...cur, res.data.member].sort((a, b) => a.email.localeCompare(b.email)) };
+      });
+      setGroups((prev) => prev.map((g) => g.id === id ? { ...g, member_count: (members[id] || []).length + 1 } : g));
+      setMemberEmail('');
+    } catch (err) {
+      toast(err.response?.data?.error || 'Failed to add member');
+    }
+  };
+
+  const removeMember = async (id, userId) => {
+    try {
+      await api.delete(`/admin/groups/${id}/members/${userId}`);
+      setMembers((prev) => ({ ...prev, [id]: (prev[id] || []).filter((m) => m.id !== userId) }));
+      setGroups((prev) => prev.map((g) => g.id === id ? { ...g, member_count: Math.max(0, g.member_count - 1) } : g));
+    } catch (err) {
+      toast(err.response?.data?.error || 'Failed to remove member');
+    }
+  };
+
+  return (
+    <div style={{ ...formCard, marginTop: 24 }}>
+      <h3 style={_hs4}>
+        <TbUsersGroup size={16} color="var(--accent-primary)" /> Groups
+      </h3>
+      <p style={_hs24}>
+        Reference a group from any model&apos;s row-level security as <code>group:name</code> —
+        membership changes apply everywhere, without editing the models.
+      </p>
+      <div style={{ display: 'flex', gap: 8, margin: '12px 0' }}>
+        <input
+          placeholder="New group name"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') createGroup(); }}
+          style={{ ...inputStyle, flex: 1, maxWidth: 280 }}
+        />
+        <button className="btn-hover btn-hover-primary" onClick={createGroup} style={primaryBtn}>Create</button>
+      </div>
+      {groups.length === 0 ? (
+        <div style={_hs20}>No groups yet.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {groups.map((g) => (
+            <div key={g.id} style={{ border: '1px solid var(--border-default)', borderRadius: 6, padding: '8px 12px' }}>
+              <div style={_hs18}>
+                <button
+                  className="btn-hover"
+                  onClick={() => toggleOpen(g.id)}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, padding: 0, color: 'var(--text-primary)', fontSize: 13, fontWeight: 500 }}
+                >
+                  {openId === g.id ? <TbChevronDown size={14} /> : <TbChevronRight size={14} />}
+                  {g.name}
+                  <span style={_hs20}>{g.member_count} member{g.member_count === 1 ? '' : 's'}</span>
+                </button>
+                <ConfirmDeleteButton
+                  variant="icon"
+                  size={ICON_SIZE.modal}
+                  label="Delete group"
+                  onConfirm={() => deleteGroup(g.id)}
+                />
+              </div>
+              {openId === g.id && (
+                <div style={{ marginTop: 8, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {(members[g.id] || []).map((m) => (
+                    <div key={m.id} style={{ ..._hs18, fontSize: 12, color: 'var(--text-secondary)' }}>
+                      <span>{m.email}{m.display_name ? ` — ${m.display_name}` : ''}</span>
+                      <button
+                        className="btn-hover btn-hover-danger"
+                        onClick={() => removeMember(g.id, m.id)}
+                        title="Remove from group"
+                        style={iconBtn}
+                      >×</button>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                    <input
+                      placeholder="user@email.com"
+                      value={memberEmail}
+                      onChange={(e) => setMemberEmail(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') addMember(g.id); }}
+                      style={{ ...inputStyle, padding: '4px 8px', fontSize: 12, flex: 1, maxWidth: 240 }}
+                    />
+                    <button
+                      className="btn-hover btn-hover-primary"
+                      onClick={() => addMember(g.id)}
+                      style={{ ...primaryBtn, padding: '4px 10px', fontSize: 11 }}
+                    >Add</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

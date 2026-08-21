@@ -959,7 +959,14 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   let allowedRlsKeys = null;
   if (rlsApplies) {
     const email = req.isAuthenticated() ? req.user.email : '';
-    allowedRlsKeys = getAllowedRlsKeys(rls, email);
+    // Group memberships feed `group:<name>` rules. Resolved here (one indexed
+    // query, only when RLS actually applies) so utils/rls stays pure.
+    const groupNames = req.isAuthenticated()
+      ? db.prepare(`SELECT g.name FROM groups g
+                    JOIN group_members gm ON gm.group_id = g.id
+                    WHERE gm.user_id = ?`).all(req.user.id).map((r) => r.name)
+      : [];
+    allowedRlsKeys = getAllowedRlsKeys(rls, email, groupNames);
   }
   __mark('extras gating + rls resolved');
 

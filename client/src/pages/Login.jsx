@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import api from '../utils/api';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
@@ -26,13 +26,32 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [error, setError] = useState('');
+  // Seed from ?sso_error=<message> (the OIDC callback bounces failures back
+  // here) — read at init so the effect below never has to setState.
+  const [error, setError] = useState(() => {
+    const ssoError = new URLSearchParams(window.location.search).get('sso_error');
+    if (!ssoError) return '';
+    return ssoError === '1' ? 'SSO sign-in failed' : ssoError;
+  });
   // Email-verification flow state (cloud only):
   //   pendingEmail = the email that needs to confirm — set after register,
   //                  or after a login attempt that returned EMAIL_UNVERIFIED.
   //   resendStatus = 'idle' | 'sending' | 'sent' | 'error'
   const [pendingEmail, setPendingEmail] = useState(null);
   const [resendStatus, setResendStatus] = useState('idle');
+  // SSO: { enabled, label } from the server (env-driven). Button renders only
+  // when the deploy actually configured an IdP.
+  const [sso, setSso] = useState(null);
+
+  useEffect(() => {
+    api.get('/auth/oidc/config')
+      .then((res) => setSso(res.data))
+      .catch(() => { /* endpoint missing on older servers — no button */ });
+    // Drop a consumed ?sso_error from the URL so a reload doesn't re-show it.
+    if (window.location.search.includes('sso_error')) {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -154,6 +173,24 @@ export default function Login() {
           </button>
         </form>
 
+        {sso?.enabled && !isRegister && (
+          <>
+            <div style={ssoDividerStyle}>
+              <span style={ssoDividerLine} />
+              <span style={ssoDividerText}>or</span>
+              <span style={ssoDividerLine} />
+            </div>
+            <button
+              type="button"
+              className="btn-hover"
+              onClick={() => { window.location.href = '/api/auth/oidc/login'; }}
+              style={ssoButtonStyle}
+            >
+              {sso.label}
+            </button>
+          </>
+        )}
+
         <div style={_hs12}>
           {isRegister ? 'Already have an account?' : "Don't have an account?"}{' '}
           <button
@@ -168,6 +205,15 @@ export default function Login() {
     </div>
   );
 }
+
+const ssoDividerStyle = { display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 12px' };
+const ssoDividerLine = { flex: 1, height: 1, background: 'var(--border-default)' };
+const ssoDividerText = { fontSize: 11, color: 'var(--text-disabled)', textTransform: 'uppercase', letterSpacing: '0.08em' };
+const ssoButtonStyle = {
+  width: '100%', padding: '10px 12px', fontSize: 14, fontWeight: 600,
+  background: 'var(--bg-panel)', color: 'var(--text-primary)',
+  border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer',
+};
 
 const containerStyle = {
   minHeight: '100vh',

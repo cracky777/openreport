@@ -149,11 +149,20 @@ router.get('/users/search', requireAuth, userSearchLimiter, (req, res) => {
   const q = (req.query.q || '').trim();
   if (q.length < 3) return res.json({ users: [] });
 
+  // Group suggestions ride along for the RLS dialog: names are org-level and
+  // not sensitive, and model editors need them to write `group:<name>` rules.
+  const matchGroups = (needle) => db.prepare(`
+    SELECT g.id, g.name, COUNT(gm.user_id) AS member_count
+    FROM groups g LEFT JOIN group_members gm ON gm.group_id = g.id
+    WHERE g.name LIKE @like
+    GROUP BY g.id ORDER BY g.name LIMIT 5
+  `).all({ like: `%${needle}%` });
+
   // Full email → exact lookup, allowed even for someone you don't share a
   // workspace with (that's the "invite a new collaborator" path).
   if (isFullEmail(q)) {
     const user = db.prepare('SELECT id, email, display_name FROM users WHERE email = ? COLLATE NOCASE').get(q);
-    return res.json({ users: user ? [user] : [] });
+    return res.json({ users: user ? [user] : [], groups: [] });
   }
 
   // Partial query → only users who share a workspace with the caller.
@@ -167,7 +176,42 @@ router.get('/users/search', requireAuth, userSearchLimiter, (req, res) => {
       )
     LIMIT 10
   `).all({ me: req.user.id, like: `%${q}%` });
-  res.json({ users });
+  res.json({ users, groups: matchGroups(q.replace(/^group:/i, '')) });
+});
+
+// ─── OIDC single sign-on ────────────────────────────────────
+// Whole flow lives in utils/oidc (env-driven, PKCE); these routes only wire
+// it to the session + passport login. All three are no-ops until the OIDC_*
+// env vars are set, so OSS deploys without an IdP see no behaviour change.
+const oidc = require('../utils/oidc');
+
+// Public: the login page probes this to decide whether to show the SSO button.
+router.get('/oidc/config', (req, res) => {
+  res.json({ enabled: oidc.isEnabled(), label: oidc.buttonLabel() });
+});
+
+router.get('/oidc/login', async (req, res) => {
+  if (!oidc.isEnabled()) return res.status(404).json({ error: 'SSO is not configured' });
+  try {
+    res.redirect(await oidc.buildAuthUrl(req.session));
+  } catch (err) {
+    res.status(502).json({ error: `SSO provider unreachable: ${err.message}` });
+  }
+});
+
+router.get('/oidc/callback', async (req, res) => {
+  if (!oidc.isEnabled()) return res.status(404).json({ error: 'SSO is not configured' });
+  try {
+    const { user } = await oidc.completeLogin(req, db);
+    req.login(user, (err) => {
+      if (err) return res.redirect('/login?sso_error=' + encodeURIComponent('Session could not be established'));
+      res.redirect('/');
+    });
+  } catch (err) {
+    // Message goes back to the login page banner — our own texts plus
+    // openid-client's terse protocol errors, truncated either way.
+    res.redirect('/login?sso_error=' + encodeURIComponent(String(err.message || 'SSO failed').slice(0, 140)));
+  }
 });
 
 module.exports = router;

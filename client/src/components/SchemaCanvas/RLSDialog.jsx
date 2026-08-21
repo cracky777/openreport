@@ -95,7 +95,12 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
     const ctl = new AbortController();
     const handle = setTimeout(() => {
       api.get('/auth/users/search', { params: { q }, signal: ctl.signal })
-        .then((res) => setSuggestions(res.data.users || []))
+        // Groups first: a short query like "sal" is more often reaching for
+        // `group:Sales` than for one member's email.
+        .then((res) => setSuggestions([
+          ...(res.data.groups || []).map((g) => ({ id: `group-${g.id}`, group: true, name: g.name, member_count: g.member_count })),
+          ...(res.data.users || []),
+        ]))
         .catch(() => { if (!ctl.signal.aborted) setSuggestions([]); });
     }, 200);
     return () => { clearTimeout(handle); ctl.abort(); };
@@ -355,7 +360,7 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
                             onFocus={() => setActiveRowKey(key)}
                             onBlur={() => setTimeout(() => setActiveRowKey((cur) => cur === key ? null : cur), 150)}
                             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addPattern(key); } }}
-                            placeholder="email or pattern"
+                            placeholder="email, pattern or group:name"
                             style={{ ...inputStyle, flex: 1, fontSize: 11 }}
                           />
                           {draft.trim() && (
@@ -379,17 +384,17 @@ export default function RLSDialog({ modelId, tableName, tableColumns, rls, onCha
                                     // Use onMouseDown so this fires before the input's onBlur
                                     // (which would otherwise hide the dropdown before our click registers).
                                     e.preventDefault();
-                                    setNewPattern((s) => ({ ...s, [key]: u.email }));
+                                    setNewPattern((s) => ({ ...s, [key]: u.group ? `group:${u.name}` : u.email }));
                                     setSuggestions([]);
                                   }}
                                   style={suggestionItemStyle}
                                 >
-                                  <span style={_hs15}>{u.email}</span>
-                                  {u.display_name && (
-                                    <span style={_hs16}>
-                                      {u.display_name}
-                                    </span>
-                                  )}
+                                  <span style={_hs15}>{u.group ? `group:${u.name}` : u.email}</span>
+                                  <span style={_hs16}>
+                                    {u.group
+                                      ? `group · ${u.member_count} member${u.member_count === 1 ? '' : 's'}`
+                                      : u.display_name}
+                                  </span>
                                 </div>
                               ))}
                             </div>

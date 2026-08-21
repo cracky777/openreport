@@ -114,6 +114,25 @@ db.exec(`CREATE TABLE IF NOT EXISTS custom_visuals (
   FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE CASCADE
 )`);
 
+// User groups — indirection for RLS rules (`group:<name>` patterns) so access
+// follows membership instead of per-model email lists: onboarding/offboarding
+// touches one membership row, never every model's rules. Managed by the global
+// admin; names are unique case-insensitively (rules reference them by name).
+db.exec(`CREATE TABLE IF NOT EXISTS groups (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  created_at TEXT DEFAULT (datetime('now'))
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS group_members (
+  group_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  added_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (group_id, user_id),
+  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members (user_id)');
+
 // Rollup cache manifest — registry of pre-aggregated tables materialised per
 // (model, grain, baked-global-filter). Replaces the GROUPING SETS warmer.
 // Physical tables live in either an embedded DuckDB (default) or the model's
