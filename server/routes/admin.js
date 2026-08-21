@@ -17,6 +17,8 @@ const {
   setQueryCacheEnabled,
   getQueryCacheTtlMs,
   setQueryCacheTtlMs,
+  getPublicSharingPolicy,
+  setPublicSharingPolicy,
 } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
 
@@ -220,7 +222,19 @@ router.get('/settings', requireAdmin, (req, res) => {
       uploadedFileCount,
       uploadedBytes: totalUploadedBytes,
     },
+    publicSharingPolicy: getPublicSharingPolicy(),
   });
+});
+
+// Public-sharing policy — who may flip a report public, instance-wide.
+// 'disabled' is also a kill switch: already-public reports stop serving
+// anonymously until the policy is relaxed again.
+router.put('/settings/public-sharing', requireAdmin, (req, res) => {
+  try {
+    res.json({ publicSharingPolicy: setPublicSharingPolicy(String(req.body?.policy || '')) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 router.put('/settings/query-timeout', requireAdmin, (req, res) => {

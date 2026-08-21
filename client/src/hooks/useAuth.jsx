@@ -6,10 +6,17 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Non-sensitive instance-wide policies (from /auth/me) the UI adapts to,
+  // e.g. hiding "Share public link" when the admin restricted it. The server
+  // enforces regardless; this only avoids dead-end menu items.
+  const [instance, setInstance] = useState({ publicSharingPolicy: 'everyone' });
 
   useEffect(() => {
     api.get('/auth/me')
-      .then((res) => setUser(res.data.user))
+      .then((res) => {
+        setUser(res.data.user);
+        if (res.data.instance) setInstance(res.data.instance);
+      })
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
@@ -36,7 +43,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, instance, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

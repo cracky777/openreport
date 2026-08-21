@@ -84,6 +84,12 @@ function datasourceUsable(datasourceId, req) {
 
 const router = express.Router();
 
+// Materialise req.embedPrincipal from a signed X-Embed-Token — same mount as
+// routes/reports.js so an embed page's widget queries carry the same grant
+// (canAccessModel walks the token's report; /query reads its RLS identity
+// and locked filters).
+router.use(require('../utils/embedToken').middleware);
+
 // In-flight cancellable queries — keyed by client-generated queryId so the
 // client can explicitly request cancellation via a separate HTTP endpoint
 // (avoids the brittle res.on('close') / req.on('close') listener approach).
@@ -114,7 +120,16 @@ router.get('/', authFor('read'), (req, res) => {
 });
 
 // Get single model with full details (owner, global admin, or anyone with access to a report using it)
-router.get('/:id', authFor('read'), (req, res) => {
+// Anonymous callers go straight to the per-model gate: public-report viewers
+// and embed tokens are legitimate readers of a model's METADATA (the Viewer
+// needs dims/measures to build its queries), and the blanket authFor 401
+// left every widget of an anonymously opened public /view — and any /embed —
+// page permanently blank. canReadModel only grants models reachable through
+// a public report or the token's own report, so nothing new becomes listable.
+router.get('/:id', (req, res, next) => {
+  if (req.isAuthenticated && req.isAuthenticated()) return authFor('read')(req, res, next);
+  return next();
+}, (req, res) => {
   const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
   if (!row || !canReadModel(row, req.user, req)) return res.status(404).json({ error: 'Model not found' });
   const model = parseModel(row);
@@ -122,8 +137,8 @@ router.get('/:id', authFor('read'), (req, res) => {
   // Strip the RLS rules map (other users' email patterns) from the response for anyone
   // who isn't the owner or a global admin. The viewer's own access is enforced server-side
   // by /query — they don't need to see who else has access.
-  const isOwner = req.user.id === model.user_id;
-  const isAdmin = req.user.role === 'admin';
+  const isOwner = req.isAuthenticated() && req.user.id === model.user_id;
+  const isAdmin = req.isAuthenticated() && req.user.role === 'admin';
   const safeRls = (isOwner || isAdmin) ? model.rls : {};
 
   res.json({
@@ -713,6 +728,12 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     withTotalComponents,
   } = req.body;
 
+  // Embed tokens carry locked filters — appended server-side on EVERY query,
+  // so the hosting page can't peel them off by editing its own requests.
+  if (req.embedPrincipal && req.embedPrincipal.lockedFilters.length > 0) {
+    widgetFilters = [...req.embedPrincipal.lockedFilters, ...(Array.isArray(widgetFilters) ? widgetFilters : [])];
+  }
+
   // Gate `extraMeasures` / `extraDimensions` / overrides: these can carry
   // arbitrary SQL (via `aggregation: 'custom'` + `expression`) or arbitrary
   // table/column references. Only the model owner and admins may pass
@@ -953,19 +974,28 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
 
   // RLS: model owner and global admins bypass. Everyone else (including unauthenticated
   // viewers of public reports) is filtered by the rule set against their email.
-  const isOwner = req.isAuthenticated() && req.user.id === model.user_id;
-  const isAdmin = req.isAuthenticated() && req.user.role === 'admin';
+  // An embed request never bypasses, even when the owner's own session cookie
+  // rides along (same-origin preview): the page must show exactly what the
+  // token's audience will see.
+  const isEmbed = !!req.embedPrincipal;
+  const isOwner = !isEmbed && req.isAuthenticated() && req.user.id === model.user_id;
+  const isAdmin = !isEmbed && req.isAuthenticated() && req.user.role === 'admin';
   const rlsApplies = rls && rls.enabled && rls.table && rls.primaryKey && !isOwner && !isAdmin;
   let allowedRlsKeys = null;
   if (rlsApplies) {
-    const email = req.isAuthenticated() ? req.user.email : '';
-    // Group memberships feed `group:<name>` rules. Resolved here (one indexed
-    // query, only when RLS actually applies) so utils/rls stays pure.
-    const groupNames = req.isAuthenticated()
-      ? db.prepare(`SELECT g.name FROM groups g
-                    JOIN group_members gm ON gm.group_id = g.id
-                    WHERE gm.user_id = ?`).all(req.user.id).map((r) => r.name)
-      : [];
+    // Identity: the embed token is self-contained (email + groups signed in);
+    // a session user brings their email and DB group memberships. Resolved
+    // here (one indexed query, only when RLS applies) so utils/rls stays pure.
+    const email = isEmbed
+      ? req.embedPrincipal.email
+      : (req.isAuthenticated() ? req.user.email : '');
+    const groupNames = isEmbed
+      ? req.embedPrincipal.groups
+      : (req.isAuthenticated()
+        ? db.prepare(`SELECT g.name FROM groups g
+                      JOIN group_members gm ON gm.group_id = g.id
+                      WHERE gm.user_id = ?`).all(req.user.id).map((r) => r.name)
+        : []);
     allowedRlsKeys = getAllowedRlsKeys(rls, email, groupNames);
   }
   __mark('extras gating + rls resolved');

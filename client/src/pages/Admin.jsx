@@ -134,6 +134,16 @@ export default function Admin() {
     }
   };
 
+  const savePublicSharing = async (policy) => {
+    try {
+      const res = await api.put('/admin/settings/public-sharing', { policy });
+      setSettings((prev) => ({ ...prev, publicSharingPolicy: res.data.publicSharingPolicy }));
+      toast('Public sharing policy saved', 'success');
+    } catch (err) {
+      toast(err.response?.data?.error || 'Failed to save');
+    }
+  };
+
   const updateRole = async (userId, role) => {
     try {
       await api.put(`/admin/users/${userId}/role`, { role });
@@ -247,6 +257,11 @@ export default function Admin() {
               onFlush={() => setAskFlush(true)}
               saving={savingCache}
               flushing={flushingCache}
+            />
+            <div style={_hs5} />
+            <PublicSharingControl
+              policy={settings.publicSharingPolicy}
+              onSave={savePublicSharing}
             />
           </div>
         )}
@@ -684,3 +699,29 @@ const cloudHeaderLink = {
   background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
   borderRadius: 6, marginRight: 8,
 };
+
+// Instance-wide public-sharing policy. 'disabled' doubles as a kill switch:
+// already-public reports stop serving anonymously until the policy relaxes.
+function PublicSharingControl({ policy, onSave }) {
+  return (
+    <div style={_hs21}>
+      <div style={_hs22}>
+        <div style={_hs19}>Public report links</div>
+        <p style={_hs24}>
+          Who can share a report publicly. &quot;Nobody&quot; also stops serving
+          links that are already public. Signed embed links are minted per
+          report and are not affected.
+        </p>
+      </div>
+      <select
+        value={policy || 'everyone'}
+        onChange={(e) => onSave(e.target.value)}
+        style={{ ...inputStyle, width: 220 }}
+      >
+        <option value="everyone">Model owners and admins</option>
+        <option value="admins">Admins only</option>
+        <option value="disabled">Nobody (kill switch)</option>
+      </select>
+    </div>
+  );
+}

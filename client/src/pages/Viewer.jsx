@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import ReportCanvas from '../components/Canvas/ReportCanvas';
-import api from '../utils/api';
+import api, { setEmbedToken } from '../utils/api';
 import { prepareGlobalRulesForWidget } from '../utils/reportFilterRules';
 import { parseFiltersFromUrl, syncFiltersToUrl, parsePrintFiltersFromUrl } from '../utils/urlFilters';
 import { buildWidgetQueryPayload } from '../utils/widgetQueryPayload';
@@ -23,6 +23,15 @@ const _hs4 = { fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' };
 const _hs5 = { display: 'flex', alignItems: 'center', gap: 4 };
 
 const DRILLABLE_TYPES = ['bar', 'line', 'combo', 'pie', 'treemap'];
+
+// Embed mode (/embed/:id?token=…): the signed token authenticates every API
+// call in place of a session cookie — third-party iframes don't get cookies.
+// Stashed at module scope BEFORE the load effect fires so the very first
+// report fetch already carries the header.
+const IS_EMBED = typeof window !== 'undefined' && window.location.pathname.startsWith('/embed/');
+if (IS_EMBED) {
+  setEmbedToken(new URLSearchParams(window.location.search).get('token'));
+}
 
 export default function Viewer() {
   const { id } = useParams();
@@ -621,7 +630,10 @@ export default function Viewer() {
       flexDirection: 'column',
       backgroundColor: printMode ? 'transparent' : 'var(--bg-app)',
     }}>
-      {/* Viewer toolbar — compact */}
+      {/* Viewer toolbar — compact. Hidden in embed mode: the hosting page
+          brings its own chrome, and refresh/export/fullscreen are viewer
+          tools, not embed audience tools. */}
+      {!IS_EMBED && (
       <header className="no-print" style={_hs2}>
         <img src="/favicon.png" alt="Open Report" style={_hs3} />
         <span style={_hs4}>{report.title}</span>
@@ -643,6 +655,7 @@ export default function Viewer() {
           </button>
         </div>
       </header>
+      )}
 
       {/* Report area — canvas + pages column live inside the report theme wrapper so the column inherits the report's theme. */}
       <div

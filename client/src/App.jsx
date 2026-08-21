@@ -64,6 +64,9 @@ const router = createBrowserRouter([
       { path: '/models/:id', element: <PrivateRoute><ModelEditor /></PrivateRoute> },
       { path: '/admin', element: <PrivateRoute><Admin /></PrivateRoute> },
       { path: '/view/:id', element: <Viewer /> },
+      // Token-authenticated embed page (iframe-able) — same Viewer, chrome-less;
+      // the signed ?token= grants access, no session required.
+      { path: '/embed/:id', element: <Viewer /> },
       { path: '/verify', element: <Verify /> },
       // Cloud-edition routes — empty array in the OSS build.
       ...(cloudRoutes || []).map((r) => ({

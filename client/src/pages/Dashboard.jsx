@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
@@ -5,7 +6,7 @@ import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
 import { readSheetNames } from '../utils/readSheetNames';
-import { TbEye, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeftFilled, TbToggleRightFilled, TbLoader2, TbRefresh, TbFileText } from 'react-icons/tb';
+import { TbEye, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeftFilled, TbToggleRightFilled, TbLoader2, TbRefresh, TbFileText, TbCode } from 'react-icons/tb';
 import { DeleteIcon, EditIcon, ICON_SIZE } from '../components/actionIcons';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
@@ -210,7 +211,11 @@ const _hs87 = { fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', whi
 const _hs88 = { fontSize: 11, color: 'var(--text-muted)' };
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, instance } = useAuth();
+  // Instance policy: who may flip a report public. 'disabled' hides the
+  // action for everyone, 'admins' keeps it for admins only.
+  const canSharePublic = instance.publicSharingPolicy === 'everyone'
+    || (instance.publicSharingPolicy === 'admins' && user?.role === 'admin');
   // Still needed to stamp the active theme onto exported/shared reports.
   const { resolved: themeResolved, themes: availableThemes } = useTheme();
   const navigate = useNavigate();
@@ -557,6 +562,7 @@ export default function Dashboard() {
 
   // 3-dots menu state (per-card) + the modals it opens.
   const [cardMenu, setCardMenu] = useState(null);          // reportId of the open menu, or null
+  const [embedModal, setEmbedModal] = useState(null);      // report object of the open embed dialog, or null
   const [renameModal, setRenameModal] = useState(null);    // { report, value }
   const [moveModal, setMoveModal] = useState(null);        // { report, targetWs }
   const [historyModal, setHistoryModal] = useState(null);  // { report, versions, loading }
@@ -1269,7 +1275,10 @@ export default function Dashboard() {
                               onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                               <TbArrowsRightLeft size={14} /> Move to workspace
                             </button>
-                            {canEdit && (
+                            {/* Making a report public is gated by the instance
+                                policy (admin setting); making it private again is
+                                always allowed. The server enforces either way. */}
+                            {canEdit && (report.is_public || canSharePublic) && (
                               <button style={cardMenuItem}
                                 onClick={() => { setCardMenu(null); togglePublic(report); }}
                                 onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
@@ -1279,7 +1288,7 @@ export default function Dashboard() {
                                   : <><TbShare size={14} /> Share public link</>}
                               </button>
                             )}
-                            {report.is_public ? (
+                            {report.is_public && instance.publicSharingPolicy !== 'disabled' ? (
                               <button style={cardMenuItem}
                                 onClick={() => {
                                   setCardMenu(null);
@@ -1292,6 +1301,14 @@ export default function Dashboard() {
                                 <TbLink size={14} /> Copy public link
                               </button>
                             ) : null}
+                            {canEdit && (
+                              <button style={cardMenuItem}
+                                onClick={() => { setCardMenu(null); setEmbedModal(report); }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                                <TbCode size={14} /> Embed…
+                              </button>
+                            )}
                             {user?.role === 'admin' && (
                               <button style={cardMenuItem}
                                 onClick={() => openHistory(report)}
@@ -1462,6 +1479,11 @@ export default function Dashboard() {
         />
       )}
 
+      {/* Embed token dialog — mints a signed URL/iframe for one report. */}
+      {embedModal && (
+        <EmbedDialog report={embedModal} onClose={() => setEmbedModal(null)} />
+      )}
+
       {/* Schedule emails — cloud-only. Lists the report's existing schedules
           and a small inline form to create / edit one. Phase 1: deep link in
           the email; PDF attachment + per-recipient personalisation later. */}
@@ -1597,3 +1619,112 @@ const sourceCard = {
   padding: '20px 12px', border: '1px solid var(--border-default)', borderRadius: 8, background: 'var(--bg-panel)',
   cursor: 'pointer', textAlign: 'center', transition: 'all 0.15s', color: 'var(--text-primary)',
 };
+
+// Mint a signed embed URL/iframe for one report. The token carries an optional
+// RLS identity (email) and an expiry; generation requires write access to the
+// report's model — the server enforces it, we just surface its message.
+// Rendered through a portal: an ancestor in the dashboard tree carries a
+// transform, which turns position:fixed into "fixed to that ancestor" and
+// shoves the centered panel off-screen.
+function EmbedDialog({ report, onClose }) {
+  const [email, setEmail] = useState('');
+  const [expiresIn, setExpiresIn] = useState(30 * 24 * 3600);
+  const [result, setResult] = useState(null); // { url, expiresAt }
+  const [generating, setGenerating] = useState(false);
+
+  const generate = async () => {
+    setGenerating(true);
+    try {
+      const res = await api.post(`/reports/${report.id}/embed-token`, {
+        email: email.trim() || undefined,
+        expiresIn,
+      });
+      // Build the URL from the browser's own origin: behind the dev proxy
+      // (and some reverse proxies) the server sees a rewritten Host and
+      // would print an internal one.
+      setResult({ ...res.data, url: `${window.location.origin}/embed/${report.id}?token=${encodeURIComponent(res.data.token)}` });
+    } catch (err) {
+      toast(err.response?.data?.error || 'Failed to create the embed link');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const copy = (text, what) => {
+    navigator.clipboard?.writeText(text);
+    toast(`${what} copied`, 'success');
+  };
+  const iframeSnippet = result
+    ? `<iframe src="${result.url}" width="100%" height="600" frameborder="0"></iframe>`
+    : '';
+
+  return createPortal(
+    <div style={embedOverlay} onClick={onClose}>
+      <div style={embedPanel} onClick={(e) => e.stopPropagation()}>
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2 }}>Embed report</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>{report.title}</div>
+
+        <label style={labelStyle}>Row-level security identity (optional email)</label>
+        <input
+          placeholder="viewer@customer.com — leave empty for no identity"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          style={{ ...inputStyle, marginBottom: 10 }}
+        />
+        <label style={labelStyle}>Link expires after</label>
+        <select value={expiresIn} onChange={(e) => setExpiresIn(Number(e.target.value))} style={{ ...inputStyle, marginBottom: 14 }}>
+          <option value={3600}>1 hour</option>
+          <option value={24 * 3600}>24 hours</option>
+          <option value={30 * 24 * 3600}>30 days</option>
+          <option value={365 * 24 * 3600}>1 year</option>
+        </select>
+        <div style={{ fontSize: 11, color: 'var(--text-disabled)', marginBottom: 14 }}>
+          The identity feeds row-level security exactly like a signed-in viewer — with RLS enabled
+          and no identity, the embed shows no rows. Anyone holding the link sees the report until it expires.
+        </div>
+
+        {result && (
+          <>
+            <label style={labelStyle}>Embed URL</label>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+              <input readOnly value={result.url} style={{ ...inputStyle, fontSize: 11 }} onFocus={(e) => e.target.select()} />
+              <button className="btn-hover" style={embedCopyBtn} onClick={() => copy(result.url, 'URL')}>Copy</button>
+            </div>
+            <label style={labelStyle}>Iframe snippet</label>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+              <textarea readOnly value={iframeSnippet} rows={3} style={{ ...inputStyle, fontSize: 11, fontFamily: 'monospace', resize: 'none' }} onFocus={(e) => e.target.select()} />
+              <button className="btn-hover" style={embedCopyBtn} onClick={() => copy(iframeSnippet, 'Snippet')}>Copy</button>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-disabled)', marginBottom: 8 }}>
+              Expires {new Date(result.expiresAt).toLocaleString()}
+            </div>
+          </>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
+          <button className="btn-hover" style={embedSecondaryBtn} onClick={onClose}>Close</button>
+          <button
+            className="btn-hover btn-hover-primary"
+            style={embedPrimaryBtn}
+            onClick={generate}
+            disabled={generating}
+          >{generating ? 'Generating…' : result ? 'Generate new link' : 'Generate link'}</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+const embedOverlay = {
+  position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 300,
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+};
+const embedPanel = {
+  width: 520, maxWidth: '92vw', maxHeight: '90vh', overflowY: 'auto',
+  background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
+  borderRadius: 10, padding: 20, boxShadow: '0 8px 30px rgba(0,0,0,0.2)',
+};
+const embedPrimaryBtn = { padding: '8px 14px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer' };
+const embedSecondaryBtn = { padding: '8px 14px', fontSize: 13, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer' };
+const embedCopyBtn = { padding: '6px 12px', fontSize: 12, background: 'transparent', color: 'var(--accent-primary)', border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer', flexShrink: 0 };

@@ -80,6 +80,28 @@ function getQueryCacheMaxEntries() {
   return Number.isFinite(v) && v > 0 ? Math.round(v) : QUERY_CACHE_MAX_ENTRIES_DEFAULT;
 }
 
+// ─── Public sharing policy ──────────────────────────────────────────
+// Governs the "make this report public" capability instance-wide:
+//   everyone  (default) any user with write access to the report's model
+//   admins    only global admins may flip a report public
+//   disabled  nobody may — AND already-public reports stop serving
+//             anonymously (kill switch; signed embed tokens are a separate
+//             capability and keep working, each one is individually minted)
+const PUBLIC_SHARING_POLICIES = ['everyone', 'admins', 'disabled'];
+
+function getPublicSharingPolicy() {
+  const v = getSetting('public_sharing_policy', 'everyone');
+  return PUBLIC_SHARING_POLICIES.includes(v) ? v : 'everyone';
+}
+
+function setPublicSharingPolicy(policy) {
+  if (!PUBLIC_SHARING_POLICIES.includes(policy)) {
+    throw new Error(`Policy must be one of: ${PUBLIC_SHARING_POLICIES.join(', ')}`);
+  }
+  setSetting('public_sharing_policy', policy);
+  return policy;
+}
+
 module.exports = {
   QUERY_TIMEOUT_MIN_MS,
   QUERY_TIMEOUT_MAX_MS,
@@ -98,4 +120,7 @@ module.exports = {
   getQueryCacheTtlMs,
   setQueryCacheTtlMs,
   getQueryCacheMaxEntries,
+  PUBLIC_SHARING_POLICIES,
+  getPublicSharingPolicy,
+  setPublicSharingPolicy,
 };

@@ -3,11 +3,18 @@ const { v4: uuidv4 } = require('uuid');
 const { authFor } = require('../middleware/auth');
 const db = require('../db');
 const { ensurePersonalWorkspace } = require('../utils/personalWorkspace');
+const { getPublicSharingPolicy } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
 // Cloud extension points (null in OSS). See server/cloudHooks.js.
 const cloudHooks = require('../cloudHooks');
+const embedToken = require('../utils/embedToken');
 
 const router = express.Router();
+
+// Materialise req.embedPrincipal from a signed X-Embed-Token — the grant
+// behind /embed pages. Mounted here AND in routes/models.js so both the
+// report fetch and the widget queries honour the same token.
+router.use(embedToken.middleware);
 
 // Strip widget.data from a widgets map. Used to prevent the owner's pre-baked
 // snapshot from leaking to non-owner viewers (it bypasses RLS). The viewer will
@@ -28,9 +35,15 @@ function stripWidgetData(widgets) {
 // or they're a member of the workspace containing it. The cloud edition replaces
 // this whole decision with an org read-role check via cloudHooks.canAccessReport.
 function canAccessReport(report, user, req) {
+  // A signed embed token grants exactly its own report — checked before the
+  // cloud delegation so embeds behave identically in both editions. Model
+  // access follows through canAccessModel's report walk; nothing else opens.
+  if (report && req && req.embedPrincipal && req.embedPrincipal.reportId === report.id) return true;
   if (typeof cloudHooks.canAccessReport === 'function') return cloudHooks.canAccessReport(report, user, req);
   if (!report) return false;
-  if (report.is_public) return true;
+  // Kill switch: with sharing disabled, already-public reports stop serving
+  // through the public branch — signed-in access paths below still apply.
+  if (report.is_public && getPublicSharingPolicy() !== 'disabled') return true;
   if (!user) return false;
   if (user.role === 'admin') return true;
   if (user.id === report.user_id) return true;
@@ -236,6 +249,46 @@ router.get('/:id', (req, res) => {
   });
 });
 
+// Mint a signed embed token for one report. Same authorization bar as
+// flipping a report public (write access to the underlying MODEL): an embed
+// token hands report data to an external page, so whoever owns the data —
+// not merely the report author — must be the one signing it out.
+router.post('/:id/embed-token', authFor('read'), (req, res) => {
+  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Report not found' });
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(report.model_id);
+  if (!model || !canWriteModel(model, req.user, req)) {
+    return res.status(403).json({ error: 'Only someone with write access to the underlying model can create embed tokens' });
+  }
+
+  const { email, groups, lockedFilters, expiresIn } = req.body || {};
+  // Locked filters travel inside the signed token and are re-applied
+  // server-side on every query — validate the shape now so a malformed rule
+  // can't 500 later inside the compiler.
+  const cleanedFilters = [];
+  for (const f of Array.isArray(lockedFilters) ? lockedFilters : []) {
+    if (!f || typeof f.field !== 'string' || !f.field || typeof f.op !== 'string' || f.isMeasure) {
+      return res.status(400).json({ error: 'Each locked filter needs a dimension field and an op' });
+    }
+    cleanedFilters.push({ field: f.field, op: f.op, ...(f.values !== undefined ? { values: f.values } : {}), ...(f.value !== undefined ? { value: f.value } : {}) });
+  }
+  const cleanedGroups = (Array.isArray(groups) ? groups : []).map((g) => String(g).trim()).filter(Boolean);
+
+  const token = embedToken.sign({
+    reportId: report.id,
+    email: email ? String(email) : undefined,
+    groups: cleanedGroups,
+    lockedFilters: cleanedFilters,
+    expiresIn,
+  });
+  const ttl = Math.min(Math.max(parseInt(expiresIn, 10) || embedToken.DEFAULT_TTL_SECONDS, 60), embedToken.MAX_TTL_SECONDS);
+  res.status(201).json({
+    token,
+    url: `${req.protocol}://${req.get('host')}/embed/${report.id}?token=${encodeURIComponent(token)}`,
+    expiresAt: new Date(Date.now() + ttl * 1000).toISOString(),
+  });
+});
+
 // Import report from a raw JSON bundle (the file produced by the client-side
 // "Export raw (JSON)" action). The bundle's shape is:
 //   { format: 'open-report.report.v1', exportedAt, report: { title, model_id, layout, widgets, settings, pages } }
@@ -423,9 +476,20 @@ router.put('/:id', authFor('read'), (req, res) => {
 
   // Publishing exposes the MODEL, not just this report: /query answers anonymous
   // callers for a public report. Owning the report is therefore not enough —
-  // whoever owns the data has to be the one deciding it goes public.
-  if (is_public && !canWriteModel(model, req.user, req)) {
-    return res.status(403).json({ error: 'Only someone with write access to the underlying model can make a report public' });
+  // whoever owns the data has to be the one deciding it goes public. On top of
+  // that per-model bar, the instance-wide policy lets the admin restrict the
+  // capability itself.
+  if (is_public) {
+    const policy = getPublicSharingPolicy();
+    if (policy === 'disabled') {
+      return res.status(403).json({ error: 'Public sharing is disabled on this instance' });
+    }
+    if (policy === 'admins' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only an admin can make a report public on this instance' });
+    }
+    if (!canWriteModel(model, req.user, req)) {
+      return res.status(403).json({ error: 'Only someone with write access to the underlying model can make a report public' });
+    }
   }
   // Moving a report is placing it: the destination gets the same check as a
   // creation, or a report could be pushed into a workspace of someone else.

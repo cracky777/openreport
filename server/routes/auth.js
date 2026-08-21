@@ -115,7 +115,10 @@ router.post('/logout', (req, res) => {
 });
 
 router.get('/me', requireAuth, (req, res) => {
-  res.json({ user: req.user });
+  // `instance` = non-sensitive instance-wide policy the client UI adapts to
+  // (e.g. hiding the "Share public link" action). Enforcement stays server-side.
+  const { getPublicSharingPolicy } = require('../utils/settingsHelper');
+  res.json({ user: req.user, instance: { publicSharingPolicy: getPublicSharingPolicy() } });
 });
 
 // Autocomplete for user discovery (RLS assignment, workspace invites). To keep
