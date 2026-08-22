@@ -15,8 +15,12 @@
  * A tick that lands in the same state as the previous one records
  * nothing — an alert that stays red does not re-notify every cadence.
  *
+ * Channels: the webhook (OSS) plus whatever `cloudHooks.notifyAlert`
+ * adds (cloud: e-mail). Both are best-effort — a delivery failure is
+ * noted on the event, never retried, and never blocks the state update.
+ *
  * `deps` exists for tests: they inject `fireQuery` (no listening server
- * under Jest) and `postWebhook`.
+ * under Jest), `postWebhook` and `notify`.
  */
 
 const cron = require('node-cron');
@@ -24,6 +28,7 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
 const internalToken = require('./internalToken');
 const { parseModel } = require('../db/modelRow');
+const cloudHooks = require('../cloudHooks');
 
 const WEBHOOK_TIMEOUT_MS = 10_000;
 
@@ -127,7 +132,28 @@ async function runOne(alertId, deps = {}) {
   if (!alert.enabled) return { skipped: true, reason: 'disabled' };
   const fireQuery = deps.fireQuery || defaultFireQuery;
   const postWebhook = deps.postWebhook || defaultPostWebhook;
+  const notify = deps.notify || (typeof cloudHooks.notifyAlert === 'function' ? cloudHooks.notifyAlert : null);
   const prev = alert.last_state || null;
+
+  // Fan a transition out to every channel; returns { note, notified }.
+  // Notes from failed channels are joined so the history shows which one
+  // broke; `notified` means at least one channel accepted the message.
+  async function deliver(state, v) {
+    const payload = webhookPayload(alert, state, v);
+    const notes = [];
+    let delivered = false;
+    if (alert.webhook_url) {
+      const n = await postWebhook(alert.webhook_url, payload);
+      if (n) notes.push(n); else delivered = true;
+    }
+    if (notify) {
+      let n = null;
+      try { n = await notify({ alert, state, value: v, payload }); }
+      catch (e) { n = `notification failed: ${e.message}`; }
+      if (n) notes.push(n); else delivered = true;
+    }
+    return { note: notes.length ? notes.join(' · ') : null, notified: delivered };
+  }
 
   let value = null;
   let next;
@@ -155,17 +181,15 @@ async function runOne(alertId, deps = {}) {
   let notified = false;
   const transition = next !== prev;
   if (transition && next === 'triggered') {
-    let note = null;
-    if (alert.webhook_url) {
-      note = await postWebhook(alert.webhook_url, webhookPayload(alert, 'triggered', value));
-      notified = note === null;
-    }
-    recordEvent(alert.id, 'triggered', value, alert.threshold, note);
+    const d = await deliver('triggered', value);
+    notified = d.notified;
+    recordEvent(alert.id, 'triggered', value, alert.threshold, d.note);
   } else if (transition && next === 'ok' && prev === 'triggered') {
     let note = null;
-    if (alert.webhook_url && alert.notify_on_recover) {
-      note = await postWebhook(alert.webhook_url, webhookPayload(alert, 'recovered', value));
-      notified = note === null;
+    if (alert.notify_on_recover) {
+      const d = await deliver('recovered', value);
+      notified = d.notified;
+      note = d.note;
     }
     recordEvent(alert.id, 'recovered', value, alert.threshold, note);
   } else if (transition && next === 'error') {

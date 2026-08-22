@@ -34,3 +34,12 @@ export const TopbarSwitcher = null;
 // Cloud-only slot injected into the Dashboard user-menu dropdown (e.g. a
 // "Platform supervisor" link). Null in OSS.
 export const UserMenuExtras = null;
+// Cloud-only slot rendered inside the Alerts create/edit form, after the
+// webhook field — extra notification channels (e-mail recipients). Props:
+// { value, onChange, styles } where `value` is the form's free-shape `extras`
+// object, spread as-is into the POST/PUT body. A static `fromAlert(alert)`
+// returns the initial `extras` for an existing alert. Null in OSS.
+export const AlertFormExtras = null;
+// Cloud-only: alertMetaExtra(alert) → string|null appended to the alert
+// card's meta line (e.g. " · 2 recipients"). Null in OSS.
+export const alertMetaExtra = null;

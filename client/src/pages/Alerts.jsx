@@ -8,6 +8,7 @@ import { EditIcon, ICON_SIZE } from '../components/actionIcons';
 import { cardActionBtn } from '../components/dashboardModalStyles';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../components/FilterRulesEditor/FilterRulesEditor';
+import { AlertFormExtras, alertMetaExtra } from '../cloud';
 
 // Threshold alerts: watch one measure of a model on a cadence and notify
 // on state transitions (webhook + in-app history). The page is a flat
@@ -35,6 +36,7 @@ const EMPTY_FORM = {
   name: '', modelId: '', measureName: '', op: 'gt', threshold: '',
   cronExpression: '*/15 * * * *', webhookUrl: '', notifyOnRecover: true,
   widgetFilters: [],
+  extras: {}, // cloud-only channels (see AlertFormExtras) — spread into the body
 };
 
 export default function Alerts() {
@@ -80,6 +82,7 @@ export default function Alerts() {
       op: a.op, threshold: String(a.threshold), cronExpression: a.cron_expression,
       webhookUrl: a.webhook_url || '', notifyOnRecover: a.notify_on_recover,
       widgetFilters: Array.isArray(a.widget_filters) ? a.widget_filters : [],
+      extras: AlertFormExtras && AlertFormExtras.fromAlert ? AlertFormExtras.fromAlert(a) : {},
     });
     setEditing(a.id);
   };
@@ -92,6 +95,7 @@ export default function Alerts() {
         op: form.op, threshold: Number(form.threshold), cronExpression: form.cronExpression,
         webhookUrl: form.webhookUrl || null, notifyOnRecover: form.notifyOnRecover,
         widgetFilters: form.widgetFilters,
+        ...form.extras,
       };
       if (editing === 'new') await api.post('/alerts', body);
       else await api.put(`/alerts/${editing}`, body);
@@ -195,6 +199,7 @@ export default function Alerts() {
                       {modelName(a.model_id)} — {a.measure_name} {opLabel(a.op)} {a.threshold} · {cadenceLabel(a.cron_expression)}
                       {a.widget_filters?.length ? ` · ${a.widget_filters.length} filter${a.widget_filters.length > 1 ? 's' : ''}` : ''}
                       {a.webhook_url ? ' · webhook' : ''}
+                      {alertMetaExtra ? (alertMetaExtra(a) || '') : ''}
                     </div>
                     <div style={subMetaStyle}>
                       {a.last_checked_at
@@ -302,6 +307,13 @@ export default function Alerts() {
           <label style={labelStyle}>Webhook URL (optional — Slack/Teams/Discord compatible)</label>
           <input style={inputStyle} value={form.webhookUrl} placeholder="https://hooks.slack.com/services/…"
             onChange={(e) => setForm({ ...form, webhookUrl: e.target.value })} />
+          {AlertFormExtras && (
+            <AlertFormExtras
+              value={form.extras}
+              onChange={(extras) => setForm({ ...form, extras })}
+              styles={{ labelStyle, inputStyle }}
+            />
+          )}
           <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
             <input type="checkbox" checked={form.notifyOnRecover}
               onChange={(e) => setForm({ ...form, notifyOnRecover: e.target.checked })} />

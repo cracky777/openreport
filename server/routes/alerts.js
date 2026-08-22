@@ -16,6 +16,7 @@ const { parseModel } = require('../db/modelRow');
 const { validateCron } = require('../utils/cacheSchedules');
 const { hostIsBlocked } = require('./datasources');
 const alertRunner = require('../utils/alertRunner');
+const cloudHooks = require('../cloudHooks');
 
 const router = express.Router();
 router.use(authFor('write'));
@@ -94,6 +95,13 @@ function validateAlertBody(body, req, existing) {
   if (b.enabled !== undefined) out.enabled = b.enabled ? 1 : 0;
   if (b.notifyOnRecover !== undefined) out.notify_on_recover = b.notifyOnRecover ? 1 : 0;
   delete out._model;
+  // Extra channels (cloud: e-mail recipients) — the hook validates its own
+  // fields and hands back the column patch; OSS has no hook → nothing merged.
+  if (typeof cloudHooks.validateAlertExtras === 'function') {
+    const extra = cloudHooks.validateAlertExtras(b, req, existing);
+    if (extra && extra.error) return { error: extra.error };
+    if (extra && extra.fields) Object.assign(out, extra.fields);
+  }
   return { fields: out };
 }
 
@@ -122,16 +130,23 @@ router.get('/', (req, res) => {
 router.post('/', (req, res) => {
   const v = validateAlertBody(req.body, req, null);
   if (v.error) return res.status(400).json({ error: v.error });
-  const f = v.fields;
   const id = uuidv4();
-  db.prepare(`INSERT INTO alerts (id, user_id, model_id, name, measure_name, widget_filters,
-                op, threshold, cron_expression, timezone, webhook_url, enabled, notify_on_recover,
-                organization_id)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, req.user.id, f.model_id, f.name, f.measure_name, f.widget_filters || '[]',
-      f.op, f.threshold, f.cron_expression, f.timezone || null, f.webhook_url || null,
-      f.enabled === undefined ? 1 : f.enabled, f.notify_on_recover === undefined ? 1 : f.notify_on_recover,
-      req.organizationId || null);
+  // Column list built from the validated patch so hook-provided columns
+  // (cloud e-mail recipients) land on create as well as on update.
+  const row = {
+    id,
+    user_id: req.user.id,
+    organization_id: req.organizationId || null,
+    widget_filters: '[]',
+    timezone: null,
+    webhook_url: null,
+    enabled: 1,
+    notify_on_recover: 1,
+    ...v.fields,
+  };
+  const cols = Object.keys(row);
+  db.prepare(`INSERT INTO alerts (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
+    .run(...cols.map((c) => row[c]));
   const created = db.prepare('SELECT * FROM alerts WHERE id = ?').get(id);
   alertRunner.register(created);
   res.status(201).json({ alert: publicAlert(created) });

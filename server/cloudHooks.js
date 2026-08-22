@@ -110,6 +110,17 @@ const cloudHooks = {
   // datasource/model/workspace in the caller's scope. OSS: per user. Cloud: per
   // org. Case-insensitive. `entity` ∈ 'datasource' | 'model' | 'workspace'.
   nameTaken: null,
+  // Alerts. The OSS edition notifies through webhooks only; these two hooks
+  // let the cloud edition add channels (e-mail) without forking the route.
+  // validateAlertExtras(body, req, existing) → {error}|{fields} — validate
+  //   extra payload fields and return the column patch to merge into the
+  //   INSERT/UPDATE (the cloud owns the extra columns). existing = null on
+  //   create.
+  // notifyAlert({alert, state, value, payload}) → Promise<string|null> —
+  //   deliver a 'triggered'|'recovered' transition on the extra channels;
+  //   resolves to an error note (kept in the event history) or null.
+  validateAlertExtras: null,
+  notifyAlert: null,
 };
 
 module.exports = cloudHooks;

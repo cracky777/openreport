@@ -195,4 +195,62 @@ describe('runOne — transition semantics', () => {
     const r = await alertRunner.runOne(id, { fireQuery: async () => [{ total: 150 }] });
     expect(r.skipped).toBe(true);
   });
+
+  // The extra-channel hook (cloud e-mail) rides the same transitions as the
+  // webhook: fired on triggered, on recovered only when opted in, never on
+  // error; a failure is a note on the event, not a blocked transition.
+  test('the notify channel follows the webhook transitions and failures are noted', async () => {
+    const id = seedAlert({ webhook: false });
+    const sent = [];
+    const deps = {
+      fireQuery: async () => [{ total: 150 }],
+      notify: async ({ state, value, payload }) => { sent.push([state, value, payload.alert]); return null; },
+    };
+    const r1 = await alertRunner.runOne(id, deps);
+    expect(r1).toMatchObject({ state: 'triggered', notified: true });
+    await alertRunner.runOne(id, { ...deps, fireQuery: async () => [{ total: 50 }] });
+    expect(sent).toEqual([['triggered', 150, 'a'], ['recovered', 50, 'a']]);
+
+    const silent = seedAlert({ webhook: false, notifyOnRecover: false });
+    const sent2 = [];
+    const deps2 = { ...deps, notify: async ({ state }) => { sent2.push(state); return null; } };
+    await alertRunner.runOne(silent, deps2);
+    await alertRunner.runOne(silent, { ...deps2, fireQuery: async () => [{ total: 50 }] });
+    expect(sent2).toEqual(['triggered']);
+
+    const broken = seedAlert();
+    const r = await alertRunner.runOne(broken, {
+      fireQuery: async () => [{ total: 150 }],
+      postWebhook: async () => null,
+      notify: async () => { throw new Error('smtp down'); },
+    });
+    // the webhook went through → notified; the e-mail note is kept
+    expect(r).toMatchObject({ state: 'triggered', notified: true });
+    expect(events(broken)[0].message).toMatch(/smtp down/);
+  });
+});
+
+describe('validateAlertExtras hook — extra columns on create and update', () => {
+  const cloudHooks = require('../cloudHooks');
+  afterEach(() => { cloudHooks.validateAlertExtras = null; });
+
+  test('the hook can reject, and its fields land in the row on POST and PUT', async () => {
+    db.exec('ALTER TABLE alerts ADD COLUMN extra_channel TEXT');
+    cloudHooks.validateAlertExtras = (body) => {
+      if (body.channel === 'bad') return { error: 'channel rejected' };
+      return body.channel !== undefined ? { fields: { extra_channel: body.channel } } : {};
+    };
+    const { owner, model } = seedContext();
+    const bad = await create(owner, { ...validBody(model), channel: 'bad' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toBe('channel rejected');
+
+    const ok = await create(owner, { ...validBody(model), channel: 'mail' });
+    expect(ok.status).toBe(201);
+    expect(db.prepare('SELECT extra_channel FROM alerts WHERE id = ?').get(ok.body.alert.id).extra_channel).toBe('mail');
+
+    const put = await request(app).put(`/api/alerts/${ok.body.alert.id}`).set('x-test-user', owner).send({ channel: 'sms' });
+    expect(put.status).toBe(200);
+    expect(db.prepare('SELECT extra_channel FROM alerts WHERE id = ?').get(ok.body.alert.id).extra_channel).toBe('sms');
+  });
 });
