@@ -11,6 +11,7 @@ export default function ReportCanvas({
   widgets,
   selectedWidget,
   onLayoutChange,
+  onLayoutChangeLive,
   onSelectWidget,
   readOnly,
   settings = {},
@@ -61,6 +62,8 @@ export default function ReportCanvas({
   printMode,
 }) {
   const [resizing, setResizing] = useState(null);
+  const justResizedRef = useRef(false);
+  const resizedRef = useRef(false);
   const containerRef = useRef(null);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
   // Which merge-magnet trigger zone the cursor is currently over.
@@ -139,26 +142,37 @@ export default function ReportCanvas({
     return out;
   }, [readOnly, selectedWidget, layout, widgets]);
 
-  const handleDragStop = useCallback((id, data) => {
+  // Move `id` to the dragged position, translating its merged group as a
+  // solid block ("bloc solidaire"). `emit` picks the channel: the LIVE one
+  // fires on every drag tick so the group members and the on-canvas
+  // adornments (z-order bar, magnets) follow the widget DURING the move;
+  // the recorded one fires once on drop = one undo step per gesture.
+  const applyMove = useCallback((id, data, emit) => {
     const it = layout.find((l) => l.i === id);
     const nx = Math.max(0, snap(data.x));
     const ny = Math.max(0, snap(data.y));
     const gid = mergedGidById[id];
     if (gid && it) {
-      // Solid block: translate every member by the same delta so a merged
-      // group stays contiguous (chosen behaviour: "bloc solidaire").
       const dx = nx - (it.x || 0);
       const dy = ny - (it.y || 0);
       const memberIds = new Set((mergeGroups[gid] || []).map((m) => m.i));
-      onLayoutChange(layout.map((l) => memberIds.has(l.i)
+      emit(layout.map((l) => memberIds.has(l.i)
         ? { ...l, x: Math.max(0, (l.x || 0) + dx), y: Math.max(0, (l.y || 0) + dy) }
         : l));
       return;
     }
-    onLayoutChange(layout.map((item) =>
+    emit(layout.map((item) =>
       item.i === id ? { ...item, x: nx, y: ny } : item
     ));
-  }, [layout, onLayoutChange, snap, mergedGidById, mergeGroups]);
+  }, [layout, snap, mergedGidById, mergeGroups]);
+
+  const emitLive = onLayoutChangeLive || onLayoutChange;
+  const handleDrag = useCallback((id, data) => {
+    applyMove(id, data, emitLive);
+  }, [applyMove, emitLive]);
+  const handleDragStop = useCallback((id, data) => {
+    applyMove(id, data, onLayoutChange);
+  }, [applyMove, onLayoutChange]);
 
   const handleAutoHeight = useCallback((id, newH) => {
     onLayoutChange(layout.map((item) =>
@@ -183,12 +197,28 @@ export default function ReportCanvas({
       if (dir.includes('s')) updates.h = Math.max(40, snap(resizing.startH + dy));
       if (dir.includes('n')) { updates.h = Math.max(40, snap(resizing.startH - dy)); updates.y = snap(resizing.startPosY + dy); if (updates.h <= 40) updates.y = resizing.startPosY + resizing.startH - 40; }
 
-      onLayoutChange(layout.map((item) =>
+      resizedRef.current = true;
+      emitLive(layout.map((item) =>
         item.i === resizing.id ? { ...item, ...updates } : item
       ));
     };
 
-    const handleMouseUp = () => setResizing(null);
+    const handleMouseUp = () => {
+      setResizing(null);
+      // Commit the final geometry as ONE recorded step (the per-tick
+      // updates above went through the transient channel).
+      if (resizedRef.current) {
+        resizedRef.current = false;
+        onLayoutChange(layout.map((l) => ({ ...l })));
+      }
+      // Ending a resize fires a synthetic click: mousedown hit the handle,
+      // mouseup lands wherever the cursor stopped, so the click lands on
+      // their common ancestor — this canvas — whose onClick deselects.
+      // Flag it for exactly one tick so that click is swallowed and the
+      // widget stays selected after resizing.
+      justResizedRef.current = true;
+      setTimeout(() => { justResizedRef.current = false; }, 0);
+    };
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
@@ -196,7 +226,7 @@ export default function ReportCanvas({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [resizing, layout, onLayoutChange]);
+  }, [resizing, layout, onLayoutChange, emitLive]);
 
   const startResize = useCallback((e, id, dir = 'se') => {
     e.stopPropagation();
@@ -217,7 +247,10 @@ export default function ReportCanvas({
   return (
     <div
       ref={containerRef}
-      onClick={() => onSelectWidget?.(null)}
+      onClick={() => {
+        if (justResizedRef.current) return; // the click that ends a resize
+        onSelectWidget?.(null);
+      }}
       style={{
         flex: 1,
         backgroundColor: printMode ? 'transparent' : 'var(--bg-app)',
@@ -297,6 +330,7 @@ export default function ReportCanvas({
               isSelected={selectedWidget === item.i}
               readOnly={readOnly}
               onSelect={onSelectWidget}
+              onDrag={handleDrag}
               onDragStop={handleDragStop}
               onStartResize={startResize}
               onAutoHeight={handleAutoHeight}

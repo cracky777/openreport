@@ -97,7 +97,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners }) {
   const nodeRef = useRef(null);
   const [showSql, setShowSql] = useState(false);
   // Hover state for the in-flight cancel button — the X icon is hidden
@@ -174,6 +174,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
     <Draggable
       nodeRef={nodeRef}
       position={{ x: item.x || 0, y: item.y || 0 }}
+      onDrag={(e, data) => onDrag?.(item.i, data)}
       onStop={(e, data) => onDragStop(item.i, data)}
       disabled={readOnly}
       cancel=".widget-content, .resize-handle"

@@ -1189,6 +1189,16 @@ export default function Editor() {
     }));
   }, [history]);
 
+  // Transient layout updates — the per-tick positions of a drag/resize in
+  // progress. Not recorded: the gesture's END commits once through
+  // setLayout, so one gesture = one undo step instead of one per pixel.
+  const setLayoutLive = useCallback((updater) => {
+    history.setSilent((prev) => ({
+      ...prev,
+      layout: typeof updater === 'function' ? updater(prev.layout) : updater,
+    }));
+  }, [history]);
+
   const setWidgets = useCallback((updater) => {
     history.set((prev) => ({
       ...prev,
@@ -1809,6 +1819,7 @@ export default function Editor() {
               widgets={widgets}
               selectedWidget={selectedWidget}
               onLayoutChange={setLayout}
+              onLayoutChangeLive={setLayoutLive}
               onSelectWidget={setSelectedWidget}
               settings={settings}
               onLoadMore={handleLoadMore}
