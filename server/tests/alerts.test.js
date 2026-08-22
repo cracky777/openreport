@@ -239,6 +239,31 @@ describe('runOne — transition semantics', () => {
   });
 });
 
+describe('listAlerts / canManageAlert hooks — scoping is delegated when set', () => {
+  const cloudHooks = require('../cloudHooks');
+  afterEach(() => { cloudHooks.listAlerts = null; cloudHooks.canManageAlert = null; });
+
+  test('the hooks replace the OSS owner-or-admin rules', async () => {
+    const { owner, model } = seedContext();
+    const created = await create(owner, validBody(model));
+    expect(created.status).toBe(201);
+    const id = created.body.alert.id;
+
+    cloudHooks.listAlerts = () => [];
+    cloudHooks.canManageAlert = () => false;
+    const list = await request(app).get('/api/alerts').set('x-test-user', owner);
+    expect(list.body.alerts).toEqual([]); // even the owner sees nothing when the hook says so
+    const put = await request(app).put(`/api/alerts/${id}`).set('x-test-user', owner).send({ name: 'x' });
+    expect(put.status).toBe(403);
+    const run = await request(app).post(`/api/alerts/${id}/run`).set('x-test-user', owner);
+    expect(run.status).toBe(403);
+
+    cloudHooks.canManageAlert = (alert, user) => alert.user_id === user.id;
+    const put2 = await request(app).put(`/api/alerts/${id}`).set('x-test-user', owner).send({ name: 'y' });
+    expect(put2.status).toBe(200);
+  });
+});
+
 describe('validateAlertExtras hook — extra columns on create and update', () => {
   const cloudHooks = require('../cloudHooks');
   afterEach(() => { cloudHooks.validateAlertExtras = null; });

@@ -24,6 +24,7 @@ router.use(authFor('write'));
 const OPS = new Set(['gt', 'gte', 'lt', 'lte', 'eq', 'neq']);
 
 function isOwnerOrAdmin(alert, req) {
+  if (typeof cloudHooks.canManageAlert === 'function') return !!cloudHooks.canManageAlert(alert, req.user, req);
   return alert.user_id === req.user.id || req.user.role === 'admin';
 }
 
@@ -121,9 +122,10 @@ const LIST_SQL = `SELECT a.*, u.email AS owner_email, m.name AS model_name
                   LEFT JOIN models m ON m.id = a.model_id`;
 
 router.get('/', (req, res) => {
-  const rows = req.user.role === 'admin'
-    ? db.prepare(`${LIST_SQL} ORDER BY a.created_at DESC`).all()
-    : db.prepare(`${LIST_SQL} WHERE a.user_id = ? ORDER BY a.created_at DESC`).all(req.user.id);
+  let rows;
+  if (typeof cloudHooks.listAlerts === 'function') rows = cloudHooks.listAlerts(req) || [];
+  else if (req.user.role === 'admin') rows = db.prepare(`${LIST_SQL} ORDER BY a.created_at DESC`).all();
+  else rows = db.prepare(`${LIST_SQL} WHERE a.user_id = ? ORDER BY a.created_at DESC`).all(req.user.id);
   res.json({ alerts: rows.map(publicAlert) });
 });
 
@@ -199,3 +201,4 @@ router.get('/:id/events', (req, res) => {
 });
 
 module.exports = router;
+module.exports.LIST_SQL = LIST_SQL;

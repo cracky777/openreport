@@ -123,6 +123,13 @@ const cloudHooks = {
   //   `note` = error text kept in the event history, or null.
   validateAlertExtras: null,
   notifyAlert: null,
+  // listAlerts(req) → rows (shape of LIST_SQL in routes/alerts.js) — the
+  //   alerts the caller may see. OSS: their own, everything for a global admin.
+  //   Cloud: the active org's (all of them for an org admin, else their own).
+  // canManageAlert(alert, user, req) → bool — edit / delete / run / history.
+  //   OSS: owner or global admin. Cloud: same org AND (owner or org admin).
+  listAlerts: null,
+  canManageAlert: null,
 };
 
 module.exports = cloudHooks;
