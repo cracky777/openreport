@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { TbShield, TbBell, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop } from 'react-icons/tb';
+import { TbShield, TbBell, TbTelescope, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop } from 'react-icons/tb';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -124,6 +124,14 @@ export default function AppShell({ step }) {
         <StepNav current={step} onGo={go} allowed={stepAllowed} />
 
         <nav style={rightGroup}>
+          {/* Exploration is read-only: every authenticated user may ask
+              ad-hoc questions of the models they can access. */}
+          <button onClick={() => navigate('/explore')} style={navBtnStyled}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            <TbTelescope size={15} /> <span>Explore</span>
+          </button>
           {/* Alerts need write role — the API refuses viewers, so don't
               show them a dead door. */}
           {(user?.role === 'admin' || user?.role === 'editor') && (
