@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
-import { TbShield, TbEdit, TbEye, TbUserPlus, TbKey, TbExternalLink, TbClock, TbUsersGroup, TbChevronDown, TbChevronRight } from 'react-icons/tb';
+import { TbShield, TbEdit, TbEye, TbUserPlus, TbKey, TbExternalLink, TbClock, TbUsersGroup, TbChevronDown, TbChevronRight, TbBell, TbPlayerPause, TbPlayerPlay } from 'react-icons/tb';
 import { ICON_SIZE } from '../components/actionIcons';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
@@ -358,7 +358,102 @@ export default function Admin() {
         )}
 
         <GroupsSection />
+        <AlertsSection />
       </main>
+    </div>
+  );
+}
+
+// Every threshold alert on the instance — the admin view of who watches
+// what, on which cadence, with a pause switch and delete. Self-contained
+// like GroupsSection.
+function AlertsSection() {
+  const [alerts, setAlerts] = useState([]);
+  const load = () => {
+    api.get('/alerts')
+      .then((res) => setAlerts(res.data.alerts || []))
+      .catch(() => { /* admin gate handled by the page's users fetch */ });
+  };
+  useEffect(load, []);
+
+  const toggle = async (a) => {
+    try {
+      await api.put(`/alerts/${a.id}`, { enabled: !a.enabled });
+      load();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Failed to update the alert');
+    }
+  };
+  const remove = async (a) => {
+    try {
+      await api.delete(`/alerts/${a.id}`);
+      load();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Failed to delete the alert');
+    }
+  };
+
+  const OPS_TEXT = { gt: '>', gte: '>=', lt: '<', lte: '<=', eq: '=', neq: '!=' };
+  const BADGES = {
+    ok: { label: 'OK', color: 'var(--state-success)', bg: 'var(--state-success-soft)' },
+    triggered: { label: 'Triggered', color: 'var(--state-danger)', bg: 'var(--state-danger-soft)' },
+    error: { label: 'Error', color: '#b45309', bg: '#fef3c7' },
+  };
+
+  return (
+    <div style={{ ...formCard, marginTop: 24 }}>
+      <h3 style={_hs4}>
+        <TbBell size={16} color="var(--accent-primary)" /> Alerts
+      </h3>
+      <p style={_hs24}>
+        Every threshold alert on this instance, whoever created it. Alerts run with
+        their creator&apos;s identity — <Link to="/alerts">open the alerts page</Link> to
+        create or edit yours.
+      </p>
+      {alerts.length === 0 ? (
+        <div style={_hs20}>No alerts on this instance.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {alerts.map((a) => {
+            const b = BADGES[a.last_state] || { label: 'Never run', color: 'var(--text-muted)', bg: 'var(--bg-subtle)' };
+            return (
+              <div key={a.id} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                border: '1px solid var(--border-default)', borderRadius: 6, padding: '8px 12px',
+                opacity: a.enabled ? 1 : 0.55,
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
+                    {a.name}
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
+                      padding: '2px 7px', borderRadius: 10, color: b.color, background: b.bg,
+                    }}>{b.label}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                    {a.owner_email || a.user_id} · {a.model_name || a.model_id} — {a.measure_name}{' '}
+                    {OPS_TEXT[a.op] || a.op} {a.threshold}
+                    {a.last_checked_at ? ` · last check ${a.last_checked_at}` : ''}
+                  </div>
+                </div>
+                <button
+                  onClick={() => toggle(a)}
+                  title={a.enabled ? 'Pause this alert' : 'Resume this alert'}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    padding: '6px 8px', borderRadius: 6, cursor: 'pointer',
+                    background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
+                    color: a.enabled ? 'var(--text-secondary)' : 'var(--accent-primary)',
+                  }}
+                >
+                  {a.enabled ? <TbPlayerPause size={15} /> : <TbPlayerPlay size={15} />}
+                </button>
+                <ConfirmDeleteButton variant="icon" label="Delete alert" onConfirm={() => remove(a)} />
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

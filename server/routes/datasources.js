@@ -353,3 +353,7 @@ router.delete('/:id', authFor('write'), (req, res) => {
 });
 
 module.exports = router;
+// Shared with routes/alerts.js: outbound webhook URLs face the same
+// internal-range probing risk as datasource hosts, under the same policy
+// gate (cloud always, OSS via OPENREPORT_BLOCK_INTERNAL_HOSTS=1).
+module.exports.hostIsBlocked = hostIsBlocked;

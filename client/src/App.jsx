@@ -7,6 +7,7 @@ import Editor from './pages/Editor';
 import Viewer from './pages/Viewer';
 import ModelEditor from './pages/ModelEditor';
 import Admin from './pages/Admin';
+import Alerts from './pages/Alerts';
 import Verify from './pages/Verify';
 // Cloud-edition routes — empty in the OSS build, populated in the cloud build.
 // The same import path resolves to either the stub or the real implementation.
@@ -63,6 +64,7 @@ const router = createBrowserRouter([
       { path: '/models', element: <PrivateRoute><AppShell step="models" /></PrivateRoute> },
       { path: '/models/:id', element: <PrivateRoute><ModelEditor /></PrivateRoute> },
       { path: '/admin', element: <PrivateRoute><Admin /></PrivateRoute> },
+      { path: '/alerts', element: <PrivateRoute><Alerts /></PrivateRoute> },
       { path: '/view/:id', element: <Viewer /> },
       // Token-authenticated embed page (iframe-able) — same Viewer, chrome-less;
       // the signed ?token= grants access, no session required.

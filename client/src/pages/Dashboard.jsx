@@ -6,7 +6,7 @@ import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
 import { readSheetNames } from '../utils/readSheetNames';
-import { TbEye, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbPlayerPlay, TbToggleLeftFilled, TbToggleRightFilled, TbLoader2, TbRefresh, TbFileText, TbCode } from 'react-icons/tb';
+import { TbEye, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbBell, TbPlayerPlay, TbToggleLeftFilled, TbToggleRightFilled, TbLoader2, TbRefresh, TbFileText, TbCode } from 'react-icons/tb';
 import { DeleteIcon, EditIcon, ICON_SIZE } from '../components/actionIcons';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
@@ -1315,6 +1315,18 @@ export default function Dashboard() {
                               onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                               <TbCalendarTime size={14} /> Schedule refresh
                             </button>
+                            {/* Threshold alerts live on the MODEL (the measures do),
+                                but a report is where you notice a number worth
+                                watching — this lands on the alerts page scoped to
+                                this report's model, with it pre-picked for creation. */}
+                            {canEdit && report.model_id && (
+                              <button style={cardMenuItem}
+                                onClick={() => { setCardMenu(null); navigate(`/alerts?modelId=${report.model_id}`); }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                                <TbBell size={14} /> Alerts…
+                              </button>
+                            )}
                             {/* Schedule email — cloud-only. The endpoint 404s in OSS,
                                 so we only show the entry when an active org is set
                                 (proxy: activeOrgRole !== null means we're in cloud). */}

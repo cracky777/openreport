@@ -19,9 +19,11 @@ const customVisualRoutes = require('./routes/customVisuals');
 const fileUploadRoutes = require('./routes/fileUpload');
 const imageUploadRoutes = require('./routes/imageUpload');
 const cacheScheduleRoutes = require('./routes/cacheSchedules');
+const alertRoutes = require('./routes/alerts');
 const rollupRoutes = require('./routes/rollups');
 const internalToken = require('./utils/internalToken');
 const cacheScheduler = require('./utils/cacheScheduler');
+const alertRunner = require('./utils/alertRunner');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -166,6 +168,7 @@ app.use('/api/datasources', datasourceRoutes);
 app.use('/api/models', modelRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/cache-schedules', cacheScheduleRoutes);
+app.use('/api/alerts', alertRoutes);
 app.use('/api/rollups', rollupRoutes);
 // Custom visuals share the /api/workspaces prefix — mount BEFORE workspaces so
 // /:wsId/visuals/... is matched here instead of falling through to a 404 in the
@@ -269,4 +272,6 @@ app.listen(PORT, '0.0.0.0', () => {
   // server, so a tick before listen would deadlock on the first call.
   try { cacheScheduler.bootRegisterAll(); }
   catch (err) { console.warn('[cacheScheduler] boot failed:', err.message); }
+  try { alertRunner.bootRegisterAll(); }
+  catch (err) { console.warn('[alertRunner] boot failed:', err.message); }
 });

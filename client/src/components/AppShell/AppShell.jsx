@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { TbShield, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop } from 'react-icons/tb';
+import { TbShield, TbBell, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop } from 'react-icons/tb';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -124,6 +124,16 @@ export default function AppShell({ step }) {
         <StepNav current={step} onGo={go} allowed={stepAllowed} />
 
         <nav style={rightGroup}>
+          {/* Alerts need write role — the API refuses viewers, so don't
+              show them a dead door. */}
+          {(user?.role === 'admin' || user?.role === 'editor') && (
+            <button onClick={() => navigate('/alerts')} style={navBtnStyled}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <TbBell size={15} /> <span>Alerts</span>
+            </button>
+          )}
           {user?.role === 'admin' && (
             <button onClick={() => navigate('/admin')} style={navBtnStyled}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}

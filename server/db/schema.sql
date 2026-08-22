@@ -138,3 +138,48 @@ CREATE TABLE IF NOT EXISTS group_members (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id);
+
+-- Threshold alerts: watch one measure of a model and notify when it
+-- crosses a threshold. Evaluated on a cron cadence with the CREATOR's
+-- identity (RLS applies as if they ran the query). Notifications fire on
+-- STATE TRANSITIONS only (ok→triggered, triggered→ok) — never on every
+-- tick — through an optional outbound webhook; every transition is also
+-- recorded in alert_events for the in-app history.
+CREATE TABLE IF NOT EXISTS alerts (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  measure_name TEXT NOT NULL,
+  widget_filters TEXT NOT NULL DEFAULT '[]',
+  op TEXT NOT NULL,
+  threshold REAL NOT NULL,
+  cron_expression TEXT NOT NULL,
+  timezone TEXT,
+  webhook_url TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  notify_on_recover INTEGER NOT NULL DEFAULT 1,
+  last_state TEXT,
+  last_value REAL,
+  last_checked_at TEXT,
+  last_triggered_at TEXT,
+  last_error TEXT,
+  organization_id TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_model ON alerts(model_id);
+CREATE INDEX IF NOT EXISTS idx_alerts_enabled ON alerts(enabled);
+
+CREATE TABLE IF NOT EXISTS alert_events (
+  id TEXT PRIMARY KEY,
+  alert_id TEXT NOT NULL,
+  state TEXT NOT NULL,
+  value REAL,
+  threshold REAL,
+  message TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (alert_id) REFERENCES alerts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_alert_events_alert ON alert_events(alert_id, created_at);
