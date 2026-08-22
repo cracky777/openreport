@@ -183,3 +183,19 @@ CREATE TABLE IF NOT EXISTS alert_events (
   FOREIGN KEY (alert_id) REFERENCES alerts(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_alert_events_alert ON alert_events(alert_id, created_at);
+
+-- Viewer bookmarks: a named capture of one user's current view of a
+-- report — active page + slicer/filter selections. Personal by design
+-- (each user keeps their own reading angles); applying one never writes
+-- anything back to the report.
+CREATE TABLE IF NOT EXISTS report_bookmarks (
+  id TEXT PRIMARY KEY,
+  report_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_report_bookmarks_user ON report_bookmarks(report_id, user_id);

@@ -27,6 +27,7 @@ function buildApp() {
   app.use('/api/admin', require('../../routes/admin'));
   app.use('/api/cache-schedules', require('../../routes/cacheSchedules'));
   app.use('/api/alerts', require('../../routes/alerts'));
+  app.use('/api/reports', require('../../routes/bookmarks'));
   app.use('/api/rollups', require('../../routes/rollups'));
   // Same order as index.js: customVisuals first, so its /:wsId/visuals/* routes
   // win over the workspace router's own /:id handlers.

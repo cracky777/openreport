@@ -10,6 +10,7 @@ import { TbMaximize, TbMinimize, TbRefresh } from 'react-icons/tb';
 import { useTheme } from '../hooks/useTheme';
 import PagesColumn from '../components/PagesColumn/PagesColumn';
 import ExportMenu from '../components/ExportMenu/ExportMenu';
+import BookmarkMenu from '../components/BookmarkMenu/BookmarkMenu';
 
 const _hs0 = { padding: 60, textAlign: 'center', color: 'var(--state-danger)' };
 const _hs1 = { padding: 40, color: 'var(--text-disabled)' };
@@ -164,6 +165,30 @@ export default function Viewer() {
       setCrossHighlight(null);
       setRefreshCounter((n) => n + 1);
     }
+  }, [currentPageIdx, pages, slicerSelections]);
+
+  // Apply a bookmark: land on its page with its filter selections in one
+  // fetch round. A page change deliberately DISCARDS that page's cached
+  // revisit state — restoring it would override the bookmark's filters —
+  // and forces the fetch loop so widgets load already-filtered.
+  const applyBookmark = useCallback((st) => {
+    const idx = (Number.isInteger(st.pageIdx) && st.pageIdx >= 0 && st.pageIdx < pages.length)
+      ? st.pageIdx : currentPageIdx;
+    if (idx !== currentPageIdx) {
+      pageStateRef.current[currentPageIdx] = {
+        widgets: widgetsRef.current,
+        reportFilters: reportFiltersRef.current,
+        slicerSelections,
+        crossHighlight: crossHighlightRef.current,
+      };
+      delete pageStateRef.current[idx];
+      setCurrentPageIdx(idx);
+      setWidgets(pages[idx]?.widgets || {});
+    }
+    setReportFilters(st.reportFilters || {});
+    setSlicerSelections(st.slicerSelections || {});
+    setCrossHighlight(null);
+    setRefreshCounter((n) => n + 1);
   }, [currentPageIdx, pages, slicerSelections]);
 
   // Print mode — used by the server-side scheduler renderer. The URL is
@@ -641,6 +666,16 @@ export default function Viewer() {
           <button onClick={handleRefresh} disabled={refreshing} style={{ ...toolBtnSmall, opacity: refreshing ? 0.5 : 1, cursor: refreshing ? 'not-allowed' : 'pointer' }} title="Refresh all widgets">
             <TbRefresh size={14} style={{ animation: refreshing ? 'spin 0.8s linear infinite' : undefined }} />
           </button>
+          <BookmarkMenu
+            reportId={report?.id}
+            getState={() => ({
+              pageIdx: currentPageIdx,
+              reportFilters: reportFiltersRef.current,
+              slicerSelections,
+            })}
+            onApply={applyBookmark}
+            buttonStyle={toolBtnSmall}
+          />
           <ExportMenu
             report={report}
             widgets={widgets}
