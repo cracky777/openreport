@@ -1,12 +1,12 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
-import { TbRefresh, TbLoader2, TbClock } from 'react-icons/tb';
+import { TbRefresh, TbLoader2, TbClock, TbDownload, TbFileImport } from 'react-icons/tb';
 import { EditIcon, ICON_SIZE } from '../components/actionIcons';
 import { cardActionBtn } from '../components/dashboardModalStyles';
 import IncrementalRefreshDialog from '../components/IncrementalRefreshDialog/IncrementalRefreshDialog';
-import { PrimaryButton } from '../components/PageHeader/PageHeader';
+import { PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
 import Modal from '../components/Modal/Modal';
 import { useGraph } from '../hooks/graphContext';
 import { useJourneyFocus } from '../hooks/useJourneyFocus';
@@ -50,7 +50,7 @@ export default function Models() {
   // Rows come from the shell-level graph so this column is already populated
   // when the carousel slides it in.
   const {
-    setModels, datasources, reportsByModelAll, activeModelIds, loading,
+    setModels, datasources, reportsByModelAll, activeModelIds, loading, refresh,
     orderedModels: graphOrderedModels,
   } = useGraph();
   // The branch the journey is focused on, resolved once for all three stages.
@@ -134,6 +134,56 @@ export default function Models() {
     }
   };
 
+  // Models-as-code: download the semantic layer as YAML / recreate a model
+  // from one. The file references the datasource by NAME; when that name
+  // doesn't resolve here, the server answers `needsDatasource` and a small
+  // picker completes the import.
+  const importInputRef = useRef(null);
+  const [pendingImport, setPendingImport] = useState(null); // { yaml, fileName }
+  const [importDsId, setImportDsId] = useState('');
+
+  const postImport = async (yamlText, datasourceId) => {
+    try {
+      const res = await api.post('/models/import', { yaml: yamlText, ...(datasourceId ? { datasourceId } : {}) });
+      setPendingImport(null);
+      setImportDsId('');
+      toast(`Model "${res.data.model.name}" imported`, 'success');
+      refresh();
+      navigate(`/models/${res.data.model.id}`);
+    } catch (err) {
+      const data = err.response?.data || {};
+      if (data.needsDatasource) {
+        toast(data.error);
+        setPendingImport((prev) => prev || { yaml: yamlText });
+      } else {
+        toast(data.error || 'Import failed');
+      }
+    }
+  };
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (importInputRef.current) importInputRef.current.value = ''; // allow re-picking
+    if (!file) return;
+    const text = await file.text();
+    setPendingImport({ yaml: text });
+    await postImport(text);
+  };
+
+  const exportModel = async (m) => {
+    try {
+      const res = await api.get(`/models/${m.id}/export`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${String(m.name || 'model').replace(/[^\w.-]+/g, '_')}.model.yaml`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast('Export failed'); // blob error bodies carry no useful message
+    }
+  };
+
   const handleDelete = async (id) => {
     try {
       await api.delete(`/models/${id}`);
@@ -156,8 +206,43 @@ export default function Models() {
               />
             )}
           </div>
-          <PrimaryButton onClick={openForm}>+ New Model</PrimaryButton>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <SecondaryButton onClick={() => importInputRef.current?.click()} title="Import a model from a .model.yaml file">
+              <TbFileImport size={15} style={{ marginRight: 5, verticalAlign: 'text-bottom' }} />
+              Import YAML
+            </SecondaryButton>
+            <PrimaryButton onClick={openForm}>+ New Model</PrimaryButton>
+          </div>
+          <input
+            ref={importInputRef} type="file" accept=".yaml,.yml" style={{ display: 'none' }}
+            onChange={handleImportFile}
+          />
         </div>
+        {pendingImport && (
+          <Modal onClose={() => { setPendingImport(null); setImportDsId(''); }} width={440}>
+            <h2 style={_hs3}>Pick a datasource</h2>
+            <div style={_hs13}>
+              The document&apos;s datasource is not available here — choose the one this
+              model should read from.
+            </div>
+            <select value={importDsId} onChange={(e) => setImportDsId(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }}>
+              <option value="">— choose —</option>
+              {datasources.map((ds) => (
+                <option key={ds.id} value={ds.id}>{ds.name}</option>
+              ))}
+            </select>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn-hover" style={secondaryBtn} onClick={() => { setPendingImport(null); setImportDsId(''); }}>Cancel</button>
+              <button
+                className="btn-hover btn-hover-primary" style={primaryBtn}
+                disabled={!importDsId}
+                onClick={() => postImport(pendingImport.yaml, importDsId)}
+              >
+                Import
+              </button>
+            </div>
+          </Modal>
+        )}
         {showForm && (
           <Modal onClose={() => setShowForm(false)} width={520}>
             <h2 style={_hs3}>New Data Model</h2>
@@ -268,6 +353,13 @@ export default function Models() {
                     {...cardActionBtn('muted')}
                   >
                     <TbClock size={16} />
+                  </button>
+                  <button
+                    onClick={() => exportModel(m)}
+                    title="Export as YAML — the model as versionable code"
+                    {...cardActionBtn('muted')}
+                  >
+                    <TbDownload size={16} />
                   </button>
                   <ConfirmDeleteButton
                     variant="icon"

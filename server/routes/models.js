@@ -42,6 +42,7 @@ const { rejectIfNameTaken } = require('../utils/nameUniqueness');
 const { emitMeasureSelects } = require('../utils/sqlBuilder/measureSelect');
 const { tablesReachableFrom, getAllowedRlsKeys } = require('../utils/rls');
 const { parseModel } = require('../db/modelRow');
+const modelYaml = require('../utils/modelYaml');
 
 // Drivers expose columns with different shapes: { column_name }, { name },
 // or plain strings. Normalise any getColumns() result into a Set of names.
@@ -254,6 +255,76 @@ router.put('/:id', authFor('write'), (req, res) => {
       dateColumn: updated.date_column || null,
     },
   });
+});
+
+// Models-as-code: export the semantic layer as a versionable YAML file.
+// Write-level access — the document carries RLS rules and free-SQL
+// expressions, no viewer should be able to read those wholesale.
+router.get('/:id/export', authFor('write'), (req, res) => {
+  const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Model not found' });
+  if (!canWriteModel(row, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
+  const model = parseModel(row);
+  const ds = db.prepare('SELECT name FROM datasources WHERE id = ?').get(model.datasource_id);
+  const text = modelYaml.modelToYaml(model, ds ? ds.name : null);
+  const fileName = `${String(model.name || 'model').replace(/[^\w.-]+/g, '_')}.model.yaml`;
+  res.setHeader('Content-Type', 'text/yaml; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+  res.send(text);
+});
+
+// Models-as-code: create a model from a YAML document. The datasource is
+// resolved from an explicit `datasourceId` (checked usable) or by the
+// document's `datasource` name among the caller's usable sources —
+// credentials are never part of the file. Name collisions 409 like the
+// UI creation path, so re-importing is an explicit rename, never a
+// silent overwrite.
+router.post('/import', authFor('write'), (req, res) => {
+  const { yaml: yamlText, datasourceId } = req.body || {};
+  let fields;
+  try {
+    fields = modelYaml.yamlToModelFields(yamlText);
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+  let dsId = null;
+  if (datasourceId) {
+    if (!datasourceUsable(datasourceId, req)) return res.status(404).json({ error: 'Datasource not found' });
+    dsId = datasourceId;
+  } else if (fields.datasourceName) {
+    const candidates = db.prepare('SELECT id FROM datasources WHERE name = ?').all(fields.datasourceName);
+    const usable = candidates.find((c) => datasourceUsable(c.id, req));
+    if (usable) dsId = usable.id;
+  }
+  if (!dsId) {
+    return res.status(400).json({
+      error: fields.datasourceName
+        ? `Datasource "${fields.datasourceName}" not found — pick one to import into`
+        : 'No datasource in the document — pick one to import into',
+      needsDatasource: true,
+    });
+  }
+  if (rejectIfNameTaken('model', fields.name, req, res)) return;
+
+  const id = uuidv4();
+  db.prepare(`
+    INSERT INTO models (id, user_id, datasource_id, name, description, selected_tables,
+                        table_positions, dimensions, measures, joins, rls, column_types,
+                        date_column, incremental_months)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id, req.user.id, dsId, fields.name, fields.description,
+    JSON.stringify(fields.selected_tables), JSON.stringify(fields.table_positions),
+    JSON.stringify(fields.dimensions), JSON.stringify(fields.measures),
+    JSON.stringify(fields.joins), JSON.stringify(fields.rls), JSON.stringify(fields.column_types),
+    fields.date_column || '',
+    // Same coherence rule as PUT: a window without a date column is inert.
+    fields.date_column ? fields.incremental_months : null
+  );
+  if (typeof cloudHooks.onModelCreate === 'function') cloudHooks.onModelCreate(req, id);
+
+  const created = parseModel(db.prepare('SELECT * FROM models WHERE id = ?').get(id));
+  res.status(201).json({ model: { ...created, dateColumn: created.date_column || null } });
 });
 
 // Validate model references against the current datasource schema.
