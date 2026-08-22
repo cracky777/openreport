@@ -691,7 +691,10 @@ export default function Dashboard() {
   // Card cache warming + size stats — see hooks/useCardCacheWarming (the whole
   // poll/trickle/pending machine, moved out as one unit).
   const {
-    cardWarmingIds, cardWarmingDisplayPct, cardCacheStats, refreshReportCacheFromCard,
+    // refreshReportCacheFromCard is no longer destructured: the refresh
+    // action moved to the model cards (the cache is model-scoped); the hook
+    // still tracks warming state so scheduled/remote builds animate the bar.
+    cardWarmingIds, cardWarmingDisplayPct, cardCacheStats,
   } = useCardCacheWarming(wsReports);
   const runCacheScheduleNow = async (s) => {
     if (cacheScheduleRunning.has(s.id)) return;
@@ -1223,18 +1226,6 @@ export default function Dashboard() {
                     <button onClick={() => window.open(`/view/${report.id}`, '_blank')} title="View" {...cardActionBtn('accent')}><TbEye size={16} /></button>
                     {canEdit && <button onClick={() => navigate(`/edit/${report.id}`)} title="Edit" {...cardActionBtn()}><EditIcon size={ICON_SIZE.card} /></button>}
                     {canEdit && (
-                      <button
-                        onClick={() => refreshReportCacheFromCard(report)}
-                        disabled={warming}
-                        title={warming ? 'Refreshing cache…' : 'Refresh cache for this report'}
-                        {...cardActionBtn(warming ? 'accent' : 'muted')}
-                      >
-                        {warming
-                          ? <TbLoader2 size={16} className="spin" />
-                          : <TbRefresh size={16} />}
-                      </button>
-                    )}
-                    {canEdit && (
                       <div style={cardMenuWrap}
                         ref={menuOpen ? cardMenuRef : null}>
                         <button
@@ -1728,3 +1719,4 @@ const embedPanel = {
 const embedPrimaryBtn = { padding: '8px 14px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer' };
 const embedSecondaryBtn = { padding: '8px 14px', fontSize: 13, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer' };
 const embedCopyBtn = { padding: '6px 12px', fontSize: 12, background: 'transparent', color: 'var(--accent-primary)', border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer', flexShrink: 0 };
+

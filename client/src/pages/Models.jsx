@@ -2,6 +2,10 @@ import { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
+import { TbRefresh, TbLoader2, TbClock } from 'react-icons/tb';
+import { EditIcon, ICON_SIZE } from '../components/actionIcons';
+import { cardActionBtn } from '../components/dashboardModalStyles';
+import IncrementalRefreshDialog from '../components/IncrementalRefreshDialog/IncrementalRefreshDialog';
 import { PrimaryButton } from '../components/PageHeader/PageHeader';
 import Modal from '../components/Modal/Modal';
 import { useGraph } from '../hooks/graphContext';
@@ -74,6 +78,11 @@ export default function Models() {
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: '', datasourceId: '', description: '' });
+  // Cache actions moved here from the report cards: the rollup cache is
+  // MODEL-scoped (one shared table set for every report on the model), so
+  // refreshing it and tuning its incremental window belong to the model.
+  const [refreshingIds, setRefreshingIds] = useState(() => new Set());
+  const [incrModelId, setIncrModelId] = useState(null);
 
   // Creating from a focused column pre-picks the datasource we are standing in:
   // arriving through its join and then re-choosing it by hand is busywork.
@@ -106,6 +115,22 @@ export default function Models() {
       navigate(`/models/${res.data.model.id}`);
     } catch (err) {
       toast(err.response?.data?.error || 'Failed to create model');
+    }
+  };
+
+  const refreshModelCache = async (m) => {
+    if (refreshingIds.has(m.id)) return;
+    setRefreshingIds((p) => new Set(p).add(m.id));
+    try {
+      const res = await api.post(`/rollups/run-now/${m.id}`);
+      const { built = 0, errors = [] } = res.data || {};
+      if (errors.length) toast(`Cache refresh finished with errors: ${String(errors[0]).slice(0, 140)}`);
+      else if (built > 0) toast(`Cache refreshed — ${built} rollup${built === 1 ? '' : 's'} built`, 'success');
+      else toast('Nothing to build — add widgets to a report on this model first');
+    } catch (err) {
+      toast(err.response?.data?.error || 'Cache refresh failed');
+    } finally {
+      setRefreshingIds((p) => { const n = new Set(p); n.delete(m.id); return n; });
     }
   };
 
@@ -218,9 +243,35 @@ export default function Models() {
                   </div>
                   {m.description && <div style={_hs18}>{m.description}</div>}
                 </div>
+                {/* Same icon-button language as the report cards, so the two
+                    columns read as one system: edit / refresh / incremental /
+                    delete, all compact icons with tooltips. */}
                 <div style={_hs19}>
-                  <button className="btn-hover" onClick={() => navigate(`/models/${m.id}`)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px' }}>Edit</button>
+                  <button
+                    onClick={() => navigate(`/models/${m.id}`)}
+                    title="Edit model"
+                    {...cardActionBtn()}
+                  >
+                    <EditIcon size={ICON_SIZE.card} />
+                  </button>
+                  <button
+                    onClick={() => refreshModelCache(m)}
+                    disabled={refreshingIds.has(m.id)}
+                    title={refreshingIds.has(m.id) ? 'Refreshing cache…' : 'Refresh the cache — rebuilds the rollups shared by every report on this model'}
+                    {...cardActionBtn(refreshingIds.has(m.id) ? 'accent' : 'muted')}
+                  >
+                    {refreshingIds.has(m.id) ? <TbLoader2 size={16} className="spin" /> : <TbRefresh size={16} />}
+                  </button>
+                  <button
+                    onClick={() => setIncrModelId(m.id)}
+                    title="Incremental cache refresh…"
+                    {...cardActionBtn('muted')}
+                  >
+                    <TbClock size={16} />
+                  </button>
                   <ConfirmDeleteButton
+                    variant="icon"
+                    label="Delete model"
                     onConfirm={() => handleDelete(m.id)}
                     blockedReason={reportCount ? `Used by ${reportCount} report${reportCount > 1 ? 's' : ''} — delete those first` : null}
                   />
@@ -237,6 +288,9 @@ export default function Models() {
             })}
           </div>
         )}
+      {incrModelId && (
+        <IncrementalRefreshDialog modelId={incrModelId} onClose={() => setIncrModelId(null)} />
+      )}
       </main>
     </div>
   );

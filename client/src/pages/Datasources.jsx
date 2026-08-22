@@ -5,6 +5,8 @@ import { toast } from '../components/Toast/toast';
 import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
 import { readSheetNames } from '../utils/readSheetNames';
 import { TbUpload } from 'react-icons/tb';
+import { EditIcon, ICON_SIZE } from '../components/actionIcons';
+import { cardActionBtn } from '../components/dashboardModalStyles';
 import { PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
 import { DatasourcesHeader } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
@@ -318,21 +320,31 @@ export default function Datasources() {
                     </div>
                   </div>
                   <div style={_hs13}>
+                    {/* Same icon-button language as the report and model cards. */}
                     {isUploadedFile ? (
                       // A file source has no connection to edit — what it has is
                       // data that goes stale. Same id, so everything downstream
                       // survives the refresh.
-                      <button className="btn-hover" onClick={() => startReplace(ds)} disabled={uploading}
-                        style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px' }}
-                        title={`Import a newer ${extra.sourceFile || 'file'} into this source`}>
-                        Refresh data
+                      <button
+                        onClick={() => startReplace(ds)}
+                        disabled={uploading}
+                        title={`Import a newer ${extra.sourceFile || 'file'} into this source`}
+                        {...cardActionBtn('muted')}
+                      >
+                        <TbUpload size={16} />
                       </button>
                     ) : (
-                      <button className="btn-hover" onClick={() => handleEdit(ds)} style={{ ...secondaryBtn, fontSize: 12, padding: '4px 10px' }}>
-                        Edit
+                      <button
+                        onClick={() => handleEdit(ds)}
+                        title="Edit connection"
+                        {...cardActionBtn()}
+                      >
+                        <EditIcon size={ICON_SIZE.card} />
                       </button>
                     )}
                     <ConfirmDeleteButton
+                      variant="icon"
+                      label="Delete data source"
                       onConfirm={() => handleDelete(ds.id)}
                       blockedReason={modelCount ? `Used by ${modelCount} model${modelCount > 1 ? 's' : ''} — delete those first` : null}
                     />
@@ -368,11 +380,6 @@ export default function Datasources() {
 const primaryBtn = {
   padding: '8px 16px', fontSize: 14, fontWeight: 600, border: 'none',
   borderRadius: 6, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
-};
-
-const secondaryBtn = {
-  padding: '8px 16px', fontSize: 14, background: 'var(--bg-panel)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer',
 };
 
 // Card plus the join gutter to its right; the card flexes, the join keeps a

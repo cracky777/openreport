@@ -77,6 +77,49 @@ const {
 } = require('./rollupPlanning');
 const { computeJoinedTables } = require('./sqlBuilder/joinGraph');
 
+// ─── Incremental refresh ──────────────────────────────────────────────
+// A model with `incremental_months > 0` and a `date_column` gets its rollups
+// built at the PHYSICAL grain `logical grain ∪ {year, month}` (synthetic
+// `_incr.*` date-part dims — the planner's superset match re-aggregates them
+// away, so serving is unchanged). A refresh then re-queries the source only
+// for the last N months and carries the colder partition rows over from the
+// previous generation file. Trade-off, by design: rows older than the window
+// only change on a FULL rebuild (flip incremental off, rebuild, flip back —
+// or drop the rollups).
+const INCR_YEAR = '_incr.year';
+const INCR_MONTH = '_incr.month';
+const INCR_DATE = '_incr.date';
+
+function incrementalContextForModel(mr) {
+  const months = Number(mr && mr.incremental_months) || 0;
+  const dc = String((mr && mr.date_column) || '');
+  const idx = dc.lastIndexOf('.');
+  if (months <= 0 || idx <= 0 || idx === dc.length - 1) return null;
+  const dateTable = dc.slice(0, idx);
+  const dateColumn = dc.slice(idx + 1);
+  return {
+    months,
+    dateTable,
+    dateColumn,
+    partDims: [
+      { name: INCR_YEAR, table: dateTable, column: dateColumn, datePart: 'num_year', label: INCR_YEAR, type: 'integer' },
+      { name: INCR_MONTH, table: dateTable, column: dateColumn, datePart: 'num_month', label: INCR_MONTH, type: 'integer' },
+    ],
+    // Raw date dim — never in the grain; exists so the cutoff widgetFilter
+    // (`_incr.date >= <first day of window>`) resolves to a date column.
+    rawDateDim: { name: INCR_DATE, table: dateTable, column: dateColumn, label: INCR_DATE, type: 'date' },
+  };
+}
+
+// First day of the month `months - 1` months back: the refresh re-queries
+// [cutoff, now] and copies everything strictly before it from the old gen.
+function incrementalCutoff(months, now = new Date()) {
+  const total = now.getUTCFullYear() * 12 + now.getUTCMonth() - (months - 1);
+  const year = Math.floor(total / 12);
+  const month = (total % 12) + 1;
+  return { year, month, iso: `${year}-${String(month).padStart(2, '0')}-01` };
+}
+
 // Free-SQL = a custom aggregation or a raw expression (the two shapes that
 // carry arbitrary SQL). Same predicate the /query gate uses (routes/models.js).
 function isFreeSqlExtra(x) {
@@ -121,14 +164,16 @@ function planRollupsForModel(modelId) {
   // DB row once and let loadMeasureDefs merge each report's extras over it.
   let modelMeasureDefs = [];
   let modelOwnerId = null;
+  let incrCtx = null;
   try {
-    const mr = db.prepare('SELECT user_id, dimensions, joins, date_column, measures FROM models WHERE id = ?').get(modelId);
+    const mr = db.prepare('SELECT user_id, dimensions, joins, date_column, measures, incremental_months FROM models WHERE id = ?').get(modelId);
     if (mr) {
       modelOwnerId = mr.user_id;
       try { modelRowDims = JSON.parse(mr.dimensions || '[]'); } catch { /* malformed */ }
       try { modelJoins = JSON.parse(mr.joins || '[]'); } catch { /* malformed */ }
       dateColumn = mr.date_column || '';
       modelMeasureDefs = safeParse(mr.measures, []);
+      incrCtx = incrementalContextForModel(mr);
     }
   } catch { /* model row missing */ }
   const { conformed: factConformed, facts: realFacts } = factConformedDimTables(modelJoins);
@@ -310,14 +355,37 @@ function planRollupsForModel(modelId) {
             })
           : unionDims.slice()
         ).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-        const hash = grainHashOf(grain);
+        // Incremental models: append the synthetic `_incr.year/month` parts
+        // to the PHYSICAL grain when the model's date table can constrain
+        // this fact (it IS the fact, or is conformed to it). The planner's
+        // superset match re-aggregates them away at serve time. The hash is
+        // computed AFTER augmentation so flipping incremental on/off keys a
+        // fresh manifest row (a full rebuild — the two shapes can't mix).
+        const incrApplies = !!incrCtx
+          && (incrCtx.dateTable === factTable
+            || (factConformed.get(factTable) || new Set()).has(incrCtx.dateTable));
+        const finalGrain = incrApplies
+          ? [...new Set([...grain, INCR_YEAR, INCR_MONTH])].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+          : grain;
+        const extrasForItem = incrApplies
+          ? {
+            ...extrasWithSynth,
+            extraDimensions: [
+              ...(extrasWithSynth.extraDimensions || []),
+              ...incrCtx.partDims,
+              incrCtx.rawDateDim,
+            ],
+          }
+          : extrasWithSynth;
+        const hash = grainHashOf(finalGrain);
         const key = `${hash}::${baseFilterHash}::${factTable}`;
         if (seen.has(key)) continue;
         seen.add(key);
         plan.push({
-          grain, hash, measures: factMeasures, factTable,
-          reportId: r.id, extras: extrasWithSynth,
+          grain: finalGrain, hash, measures: factMeasures, factTable,
+          reportId: r.id, extras: extrasForItem,
           baseFilters: slot.baseFilters, baseFilterHash,
+          incremental: incrApplies ? { months: incrCtx.months } : null,
         });
       }
     }
@@ -345,7 +413,7 @@ const FETCH_TIMEOUT_MS = Number(process.env.ROLLUP_FETCH_TIMEOUT_MS) || 15 * 60 
 // core client lets us set an explicit overall deadline.
 function fetchRollupRows({
   modelId, grain, fireNames, syntheticExtras, internalUserId, orgId, reportId, extras,
-  baseFilters,
+  baseFilters, extraFireFilters,
 }) {
   const token = internalToken.sign({ userId: internalUserId, organizationId: orgId || null });
   const ex = extras || {};
@@ -374,8 +442,13 @@ function fetchRollupRows({
     // runtime (a filter with no join relation to the widget is
     // ignored identically here and at runtime). The grain carries
     // ONLY display/drill/cross-filter/widget-own dims, so the rollup
-    // is the already-filtered slice.
-    widgetFilters: Array.isArray(baseFilters) ? baseFilters : [],
+    // is the already-filtered slice. `extraFireFilters` (incremental
+    // cutoff) shape WHAT is fetched without ever entering the manifest
+    // base_filters/hash — the served slice identity stays unchanged.
+    widgetFilters: [
+      ...(Array.isArray(baseFilters) ? baseFilters : []),
+      ...(Array.isArray(extraFireFilters) ? extraFireFilters : []),
+    ],
     limit: MAX_ROLLUP_ROWS,
     bypassCache: true,
     _rollupBuilder: true,
@@ -686,6 +759,7 @@ async function buildRollup({
   baseFilterHash,
   factTable = '',
   gen,
+  incremental = null, // { months } — planner opt-in; hard preconditions re-checked below
 }) {
   const hash = grainHashOf(grain);
   const bfHash = baseFilterHash || baseFilterHashOf(baseFilters);
@@ -771,19 +845,39 @@ async function buildRollup({
     } catch { staleIfBuildFails = existingPreBuild.id; }
   }
 
+  // Incremental refresh — beyond the planner's opt-in, a compatible previous
+  // build must exist: same outputs (no spec drift), a partitioned physical
+  // table, and its gen file still on disk. Anything short of that falls back
+  // to a full source rebuild, which is always correct.
+  let incrementalPlan = null;
+  if (incremental && storageMode === 'duckdb' && existingPreBuild && !staleIfBuildFails) {
+    try {
+      const prev = db.prepare('SELECT table_name, partition_parts FROM rollups WHERE id = ?').get(existingPreBuild.id);
+      const parts = JSON.parse(prev.partition_parts || 'null');
+      if (Array.isArray(parts) && parts.includes(INCR_YEAR) && parts.includes(INCR_MONTH)) {
+        incrementalPlan = {
+          fromTable: prev.table_name,
+          fromGen: rollupDuckDB.genOfTableName(prev.table_name),
+          cutoff: incrementalCutoff(incremental.months),
+        };
+      }
+    } catch { /* malformed metadata → full rebuild */ }
+  }
+
   let rows;
   let rowCount = 0;
   let bytes = 0;
+  let usedIncremental = false;
   try {
-    rows = await fetchRollupRows({
-      modelId, grain,
-      fireNames: plan.fireNames,
-      syntheticExtras: plan.extraMeasures,
-      internalUserId, orgId, reportId, extras, baseFilters,
-    });
     const maps = buildNameLabelMaps(modelId, extras);
-
-    if (storageMode === 'duckdb') {
+    const fetchAndLand = async (extraFireFilters) => {
+      rows = await fetchRollupRows({
+        modelId, grain,
+        fireNames: plan.fireNames,
+        syntheticExtras: plan.extraMeasures,
+        internalUserId, orgId, reportId, extras, baseFilters,
+        extraFireFilters,
+      });
       const result = await buildRollupToDuckDB({
         modelId, orgId, gen, tableName, grain, atoms: plan.atoms, rows,
         dimLabel: maps.dimLabel,
@@ -791,6 +885,36 @@ async function buildRollup({
       });
       rowCount = result.rowCount;
       bytes = result.bytes;
+    };
+
+    if (storageMode === 'duckdb') {
+      if (incrementalPlan) {
+        try {
+          const { year, month, iso } = incrementalPlan.cutoff;
+          await fetchAndLand([{ field: INCR_DATE, op: 'gte', value: iso }]);
+          const freshCount = rowCount;
+          const copied = await rollupDuckDB.copyFromGen({
+            modelId, orgId,
+            fromGen: incrementalPlan.fromGen, toGen: gen,
+            fromTable: incrementalPlan.fromTable, toTable: tableName,
+            columns: [...grain, ...plan.atoms.map((a) => a.col)],
+            where: `"${INCR_YEAR}" < ${year} OR ("${INCR_YEAR}" = ${year} AND "${INCR_MONTH}" < ${month})`,
+          });
+          rowCount += copied;
+          // bytes was estimated from the fresh rows only — scale to totals.
+          bytes = Math.round(bytes * (rowCount / Math.max(1, freshCount)));
+          usedIncremental = true;
+        } catch (incErr) {
+          // Any incremental failure (old gen gone, schema mismatch, ATTACH
+          // error) → drop the partial table and rebuild fully from source.
+          console.warn(`[rollup] incremental refresh failed (${incErr.message}) — falling back to full rebuild for grain=[${grain.join(',')}]`);
+          try { await rollupDuckDB.run(modelId, gen, `DROP TABLE IF EXISTS "${tableName}"`, orgId); } catch { /* fresh gen, best-effort */ }
+          try { await rollupDuckDB.run(modelId, gen, `DROP TABLE IF EXISTS "${tableName}__stg"`, orgId); } catch { /* HLL staging */ }
+          await fetchAndLand([]);
+        }
+      } else {
+        await fetchAndLand([]);
+      }
     } else if (storageMode === 'source') {
       const err = new Error('Source-DB rollup storage is not yet supported (v1 = duckdb only)');
       err.code = 'ROLLUP_STORAGE_UNSUPPORTED';
@@ -827,11 +951,16 @@ async function buildRollup({
   // `measures` JSON now carries the recompose recipe: per-output spec +
   // the physical atom columns with their re-agg fn.
   const measuresJson = JSON.stringify({ outputs: plan.outputs, atoms: plan.atoms });
+  // Partition metadata: the parts flag every incremental-shaped build (the
+  // NEXT refresh needs it to know the table is partitioned), the cutoff only
+  // the refreshes that actually re-queried a window.
+  const partitionParts = incremental ? JSON.stringify([INCR_YEAR, INCR_MONTH]) : null;
+  const partitionFrom = usedIncremental ? incrementalPlan.cutoff.iso : null;
   if (existing) {
     db.prepare(
       `UPDATE rollups SET storage_mode = ?, grain_dims = ?, measures = ?,
                           base_filters = ?, table_name = ?, built_at = ?,
-                          row_count = ?, bytes = ?
+                          row_count = ?, bytes = ?, partition_parts = ?, partition_from = ?
        WHERE id = ?`
     ).run(
       storageMode,
@@ -842,9 +971,11 @@ async function buildRollup({
       builtAt,
       rowCount,
       bytes,
+      partitionParts,
+      partitionFrom,
       existing.id,
     );
-    return { id: existing.id, tableName, rowCount, bytes, builtAt, rebuilt: true };
+    return { id: existing.id, tableName, rowCount, bytes, builtAt, rebuilt: true, incremental: usedIncremental };
   }
 
   const id = uuidv4();
@@ -852,8 +983,8 @@ async function buildRollup({
     `INSERT INTO rollups
        (id, model_id, organization_id, storage_mode, grain_hash, grain_dims,
         measures, base_filters, base_filter_hash, fact_table, table_name,
-        built_at, row_count, bytes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        built_at, row_count, bytes, partition_parts, partition_from)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     modelId,
@@ -869,8 +1000,10 @@ async function buildRollup({
     builtAt,
     rowCount,
     bytes,
+    partitionParts,
+    partitionFrom,
   );
-  return { id, tableName, rowCount, bytes, builtAt, rebuilt: false };
+  return { id, tableName, rowCount, bytes, builtAt, rebuilt: false, incremental: usedIncremental };
 }
 
 // ─── Orchestrators ────────────────────────────────────────────────────────
@@ -960,6 +1093,7 @@ async function _buildRollupsForModelInner({ modelId, internalUserId, orgId, log 
         baseFilterHash: item.baseFilterHash,
         factTable: item.factTable,
         gen,
+        incremental: item.incremental || null,
       });
       if (r && r.skipped) {
         skipped++;
@@ -1057,7 +1191,7 @@ function getManifest({ modelId, orgId }) {
   const rows = db.prepare(
     `SELECT id, model_id, organization_id, storage_mode, grain_hash, grain_dims,
             measures, base_filters, base_filter_hash, fact_table, table_name,
-            built_at, row_count, bytes
+            built_at, row_count, bytes, partition_parts, partition_from
      FROM rollups
      WHERE model_id = ? AND (organization_id IS ? OR organization_id = ?)
      ORDER BY built_at DESC NULLS LAST`
@@ -1080,6 +1214,8 @@ function getManifest({ modelId, orgId }) {
       builtAt: r.built_at,
       rowCount: r.row_count,
       bytes: r.bytes,
+      partitionParts: safeJSON(r.partition_parts, null),
+      partitionFrom: r.partition_from || null,
     };
   });
 }
@@ -1226,6 +1362,8 @@ module.exports = {
   normalizeFilterRules,
   rollupTableName,
   stripUntrustedFreeSql,
+  incrementalContextForModel,
+  incrementalCutoff,
   planRollupsForModel,
   buildRollup,
   buildRollupsForModel,

@@ -253,6 +253,35 @@ async function insertRows(modelId, gen, tableName, columns, rows, orgId) {
   return rows.length;
 }
 
+// Incremental refresh: carry the cold-partition rows of the PREVIOUS gen's
+// table into the new gen's table. Gen files are immutable once serving, so
+// the copy runs from the NEW gen's connection with the old file ATTACHed
+// read-only — never a write against the gen currently serving queries.
+// Returns the number of rows copied. Any failure (old file gone, schema
+// mismatch, ATTACH unsupported) throws — the caller falls back to a full
+// source rebuild, which is always correct.
+async function copyFromGen({ modelId, orgId, fromGen, toGen, fromTable, toTable, columns, where }) {
+  const fromPath = dbPathFor(modelId, orgId, fromGen);
+  if (!fs.existsSync(fromPath)) throw new Error(`previous gen file missing: ${path.basename(fromPath)}`);
+  const db = await getDb(modelId, orgId, toGen);
+  const alias = '__or_prev_gen';
+  const colList = columns.map((c) => `"${c.replace(/"/g, '""')}"`).join(', ');
+  const escPath = fromPath.replace(/'/g, "''");
+  await db.run(`ATTACH '${escPath}' AS ${alias} (READ_ONLY)`);
+  try {
+    const [{ n }] = await db.all(
+      `SELECT COUNT(*)::BIGINT AS n FROM ${alias}."${fromTable.replace(/"/g, '""')}" WHERE ${where}`
+    );
+    await db.run(
+      `INSERT INTO "${toTable.replace(/"/g, '""')}" (${colList})
+       SELECT ${colList} FROM ${alias}."${fromTable.replace(/"/g, '""')}" WHERE ${where}`
+    );
+    return Number(n);
+  } finally {
+    try { await db.run(`DETACH ${alias}`); } catch { /* already detached */ }
+  }
+}
+
 // Real on-disk size of ONE model's store = sum of its gen file(s) (+ any
 // stray legacy file). The figure a per-report view shows.
 function modelStoreBytes(modelId, orgId, referencedGens = null) {
@@ -293,6 +322,7 @@ module.exports = {
   query,
   run,
   insertRows,
+  copyFromGen,
   checkpoint,
   pruneGenFiles,
   destroyModelStore,

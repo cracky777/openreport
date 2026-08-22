@@ -78,6 +78,11 @@ safeMigrate("ALTER TABLE users ADD COLUMN last_verification_sent_at TEXT");
 // Last login / activity timestamp — updated by the login route. Used by the
 // platform supervisor dashboard to surface stale / inactive accounts.
 safeMigrate("ALTER TABLE users ADD COLUMN last_seen_at TEXT");
+// Incremental rollup refresh window, in months. NULL/0 = full rebuild
+// (historical behaviour). >0 and the model has a date_column → each rebuild
+// re-queries the source only for the last N months and carries the older
+// partition rows over from the previous generation file.
+safeMigrate("ALTER TABLE models ADD COLUMN incremental_months INTEGER");
 
 // Report version history — snapshots taken on every meaningful save so an
 // admin can roll back. Capped at 20 versions per report (FIFO pruning in
@@ -178,9 +183,17 @@ db.exec(`CREATE TABLE IF NOT EXISTS rollups (
   built_at         TEXT,
   row_count        INTEGER,
   bytes            INTEGER,
+  partition_parts  TEXT,
+  partition_from   TEXT,
   UNIQUE(model_id, grain_hash, base_filter_hash, fact_table, organization_id),
   FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE
 )`);
+// Rollup partition metadata (incremental builds only): the synthetic
+// `_incr.*` date-part dims appended to the PHYSICAL grain, and the cutoff
+// the last refresh re-queried from. NULL on full builds. ALTERs sit AFTER
+// the CREATE so an existing table gains them (a fresh one has them already).
+safeMigrate("ALTER TABLE rollups ADD COLUMN partition_parts TEXT");
+safeMigrate("ALTER TABLE rollups ADD COLUMN partition_from TEXT");
 db.exec("CREATE INDEX IF NOT EXISTS idx_rollups_model ON rollups (model_id)");
 db.exec("CREATE INDEX IF NOT EXISTS idx_rollups_org ON rollups (organization_id) WHERE organization_id IS NOT NULL");
 

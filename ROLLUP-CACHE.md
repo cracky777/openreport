@@ -818,3 +818,43 @@ cloud is validated on a deployment before any push.
 
 Update **this document first**, then the code, then the project memory
 note. The user should not have to re-explain these rules.
+
+---
+
+## 14. Incremental refresh
+
+Opt-in per model: `models.incremental_months > 0` **and** a `date_column`
+(`table.column`). When both hold and the date table can constrain a fact
+(it IS the fact, or is conformed to it), that fact's plan items get the
+synthetic date-part dims **`_incr.year` / `_incr.month`** appended to the
+PHYSICAL grain (hash computed after augmentation — toggling incremental
+re-keys the manifest row, so the two shapes never mix). The runtime planner
+is untouched: requests at the logical grain superset-match and re-aggregate
+the partition dims away, exactly like any coarser-grain request.
+
+A rebuild then works against the previous generation instead of re-scanning
+the whole source:
+
+1. Preconditions (checked in `buildRollup`, all falling back to a FULL
+   source rebuild): a previous manifest row exists, its outputs match the
+   current plan (no spec drift), its `partition_parts` says the physical
+   table is partitioned, and its gen file is still on disk.
+2. Cutoff = first day of `now − (months − 1)` months. The build `/query`
+   fires with an extra widgetFilter `_incr.date >= cutoff` (`_incr.date` is
+   a synthetic raw-date extra dim; the filter shapes WHAT is fetched and
+   never enters `base_filters` / the hash — the served slice identity is
+   unchanged).
+3. The fresh rows land in the new gen table as usual; the cold rows
+   (`year/month < cutoff`) are copied from the previous gen's table via a
+   read-only `ATTACH` from the new gen's connection
+   (`rollupDuckDB.copyFromGen`) — gen files stay immutable while serving.
+4. Manifest: `partition_parts` marks every incremental-shaped build;
+   `partition_from` records the window actually re-queried (NULL on the
+   first, full build). Blue-green, checkpoint and gen pruning are unchanged.
+
+**Semantics, by design**: rows older than the window only change on a full
+rebuild (set the window to Off and refresh, or drop the model's rollups —
+`dropAllRollups` also runs on model edits and datasource file refreshes, so
+those keep their catch-up behaviour). Any incremental failure mid-build
+drops the partial table and silently rebuilds fully — correctness never
+depends on the optimisation.

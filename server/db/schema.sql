@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS models (
   joins TEXT NOT NULL DEFAULT '[]',
   rls TEXT NOT NULL DEFAULT '{}',
   column_types TEXT NOT NULL DEFAULT '{}',
+  -- Incremental rollup refresh window in months (NULL/0 = full rebuild)
+  incremental_months INTEGER,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,

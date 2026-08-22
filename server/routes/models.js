@@ -174,7 +174,7 @@ router.put('/:id', authFor('write'), (req, res) => {
   if (!model) return res.status(404).json({ error: 'Model not found' });
   if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
 
-  const { name, description, selected_tables, table_positions, dimensions, measures, joins, rls, column_types, dateColumn, datasourceId } = req.body;
+  const { name, description, selected_tables, table_positions, dimensions, measures, joins, rls, column_types, dateColumn, datasourceId, incrementalMonths } = req.body;
   if (rejectIfNameTaken('model', name, req, res, req.params.id)) return;
 
   // If caller is moving the model to a different datasource, verify they may use it
@@ -195,6 +195,7 @@ router.put('/:id', authFor('write'), (req, res) => {
       rls = COALESCE(?, rls),
       column_types = COALESCE(?, column_types),
       date_column = CASE WHEN ? = 1 THEN ? ELSE date_column END,
+      incremental_months = CASE WHEN ? = 1 THEN ? ELSE incremental_months END,
       updated_at = datetime('now')
     WHERE id = ?
   `).run(
@@ -210,8 +211,22 @@ router.put('/:id', authFor('write'), (req, res) => {
     column_types !== undefined ? JSON.stringify(column_types || {}) : null,
     dateColumn !== undefined ? 1 : 0,
     dateColumn !== undefined ? (dateColumn || '') : '',
+    incrementalMonths !== undefined ? 1 : 0,
+    // Clamp to a sane window; null/0 = full rebuilds (historical behaviour).
+    incrementalMonths !== undefined
+      ? (Number.isFinite(Number(incrementalMonths)) && Number(incrementalMonths) > 0
+        ? Math.min(60, Math.round(Number(incrementalMonths)))
+        : null)
+      : null,
     req.params.id
   );
+
+  // Coherence: an incremental window without a date column is meaningless
+  // (the builder would ignore it and silently run full rebuilds) — normalise
+  // it away so the UI never shows a window that isn't actually in effect.
+  // Runs after the UPDATE to catch every combination of partial PUTs.
+  db.prepare(`UPDATE models SET incremental_months = NULL
+              WHERE id = ? AND (date_column IS NULL OR date_column = '')`).run(req.params.id);
 
   // The model's logical shape may have changed (renamed dim, new measure,
   // RLS rules, format overrides). Drop every cached row tied to this model

@@ -95,6 +95,10 @@ export default function ModelEditor() {
   const [selectedTables, setSelectedTables] = useState([]);
   const [tableColumns, setTableColumns] = useState({});
   const [tablePositions, setTablePositions] = useState({});
+  // Incremental rollup refresh: the model's date column ("table.column") and
+  // the window in months (null = full rebuilds). Saved with the model.
+  const [dateColumn, setDateColumn] = useState('');
+  const [incrementalMonths, setIncrementalMonths] = useState(null);
   const [dimensions, setDimensions] = useState([]);
   const [measures, setMeasures] = useState([]);
   const [joins, setJoins] = useState([]);
@@ -176,6 +180,8 @@ export default function ModelEditor() {
       setJoins(m.joins || []);
       setRls(m.rls || {});
       setColumnTypes(m.column_types || {});
+      setDateColumn(m.dateColumn || m.date_column || '');
+      setIncrementalMonths(m.incremental_months ?? null);
       // Reload datasource meta
       const dsRes = await api.get(`/datasources/${m.datasource_id}`);
       setDatasource(dsRes.data.datasource);
@@ -223,6 +229,8 @@ export default function ModelEditor() {
         setJoins(m.joins || []);
         setRls(m.rls || {});
         setColumnTypes(m.column_types || {});
+        setDateColumn(m.dateColumn || m.date_column || '');
+        setIncrementalMonths(m.incremental_months ?? null);
 
         const dsRes = await api.get(`/datasources/${m.datasource_id}`);
         setDatasource(dsRes.data.datasource);
@@ -455,6 +463,8 @@ export default function ModelEditor() {
         name, description, selected_tables: selectedTables,
         table_positions: tablePositions, dimensions: dimensionsToSave, measures, joins, rls,
         column_types: columnTypes,
+        dateColumn,
+        incrementalMonths,
       });
       setSaveMsg('Saved');
       setTimeout(() => setSaveMsg(null), 2000);
@@ -764,6 +774,16 @@ export default function ModelEditor() {
           removeDimension={removeDimension} addCalculatedMeasure={addCalculatedMeasure} removeMeasure={removeMeasure}
         />
       )}
+      {step === 2 && (
+        <IncrementalRefreshCard
+          dimensions={dimensions}
+          columnTypes={columnTypes}
+          dateColumn={dateColumn}
+          setDateColumn={setDateColumn}
+          incrementalMonths={incrementalMonths}
+          setIncrementalMonths={setIncrementalMonths}
+        />
+      )}
       {saveMsg && (
         <div style={{
           position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
@@ -777,3 +797,69 @@ export default function ModelEditor() {
   );
 }
 
+
+// Incremental rollup refresh — shown on the Dimensions & Measures step when
+// the model carries at least one date-typed dimension. Picking a window makes
+// every cache rebuild re-query only the last N months of the source (older
+// partition rows are carried over from the previous build); rows older than
+// the window then only change on a full rebuild (drop the cache or set Off).
+function IncrementalRefreshCard({ dimensions, columnTypes, dateColumn, setDateColumn, incrementalMonths, setIncrementalMonths }) {
+  const effectiveType = (d) => {
+    const ov = columnTypes && columnTypes[`${d.table}.${d.column}`];
+    const t = !ov ? d.type : (typeof ov === 'string' ? ov : ov.type);
+    return t;
+  };
+  const dateDims = (dimensions || []).filter((d) => effectiveType(d) === 'date');
+  if (dateDims.length === 0) return null;
+  return (
+    <div style={incrCardStyle}>
+      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Incremental cache refresh</div>
+      <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px', maxWidth: 640 }}>
+        Rebuild only the last months of the cache instead of re-querying the whole source.
+        Rows older than the window keep their cached values until a full rebuild
+        (set to Off and refresh, or drop the cache).
+      </p>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label style={incrLabelStyle}>Date column</label>
+        <select
+          value={dateColumn || ''}
+          onChange={(e) => {
+            setDateColumn(e.target.value);
+            // No date column → no window (the engine needs both).
+            if (!e.target.value) setIncrementalMonths(null);
+          }}
+          style={incrSelectStyle}
+        >
+          <option value="">— none —</option>
+          {dateDims.map((d) => (
+            <option key={`${d.table}.${d.column}`} value={`${d.table}.${d.column}`}>
+              {d.table}.{d.column}
+            </option>
+          ))}
+        </select>
+        <label style={incrLabelStyle}>Window</label>
+        <select
+          value={incrementalMonths || 0}
+          onChange={(e) => setIncrementalMonths(Number(e.target.value) || null)}
+          disabled={!dateColumn}
+          style={incrSelectStyle}
+        >
+          <option value={0}>Off — full rebuild</option>
+          {[...new Set([1, 3, 6, 12, ...(incrementalMonths ? [incrementalMonths] : [])])].sort((a, b) => a - b).map((m) => (
+            <option key={m} value={m}>Last {m} month{m === 1 ? '' : 's'}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+const incrCardStyle = {
+  maxWidth: 1100, margin: '16px auto 0', padding: '16px 20px',
+  background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 8,
+};
+const incrLabelStyle = { fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' };
+const incrSelectStyle = {
+  padding: '6px 10px', fontSize: 13, borderRadius: 6,
+  border: '1px solid var(--border-default)', background: 'var(--bg-panel)', color: 'var(--text-primary)',
+};
