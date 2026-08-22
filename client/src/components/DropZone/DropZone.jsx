@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
-import { TbArrowsSort, TbSortAscending, TbSortDescending } from 'react-icons/tb';
+import { TbArrowsSort, TbSortAscending, TbSortDescending, TbClock } from 'react-icons/tb';
+import { TIME_PRESETS, TP_SHORT, parseTimeVariant } from '../../utils/timeIntelligence';
 
 const _hs0 = { marginBottom: 10 };
 const _hs1 = { fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 };
@@ -25,6 +26,19 @@ const _hs10 = {
           };
 const _hs11 = { fontSize: 9, color: 'var(--text-disabled)', alignSelf: 'center', marginRight: 4, textTransform: 'uppercase', fontWeight: 600 };
 
+// Time-variant badges: preset tag on variant chips, clock affordance on
+// base measure chips.
+const _tpBadge = {
+  fontSize: 8, fontWeight: 700, textTransform: 'uppercase',
+  color: 'var(--accent-primary)', cursor: 'pointer', marginRight: 2,
+  padding: '0 3px', borderRadius: 2, background: 'var(--accent-primary-soft)',
+  flexShrink: 0, lineHeight: '14px',
+};
+const _tpAdd = {
+  display: 'inline-flex', alignItems: 'center', color: 'var(--text-disabled)',
+  cursor: 'pointer', marginRight: 2, flexShrink: 0,
+};
+
 const AGG_OPTIONS = [
   { value: 'sum', label: 'Sum' },
   { value: 'avg', label: 'Avg' },
@@ -39,11 +53,12 @@ const SORT_OPTIONS = [
   { value: 'desc', icon: TbSortDescending, title: 'Descending' },
 ];
 
-export default function DropZone({ label, accepts, fields, onDrop, onRemove, onReorder, multiple = false, fieldInfos = {}, dimensionNames, zoneName, measureInfos, onAggChange, sort, onSortChange }) {
+export default function DropZone({ label, accepts, fields, onDrop, onRemove, onReorder, multiple = false, fieldInfos = {}, dimensionNames, zoneName, measureInfos, onAggChange, onTimeVariant, sort, onSortChange }) {
   const [dragIdx, setDragIdx] = useState(null);
   const [dropIdx, setDropIdx] = useState(null);
   const dropIdxRef = useRef(null);
   const [aggMenuField, setAggMenuField] = useState(null);
+  const [tpMenuField, setTpMenuField] = useState(null);
 
   const setDrop = (v) => { setDropIdx(v); dropIdxRef.current = v; };
 
@@ -97,19 +112,28 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
     setDrop(null);
   };
 
+  // A time-variant chip ("<base>@@tp:<preset>") borrows its base measure's
+  // info — the preset badge is what tells them apart.
+  const infoFor = (f) => {
+    if (fieldInfos[f]) return fieldInfos[f];
+    const v = parseTimeVariant(f);
+    return v ? fieldInfos[v.base] : undefined;
+  };
+
   const getDisplayName = (f) => {
     // Prefer the dim/measure's user-facing label when it's set — date-part
     // siblings (Month Name vs Month Number, etc.) share the same parent
     // column so falling back to "table.column" would make them look
     // identical in the dropped pill. Labels disambiguate them clearly.
-    const info = fieldInfos[f];
+    const info = infoFor(f);
     if (info?.label) return info.label;
-    const p = f.split('.');
+    const v = parseTimeVariant(f);
+    const p = (v ? v.base : f).split('.');
     return p[p.length - 1].replace(/_sum$|_avg$|_count$|_min$|_max$/, '');
   };
 
   const getTooltip = (f) => {
-    const info = fieldInfos[f];
+    const info = infoFor(f);
     if (!info) return f;
     // Show both the human label (when present) and the underlying
     // qualified column so the user can distinguish siblings even on hover.
@@ -153,7 +177,8 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
       >
         {fields.map((field, i) => {
           const isDim = dimensionNames ? dimensionNames.has(field) : accepts?.includes('dimension');
-          const missing = Object.keys(fieldInfos).length > 0 && !fieldInfos[field];
+          const variant = !isDim ? parseTimeVariant(field) : null;
+          const missing = Object.keys(fieldInfos).length > 0 && !infoFor(field);
           const isDragging = draggedField === field;
           const showBar = !isReplaceMode && dropIdx === i && !(isDragging && (dragIdx === i || dragIdx === i - 1));
           const willBeReplaced = isReplaceMode && isHovering;
@@ -176,8 +201,8 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
                 }}
               >
                 <span style={_hs3}>⠿</span>
-                {/* Aggregation badge for measures */}
-                {!isDim && measureInfos?.[field] && measureInfos[field].aggregation !== 'custom' && onAggChange && (
+                {/* Aggregation badge for measures (variants inherit the base's) */}
+                {!isDim && !variant && measureInfos?.[field] && measureInfos[field].aggregation !== 'custom' && onAggChange && (
                   <span
                     onClick={(e) => { e.stopPropagation(); setAggMenuField(aggMenuField === field ? null : field); }}
                     style={_hs4}
@@ -186,10 +211,57 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
                     {measureInfos[field].aggregation || 'sum'}
                   </span>
                 )}
+                {/* Time-variant badge: the preset on variant chips, a clock
+                    on base measures to spawn a windowed copy. */}
+                {!isDim && variant && onTimeVariant && (
+                  <span
+                    onClick={(e) => { e.stopPropagation(); setTpMenuField(tpMenuField === field ? null : field); }}
+                    style={_tpBadge}
+                    title="Time period of this copy — click to change or remove"
+                  >
+                    {TP_SHORT[variant.preset] || variant.preset}
+                  </span>
+                )}
+                {!isDim && !variant && !missing && onTimeVariant && (
+                  <span
+                    onClick={(e) => { e.stopPropagation(); setTpMenuField(tpMenuField === field ? null : field); }}
+                    style={_tpAdd}
+                    title="Add a time-windowed copy (YTD, last 30 days...)"
+                  >
+                    <TbClock size={10} />
+                  </span>
+                )}
                 <span style={_hs5}>{getDisplayName(field)}</span>
                 {missing && <span title="This field no longer exists in the data model" style={_hs6}>!</span>}
                 <button onClick={() => onRemove(field)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: missing ? 'var(--state-danger)' : 'var(--text-disabled)', fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
               </span>
+              {/* Time-period preset menu (add on base / retarget on variant) */}
+              {tpMenuField === field && (
+                <div style={_hs7}>
+                  {TIME_PRESETS.map((pz) => (
+                    <button key={pz.key}
+                      onClick={(e) => { e.stopPropagation(); onTimeVariant(field, pz.key); setTpMenuField(null); }}
+                      title={pz.label}
+                      style={{
+                        fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 3,
+                        border: 'none', cursor: 'pointer',
+                        background: variant?.preset === pz.key ? 'var(--accent-primary)' : 'var(--bg-panel)',
+                        color: variant?.preset === pz.key ? '#fff' : 'var(--text-secondary)',
+                      }}
+                    >{TP_SHORT[pz.key] || pz.key}</button>
+                  ))}
+                  {variant && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onTimeVariant(field, null); setTpMenuField(null); }}
+                      style={{
+                        fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 3,
+                        border: 'none', cursor: 'pointer',
+                        background: 'var(--state-danger-soft)', color: 'var(--state-danger)',
+                      }}
+                    >Remove</button>
+                  )}
+                </div>
+              )}
               {/* Aggregation dropdown menu */}
               {aggMenuField === field && (
                 <div style={_hs7}>

@@ -22,6 +22,8 @@
 //     of the same report skips re-fetching widgets whose binding+filter
 //     state is unchanged. Viewer doesn't use the mechanism (passes null
 //     and the field stays absent on the widget).
+import { variantDefsFor } from './timeIntelligence';
+
 export function buildWidgetData({
   widget,
   rows,
@@ -42,6 +44,17 @@ export function buildWidgetData({
   const w = widget;
   const { dims, meass, grpBy, colDimsB, cbm, clm, sm,
     fullHierarchy, isDrillable, drillPath, topN } = meta;
+  // Per-measure time variants ("<base>@@tp:<preset>") are not model
+  // measures — synthesize their defs (label = "<base label> (YTD)"…, same
+  // as the server's response alias) so every label lookup below resolves
+  // them like any other measure.
+  const variantDefs = variantDefsFor(meass, effectiveModel?.measures);
+  if (variantDefs.length > 0) {
+    effectiveModel = {
+      ...effectiveModel,
+      measures: [...(effectiveModel?.measures || []), ...variantDefs],
+    };
+  }
   const topNApplies = topN.applies;
 
   // Extract the colour-coding aggregate from the optional color query.

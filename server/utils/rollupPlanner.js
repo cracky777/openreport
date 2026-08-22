@@ -245,9 +245,16 @@ async function tryServeFromRollup(opts) {
   const baseFilterHash = rollupBuilder.baseFilterHashOf(globalPart);
 
   // Runtime (non-baked) filter dims fold into the requested grain so the
-  // rollup carries them; the baked global dims do NOT.
+  // rollup carries them; the baked global dims do NOT. A filter entry is
+  // either a value ARRAY (discrete IN list) or the range shape
+  // `{ op: 'between', value: [start, end] }` emitted by range-style date
+  // slicers — both count: skipping the range shape here used to leave its
+  // dim out of the grain AND out of the WHERE below, silently serving
+  // UNFILTERED rollup data to range-slicer widgets.
+  const isRangeFilter = (v) => v && typeof v === 'object' && !Array.isArray(v)
+    && v.op === 'between' && Array.isArray(v.value) && v.value.length === 2;
   const objFilterKeys = Object.keys(filters || {}).filter(
-    (k) => Array.isArray(filters[k]) && filters[k].length > 0
+    (k) => (Array.isArray(filters[k]) && filters[k].length > 0) || isRangeFilter(filters[k])
   );
   // Runtime filter dims (slicer / cross-filter / widget-own fixed). These
   // are applied PER FACT, and ONLY if that fact actually has a rollup
@@ -397,13 +404,18 @@ async function tryServeFromRollup(opts) {
   const whereSqlFor = (allowed) => {
     const parts = [];
     for (const [dn, vals] of Object.entries(filters || {})) {
-      if (!Array.isArray(vals) || vals.length === 0) continue;
+      const isRange = isRangeFilter(vals);
+      if (!isRange && (!Array.isArray(vals) || vals.length === 0)) continue;
       if (!allowed.has(dn)) {
         return { error: `filter-not-in-grain:${dn}` };
       }
       const d = allDimensions.find((x) => x.name === dn);
       const dimType = d ? d.type : 'string';
-      parts.push(`${qIdent(dn)} IN (${vals.map((v) => litFor(dimType, v)).join(', ')})`);
+      if (isRange) {
+        parts.push(`${qIdent(dn)} BETWEEN ${litFor(dimType, vals.value[0])} AND ${litFor(dimType, vals.value[1])}`);
+      } else {
+        parts.push(`${qIdent(dn)} IN (${vals.map((v) => litFor(dimType, v)).join(', ')})`);
+      }
     }
     for (const f of runtimePart) {
       if (!allowed.has(f.field)) {

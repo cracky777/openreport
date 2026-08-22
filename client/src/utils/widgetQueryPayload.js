@@ -6,6 +6,7 @@ import {
   shiftFiltersForN1,
   shiftWidgetFiltersForN1,
 } from './comparePeriod';
+import { timePeriodFilter, timePeriodOf, comparableRange, buildTimeVariants } from './timeIntelligence';
 
 // Build the assembled query bodies + the resolved metadata needed by the
 // response handler for one widget. Pure function — no React, no axios,
@@ -176,7 +177,14 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
     ? binding.colorMeasure
     : undefined;
   const widgetOwnFilters = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
-  const widgetFilters = [...reportLevelFilters, ...widgetOwnFilters];
+  // Time-intelligence preset → a concrete between window on the bound date
+  // dim, resolved at fetch time so it slides forward with the clock. It
+  // rides the widgetFilters channel: live SQL and the rollup planner both
+  // already know how to apply (or refuse) a between rule on a dim.
+  const timeFilter = timePeriodFilter(binding);
+  const widgetFilters = timeFilter
+    ? [...reportLevelFilters, ...widgetOwnFilters, timeFilter]
+    : [...reportLevelFilters, ...widgetOwnFilters];
   const hasMainBinding = (allDims.length > 0 || meass.length > 0);
 
   // Server-side Top N — push the limit into the SQL via a synthetic
@@ -202,16 +210,35 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
   const aggOverridesPayload = Object.keys(aggOverrides).length > 0 ? aggOverrides : undefined;
 
   const mainQueryId = generateQueryId ? generateQueryId() : null;
-  const measureNames = dedupMeasures ? [...new Set(meass)] : meass;
+  // Per-measure time variants ("<base>@@tp:<preset>") resolve to concrete
+  // windows here; unresolvable ones (no usable date dim) are dropped from
+  // the request instead of 400ing server-side.
+  const { names: measureNames, timeVariants } = buildTimeVariants(
+    dedupMeasures ? [...new Set(meass)] : meass, effectiveModel
+  );
 
   // N-1 comparison query (scorecards only). Same SQL shape as the main
   // fetch but every filter on a year-like / full-date dim is shifted -1.
+  // With a time-period preset the synthetic window filter is what gets
+  // compared: its bounds are swapped for the preset's comparable window
+  // (comparableRange — year shift for calendar presets, preceding window
+  // for rolling ones) INSTEAD of the generic year shift, which would be
+  // wrong for e.g. "last 30 days".
   const compareDateDim = widget.type === 'scorecard' ? (binding.compareDateDim || null) : null;
   const dimsForN1 = effectiveModel?.dimensions;
+  const timePeriod = timePeriodOf(binding);
   const shouldFetchN1 = !!compareDateDim
-    && hasShiftableFilterForN1(queryFilters, widgetFilters, dimsForN1);
+    && (!!timeFilter || hasShiftableFilterForN1(queryFilters, widgetFilters, dimsForN1));
   const n1Filters = shouldFetchN1 ? shiftFiltersForN1(queryFilters, dimsForN1) : null;
-  const n1WidgetFilters = shouldFetchN1 ? shiftWidgetFiltersForN1(widgetFilters, dimsForN1) : null;
+  let n1WidgetFilters = shouldFetchN1 ? shiftWidgetFiltersForN1(widgetFilters, dimsForN1) : null;
+  if (shouldFetchN1 && timeFilter && timePeriod) {
+    const cmp = comparableRange(timePeriod.preset);
+    if (cmp) {
+      n1WidgetFilters = n1WidgetFilters.map((f) => (
+        f && f._timePeriod ? { ...f, value: cmp, values: cmp } : f
+      ));
+    }
+  }
 
   // Combo + groupBy + line measures: line gets its own (dim, lineMeasures)
   // query so it's aggregated at the right level — summing client-side
@@ -221,6 +248,7 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
   const commonExtras = {
     reportId,
     bypassCache,
+    ...(timeVariants ? { timeVariants } : {}),
     ...reportExtras,
   };
 
@@ -292,8 +320,9 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
     limit: 1,
     filters: queryFilters,
     // Drop the synthetic top_n filter for the color aggregate — it
-    // doesn't apply when there's no GROUP BY.
-    widgetFilters: sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]),
+    // doesn't apply when there's no GROUP BY. The time-period window
+    // (also synthetic, carried by `widgetFilters`) DOES apply.
+    widgetFilters: sanitizeWidgetFilters(widgetFilters),
     ...commonExtras,
   } : null;
 
@@ -304,7 +333,8 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
     limit: 1,
     filters: queryFilters,
     // Top_n filter dropped here — we want the grand total, not truncated.
-    widgetFilters: sanitizeWidgetFilters([...reportLevelFilters, ...widgetOwnFilters]),
+    // The time-period window stays: the total must cover the same window.
+    widgetFilters: sanitizeWidgetFilters(widgetFilters),
     ...commonExtras,
   } : null;
 

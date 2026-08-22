@@ -144,6 +144,13 @@ function grainsForWidget(w, widgetId, allWidgets) {
   // bar is NOT in the grain — it's baked into the rollup at build time
   // (see planRollupsForModel / fetchRollupRows).
   const filterDims = fixedFilterDims(b.widgetFilters);
+  // A time-intelligence preset fires a runtime `between` widget filter on
+  // its date dim — fold that dim into the grain so the rollup carries it
+  // and the planner can re-apply the window (which slides daily) at serve
+  // time instead of MISSing to live on every request.
+  if (b.timePeriod && typeof b.timePeriod.dim === 'string' && b.timePeriod.dim) {
+    filterDims.push(b.timePeriod.dim);
+  }
 
   // Cross-filter dims fold in as their full UNION, not the 2^n subset
   // enumeration this used to do: the builder consolidates per baked

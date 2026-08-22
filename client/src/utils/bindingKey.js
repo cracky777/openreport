@@ -60,6 +60,11 @@ export function computeBindingKey({ widget, model, reportFilters, settings, cach
   const compareDateDim = binding.compareDateDim || '';
   const compareKey = compareDateDim ? `cd:${compareDateDim}` : '';
 
+  // Time-intelligence preset — resolves to a between filter at fetch time,
+  // so picking/changing/clearing it must invalidate cached widget data.
+  const tp = binding.timePeriod;
+  const timePeriodKey = (tp && tp.dim && tp.preset) ? `tp:${tp.dim}|${tp.preset}` : '';
+
   // Drill state — different drill levels are different bindings as far as the
   // cache is concerned (the active dimension and filter set differ).
   const drillPath = Array.isArray(widget.drillPath) ? widget.drillPath : [];
@@ -108,6 +113,6 @@ export function computeBindingKey({ widget, model, reportFilters, settings, cach
     scatterKey, comboKey, gaugeKey,
     aggKey, colorKey, widgetFiltersKey,
     modelVersion, filtersKey, typeKey, topNKey, drillKey, compareKey,
-    overridesKey, limitKey, cacheKey,
+    timePeriodKey, overridesKey, limitKey, cacheKey,
   ].join(':');
 }

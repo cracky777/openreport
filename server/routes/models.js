@@ -705,7 +705,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
 
   let {
     dimensionNames, measureNames, limit, offset, filters, widgetFilters,
-    distinct, measureAggOverrides, sqlOnly,
+    distinct, measureAggOverrides, sqlOnly, timeVariants,
     // X-grain HAVING — when the client visual has a legend (groupBy) and
     // applies a measure filter, the user expects "filter X values whose
     // TOTAL (across all legend slices) passes the test", not "filter
@@ -821,6 +821,43 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       if (m && m.name && !allMeasures.find((x) => x.name === m.name)) {
         allMeasures.push(m);
       }
+    }
+  }
+  // Per-measure time variants: "<base>@@tp:<preset>" entries in
+  // measureNames come with a `timeVariants` map resolving each to a date
+  // dim + a concrete [from, to] window (the client owns the clock — the
+  // window slides daily and must match what the widget displays). Each
+  // valid variant becomes a filtered copy of its base measure: the
+  // existing intersection path compiles the appended `between` rule into
+  // a CASE WHEN wrap, for plain aggregations and custom expressions
+  // alike. Every referenced field is validated against the model and the
+  // bounds go through the same quoting as any filter value — nothing from
+  // the request reaches the SQL raw. Invalid entries are skipped and fail
+  // the missing-measure check below with an explicit 400.
+  if (timeVariants && typeof timeVariants === 'object' && Array.isArray(measureNames)) {
+    let variantBudget = 24; // sanity cap — a widget never carries more
+    for (const vName of measureNames) {
+      if (typeof vName !== 'string') continue;
+      const sep = vName.indexOf('@@tp:');
+      if (sep <= 0 || allMeasures.find((x) => x.name === vName)) continue;
+      const spec = timeVariants[vName];
+      const base = allMeasures.find((x) => x.name === vName.slice(0, sep));
+      const dimDef = spec && allDimensions.find((d) => d.name === spec.dim);
+      const range = spec && Array.isArray(spec.range) && spec.range.length === 2
+        && spec.range.every((b) => (typeof b === 'string' || typeof b === 'number') && String(b).length <= 64)
+        ? spec.range.map(String) : null;
+      if (!base || !dimDef || !range || variantBudget-- <= 0) continue;
+      allMeasures.push({
+        ...base,
+        name: vName,
+        label: (typeof spec.label === 'string' && spec.label.trim() && spec.label.length <= 120)
+          ? spec.label
+          : `${base.label || base.name} (${vName.slice(sep + 5)})`,
+        filterRules: [
+          ...(Array.isArray(base.filterRules) ? base.filterRules : []),
+          { field: dimDef.name, op: 'between', value: range, values: range },
+        ],
+      });
     }
   }
   const allJoins = model.joins;

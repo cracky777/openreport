@@ -17,6 +17,7 @@ import api from '../../utils/api';
 import { Section, SubSection, AlignButtonGroup, Field, DecimalInput, RangeInput, ColorInput, CompareLineEditor } from './controls';
 import PivotOptionsSection from './PivotOptionsSection';
 import { getWidgetDisplayInfo } from '../../utils/widgetDisplay';
+import { TIME_PRESETS, parseTimeVariant, makeTimeVariant, variantDateDim } from '../../utils/timeIntelligence';
 
 const _hs1 = { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4, fontSize: 11, color: 'var(--text-secondary)' };
 const _hs2 = { display: 'flex', flexDirection: 'column', gap: 2 };
@@ -121,6 +122,32 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
     const current = binding.measureAggOverrides || {};
     updateBinding({ measureAggOverrides: { ...current, [fieldName]: newAgg } });
   };
+
+  // Per-measure time variants. `field` is a base measure (adds its
+  // "<base>@@tp:<preset>" copy right after it) or an existing variant
+  // (preset change retargets in place; preset=null removes it). Applied to
+  // whichever measure arrays contain the field — including the table's
+  // columnOrder so the new column lands next to its base.
+  const timeVariantsEnabled = !!variantDateDim(model);
+  const handleTimeVariant = (field, preset) => {
+    const v = parseTimeVariant(field);
+    const base = v ? v.base : field;
+    const target = preset ? makeTimeVariant(base, preset) : null;
+    const swap = (arr) => {
+      if (!Array.isArray(arr) || !arr.includes(field)) return null;
+      if (v) return target ? arr.map((f) => (f === field ? target : f)) : arr.filter((f) => f !== field);
+      if (!target || arr.includes(target)) return null; // no-op / duplicate
+      const idx = arr.indexOf(field);
+      return [...arr.slice(0, idx + 1), target, ...arr.slice(idx + 1)];
+    };
+    const updates = {};
+    const sm2 = swap(binding.selectedMeasures); if (sm2) updates.selectedMeasures = sm2;
+    const cb2 = swap(binding.comboBarMeasures); if (cb2) updates.comboBarMeasures = cb2;
+    const cl2 = swap(binding.comboLineMeasures); if (cl2) updates.comboLineMeasures = cl2;
+    const co2 = swap(binding.columnOrder); if (co2) updates.columnOrder = co2;
+    if (Object.keys(updates).length > 0) updateBinding(updates);
+  };
+  const onTimeVariant = timeVariantsEnabled ? handleTimeVariant : undefined;
   const selectedDims = binding.selectedDimensions || [];
   const selectedMeass = binding.selectedMeasures || [];
 
@@ -265,7 +292,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
           <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
             onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos}
             sort={getZoneSort('groupBy')} onSortChange={setZoneSort('groupBy')} />
-          <DropZone label="Values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="values"
+          <DropZone label="Values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} onTimeVariant={onTimeVariant} fields={selectedMeass} zoneName="values"
             onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos}
             sort={getZoneSort('values')} onSortChange={setZoneSort('values')} />
         </Section>
@@ -281,7 +308,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
           <DropZone label="Legend" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
             onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos}
             sort={getZoneSort('groupBy')} onSortChange={setZoneSort('groupBy')} />
-          <DropZone label="Values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="values"
+          <DropZone label="Values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} onTimeVariant={onTimeVariant} fields={selectedMeass} zoneName="values"
             onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos}
             sort={getZoneSort('values')} onSortChange={setZoneSort('values')} />
         </Section>
@@ -344,7 +371,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
           <DropZone label="Category" accepts={['dimension']} fields={selectedDims} zoneName="category"
             onDrop={handleDrop('category')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos}
             sort={getZoneSort('axis')} onSortChange={setZoneSort('axis')} />
-          <DropZone label="Value" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="value"
+          <DropZone label="Value" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} onTimeVariant={onTimeVariant} fields={selectedMeass} zoneName="value"
             onDrop={handleDrop('value')} onRemove={handleRemove} onReorder={handleReorder('measures')} fieldInfos={fieldInfos}
             sort={getZoneSort('values')} onSortChange={setZoneSort('values')} />
         </Section>
@@ -364,7 +391,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
         <Section title="" bare>
           <DropZone label="Columns" accepts={['dimension', 'measure']} fields={tableFields} zoneName="columns"
             onDrop={handleDrop('columns')} onRemove={handleRemove} onReorder={handleReorder('columns')} multiple fieldInfos={fieldInfos} dimensionNames={dimensionNames}
-            measureInfos={measureInfos} onAggChange={handleAggChange} />
+            measureInfos={measureInfos} onAggChange={handleAggChange} onTimeVariant={onTimeVariant} />
         </Section>
       );
     }
@@ -397,7 +424,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
       };
       return (
         <Section title="" bare>
-          <DropZone label="Value" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="value"
+          <DropZone label="Value" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} onTimeVariant={onTimeVariant} fields={selectedMeass} zoneName="value"
             onDrop={handleDrop('value')} onRemove={handleRemove} fieldInfos={fieldInfos} />
           <DropZone label="Compare with (date dim)" accepts={['dimension']} fields={compareDateDim ? [compareDateDim] : []} zoneName="compareDate"
             onDrop={setCompareDim} onRemove={removeCompareDim} fieldInfos={fieldInfos} />
@@ -443,7 +470,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
       };
       return (
         <Section title="" bare>
-          <DropZone label="Value" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="value"
+          <DropZone label="Value" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} onTimeVariant={onTimeVariant} fields={selectedMeass} zoneName="value"
             onDrop={handleDrop('value')} onRemove={handleRemove} fieldInfos={fieldInfos} />
           <DropZone label="Max (measure)" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={maxMeas ? [maxMeas] : []} zoneName="gaugeMax"
             onDrop={setBindingField('gaugeMaxMeasure')} onRemove={removeBindingField('gaugeMaxMeasure')} fieldInfos={fieldInfos} />
@@ -460,7 +487,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
             onDrop={handleDrop('rows')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos} />
           <DropZone label="Columns" accepts={['dimension']} fields={columnDims} zoneName="pivotColumns"
             onDrop={handleDrop('pivotColumns')} onRemove={removeColumnDim} onReorder={handleReorder('columnDims')} multiple fieldInfos={fieldInfos} />
-          <DropZone label="Values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="values"
+          <DropZone label="Values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} onTimeVariant={onTimeVariant} fields={selectedMeass} zoneName="values"
             onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos} />
         </Section>
       );
@@ -477,7 +504,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
         <Section title="" bare>
           <DropZone label={dimLabel} accepts={['dimension']} fields={selectedDims} zoneName="axis"
             onDrop={handleDrop('axis')} onRemove={handleRemove} onReorder={handleReorder('dims')} multiple fieldInfos={fieldInfos} />
-          <DropZone label={measLabel} accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={selectedMeass} zoneName="values"
+          <DropZone label={measLabel} accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} onTimeVariant={onTimeVariant} fields={selectedMeass} zoneName="values"
             onDrop={handleDrop('values')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple fieldInfos={fieldInfos} />
         </Section>
       );
@@ -1945,6 +1972,50 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
           </Section>
         );
       })()}
+      {/* ── Time period preset (YTD / MTD / rolling windows…) — resolves
+          to a between window on a date dim at fetch time. Only offered
+          when the model actually has a date-typed dimension. ── */}
+      {widget.type !== 'filter' && widget.type !== 'text' && widget.type !== 'shape' && widget.type !== 'image' && (() => {
+        const effType = (d) => {
+          const ov = model?.column_types && model.column_types[`${d.table}.${d.column}`];
+          return !ov ? d.type : (typeof ov === 'string' ? ov : ov.type);
+        };
+        const dateDims = (model?.dimensions || []).filter((d) => effType(d) === 'date');
+        if (dateDims.length === 0) return null;
+        const tp = (binding.timePeriod && typeof binding.timePeriod === 'object') ? binding.timePeriod : {};
+        const setTP = (patch) => {
+          // Keep partial picks (dim chosen, preset pending) — timePeriodOf
+          // only activates the filter once both halves are set. Clearing
+          // both drops the key entirely.
+          const next = { ...tp, ...patch };
+          if (!next.dim && !next.preset) updateBinding({ timePeriod: undefined });
+          else updateBinding({ timePeriod: { dim: next.dim || null, preset: next.preset || null } });
+        };
+        return (
+          <Section title="Time period" sectionState={sections}>
+            <Field label="Date dimension">
+              <select value={tp.dim || ''} onChange={(e) => setTP({ dim: e.target.value || null })}
+                style={{ ...inputStyle, marginBottom: 0 }}>
+                <option value="">— none —</option>
+                {dateDims.map((d) => (
+                  <option key={d.name} value={d.name}>{d.label || d.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Period">
+              <select value={tp.preset || ''} onChange={(e) => setTP({ preset: e.target.value || null })}
+                disabled={!tp.dim}
+                style={{ ...inputStyle, marginBottom: 0 }}>
+                <option value="">— none —</option>
+                {TIME_PRESETS.map((pz) => (
+                  <option key={pz.key} value={pz.key}>{pz.label}</option>
+                ))}
+              </select>
+            </Field>
+          </Section>
+        );
+      })()}
+
     </div>
   );
 }

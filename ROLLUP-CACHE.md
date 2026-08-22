@@ -858,3 +858,41 @@ rebuild (set the window to Off and refresh, or drop the model's rollups —
 those keep their catch-up behaviour). Any incremental failure mid-build
 drops the partial table and silently rebuilds fully — correctness never
 depends on the optimisation.
+
+## 15. Time-intelligence presets
+
+A widget binding can carry `timePeriod = { dim, preset }` (`dim` = a
+full-date model dimension; presets: `ytd`/`qtd`/`mtd`, rolling
+`last_7/30/90_days`, `last_12_months`, `prev_month/quarter/year` — see
+`client/src/utils/timeIntelligence.js`).
+
+1. At fetch time the client resolves the preset to a concrete window and
+   appends a runtime widgetFilter `{field: dim, op: 'between',
+   value/values: [from, to]}` to every body (main, color, grand-total,
+   comboLine). Nothing is stored dated: the window slides with the clock.
+2. Scorecard comparison: with a `compareDateDim`, the N-1 query swaps the
+   window for the preset's COMPARABLE window (`comparableRange`) — year
+   shift for calendar presets, the immediately preceding window for
+   rolling day presets (a year shift would misalign weekdays).
+3. Caching: `grainsForWidget` folds `timePeriod.dim` into the planned
+   grain, so the rollup carries the raw date column and the planner
+   re-applies the between at serve time (`scalarClause`). The current AND
+   comparable windows are served from the SAME rollup — no extra baked
+   slice, no daily invalidation.
+4. Related fix: the planner's object-filter path (`filters` map) now
+   applies the range shape `{op:'between', value:[a,b]}` (range-style date
+   slicers). It used to skip non-array entries — the dim neither folded
+   into the wanted grain nor reached the WHERE, so a matching rollup
+   served UNFILTERED data.
+
+### Per-measure time variants
+
+`measureNames` may carry `"<base>@@tp:<preset>"` entries — the base measure
+windowed to the preset, so "Sales" and "Sales (YTD)" coexist in one visual.
+The request's `timeVariants` map resolves each to a date dim + concrete
+window (client clock); the server compiles the variant as a filtered copy
+of its base (`filterRules` + between → CASE WHEN), validating dim/range and
+400ing on anything unresolvable. Rollups: variants have no manifest outputs
+→ the planner MISSes to live for any request containing one (correct,
+never stale). Materialising variant atoms (conditional aggregation over a
+date-grain rollup) is a known follow-up.
