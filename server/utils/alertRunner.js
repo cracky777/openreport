@@ -147,10 +147,13 @@ async function runOne(alertId, deps = {}) {
       if (n) notes.push(n); else delivered = true;
     }
     if (notify) {
-      let n = null;
-      try { n = await notify({ alert, state, value: v, payload }); }
-      catch (e) { n = `notification failed: ${e.message}`; }
-      if (n) notes.push(n); else delivered = true;
+      try {
+        const r = await notify({ alert, state, value: v, payload });
+        if (r && r.note) notes.push(r.note);
+        if (r && r.delivered) delivered = true;
+      } catch (e) {
+        notes.push(`notification failed: ${e.message}`);
+      }
     }
     return { note: notes.length ? notes.join(' · ') : null, notified: delivered };
   }

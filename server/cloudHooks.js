@@ -116,9 +116,11 @@ const cloudHooks = {
   //   extra payload fields and return the column patch to merge into the
   //   INSERT/UPDATE (the cloud owns the extra columns). existing = null on
   //   create.
-  // notifyAlert({alert, state, value, payload}) → Promise<string|null> —
-  //   deliver a 'triggered'|'recovered' transition on the extra channels;
-  //   resolves to an error note (kept in the event history) or null.
+  // notifyAlert({alert, state, value, payload}) → Promise<{delivered, note}>
+  //   — deliver a 'triggered'|'recovered' transition on the extra channels.
+  //   `delivered` = at least one recipient accepted it (false when the alert
+  //   has no extra recipients — "nothing to do" is not a notification);
+  //   `note` = error text kept in the event history, or null.
   validateAlertExtras: null,
   notifyAlert: null,
 };

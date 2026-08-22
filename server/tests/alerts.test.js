@@ -204,7 +204,7 @@ describe('runOne — transition semantics', () => {
     const sent = [];
     const deps = {
       fireQuery: async () => [{ total: 150 }],
-      notify: async ({ state, value, payload }) => { sent.push([state, value, payload.alert]); return null; },
+      notify: async ({ state, value, payload }) => { sent.push([state, value, payload.alert]); return { delivered: true, note: null }; },
     };
     const r1 = await alertRunner.runOne(id, deps);
     expect(r1).toMatchObject({ state: 'triggered', notified: true });
@@ -213,7 +213,7 @@ describe('runOne — transition semantics', () => {
 
     const silent = seedAlert({ webhook: false, notifyOnRecover: false });
     const sent2 = [];
-    const deps2 = { ...deps, notify: async ({ state }) => { sent2.push(state); return null; } };
+    const deps2 = { ...deps, notify: async ({ state }) => { sent2.push(state); return { delivered: true, note: null }; } };
     await alertRunner.runOne(silent, deps2);
     await alertRunner.runOne(silent, { ...deps2, fireQuery: async () => [{ total: 50 }] });
     expect(sent2).toEqual(['triggered']);
@@ -227,6 +227,15 @@ describe('runOne — transition semantics', () => {
     // the webhook went through → notified; the e-mail note is kept
     expect(r).toMatchObject({ state: 'triggered', notified: true });
     expect(events(broken)[0].message).toMatch(/smtp down/);
+
+    // a channel with nothing to deliver (no recipients) is not a notification
+    const idle = seedAlert({ webhook: false });
+    const r2 = await alertRunner.runOne(idle, {
+      fireQuery: async () => [{ total: 150 }],
+      notify: async () => ({ delivered: false, note: null }),
+    });
+    expect(r2).toMatchObject({ state: 'triggered', notified: false });
+    expect(events(idle)[0].message).toBeNull();
   });
 });
 
