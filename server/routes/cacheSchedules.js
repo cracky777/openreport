@@ -23,6 +23,7 @@ const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
 const rollupDuckDB = require('../utils/rollupDuckDB');
 const { canWriteModel } = require('./reports');
+const cloudHooks = require('../cloudHooks');
 
 // Real on-disk size of THIS report's model store. Each model has its own
 // DuckDB file, so this is now a true per-report (per-model) figure — the
@@ -45,8 +46,13 @@ function loadReportOrFail(reportId, res) {
   return r;
 }
 
-function canManageSchedule(report, user) {
+function canManageSchedule(report, user, req) {
   if (!user) return false;
+  // Cloud replaces the rule entirely: 'admin' there is the platform operator,
+  // and every check below has to be scoped to the caller's organization.
+  if (typeof cloudHooks.canManageSchedule === 'function') {
+    return !!cloudHooks.canManageSchedule(report, user, req);
+  }
   if (user.role === 'admin') return true;
   return report.user_id === user.id;
 }
@@ -57,7 +63,7 @@ function canManageSchedule(report, user) {
 // — otherwise a user who owns a report on someone else's (read-shared) model
 // could run arbitrary custom SQL under the owner's identity and outside RLS.
 function canTriggerBuild(report, user, req) {
-  if (!canManageSchedule(report, user)) return false;
+  if (!canManageSchedule(report, user, req)) return false;
   if (!report.model_id) return false;
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(report.model_id);
   if (!model) return false;
@@ -67,7 +73,7 @@ function canTriggerBuild(report, user, req) {
 router.get('/by-report/:reportId', requireAuth, (req, res) => {
   const report = loadReportOrFail(req.params.reportId, res);
   if (!report) return;
-  if (!canManageSchedule(report, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  if (!canManageSchedule(report, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   res.json({ schedules: cacheSchedules.listForReport(report.id) });
 });
 
@@ -114,7 +120,7 @@ router.delete('/:id', requireAuth, (req, res) => {
   if (!cur) return res.status(404).json({ error: 'Schedule not found' });
   const report = loadReportOrFail(cur.report_id, res);
   if (!report) return;
-  if (!canManageSchedule(report, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  if (!canManageSchedule(report, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   cacheSchedules.remove(cur.id);
   cacheScheduler.unregister(cur.id);
   res.json({ ok: true });
@@ -182,7 +188,7 @@ router.get('/warming', requireAuth, (req, res) => {
   const reportIds = [];
   const progress = {}; // reportId → { done, total }
   for (const r of reports) {
-    if (!canManageSchedule(r, req.user)) continue;
+    if (!canManageSchedule(r, req.user, req)) continue;
     reportIds.push(r.id);
     if (prog[r.model_id]) progress[r.id] = prog[r.model_id];
   }
@@ -196,7 +202,7 @@ router.get('/warming', requireAuth, (req, res) => {
 router.get('/inspect/:reportId', requireAuth, (req, res) => {
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.reportId);
   if (!report) return res.status(404).json({ error: 'Report not found' });
-  if (!canManageSchedule(report, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  if (!canManageSchedule(report, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
 
   const manifest = rollupBuilder.getManifest({
     modelId: report.model_id,
@@ -246,7 +252,7 @@ router.get('/inspect/:reportId', requireAuth, (req, res) => {
 router.get('/size/:reportId', requireAuth, (req, res) => {
   const r = db.prepare('SELECT id, user_id, model_id FROM reports WHERE id = ?').get(req.params.reportId);
   if (!r) return res.status(404).json({ error: 'Report not found' });
-  if (!canManageSchedule(r, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  if (!canManageSchedule(r, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   const modelId = r.model_id;
   const manifest = rollupBuilder.getManifest({ modelId, orgId: req.organizationId || null });
   const rollupBuiltAt = manifest.map((x) => x.builtAt).filter(Boolean).sort((a, b) => new Date(a) - new Date(b)).pop() || null;

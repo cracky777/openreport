@@ -58,9 +58,20 @@ function buildCorsOrigin() {
 // user-supplied content (uploaded images, custom-visual bundles) are the ones
 // that actually matter, and those are set where they are served.
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+// Hosts allowed to frame an /embed page. Embedding is the whole point of that
+// route, so SAMEORIGIN would defeat it — but the exemption stays scoped to
+// /embed, and an operator can narrow it to named sites.
+const EMBED_FRAME_ANCESTORS = process.env.EMBED_FRAME_ANCESTORS || '*';
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  if (req.path.startsWith('/embed/')) {
+    // frame-ancestors supersedes X-Frame-Options where both are understood;
+    // sending only the CSP keeps older browsers from applying SAMEORIGIN and
+    // blocking the iframe anyway.
+    res.setHeader('Content-Security-Policy', `frame-ancestors ${EMBED_FRAME_ANCESTORS}`);
+  } else {
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  }
   res.setHeader('Referrer-Policy', 'same-origin');
   // Only meaningful over TLS, and it sticks in the browser for a year — a dev
   // running http://localhost would be unable to undo it.

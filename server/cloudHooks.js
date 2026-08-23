@@ -130,6 +130,12 @@ const cloudHooks = {
   //   OSS: owner or global admin. Cloud: same org AND (owner or org admin).
   listAlerts: null,
   canManageAlert: null,
+  // canManageSchedule(report, user, req) → bool — may the caller see or change
+  //   the cache schedules of this report (list, inspect, size, delete, warm).
+  //   OSS: the report owner or a global admin. Cloud: same organization, then
+  //   owner or org admin — without it the OSS rule runs unscoped in a
+  //   multi-tenant deployment.
+  canManageSchedule: null,
 };
 
 module.exports = cloudHooks;

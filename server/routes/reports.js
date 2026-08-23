@@ -68,6 +68,15 @@ function canAccessReport(report, user, req) {
 // or indirectly through a report that uses the model (public or workspace-shared).
 // Cloud replaces this with an org read-role check via cloudHooks.canAccessModel.
 function canAccessModel(model, user, req) {
+  // An embed token grants exactly the model behind ITS report. Checked before
+  // the cloud delegation, like canAccessReport above: the cloud hook knows
+  // nothing about embed principals, so without this an embed could load the
+  // report but every widget query came back 404 — the feature only appeared
+  // to work when the report happened to be public.
+  if (model && req && req.embedPrincipal) {
+    const embedded = db.prepare('SELECT model_id FROM reports WHERE id = ?').get(req.embedPrincipal.reportId);
+    if (embedded && embedded.model_id === model.id) return true;
+  }
   if (typeof cloudHooks.canAccessModel === 'function') return cloudHooks.canAccessModel(model, user, req);
   if (!model) return false;
   if (user && user.role === 'admin') return true;
