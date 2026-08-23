@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { TbArrowLeft } from 'react-icons/tb';
+import { TbArrowLeft, TbUpload } from 'react-icons/tb';
 
 // Shared page header styles matching the editor toolbar design language.
 
@@ -110,12 +110,29 @@ export function SecondaryButton({ children, onClick, disabled, style, title, dan
       }}
       onMouseLeave={(e) => {
         if (disabled) return;
-        e.currentTarget.style.background = base.background;
-        e.currentTarget.style.borderColor = danger ? 'var(--state-danger-border)' : 'var(--border-default)';
+        // Restore what the caller asked for (e.g. the accent-tinted
+        // ImportButton), not the plain base — otherwise one hover strips
+        // the tint for good.
+        e.currentTarget.style.background = style?.background ?? base.background;
+        e.currentTarget.style.borderColor = style?.borderColor ?? (danger ? 'var(--state-danger-border)' : 'var(--border-default)');
       }}
     >
       {children}
     </button>
+  );
+}
+
+// The one "import a file" affordance for every list page (datasources,
+// models, reports): the upload glyph on an accent-tinted secondary button,
+// sitting left of the page's primary "+ New …" action.
+const importBtnAccent = { color: 'var(--accent-primary)', borderColor: '#ddd6fe', background: 'var(--accent-primary-soft)' };
+
+export function ImportButton({ children, onClick, disabled, title, style }) {
+  return (
+    <SecondaryButton onClick={onClick} disabled={disabled} title={title} style={{ ...importBtnAccent, ...style }}>
+      <TbUpload size={16} />
+      {children}
+    </SecondaryButton>
   );
 }
 

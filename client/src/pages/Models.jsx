@@ -2,11 +2,11 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
-import { TbRefresh, TbLoader2, TbClock, TbDownload, TbFileImport } from 'react-icons/tb';
+import { TbRefresh, TbLoader2, TbClock, TbDownload } from 'react-icons/tb';
 import { EditIcon, ICON_SIZE } from '../components/actionIcons';
 import { cardActionBtn } from '../components/dashboardModalStyles';
 import IncrementalRefreshDialog from '../components/IncrementalRefreshDialog/IncrementalRefreshDialog';
-import { PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
+import { PrimaryButton, SecondaryButton, ImportButton } from '../components/PageHeader/PageHeader';
 import Modal from '../components/Modal/Modal';
 import { useGraph } from '../hooks/graphContext';
 import { useJourneyFocus } from '../hooks/useJourneyFocus';
@@ -207,10 +207,9 @@ export default function Models() {
             )}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <SecondaryButton onClick={() => importInputRef.current?.click()} title="Import a model from a .model.yaml file">
-              <TbFileImport size={15} style={{ marginRight: 5, verticalAlign: 'text-bottom' }} />
-              Import YAML
-            </SecondaryButton>
+            <ImportButton onClick={() => importInputRef.current?.click()} title="Import a model from a .model.yaml file">
+              Import model
+            </ImportButton>
             <PrimaryButton onClick={openForm}>+ New Model</PrimaryButton>
           </div>
           <input

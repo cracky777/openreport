@@ -16,6 +16,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useWorkspaceData } from '../hooks/useWorkspaceData';
 import { useCardCacheWarming } from '../hooks/useCardCacheWarming';
 import { TopbarSwitcher, UserMenuExtras } from '../cloud';
+import { PrimaryButton, ImportButton } from '../components/PageHeader/PageHeader';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
 
 import Portal from '../components/Portal/Portal';
@@ -872,17 +873,15 @@ export default function Dashboard() {
                   style={_hs25}
                   onChange={handleImportFile}
                 />
-                <button
-                  className="btn-hover btn-hover-accent"
+                <ImportButton
                   onClick={() => { setImportError(''); importFileRef.current?.click(); }}
-                  style={{ ...primaryBtn, background: 'var(--bg-panel)', color: 'var(--accent-primary)', border: '1px solid var(--accent-primary-border)' }}
                   title="Import a report from a .openreport.json file"
                 >
-                  Import
-                </button>
+                  Import report
+                </ImportButton>
                 {/* Wrapped: openCreate takes a source mode, and passing it straight
                     as a handler would hand it the click event instead. */}
-                <button className="btn-hover btn-hover-primary" onClick={() => openCreate()} style={primaryBtn}>+ New Report</button>
+                <PrimaryButton onClick={() => openCreate()}>+ New Report</PrimaryButton>
               </div>
             )}
           </div>

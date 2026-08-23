@@ -7,7 +7,7 @@ import { readSheetNames } from '../utils/readSheetNames';
 import { TbUpload } from 'react-icons/tb';
 import { EditIcon, ICON_SIZE } from '../components/actionIcons';
 import { cardActionBtn } from '../components/dashboardModalStyles';
-import { PrimaryButton, SecondaryButton } from '../components/PageHeader/PageHeader';
+import { PrimaryButton, SecondaryButton, ImportButton } from '../components/PageHeader/PageHeader';
 import { DatasourcesHeader } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
 import Portal from '../components/Portal/Portal';
@@ -38,7 +38,6 @@ const replaceNote = {
 };
 const actionGroup = { display: 'flex', alignItems: 'center', gap: 8 };
 const _hs2 = { display: 'none' };
-const _hs3 = { color: 'var(--accent-primary)', borderColor: '#ddd6fe', background: 'var(--accent-primary-soft)' };
 const _hs4 = { padding: '32px 24px' };
 const _hs5 = { fontSize: 16, fontWeight: 600, marginBottom: 16 };
 const _hs6 = { color: 'var(--text-disabled)', textAlign: 'center', marginTop: 60 };
@@ -230,10 +229,9 @@ export default function Datasources() {
               style={_hs2} onChange={handleFileSelected} />
             {/* Clears the refresh target: the OS dialog can be dismissed, which
                 would otherwise leave the next pick aimed at a source. */}
-            <SecondaryButton onClick={() => { setReplaceTarget(null); fileInputRef.current?.click(); }} disabled={uploading}
-              style={_hs3}>
-              <TbUpload size={16} />{uploading ? 'Uploading...' : 'Upload File'}
-            </SecondaryButton>
+            <ImportButton onClick={() => { setReplaceTarget(null); fileInputRef.current?.click(); }} disabled={uploading}>
+              {uploading ? 'Uploading...' : 'Import file'}
+            </ImportButton>
             <PrimaryButton onClick={() => { setEditingId(null); setEditingValues(null); setShowForm(true); }}>+ New Connection</PrimaryButton>
           </div>
         </div>
