@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
-import { TbShield, TbEdit, TbEye, TbUserPlus, TbKey, TbExternalLink, TbClock, TbUsersGroup, TbChevronDown, TbChevronRight, TbBell, TbPlayerPause, TbPlayerPlay } from 'react-icons/tb';
+import { TbShield, TbEdit, TbEye, TbUserPlus, TbKey, TbExternalLink, TbClock, TbUsersGroup, TbChevronDown, TbChevronRight, TbBell, TbPlayerPause, TbPlayerPlay, TbActivity, TbUsers, TbSettings } from 'react-icons/tb';
 import { ICON_SIZE } from '../components/actionIcons';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
+import Paged from '../components/Pager/Paged';
 import { formatDuration, formatBytes } from '../utils/formatHuman';
 import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton } from '../components/PageHeader/PageHeader';
 // Cloud edition contributes extra admin links here (e.g. Billing). Empty in OSS builds.
@@ -52,6 +53,27 @@ const _hs36 = { display: 'flex', alignItems: 'center', gap: 10 };
 const _hs37 = { fontSize: 11, color: 'var(--state-success)' };
 const _hs38 = { fontSize: 11, color: 'var(--text-muted)', margin: 0 };
 
+// Admin console tabs. The active one lives in the URL (?tab=) so a section
+// can be linked to directly (e.g. from the alerts page to Admin › Alerts).
+const ADMIN_TABS = [
+  { key: 'users', label: 'Users', icon: TbUsers },
+  { key: 'settings', label: 'Settings', icon: TbSettings },
+  { key: 'groups', label: 'Groups', icon: TbUsersGroup },
+  { key: 'alerts', label: 'Alerts', icon: TbBell },
+  { key: 'usage', label: 'Usage', icon: TbActivity },
+];
+const tabBar = {
+  display: 'flex', gap: 4, marginBottom: 20, padding: 4,
+  background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 8,
+};
+const tabBtn = (active) => ({
+  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 13,
+  borderRadius: 6, border: 'none', cursor: 'pointer',
+  background: active ? 'var(--bg-active)' : 'transparent',
+  color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
+  fontWeight: active ? 600 : 500,
+});
+
 const ROLES = [
   { value: 'admin', label: 'Admin', color: 'var(--state-danger)', icon: TbShield, desc: 'Full access + user management' },
   { value: 'editor', label: 'Editor', color: '#f59e0b', icon: TbEdit, desc: 'Create/edit reports, models, datasources' },
@@ -60,6 +82,10 @@ const ROLES = [
 
 export default function Admin() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const tab = ADMIN_TABS.some((t) => t.key === tabParam) ? tabParam : 'users';
+  const switchTab = (key) => setSearchParams(key === 'users' ? {} : { tab: key }, { replace: true });
   const { user } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -212,16 +238,30 @@ export default function Admin() {
             </Link>
           );
         })}
-        <PrimaryButton onClick={() => setShowCreate(true)}>
-          <TbUserPlus size={16} /> Add User
-        </PrimaryButton>
+        {tab === 'users' && (
+          <PrimaryButton onClick={() => setShowCreate(true)}>
+            <TbUserPlus size={16} /> Add User
+          </PrimaryButton>
+        )}
       </header>
 
       <main style={_hs3}>
-        {/* System settings — currently just the query timeout. Bounds and
-            default come from the server (clamp lives in settingsHelper). */}
-        {settings && (
-          <div style={{ ...formCard, marginBottom: 24 }}>
+        <nav style={tabBar} aria-label="Admin sections">
+          {ADMIN_TABS.map((t) => {
+            const Icon = t.icon;
+            return (
+              <button key={t.key} onClick={() => switchTab(t.key)} style={tabBtn(tab === t.key)}
+                aria-current={tab === t.key ? 'page' : undefined}>
+                <Icon size={15} /> {t.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* System settings — bounds and defaults come from the server
+            (clamp lives in settingsHelper). */}
+        {tab === 'settings' && settings && (
+          <div style={formCard}>
             <h3 style={_hs4}>
               <TbClock size={16} color="var(--accent-primary)" /> System Settings
             </h3>
@@ -266,6 +306,7 @@ export default function Admin() {
           </div>
         )}
 
+        {tab === 'users' && (<>
         {/* Role legend */}
         <div style={_hs6}>
           {ROLES.map((r) => {
@@ -304,6 +345,7 @@ export default function Admin() {
         {loading ? (
           <div style={_hs11}>Loading...</div>
         ) : (
+          <Paged items={users} pageSize={20}>{(pageUsers) => (
           <table style={_hs12}>
             <thead>
               <tr style={_hs13}>
@@ -315,7 +357,7 @@ export default function Admin() {
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => {
+              {pageUsers.map((u) => {
                 const roleDef = ROLES.find((r) => r.value === u.role) || ROLES[2];
                 return (
                   <tr key={u.id} style={_hs14}>
@@ -355,10 +397,13 @@ export default function Admin() {
               })}
             </tbody>
           </table>
+          )}</Paged>
         )}
+        </>)}
 
-        <GroupsSection />
-        <AlertsSection />
+        {tab === 'groups' && <GroupsSection />}
+        {tab === 'alerts' && <AlertsSection />}
+        {tab === 'usage' && <UsageSection />}
       </main>
     </div>
   );
@@ -401,7 +446,7 @@ function AlertsSection() {
   };
 
   return (
-    <div style={{ ...formCard, marginTop: 24 }}>
+    <div style={formCard}>
       <h3 style={_hs4}>
         <TbBell size={16} color="var(--accent-primary)" /> Alerts
       </h3>
@@ -414,7 +459,7 @@ function AlertsSection() {
         <div style={_hs20}>No alerts on this instance.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {alerts.map((a) => {
+          <Paged items={alerts} pageSize={20}>{(pageAlerts) => pageAlerts.map((a) => {
             const b = BADGES[a.last_state] || { label: 'Never run', color: 'var(--text-muted)', bg: 'var(--bg-subtle)' };
             return (
               <div key={a.id} style={{
@@ -451,8 +496,194 @@ function AlertsSection() {
                 <ConfirmDeleteButton variant="icon" label="Delete alert" onConfirm={() => remove(a)} />
               </div>
             );
-          })}
+          })}</Paged>
         </div>
+      )}
+    </div>
+  );
+}
+
+// Usage & observability — what is actually read, what is slow, how fresh
+// each report's cache is. Reads GET /admin/usage (utils/usage.js events,
+// 30-day retention); the window selector re-queries.
+const USAGE_WINDOWS = [
+  { days: 1, label: '24 h' }, { days: 7, label: '7 days' }, { days: 30, label: '30 days' },
+];
+const SERVED_LABEL = { rollup: 'rollup', cache: 'cache', live: 'live', error: 'error', timeout: 'timeout' };
+const SERVED_COLOR = {
+  rollup: 'var(--state-success)', cache: '#0891b2', live: 'var(--accent-primary)',
+  error: 'var(--state-danger)', timeout: 'var(--state-danger)',
+};
+const usageTile = {
+  flex: 1, minWidth: 120, padding: '10px 12px', borderRadius: 8,
+  background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
+};
+const usageTileValue = { fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 };
+const usageTileLabel = { fontSize: 11, color: 'var(--text-muted)', marginTop: 2 };
+const usageTable = { width: '100%', borderCollapse: 'collapse', fontSize: 12 };
+const usageTh = { textAlign: 'left', fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, padding: '6px 8px', borderBottom: '1px solid var(--border-default)' };
+const usageTd = { padding: '6px 8px', borderBottom: '1px solid var(--border-subtle, var(--border-default))', color: 'var(--text-secondary)', verticalAlign: 'top' };
+const usageSubTitle = { fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', margin: '16px 0 6px' };
+const fmtMs = (ms) => (ms == null ? '—' : ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)} s` : `${Math.round(ms)} ms`);
+const fmtWhen = (iso) => (iso ? String(iso).replace('T', ' ').replace(/\.\d+Z$/, '').replace(/Z$/, '') : '—');
+const pct = (part, total) => (total ? `${Math.round((part / total) * 100)}%` : '—');
+
+function UsageSection() {
+  const [days, setDays] = useState(7);
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    let stale = false;
+    api.get(`/admin/usage?days=${days}`)
+      .then((res) => { if (!stale) { setData(res.data); setErr(null); } })
+      .catch((e) => { if (!stale) setErr(e.response?.data?.error || 'Failed to load usage'); });
+    return () => { stale = true; };
+  }, [days]);
+
+  const t = data?.totals || {};
+  const queries = t.queries || 0;
+  const ServedBadge = ({ served }) => (
+    <span style={{
+      fontSize: 10, fontWeight: 700, textTransform: 'uppercase', padding: '1px 6px', borderRadius: 8,
+      color: SERVED_COLOR[served] || 'var(--text-muted)', background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
+    }}>{SERVED_LABEL[served] || served || '—'}</span>
+  );
+
+  return (
+    <div style={formCard}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <h3 style={{ ..._hs4, marginBottom: 0 }}>
+          <TbActivity size={16} color="var(--accent-primary)" /> Usage
+        </h3>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {USAGE_WINDOWS.map((w) => (
+            <button
+              key={w.days}
+              onClick={() => setDays(w.days)}
+              style={{
+                padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+                border: '1px solid ' + (days === w.days ? 'var(--accent-primary)' : 'var(--border-default)'),
+                background: days === w.days ? 'var(--bg-active)' : 'var(--bg-panel)',
+                color: days === w.days ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                fontWeight: days === w.days ? 600 : 400,
+              }}
+            >{w.label}</button>
+          ))}
+        </div>
+      </div>
+      <p style={_hs24}>
+        What gets read, what is slow, and how fresh each report&apos;s cache is. Events are
+        kept 30 days; a query slower than {fmtMs(data?.slowQueryMs || 2000)} counts as slow.
+      </p>
+      {err && <div style={{ ..._hs20, color: 'var(--state-danger)', marginTop: 8 }}>{err}</div>}
+      {data && (
+        <>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+            <div style={usageTile}><div style={usageTileValue}>{t.views || 0}</div><div style={usageTileLabel}>report views</div></div>
+            <div style={usageTile}><div style={usageTileValue}>{queries}</div><div style={usageTileLabel}>queries · avg {fmtMs(t.avgQueryMs)}</div></div>
+            <div style={usageTile}>
+              <div style={usageTileValue}>{pct((t.fromRollup || 0) + (t.fromCache || 0), queries)}</div>
+              <div style={usageTileLabel}>served from cache (rollup {t.fromRollup || 0} · cache {t.fromCache || 0} · live {t.live || 0})</div>
+            </div>
+            <div style={usageTile}>
+              <div style={{ ...usageTileValue, color: t.slow ? 'var(--state-danger)' : undefined }}>{t.slow || 0}</div>
+              <div style={usageTileLabel}>slow queries · {t.failed || 0} failed</div>
+            </div>
+            <div style={usageTile}><div style={usageTileValue}>{t.builds || 0}</div><div style={usageTileLabel}>cache builds</div></div>
+          </div>
+
+          <div style={usageSubTitle}>Most viewed reports</div>
+          {data.topReports.length === 0 ? <div style={_hs20}>No report views in this window.</div> : (
+            <Paged items={data.topReports} pageSize={10} resetKey={days}>{(rows) => (<table style={usageTable}>
+              <thead><tr><th style={usageTh}>Report</th><th style={usageTh}>Views</th><th style={usageTh}>Readers</th><th style={usageTh}>Last viewed</th></tr></thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.reportId}>
+                    <td style={usageTd}>{r.title ? <Link to={`/view/${r.reportId}`}>{r.title}</Link> : <span style={{ color: 'var(--text-disabled)' }}>deleted report</span>}</td>
+                    <td style={usageTd}>{r.views}</td>
+                    <td style={usageTd}>{r.viewers}</td>
+                    <td style={usageTd}>{fmtWhen(r.lastViewedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>)}</Paged>
+          )}
+
+          <div style={usageSubTitle}>Slowest queries</div>
+          {data.slowQueries.length === 0 ? <div style={_hs20}>No queries in this window.</div> : (
+            <Paged items={data.slowQueries} pageSize={10} resetKey={days}>{(rows) => (<table style={usageTable}>
+              <thead><tr><th style={usageTh}>When</th><th style={usageTh}>Duration</th><th style={usageTh}>Served</th><th style={usageTh}>Model / report</th><th style={usageTh}>User</th><th style={usageTh}>Rows</th></tr></thead>
+              <tbody>
+                {rows.map((q, i) => (
+                  <tr key={i}>
+                    <td style={usageTd}>{fmtWhen(q.ts)}</td>
+                    <td style={{ ...usageTd, fontWeight: 600, color: q.durationMs >= data.slowQueryMs ? 'var(--state-danger)' : 'var(--text-primary)' }}>{fmtMs(q.durationMs)}</td>
+                    <td style={usageTd}><ServedBadge served={q.served} />{q.detail && q.served !== 'rollup' ? <div style={{ ..._hs20, marginTop: 2, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={q.detail}>{q.detail}</div> : null}</td>
+                    <td style={usageTd}>{q.modelName || q.modelId}{q.reportTitle ? <div style={_hs20}>{q.reportTitle}</div> : null}</td>
+                    <td style={usageTd}>{q.userEmail || <span style={{ color: 'var(--text-disabled)' }}>anonymous</span>}</td>
+                    <td style={usageTd}>{q.rows ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>)}</Paged>
+          )}
+
+          <div style={usageSubTitle}>Per model</div>
+          {data.byModel.length === 0 ? <div style={_hs20}>No queries in this window.</div> : (
+            <Paged items={data.byModel} pageSize={10} resetKey={days}>{(rows) => (<table style={usageTable}>
+              <thead><tr><th style={usageTh}>Model</th><th style={usageTh}>Queries</th><th style={usageTh}>Rollup</th><th style={usageTh}>Cache</th><th style={usageTh}>Live</th><th style={usageTh}>Avg</th><th style={usageTh}>Max</th></tr></thead>
+              <tbody>
+                {rows.map((m) => (
+                  <tr key={m.modelId}>
+                    <td style={usageTd}>{m.modelName || m.modelId}</td>
+                    <td style={usageTd}>{m.queries}</td>
+                    <td style={usageTd}>{pct(m.fromRollup, m.queries)}</td>
+                    <td style={usageTd}>{pct(m.fromCache, m.queries)}</td>
+                    <td style={usageTd}>{pct(m.live, m.queries)}</td>
+                    <td style={usageTd}>{fmtMs(m.avgMs)}</td>
+                    <td style={usageTd}>{fmtMs(m.maxMs)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>)}</Paged>
+          )}
+
+          <div style={usageSubTitle}>Report freshness</div>
+          {data.freshness.length === 0 ? <div style={_hs20}>No reports.</div> : (
+            <Paged items={data.freshness} pageSize={10} resetKey={days}>{(rows) => (<table style={usageTable}>
+              <thead><tr><th style={usageTh}>Report</th><th style={usageTh}>Model</th><th style={usageTh}>Mode</th><th style={usageTh}>Cache built</th><th style={usageTh}>Last viewed</th><th style={usageTh}>Views</th></tr></thead>
+              <tbody>
+                {rows.map((f) => (
+                  <tr key={f.reportId}>
+                    <td style={usageTd}><Link to={`/view/${f.reportId}`}>{f.title || f.reportId}</Link></td>
+                    <td style={usageTd}>{f.modelName || '—'}</td>
+                    <td style={usageTd}>{f.liveMode ? 'live query' : 'rollup cache'}</td>
+                    <td style={usageTd}>{f.liveMode ? '—' : (f.cacheBuiltAt ? fmtWhen(f.cacheBuiltAt) : <span style={{ color: 'var(--text-disabled)' }}>never</span>)}</td>
+                    <td style={usageTd}>{fmtWhen(f.lastViewedAt)}</td>
+                    <td style={usageTd}>{f.views}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>)}</Paged>
+          )}
+
+          <div style={usageSubTitle}>Recent cache builds</div>
+          {data.builds.length === 0 ? <div style={_hs20}>No cache build in this window.</div> : (
+            <Paged items={data.builds} pageSize={10} resetKey={days}>{(rows) => (<table style={usageTable}>
+              <thead><tr><th style={usageTh}>When</th><th style={usageTh}>Model</th><th style={usageTh}>Duration</th><th style={usageTh}>Result</th></tr></thead>
+              <tbody>
+                {rows.map((b, i) => (
+                  <tr key={i}>
+                    <td style={usageTd}>{fmtWhen(b.ts)}</td>
+                    <td style={usageTd}>{b.modelName || b.modelId}</td>
+                    <td style={usageTd}>{fmtMs(b.durationMs)}</td>
+                    <td style={{ ...usageTd, color: b.status === 200 ? 'var(--state-success)' : 'var(--state-danger)' }}>{b.detail || (b.status === 200 ? 'ok' : 'failed')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>)}</Paged>
+          )}
+        </>
       )}
     </div>
   );
@@ -536,7 +767,7 @@ function GroupsSection() {
   };
 
   return (
-    <div style={{ ...formCard, marginTop: 24 }}>
+    <div style={formCard}>
       <h3 style={_hs4}>
         <TbUsersGroup size={16} color="var(--accent-primary)" /> Groups
       </h3>
@@ -558,7 +789,7 @@ function GroupsSection() {
         <div style={_hs20}>No groups yet.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {groups.map((g) => (
+          <Paged items={groups} pageSize={20}>{(pageGroups) => pageGroups.map((g) => (
             <div key={g.id} style={{ border: '1px solid var(--border-default)', borderRadius: 6, padding: '8px 12px' }}>
               <div style={_hs18}>
                 <button
@@ -607,7 +838,7 @@ function GroupsSection() {
                 </div>
               )}
             </div>
-          ))}
+          ))}</Paged>
         </div>
       )}
     </div>
