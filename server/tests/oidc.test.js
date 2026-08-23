@@ -3,7 +3,7 @@
 // session, single-use flow state, claim→user mapping and provisioning rules
 // (first user admin, configured role never admin, unusable password).
 jest.mock('openid-client', () => {
-  const shared = { claims: { email: 'sso.user@idp.io', name: 'SSO User' }, lastChecks: null };
+  const shared = { claims: { sub: 'sso-subject-1', iss: 'https://idp.example', email: 'sso.user@idp.io', name: 'SSO User' }, lastChecks: null };
   class Client {
     authorizationUrl(o) { return `https://idp.example/auth?state=${o.state}&challenge=${o.code_challenge}`; }
     callbackParams(req) { return { code: 'the-code', state: (req.query || {}).state }; }
@@ -65,46 +65,112 @@ describe('provisioning rules (findOrCreateOidcUser)', () => {
   beforeAll(() => Object.assign(process.env, OIDC_ENV));
   afterAll(clearEnv);
 
+  // `sub` is mandatory in OIDC and is the identity we bind to; `iss` defaults
+  // to the configured issuer when the IdP omits it from the userinfo claims.
+  const claims = (over) => ({ sub: `sub-${over.email || 'x'}`, iss: 'https://idp.example', ...over });
+
   test('the very first user of a fresh install becomes admin', () => {
     expect(db.prepare('SELECT COUNT(*) c FROM users').get().c).toBe(0);
-    const { user, created } = oidc.findOrCreateOidcUser({ email: 'boot@idp.io' }, db);
+    const { user, created } = oidc.findOrCreateOidcUser(claims({ email: 'boot@idp.io' }), db);
     expect(created).toBe(true);
     expect(user.role).toBe('admin');
   });
 
   test('later users get the configured role, never admin', () => {
     process.env.OIDC_DEFAULT_ROLE = 'editor';
-    expect(oidc.findOrCreateOidcUser({ email: 'ed@idp.io' }, db).user.role).toBe('editor');
+    expect(oidc.findOrCreateOidcUser(claims({ email: 'ed@idp.io' }), db).user.role).toBe('editor');
     process.env.OIDC_DEFAULT_ROLE = 'admin'; // misconfiguration must not mint admins
-    expect(oidc.findOrCreateOidcUser({ email: 'sneaky@idp.io' }, db).user.role).toBe('viewer');
+    expect(oidc.findOrCreateOidcUser(claims({ email: 'sneaky@idp.io' }), db).user.role).toBe('viewer');
     delete process.env.OIDC_DEFAULT_ROLE;
   });
 
-  test('existing account is reused case-insensitively, role untouched', () => {
-    const uid = seedUser({ role: 'editor', email: 'known@corp.io' });
-    const { user, created } = oidc.findOrCreateOidcUser({ email: 'KNOWN@CORP.IO' }, db);
-    expect(created).toBe(false);
-    expect(user.id).toBe(uid);
-    expect(user.role).toBe('editor');
+  test('in cloud mode even the first SSO user is not an admin', () => {
+    process.env.OPENREPORT_CLOUD = '1';
+    db.prepare('DELETE FROM users').run();
+    const { user } = oidc.findOrCreateOidcUser(claims({ email: 'first@tenant.io' }), db);
+    expect(user.role).toBe('viewer'); // 'admin' is the platform operator's role
+    delete process.env.OPENREPORT_CLOUD;
   });
 
   test('claims without a usable email are rejected', () => {
-    expect(() => oidc.findOrCreateOidcUser({ name: 'No Mail' }, db)).toThrow(/no email/i);
+    expect(() => oidc.findOrCreateOidcUser(claims({ name: 'No Mail' }), db)).toThrow(/no email/i);
+  });
+
+  test('claims without a subject are rejected', () => {
+    expect(() => oidc.findOrCreateOidcUser({ email: 'nosub@idp.io' }, db)).toThrow(/subject/i);
   });
 
   test('auto-provision off: unknown emails are rejected, known ones pass', () => {
+    const uid = seedUser({ role: 'editor', email: 'known@corp.io' });
     process.env.OIDC_AUTO_PROVISION = '0';
-    expect(() => oidc.findOrCreateOidcUser({ email: 'stranger@idp.io' }, db)).toThrow(/ask an admin/i);
-    expect(oidc.findOrCreateOidcUser({ email: 'known@corp.io' }, db).created).toBe(false);
+    expect(() => oidc.findOrCreateOidcUser(claims({ email: 'stranger@idp.io' }), db)).toThrow(/ask an admin/i);
+    const { user, created } = oidc.findOrCreateOidcUser(claims({ email: 'known@corp.io', email_verified: true }), db);
+    expect(created).toBe(false);
+    expect(user.id).toBe(uid);
     delete process.env.OIDC_AUTO_PROVISION;
   });
 
   test('provisioned users are email-verified with an unusable random password', () => {
-    const { user } = oidc.findOrCreateOidcUser({ email: 'fresh@idp.io', name: 'Fresh' }, db);
-    const row = db.prepare('SELECT email_verified, password_hash, display_name FROM users WHERE id = ?').get(user.id);
+    const { user } = oidc.findOrCreateOidcUser(claims({ email: 'fresh@idp.io', name: 'Fresh' }), db);
+    const row = db.prepare('SELECT email_verified, password_hash, display_name, oidc_sub FROM users WHERE id = ?').get(user.id);
     expect(row.email_verified).toBe(1);
     expect(row.password_hash).toMatch(/^\$2/); // bcrypt of random bytes — never a known value
     expect(row.display_name).toBe('Fresh');
+    expect(row.oidc_sub).toBe('sub-fresh@idp.io'); // bound to the IdP subject
+  });
+});
+
+// SECURITY: an email is a label the IdP's own subjects may be able to choose.
+// Taking over the local account that holds it must not be one claim away.
+describe('account linking (findOrCreateOidcUser)', () => {
+  beforeAll(() => Object.assign(process.env, OIDC_ENV));
+  afterAll(() => { clearEnv(); delete process.env.OIDC_ALLOW_EMAIL_LINKING; });
+
+  const claims = (over) => ({ iss: 'https://idp.example', ...over });
+
+  test('an unverified email cannot claim an existing password account', () => {
+    seedUser({ role: 'admin', email: 'ceo@corp.io' });
+    expect(() => oidc.findOrCreateOidcUser(claims({ sub: 'attacker', email: 'ceo@corp.io' }), db))
+      .toThrow(/did not confirm the address/i);
+    expect(db.prepare('SELECT oidc_sub FROM users WHERE email = ?').get('ceo@corp.io').oidc_sub).toBeNull();
+  });
+
+  test('an explicitly unverified email is refused outright', () => {
+    expect(() => oidc.findOrCreateOidcUser(claims({ sub: 's1', email: 'nobody@idp.io', email_verified: false }), db))
+      .toThrow(/not verified/i);
+  });
+
+  test('a verified email links once, and binds the account to that subject', () => {
+    const uid = seedUser({ role: 'editor', email: 'linkme@corp.io' });
+    const { user, created } = oidc.findOrCreateOidcUser(
+      claims({ sub: 'real-subject', email: 'LINKME@CORP.IO', email_verified: true }), db);
+    expect(created).toBe(false);
+    expect(user.id).toBe(uid);
+    expect(user.role).toBe('editor'); // SSO never changes an existing role
+    expect(db.prepare('SELECT oidc_sub FROM users WHERE id = ?').get(uid).oidc_sub).toBe('real-subject');
+
+    // A DIFFERENT subject presenting the same verified email is now refused —
+    // the account belongs to the first identity that linked it.
+    expect(() => oidc.findOrCreateOidcUser(
+      claims({ sub: 'someone-else', email: 'linkme@corp.io', email_verified: true }), db))
+      .toThrow(/already linked/i);
+  });
+
+  test('a linked account is found by subject even after the IdP changes its email', () => {
+    const uid = seedUser({ role: 'viewer', email: 'before@corp.io' });
+    oidc.findOrCreateOidcUser(claims({ sub: 'stable-sub', email: 'before@corp.io', email_verified: true }), db);
+    const { user, created } = oidc.findOrCreateOidcUser(
+      claims({ sub: 'stable-sub', email: 'after@corp.io', email_verified: true }), db);
+    expect(created).toBe(false);
+    expect(user.id).toBe(uid);
+  });
+
+  test('OIDC_ALLOW_EMAIL_LINKING=1 re-opens linking for a trusted IdP that omits the claim', () => {
+    const uid = seedUser({ role: 'editor', email: 'trusted@corp.io' });
+    process.env.OIDC_ALLOW_EMAIL_LINKING = '1';
+    const { user } = oidc.findOrCreateOidcUser(claims({ sub: 'no-claim-sub', email: 'trusted@corp.io' }), db);
+    expect(user.id).toBe(uid);
+    delete process.env.OIDC_ALLOW_EMAIL_LINKING;
   });
 });
 

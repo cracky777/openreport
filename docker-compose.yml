@@ -23,6 +23,9 @@ services:
       - "OIDC_BUTTON_LABEL=${OIDC_BUTTON_LABEL:-}"
       - "OIDC_DEFAULT_ROLE=${OIDC_DEFAULT_ROLE:-}"
       - "OIDC_AUTO_PROVISION=${OIDC_AUTO_PROVISION:-}"
+      # Set to 1 only for an IdP you trust that omits email_verified: it lets a
+      # first SSO login attach to an existing password account by email alone.
+      - "OIDC_ALLOW_EMAIL_LINKING=${OIDC_ALLOW_EMAIL_LINKING:-}"
     volumes:
       - app-data:/app/server/data
     networks:

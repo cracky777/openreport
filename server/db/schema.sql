@@ -6,8 +6,15 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL DEFAULT 'viewer',
   email_verified INTEGER NOT NULL DEFAULT 0,
   last_verification_sent_at TEXT,
+  oidc_iss TEXT,
+  oidc_sub TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
+-- oidc_iss / oidc_sub: the SSO identity this account is bound to. The pair is
+-- the stable link (an IdP may let a subject change its email); once set, a
+-- login carrying a different subject for the same email is refused.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc ON users(oidc_iss, oidc_sub)
+  WHERE oidc_sub IS NOT NULL;
 -- role: 'admin' | 'editor' | 'viewer'
 -- admin: full access + user management
 -- editor: create/edit reports, models, datasources

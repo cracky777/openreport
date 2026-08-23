@@ -13,9 +13,17 @@
  *   OIDC_DEFAULT_ROLE   role for auto-provisioned users: viewer|editor
  *                       (never admin — an IdP typo must not mint admins)
  *   OIDC_AUTO_PROVISION set to 0 to only let ALREADY-EXISTING users in
+ *   OIDC_ALLOW_EMAIL_LINKING  set to 1 to let a first SSO login attach to an
+ *                       existing password account on the email alone. Only for
+ *                       an IdP you trust that does not send email_verified.
  *
- * The IdP is the identity authority: provisioned users get a random unusable
- * password hash, and their email is trusted as verified (the IdP owns it).
+ * The account is bound to the IdP (issuer, subject) pair on first link, and
+ * matched on it afterwards: an email is a label a subject may be able to
+ * choose, the subject is not.
+ *
+ * The IdP is the identity authority for the accounts IT created: those get a
+ * random unusable password hash and count as email-verified. It is NOT an
+ * authority over accounts that already existed here — see the linking rules.
  */
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
@@ -55,23 +63,67 @@ function findOrCreateOidcUser(claims, db) {
   if (!email || !email.includes('@')) {
     throw new Error('The identity provider returned no email for this account');
   }
-  const existing = db.prepare('SELECT id, email, display_name, role FROM users WHERE email = ? COLLATE NOCASE').get(email);
-  if (existing) return { user: existing, created: false };
+  // The (issuer, subject) pair is the identity. An email is a routable label
+  // the IdP may let its own subjects choose — matching on it alone meant
+  // anyone who could set the claim (a self-registration realm, a second-tier
+  // IdP behind a broker) logged in as the local account holding that address.
+  const sub = String(claims.sub || '').trim();
+  if (!sub) throw new Error('The identity provider returned no subject identifier');
+  const iss = String(claims.iss || process.env.OIDC_ISSUER_URL || '').trim();
+  // Explicitly-unverified means the IdP itself says the address is unproven.
+  if (claims.email_verified === false) {
+    throw new Error('Your identity provider has not verified this email address');
+  }
+
+  // Already bound: this account belongs to this subject, whatever its email
+  // says today.
+  const bound = db.prepare(
+    'SELECT id, email, display_name, role FROM users WHERE oidc_iss = ? AND oidc_sub = ?'
+  ).get(iss, sub);
+  if (bound) return { user: bound, created: false };
+
+  const existing = db.prepare(
+    'SELECT id, email, display_name, role, oidc_sub FROM users WHERE email = ? COLLATE NOCASE'
+  ).get(email);
+  if (existing) {
+    // The address is spoken for by a different SSO identity — never hand the
+    // account over on an email match.
+    if (existing.oidc_sub) {
+      throw new Error('This email is already linked to a different SSO identity');
+    }
+    // First-time link onto a pre-existing local (password) account. This is
+    // the takeover step, so it needs the IdP to actually vouch for the
+    // address. OIDC_ALLOW_EMAIL_LINKING=1 is the escape hatch for a trusted
+    // IdP that simply omits the claim.
+    if (claims.email_verified !== true && process.env.OIDC_ALLOW_EMAIL_LINKING !== '1') {
+      throw new Error(
+        'This email already has an account here, and your identity provider did not confirm the '
+        + 'address. Sign in with your password, or ask an admin to enable SSO account linking.'
+      );
+    }
+    db.prepare('UPDATE users SET oidc_iss = ?, oidc_sub = ? WHERE id = ?').run(iss, sub, existing.id);
+    delete existing.oidc_sub;
+    return { user: existing, created: false };
+  }
 
   if (process.env.OIDC_AUTO_PROVISION === '0') {
     throw new Error('No account for this email — ask an admin to create one');
   }
   // Mirror /register's bootstrap rule: the very first user of a fresh install
   // becomes the admin, later arrivals get the configured (non-admin) role.
-  const isFirst = db.prepare('SELECT COUNT(*) AS c FROM users').get().c === 0;
+  // Never in cloud, where 'admin' is the platform operator's role and the
+  // first person through an SSO login is just a customer.
+  const isFirst = process.env.OPENREPORT_CLOUD !== '1'
+    && db.prepare('SELECT COUNT(*) AS c FROM users').get().c === 0;
   const configured = process.env.OIDC_DEFAULT_ROLE === 'editor' ? 'editor' : 'viewer';
   const role = isFirst ? 'admin' : configured;
   const id = uuidv4();
   const displayName = String(claims.name || claims.preferred_username || email.split('@')[0]).slice(0, 120);
   // Random unusable password: the IdP is the only way into this account.
   const passwordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
-  db.prepare(`INSERT INTO users (id, email, password_hash, display_name, role, email_verified)
-              VALUES (?, ?, ?, ?, ?, 1)`).run(id, email, passwordHash, displayName, role);
+  db.prepare(`INSERT INTO users (id, email, password_hash, display_name, role, email_verified, oidc_iss, oidc_sub)
+              VALUES (?, ?, ?, ?, ?, 1, ?, ?)`)
+    .run(id, email, passwordHash, displayName, role, iss, sub);
   return { user: { id, email, display_name: displayName, role }, created: true };
 }
 

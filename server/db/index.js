@@ -78,6 +78,14 @@ safeMigrate("ALTER TABLE users ADD COLUMN last_verification_sent_at TEXT");
 // Last login / activity timestamp — updated by the login route. Used by the
 // platform supervisor dashboard to surface stale / inactive accounts.
 safeMigrate("ALTER TABLE users ADD COLUMN last_seen_at TEXT");
+
+// SSO identity binding: the (issuer, subject) pair this account belongs to.
+// Matching on the IdP's email alone let anyone who could set that claim take
+// over an existing local account, so the subject is what we match on once a
+// link exists.
+safeMigrate("ALTER TABLE users ADD COLUMN oidc_iss TEXT");
+safeMigrate("ALTER TABLE users ADD COLUMN oidc_sub TEXT");
+safeMigrate("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc ON users(oidc_iss, oidc_sub) WHERE oidc_sub IS NOT NULL");
 // Incremental rollup refresh window, in months. NULL/0 = full rebuild
 // (historical behaviour). >0 and the model has a date_column → each rebuild
 // re-queries the source only for the last N months and carries the older
