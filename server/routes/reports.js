@@ -20,11 +20,18 @@ router.use(embedToken.middleware);
 // Strip widget.data from a widgets map. Used to prevent the owner's pre-baked
 // snapshot from leaking to non-owner viewers (it bypasses RLS). The viewer will
 // re-query each widget itself, going through the RLS-aware /models/:id/query path.
+// Widget types whose `data` is AUTHORED content (typed by the report author),
+// not a query result: stripping it would blank the widget for every reader
+// who isn't the owner. Query-backed widgets get their data re-fetched under
+// the reader's own RLS instead.
+const AUTHORED_DATA_TYPES = new Set(['text']);
+
 function stripWidgetData(widgets) {
   if (!widgets || typeof widgets !== 'object') return widgets;
   const out = {};
   for (const [id, w] of Object.entries(widgets)) {
     if (!w || typeof w !== 'object') { out[id] = w; continue; }
+    if (AUTHORED_DATA_TYPES.has(w.type)) { out[id] = w; continue; }
     const { data: _data, ...rest } = w;
     out[id] = rest;
   }

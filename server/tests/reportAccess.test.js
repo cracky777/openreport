@@ -45,3 +45,23 @@ describe('Report write access (canWriteReport)', () => {
     expect(db.prepare('SELECT 1 FROM reports WHERE id = ?').get(report)).toBeTruthy();
   });
 });
+
+describe('GET /reports/:id — widget data for non-owners', () => {
+  test('query data is stripped but a text widget keeps its authored text', async () => {
+    const owner = seedUser({ role: 'editor' });
+    const reader = seedUser({ role: 'viewer' });
+    const ds = seedDatasource({ userId: owner });
+    const model = seedModel({ userId: owner, datasourceId: ds });
+    const widgets = {
+      t1: { type: 'text', dataBinding: {}, config: {}, data: { text: 'Quarterly review' } },
+      s1: { type: 'scorecard', dataBinding: { selectedMeasures: ['items.amt_sum'] }, config: {}, data: { value: 42 } },
+    };
+    const report = seedReport({ userId: owner, modelId: model, isPublic: 1, widgets });
+    const asReader = await request(app).get(`/api/reports/${report}`).set('x-test-user', reader);
+    expect(asReader.status).toBe(200);
+    expect(asReader.body.report.widgets.t1.data).toEqual({ text: 'Quarterly review' });
+    expect(asReader.body.report.widgets.s1.data).toBeUndefined();
+    const asOwner = await request(app).get(`/api/reports/${report}`).set('x-test-user', owner);
+    expect(asOwner.body.report.widgets.s1.data).toEqual({ value: 42 });
+  });
+});
