@@ -199,3 +199,23 @@ CREATE TABLE IF NOT EXISTS report_bookmarks (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_report_bookmarks_user ON report_bookmarks(report_id, user_id);
+
+-- Usage & observability events (utils/usage.js): one thin row per report
+-- view, per /query call and per rollup build. Pruned after 30 days.
+CREATE TABLE IF NOT EXISTS usage_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  kind TEXT NOT NULL,
+  user_id TEXT,
+  report_id TEXT,
+  model_id TEXT,
+  organization_id TEXT,
+  duration_ms INTEGER,
+  served TEXT,
+  rows INTEGER,
+  status INTEGER,
+  detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_usage_kind_ts ON usage_events(kind, ts);
+CREATE INDEX IF NOT EXISTS idx_usage_report ON usage_events(report_id);
+CREATE INDEX IF NOT EXISTS idx_usage_model ON usage_events(model_id);

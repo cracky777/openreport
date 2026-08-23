@@ -216,7 +216,9 @@ export default function Viewer() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await api.get(`/reports/${id}`);
+        // ?view=1 counts this open as a read in the usage stats — not for
+        // the print renderer, which opens the report to make a PDF of it.
+        const res = await api.get(`/reports/${id}${printMode ? '' : '?view=1'}`);
         const r = res.data.report;
         setReport(r);
 

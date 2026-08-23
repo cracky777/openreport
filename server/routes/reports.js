@@ -8,6 +8,7 @@ const queryCache = require('../utils/queryCache');
 // Cloud extension points (null in OSS). See server/cloudHooks.js.
 const cloudHooks = require('../cloudHooks');
 const embedToken = require('../utils/embedToken');
+const usage = require('../utils/usage');
 
 const router = express.Router();
 
@@ -236,6 +237,20 @@ router.get('/:id', (req, res) => {
   if (!isOwner) {
     widgets = stripWidgetData(widgets);
     if (pages) pages = pages.map((p) => ({ ...p, widgets: stripWidgetData(p.widgets) }));
+  }
+
+  // A read of the report by a human: the Viewer flags its load with
+  // ?view=1 (not in print mode — the PDF renderer isn't a reader). Editor
+  // opens and API consumers don't count.
+  if (req.query.view === '1') {
+    usage.record({
+      kind: 'report_view',
+      userId: req.user ? req.user.id : null,
+      reportId: report.id,
+      modelId: report.model_id,
+      organizationId: report.organization_id || null,
+      detail: req.user ? null : 'anonymous',
+    });
   }
 
   res.json({

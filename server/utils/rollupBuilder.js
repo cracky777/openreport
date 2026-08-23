@@ -1057,6 +1057,7 @@ async function _buildRollupsForModelInner({ modelId, internalUserId, orgId, log 
   if (plan.length === 0) {
     return { fired: 0, built: 0, errors: [], measures };
   }
+  const __buildStart = Date.now();
   _progress.set(modelId, { done: 0, total: plan.length });
   if (log) {
     console.log(`[rollup] model=${modelId} grains=${plan.length} measures=${measures.length} storage=${storageMode}`);
@@ -1181,6 +1182,16 @@ async function _buildRollupsForModelInner({ modelId, internalUserId, orgId, log 
       console.warn(`[rollup] cache_built_at stamp failed: ${err.message}`);
     }
   }
+
+  require('./usage').record({
+    kind: 'cache_build',
+    modelId,
+    organizationId: orgId,
+    durationMs: Date.now() - __buildStart,
+    rows: built,
+    status: errors.length === 0 ? 200 : 500,
+    detail: errors.length ? `${errors.length} failed: ${errors[0]}` : `${built} built, ${skipped} skipped of ${plan.length}`,
+  });
 
   return { fired: plan.length, built, errors, measures };
 }

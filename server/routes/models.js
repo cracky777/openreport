@@ -743,6 +743,7 @@ router.post('/cancel-query', (req, res) => {
 // (JSON.parse on a report's settings, a cyclic measure reference), so the net
 // goes around the whole handler rather than around each of them.
 const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+const usage = require('../utils/usage');
 
 router.post('/:id/query', asyncRoute(async (req, res) => {
   // Temporary diagnostic — surfaces server-side timing breakdown so we
@@ -761,6 +762,29 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   const rawModel = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
   if (!rawModel || !canAccessModel(rawModel, req.user, req)) return res.status(404).json({ error: 'Model not found' });
   const model = parseModel(rawModel);
+
+  // Usage event — ONE row per /query whatever the exit path (rollup HIT,
+  // queryCache HIT, live DB, error, timeout): the branches only stamp
+  // req._usage and the 'finish' listener writes it. SQL previews and the
+  // rollup builder's own fetches are not user traffic — skipped.
+  req._usage = { served: null, rows: null };
+  res.on('finish', () => {
+    const u = req._usage;
+    if (!u || u.skip) return;
+    const served = u.served || (res.statusCode === 504 ? 'timeout' : res.statusCode >= 400 ? 'error' : null);
+    usage.record({
+      kind: 'query',
+      userId: req.user ? req.user.id : null,
+      reportId: (req.body && req.body.reportId) || null,
+      modelId: rawModel.id,
+      organizationId: rawModel.organization_id || req.organizationId || null,
+      durationMs: Date.now() - __t0,
+      served,
+      rows: u.rows,
+      status: res.statusCode,
+      detail: u.detail || null,
+    });
+  });
 
   const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
   if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
@@ -1171,6 +1195,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     }
     __mark(`rollupPlanner slicer ${rollupResult.hit ? 'HIT' : 'MISS:' + rollupResult.reason} (${Date.now() - __tRollup}ms, ${rollupResult.rows?.length ?? 0} rows)`);
     if (rollupResult.hit) {
+      req._usage = { served: 'rollup', rows: rollupResult.rows.length, detail: 'slicer' };
       return res.json({
         rows: rollupResult.rows,
         rowCount: rollupResult.rows.length,
@@ -1216,6 +1241,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     }
     __mark(`rollupPlanner ${rollupResult.hit ? 'HIT ' + rollupResult.match : 'MISS:' + rollupResult.reason} (${Date.now() - __tRollup}ms, ${rollupResult.rows?.length ?? 0} rows)`);
     if (rollupResult.hit) {
+      req._usage = { served: 'rollup', rows: rollupResult.rows.length, detail: rollupResult.match || null };
       return res.json({
         rows: rollupResult.rows,
         rowCount: rollupResult.rows.length,
@@ -1888,6 +1914,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   // the server to actually run it.
   if (sqlOnly) {
     // The atom columns are in that SQL; the mapping is what makes them readable.
+    req._usage.skip = true;
     return res.json({ sql, rows: [], rowCount: 0, sqlOnly: true, totalComponents: totalComponentsOut });
   }
 
@@ -1943,6 +1970,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     const cached = queryCache.get(cacheOpts);
     __mark(`queryCache.get ${cached ? 'HIT' : 'MISS'}`);
     if (cached) {
+      req._usage = { served: 'cache', rows: cached.rows.length, detail: req._preAggMissReason || null };
       return res.json({
         rows: cached.rows,
         rowCount: cached.rows.length,
@@ -2074,6 +2102,8 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       });
     }
     __mark(`DB done (${rows.length} rows, queryMs=${Date.now() - startedAt})`);
+    if (isRollupBuilderRequest) req._usage.skip = true;
+    else req._usage = { served: 'live', rows: rows.length, detail: req._preAggMissReason || null };
     res.json({
       rows,
       rowCount: rows.length,
@@ -2104,6 +2134,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       },
     });
   } catch (err) {
+    req._usage = { served: err && err.code === 'TIMEOUT' ? 'timeout' : 'error', rows: null, detail: err && err.message };
     if (err && err.code === 'TIMEOUT') {
       return res.status(504).json({
         error: err.message,

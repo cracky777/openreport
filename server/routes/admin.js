@@ -21,8 +21,15 @@ const {
   setPublicSharingPolicy,
 } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
+const usage = require('../utils/usage');
 
 const router = express.Router();
+
+// Usage & observability summary for the Admin console. `days` = window
+// (1..90, default 7). Cloud scopes it to the active org.
+router.get('/usage', requireAdmin, (req, res) => {
+  res.json(usage.summary({ days: req.query.days, orgId: req.organizationId || null }));
+});
 
 // List all users
 router.get('/users', requireAdmin, (req, res) => {
