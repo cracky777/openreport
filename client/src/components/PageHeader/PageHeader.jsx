@@ -114,7 +114,8 @@ export function SecondaryButton({ children, onClick, disabled, style, title, dan
         // ImportButton), not the plain base — otherwise one hover strips
         // the tint for good.
         e.currentTarget.style.background = style?.background ?? base.background;
-        e.currentTarget.style.borderColor = style?.borderColor ?? (danger ? 'var(--state-danger-border)' : 'var(--border-default)');
+        if (style?.border) e.currentTarget.style.border = style.border;
+        else e.currentTarget.style.borderColor = danger ? 'var(--state-danger-border)' : 'var(--border-default)';
       }}
     >
       {children}
@@ -125,7 +126,9 @@ export function SecondaryButton({ children, onClick, disabled, style, title, dan
 // The one "import a file" affordance for every list page (datasources,
 // models, reports): the upload glyph on an accent-tinted secondary button,
 // sitting left of the page's primary "+ New …" action.
-const importBtnAccent = { color: 'var(--accent-primary)', borderColor: '#ddd6fe', background: 'var(--accent-primary-soft)' };
+// `border` (not borderColor): the base style sets the shorthand, and React
+// warns when a shorthand and its longhand meet in one style object.
+const importBtnAccent = { color: 'var(--accent-primary)', border: '1px solid #ddd6fe', background: 'var(--accent-primary-soft)' };
 
 export function ImportButton({ children, onClick, disabled, title, style }) {
   return (
