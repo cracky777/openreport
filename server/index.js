@@ -260,7 +260,13 @@ if (fs.existsSync(clientDistPath)) {
 app.use((err, req, res, next) => {
   console.error('[unhandled]', req.method, req.originalUrl, err);
   if (res.headersSent) return;
-  res.status(500).json({ error: err && err.message ? err.message : 'Internal error' });
+  // The message is whatever threw — a driver error carries hostnames, DSNs and
+  // SQL fragments, and this handler answers unauthenticated callers too. Keep
+  // the detail in the log; hand the client something it can quote in a ticket.
+  if (IS_PRODUCTION) {
+    return res.status(500).json({ error: 'Internal error', ref: `${Date.now().toString(36)}` });
+  }
+  return res.status(500).json({ error: err && err.message ? err.message : 'Internal error' });
 });
 
 // Global safety nets — prevent the server from crashing on async DB errors (e.g. ECONNRESET on a pool socket)
