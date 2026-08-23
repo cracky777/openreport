@@ -22,7 +22,14 @@ function deriveJoinKeyword(j) {
     if (c.from === '*' && c.to === '*') return 'INNER';
     return 'LEFT';
   }
-  return (j?.type || 'LEFT').toUpperCase();
+  // The model's `type` is stored verbatim from the editor's payload and lands
+  // in the FROM clause unquoted — it's a keyword, not an identifier, so there
+  // is nothing to quote. Whitelist it: anything else is a way to append SQL of
+  // one's choosing to the join.
+  const declared = String(j?.type || '').toUpperCase();
+  return JOIN_KEYWORDS.has(declared) ? declared : 'LEFT';
 }
+
+const JOIN_KEYWORDS = new Set(['LEFT', 'INNER', 'RIGHT', 'FULL', 'CROSS']);
 
 module.exports = { deriveJoinKeyword };

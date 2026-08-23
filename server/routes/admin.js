@@ -21,6 +21,8 @@ const {
   setPublicSharingPolicy,
 } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
+const { validatePassword } = require('./auth');
+const { destroySessionsForUser } = require('../utils/sessionRegistry');
 const usage = require('../utils/usage');
 
 const router = express.Router();
@@ -54,15 +56,23 @@ router.put('/users/:id/role', requireAdmin, (req, res) => {
     }
   }
   db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, req.params.id);
-  res.json({ message: 'Role updated' });
+  // The role travels in the session, so an open session keeps the OLD one —
+  // a demotion would only bite at the next login. End their sessions instead.
+  const evicted = destroySessionsForUser(req.params.id);
+  res.json({ message: 'Role updated', sessionsEnded: evicted });
 });
 
 // Create user (admin only)
 router.post('/users', requireAdmin, async (req, res) => {
-  const { email, password, displayName, role } = req.body;
+  const { password, displayName, role } = req.body;
+  // One canonical form, and no case-variant twin of an existing account —
+  // RLS and workspace shares match emails case-insensitively.
+  const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+  const passwordError = validatePassword(password);
+  if (passwordError) return res.status(400).json({ error: passwordError });
 
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  const existing = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(email);
   if (existing) return res.status(409).json({ error: 'Email already registered' });
 
   const id = uuidv4();
@@ -87,16 +97,22 @@ router.post('/users', requireAdmin, async (req, res) => {
 router.delete('/users/:id', requireAdmin, (req, res) => {
   if (req.params.id === req.user.id) return res.status(400).json({ error: 'Cannot delete yourself' });
   db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+  destroySessionsForUser(req.params.id);
   res.json({ message: 'User deleted' });
 });
 
 // Reset user password
 router.put('/users/:id/password', requireAdmin, (req, res) => {
   const { password } = req.body;
-  if (!password || password.length < 4) return res.status(400).json({ error: 'Password too short' });
+  const passwordError = validatePassword(password);
+  if (passwordError) return res.status(400).json({ error: passwordError });
   const hash = bcrypt.hashSync(password, 10);
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.params.id);
-  res.json({ message: 'Password reset' });
+  // The usual reason to reset someone's password is that their account is
+  // compromised. A live cookie outlives the password by up to seven days, so
+  // the reset has to take the attacker's sessions with it.
+  const evicted = destroySessionsForUser(req.params.id);
+  res.json({ message: 'Password reset', sessionsEnded: evicted });
 });
 
 // ─── Groups ────────────────────────────────────────────────

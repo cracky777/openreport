@@ -76,6 +76,9 @@ app.use(express.json({ limit: '10mb' }));
 const sessionsDir = path.join(__dirname, 'data');
 if (!fs.existsSync(sessionsDir)) fs.mkdirSync(sessionsDir, { recursive: true });
 const sessionsDb = new Database(path.join(sessionsDir, 'sessions.db'));
+// Share the store's handle so password changes / deletions can evict the
+// account's live sessions instead of leaving valid cookies behind.
+require('./utils/sessionRegistry').useDatabase(sessionsDb);
 
 const isProduction = process.env.NODE_ENV === 'production';
 if (isProduction) app.set('trust proxy', 1);

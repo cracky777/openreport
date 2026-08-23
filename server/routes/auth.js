@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const { passport, requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const authHooks = require('../hooks/auth');
+const { loginWithFreshSession, destroySessionsForUser } = require('../utils/sessionRegistry');
 
 const router = express.Router();
 
@@ -38,14 +39,34 @@ const registerLimiter = rateLimit({
   message: { error: 'Too many registration attempts. Try again later.' },
 });
 
+// Length is the only rule that matters — composition requirements push people
+// towards "Password1!" and nothing else. Applies to new passwords only, so
+// nobody with an existing shorter one is locked out.
+const MIN_PASSWORD_LENGTH = 12;
+function validatePassword(password) {
+  if (typeof password !== 'string') return 'Password must be text';
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
+  }
+  if (password.length > 200) return 'Password is too long (max 200 characters)';
+  return null;
+}
+
 router.post('/register', registerLimiter, async (req, res) => {
-  const { email, password, displayName } = req.body;
+  const { password, displayName } = req.body;
+  // Store one canonical form. RLS patterns, workspace shares and the SSO
+  // lookup all compare emails case-insensitively, so letting "Bob@x.io" and
+  // "bob@x.io" be two accounts would give the second one the first one's
+  // row-level grants.
+  const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
   }
+  const passwordError = validatePassword(password);
+  if (passwordError) return res.status(400).json({ error: passwordError });
 
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  const existing = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(email);
   if (existing) {
     return res.status(409).json({ error: 'Email already registered' });
   }
@@ -79,7 +100,7 @@ router.post('/register', registerLimiter, async (req, res) => {
     });
   }
 
-  req.login(user, (err) => {
+  loginWithFreshSession(req, user, (err) => {
     if (err) return res.status(500).json({ error: 'Login failed after registration' });
     res.status(201).json({ user });
   });
@@ -97,7 +118,9 @@ router.post('/login', loginLimiter, (req, res, next) => {
       return res.status(401).json(body);
     }
 
-    req.login(user, (err) => {
+    // Rotate the session id first: a cookie planted before the login must not
+    // survive it as an authenticated session (fixation).
+    loginWithFreshSession(req, user, (err) => {
       if (err) return next(err);
       // Stamp the last-seen timestamp so the platform supervisor can spot
       // inactive accounts. Cheap UPDATE, no impact on the response.
@@ -110,7 +133,16 @@ router.post('/login', loginLimiter, (req, res, next) => {
 router.post('/logout', (req, res) => {
   req.logout((err) => {
     if (err) return res.status(500).json({ error: 'Logout failed' });
-    res.json({ message: 'Logged out' });
+    // req.logout only drops passport's key from the session — the sid and its
+    // stored row survive, so the cookie a user just "logged out" stays usable.
+    // Destroy the session and retire the cookie with it.
+    if (req.session && typeof req.session.destroy === 'function') {
+      return req.session.destroy(() => {
+        res.clearCookie('connect.sid');
+        res.json({ message: 'Logged out' });
+      });
+    }
+    return res.json({ message: 'Logged out' });
   });
 });
 
@@ -206,7 +238,7 @@ router.get('/oidc/callback', async (req, res) => {
   if (!oidc.isEnabled()) return res.status(404).json({ error: 'SSO is not configured' });
   try {
     const { user } = await oidc.completeLogin(req, db);
-    req.login(user, (err) => {
+    loginWithFreshSession(req, user, (err) => {
       if (err) return res.redirect('/login?sso_error=' + encodeURIComponent('Session could not be established'));
       res.redirect('/');
     });
@@ -218,3 +250,5 @@ router.get('/oidc/callback', async (req, res) => {
 });
 
 module.exports = router;
+// Shared with the admin routes so both password entry points enforce one rule.
+module.exports.validatePassword = validatePassword;
