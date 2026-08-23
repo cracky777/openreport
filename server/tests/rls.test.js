@@ -55,6 +55,31 @@ describe('emailMatchesPattern', () => {
     expect(emailMatchesPattern('alice@x.io', null)).toBe(false);
     expect(emailMatchesPattern('alice@x.io', undefined)).toBe(false);
   });
+
+  // SECURITY: an anonymous viewer of a public report (and an embed token minted
+  // without an identity) reaches the matcher with email = ''. "*" means "anyone
+  // signed in" in the RLS editor — it must not hand those rows to the internet.
+  test('an empty identity matches nothing, not even *', () => {
+    for (const pattern of ['*', '*@x.io', '*a*']) {
+      expect(emailMatchesPattern('', pattern)).toBe(false);
+      expect(emailMatchesPattern(null, pattern)).toBe(false);
+      expect(emailMatchesPattern(undefined, pattern)).toBe(false);
+    }
+    expect(getAllowedRlsKeys({ enabled: true, rules: { shared: ['*'] } }, '', [])).toEqual([]);
+    // …while a real requester still matches.
+    expect(getAllowedRlsKeys({ enabled: true, rules: { shared: ['*'] } }, 'a@x.io', [])).toEqual(['shared']);
+  });
+
+  // SECURITY: the matcher must not be a RegExp. "*a*a*…*b" compiled to ".*a.*a…"
+  // backtracks catastrophically, and this runs on the shared event loop for
+  // every query from a non-owner.
+  test('a wildcard-heavy pattern returns immediately (no catastrophic backtracking)', () => {
+    const pattern = `${'*a'.repeat(12)}*b`;
+    const email = `${'a'.repeat(80)}@x.com`;
+    const started = Date.now();
+    expect(emailMatchesPattern(email, pattern)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(100);
+  });
 });
 
 describe('getAllowedRlsKeys', () => {

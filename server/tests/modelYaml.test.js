@@ -150,3 +150,42 @@ describe('POST /api/models/import', () => {
     expect(res.body.model.incremental_months).toBeNull();
   });
 });
+
+// SECURITY: YAML aliases are shared references, so a few hundred bytes can
+// parse under the byte cap and only explode when the model is serialised for
+// storage. The import must refuse that — while leaving a legitimate document
+// (SQL expressions are full of "*") alone.
+describe('alias expansion', () => {
+  const bomb = (levels) => {
+    let y = ['openreport_model: 1', 'name: bomb', 'l0: &l0 [x,x,x,x,x,x,x,x,x,x]', ''].join('\n');
+    for (let i = 1; i < levels; i++) {
+      y += `l${i}: &l${i} [${Array(10).fill(`*l${i - 1}`).join(',')}]\n`;
+    }
+    return y;
+  };
+
+  test('a billion-laughs document is refused quickly', () => {
+    const text = bomb(9);
+    expect(Buffer.byteLength(text)).toBeLessThan(1000); // slips under the byte cap
+    const started = Date.now();
+    expect(() => yamlToModelFields(text)).toThrow(/expands too far/i);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  test('a normal model with wildcards in its SQL still imports', () => {
+    const fields = yamlToModelFields([
+      'openreport_model: 1',
+      'name: Sales',
+      'tables: [orders]',
+      'measures:',
+      '  - name: orders.n',
+      '    table: orders',
+      '    aggregation: custom',
+      '    expression: "COUNT(*) * 2"',
+      '    label: Count',
+      '',
+    ].join('\n'));
+    expect(fields.name).toBe('Sales');
+    expect(fields.measures[0].expression).toBe('COUNT(*) * 2');
+  });
+});

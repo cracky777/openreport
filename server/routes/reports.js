@@ -583,7 +583,7 @@ router.put('/:id', authFor('read'), (req, res) => {
   });
 });
 
-// Duplicate report — creates a copy in the same workspace, owned by the caller.
+// Duplicate report — creates a copy owned by the caller.
 router.post('/:id/duplicate', authFor('read'), (req, res) => {
   const src = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
   if (!src || !canAccessReport(src, req.user, req)) return res.status(404).json({ error: 'Report not found' });
@@ -591,10 +591,20 @@ router.post('/:id/duplicate', authFor('read'), (req, res) => {
 
   const newId = uuidv4();
   const newTitle = `${src.title} (copy)`.slice(0, 200);
+  // Copying someone else's report must not hand over their pre-baked widget
+  // data: that snapshot was computed under THEIR identity and bypasses the
+  // copier's RLS — GET /:id strips it for exactly that reason. And the copy
+  // belongs to the copier, so it must not land inside the source's workspace
+  // (a foreign row in a workspace they may not even be a member of).
+  const isSrcOwner = req.user && req.user.id === src.user_id;
+  const widgetsForCopy = isSrcOwner
+    ? src.widgets
+    : JSON.stringify(stripWidgetData(JSON.parse(src.widgets || '{}')));
+  const workspaceForCopy = isSrcOwner ? src.workspace_id : null;
   db.prepare(`
     INSERT INTO reports (id, user_id, model_id, title, workspace_id, layout, widgets, settings)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(newId, req.user.id, src.model_id, newTitle, src.workspace_id, src.layout, src.widgets, src.settings);
+  `).run(newId, req.user.id, src.model_id, newTitle, workspaceForCopy, src.layout, widgetsForCopy, src.settings);
   stampNewReport(req, newId);
 
   const created = db.prepare('SELECT * FROM reports WHERE id = ?').get(newId);

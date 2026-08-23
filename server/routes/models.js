@@ -1157,7 +1157,11 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   //   - `_rollupBuilder`: the builder's own /query calls MUST hit the
   //     source fact table — that's how the rollup gets populated. Serving
   //     them from a rollup would build a rollup from itself.
-  const isRollupBuilderRequest = !!(req.body && req.body._rollupBuilder);
+  // The flag alone is NOT enough: it lifts the row cap, stretches the timeout
+  // to ten minutes and skips usage metering. Only the in-process builder may
+  // claim it, and it proves that with the loopback-only internal token — the
+  // route is otherwise reachable anonymously through a public report.
+  const isRollupBuilderRequest = !!(req.body && req.body._rollupBuilder) && req.internalTokenVerified === true;
   // `bypassCache` = an explicit user refresh of a visual. Per product
   // decision it must be handled by the LIVE query and stored in
   // queryCache — NOT served from the rollup. So skip the rollup planner;

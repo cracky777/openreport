@@ -39,6 +39,15 @@ describe('enforced (cloud / OSS opt-in) — internal hosts are refused', () => {
     '0x7f000001',               // 127.0.0.1 as hex
     '::1',                      // IPv6 loopback
     '[::ffff:169.254.169.254]', // IPv4-mapped metadata address
+    // The resolver (glibc inet_aton) also accepts PER-OCTET octal and hex, so
+    // these reach 127.0.0.1 while matching no pattern on the dotted form.
+    '0177.0.0.1',               // 127.0.0.1, octal first octet
+    '0x7f.0.0.1',               // 127.0.0.1, hex first octet
+    '[::ffff:7f00:1]',          // the IPv4-mapped form written as hex groups
+    '[fd00:ec2::254]',          // IPv6 unique-local (fc00::/7)
+    '[fe80::a9fe:a9fe]',        // IPv6 link-local — the v6 metadata address
+    '100.64.0.1',               // RFC 6598 carrier-grade NAT
+    '0.0.0.0',                  // reaches localhost on Linux
   ]) {
     test(`create refuses ${host}`, async () => {
       const res = await post(user, { ...base, name: `ds-${host}`, host });

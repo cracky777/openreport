@@ -84,19 +84,96 @@ router.get('/:id', authFor('write'), (req, res) => {
 // as the oracle. Enforced on EVERY path that persists or opens a connection —
 // not just /test, which an attacker simply skips by saving the row and then
 // hitting /:id/tables or /query.
-const BLOCKED_HOSTS = /^(localhost|127\.|0\.0\.0\.0|::1|169\.254\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i;
-
-// Literal-host block-list. Returns true when `host` is an obvious loopback /
-// link-local / RFC-1918 target, in any of the encodings a regex on the dotted
-// form would miss: bracketed IPv6, IPv4-mapped IPv6 (::ffff:a.b.c.d), and the
-// integer/hex forms of an IPv4 address (2130706433, 0x7f000001) that resolve to
-// 127.0.0.1. A legitimate database host is a name or a dotted quad, never a bare
-// integer, so rejecting those outright costs nothing.
+// Hosts a datasource may never point at. Left unchecked, connecting is a
+// network probe: any logged-in account could walk the internal range and read
+// the cloud metadata service (169.254.169.254), using the returned error text
+// as the oracle. Enforced on EVERY path that persists or opens a connection —
+// not just /test, which an attacker simply skips by saving the row and then
+// hitting /:id/tables or /query.
 //
-// This cannot catch a HOSTNAME that resolves to an internal address (DNS
-// rebinding): the literal passes, and only the connect-time resolution would
-// reveal it. Closing that fully needs a resolve-and-check in the connector;
-// tracked as a follow-up. This guard still shuts the trivial direct-IP probe.
+// A regex on the dotted form is not enough: the OS resolver (glibc inet_aton)
+// also accepts per-octet octal and hex, so `0177.0.0.1` and `0x7f.0.0.1` reach
+// 127.0.0.1 while looking nothing like it. So decode the literal to an address
+// first, then test ranges — never pattern-match the string.
+
+// Private / loopback / link-local IPv4 ranges, as [network, prefix-length].
+const BLOCKED_V4 = [
+  ['0.0.0.0', 8],        // "this network" — 0.0.0.0 reaches localhost on Linux
+  ['10.0.0.0', 8],       // RFC 1918
+  ['100.64.0.0', 10],    // RFC 6598 carrier-grade NAT
+  ['127.0.0.0', 8],      // loopback
+  ['169.254.0.0', 16],   // link-local — cloud metadata lives at 169.254.169.254
+  ['172.16.0.0', 12],    // RFC 1918
+  ['192.0.0.0', 24],     // IETF protocol assignments
+  ['192.168.0.0', 16],   // RFC 1918
+  ['198.18.0.0', 15],    // benchmarking
+  ['224.0.0.0', 4],      // multicast
+  ['240.0.0.0', 4],      // reserved / broadcast
+];
+
+// Parse one inet_aton octet: decimal, 0-prefixed octal, or 0x hex.
+function parseOctet(part) {
+  if (!/^(0x[0-9a-f]+|0[0-7]*|[1-9]\d*)$/i.test(part)) return NaN;
+  if (/^0x/i.test(part)) return parseInt(part, 16);
+  if (/^0[0-7]+$/.test(part)) return parseInt(part, 8);
+  return parseInt(part, 10);
+}
+
+// Decode an IPv4 literal in any encoding the resolver accepts (dotted quad with
+// decimal/octal/hex octets, and the 1-part whole-integer form) to a uint32.
+// Returns null when the string is not an IPv4 literal at all (a hostname).
+function ipv4ToInt(host) {
+  const parts = host.split('.');
+  if (parts.length === 1) {
+    const n = parseOctet(parts[0]);
+    return Number.isInteger(n) && n >= 0 && n <= 0xffffffff ? n >>> 0 : null;
+  }
+  if (parts.length !== 4) return null;
+  let out = 0;
+  for (const part of parts) {
+    const n = parseOctet(part);
+    if (!Number.isInteger(n) || n < 0 || n > 255) return null;
+    out = (out << 8) | n;
+  }
+  return out >>> 0;
+}
+
+function v4InBlockedRange(int32) {
+  for (const [network, bits] of BLOCKED_V4) {
+    const base = ipv4ToInt(network);
+    const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+    if (((int32 & mask) >>> 0) === ((base & mask) >>> 0)) return true;
+  }
+  return false;
+}
+
+// IPv6 literals we refuse: loopback, unspecified, unique-local (fc00::/7) and
+// link-local (fe80::/10 — the IPv6 metadata address fe80::a9fe:a9fe lives here).
+// IPv4-mapped forms are unwrapped and sent through the IPv4 ranges instead.
+function ipv6IsBlocked(host) {
+  const h = host.replace(/%.*$/, ''); // drop a zone id (fe80::1%eth0)
+  if (h === '::1' || h === '::') return true;
+  const dotted = h.match(/^::(?:ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/i);
+  if (dotted) {
+    const int32 = ipv4ToInt(dotted[1]);
+    return int32 !== null && v4InBlockedRange(int32);
+  }
+  // ::ffff:7f00:1 — the same mapping written as two hex groups.
+  const hexMapped = h.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  if (hexMapped) {
+    const int32 = ((parseInt(hexMapped[1], 16) << 16) | parseInt(hexMapped[2], 16)) >>> 0;
+    return v4InBlockedRange(int32);
+  }
+  const head = h.split(':')[0].toLowerCase();
+  if (/^f[cd][0-9a-f]{0,2}$/.test(head)) return true;        // fc00::/7
+  if (/^fe[89ab][0-9a-f]?$/.test(head)) return true;         // fe80::/10
+  return false;
+}
+
+// Literal-host block-list. Returns true when `host` is a loopback / link-local
+// / private target in any encoding. A hostname that RESOLVES to an internal
+// address (DNS rebinding) still passes here — closing that needs a
+// resolve-and-check in the connector, tracked as a follow-up.
 function hostIsBlocked(rawHost) {
   // Policy gate. The block-list defends a MULTI-TENANT host: an untrusted org
   // member probing the internal range to reach the cloud metadata service. That
@@ -113,17 +190,11 @@ function hostIsBlocked(rawHost) {
   let h = String(rawHost).trim().toLowerCase();
   // Strip an IPv6 bracket wrapper and any :port a caller may have appended.
   if (h.startsWith('[')) h = h.slice(1, h.indexOf(']') === -1 ? undefined : h.indexOf(']'));
-  if (BLOCKED_HOSTS.test(h)) return true;
-  // IPv4-mapped / -compatible IPv6: pull out the trailing dotted quad and retest.
-  const mapped = h.match(/^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped && BLOCKED_HOSTS.test(mapped[1])) return true;
-  // A bare integer or 0x-hex host is an alternate IPv4 encoding — decode and test.
-  const asInt = /^0x[0-9a-f]+$/.test(h) ? parseInt(h, 16)
-    : /^\d+$/.test(h) ? parseInt(h, 10) : NaN;
-  if (Number.isInteger(asInt) && asInt >= 0 && asInt <= 0xffffffff) {
-    const dotted = [(asInt >>> 24) & 255, (asInt >>> 16) & 255, (asInt >>> 8) & 255, asInt & 255].join('.');
-    if (BLOCKED_HOSTS.test(dotted)) return true;
-  }
+  if (!h) return false;
+  if (h === 'localhost' || h.endsWith('.localhost')) return true;
+  if (h.includes(':')) return ipv6IsBlocked(h);
+  const int32 = ipv4ToInt(h);
+  if (int32 !== null) return v4InBlockedRange(int32);
   return false;
 }
 

@@ -98,6 +98,10 @@ function middleware(req, res, next) {
   if (!user) return next();
   req.user = user;
   req.isAuthenticated = () => true;
+  // Marker for the handlers that grant this caller more than a browser gets
+  // (the rollup builder's uncapped, unmetered /query). Set only here, after
+  // the loopback + signature checks — a request body can never fake it.
+  req.internalTokenVerified = true;
   if (payload.organizationId) req.organizationId = payload.organizationId;
   next();
 }

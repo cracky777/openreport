@@ -42,6 +42,33 @@ function modelToYaml(model, datasourceName) {
 const isPlainObject = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
 const arrayOfObjects = (v) => Array.isArray(v) && v.every(isPlainObject);
 
+// Largest number of nodes an imported document may expand to. A real model is
+// a few thousand; the cap only ever fires on a hostile one.
+const MAX_EXPANDED_NODES = 50000;
+
+/**
+ * Refuse a document whose EXPANDED size is unreasonable.
+ *
+ * YAML aliases (`*x`) are shared references, so a few hundred bytes of anchors
+ * can parse fine, slip under the byte cap, and only explode when the model is
+ * re-serialised for storage ("billion laughs"). Walking the tree counts each
+ * visit, so an alias reused a thousand times costs a thousand nodes here —
+ * exactly what JSON.stringify would have to write. The budget also terminates
+ * the walk on a cyclic document, which anchors can produce.
+ */
+function assertExpansionWithinBudget(doc) {
+  let budget = MAX_EXPANDED_NODES;
+  const walk = (node) => {
+    if (--budget < 0) throw new Error('YAML document expands too far — remove anchors and aliases');
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+    } else if (node && typeof node === 'object') {
+      for (const value of Object.values(node)) walk(value);
+    }
+  };
+  walk(doc);
+}
+
 /**
  * Parse + validate a YAML document into the field set the model INSERT /
  * UPDATE consumes. Throws with a user-facing message on anything off.
@@ -59,6 +86,7 @@ function yamlToModelFields(text) {
   } catch (e) {
     throw new Error(`Invalid YAML: ${e.message}`);
   }
+  assertExpansionWithinBudget(doc);
   if (!isPlainObject(doc)) throw new Error('The document must be a YAML mapping');
   if (doc[FORMAT_KEY] !== FORMAT_VERSION) {
     throw new Error(`Missing or unsupported "${FORMAT_KEY}" version (expected ${FORMAT_VERSION})`);

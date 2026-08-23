@@ -208,11 +208,21 @@ safeMigrate("ALTER TABLE datasources ADD COLUMN rollup_storage TEXT NOT NULL DEF
 // once any datasource carries a secret; migrates plaintext rows in place.
 require('../utils/secretCrypto').migrateDatasourceSecrets(db);
 
-// Promote first user to admin if no admin exists
-const adminCount = db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'admin'").get();
-if (adminCount.c === 0) {
-  const firstUser = db.prepare("SELECT id FROM users ORDER BY created_at ASC LIMIT 1").get();
-  if (firstUser) db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(firstUser.id);
+// Promote first user to admin if no admin exists.
+//
+// SELF-HOSTED ONLY. In a multi-tenant deployment `admin` is the PLATFORM
+// operator, not a customer: the cloud edition holds every registrant at
+// 'editor' and grants 'admin' solely to rows in cloud_platform_admins. This
+// block runs at module load — before cloud.register() — so with no platform
+// admin on record it would silently hand the oldest CUSTOMER a role that
+// reaches /api/admin (every tenant's emails, password resets on any account,
+// the free-SQL bypass in /query), and nothing ever demotes them again.
+if (process.env.OPENREPORT_CLOUD !== '1') {
+  const adminCount = db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'admin'").get();
+  if (adminCount.c === 0) {
+    const firstUser = db.prepare("SELECT id FROM users ORDER BY created_at ASC LIMIT 1").get();
+    if (firstUser) db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(firstUser.id);
+  }
 }
 
 module.exports = db;

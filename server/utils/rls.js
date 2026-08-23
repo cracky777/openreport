@@ -34,28 +34,49 @@ function tablesReachableFrom(startTable, joins) {
   return reachable;
 }
 
-// Convert a glob-style pattern (with * as wildcard) to a case-insensitive RegExp.
+// Match a glob-style pattern (with * as wildcard), case-insensitively.
 // Examples:
 //   "alice@openreport.io"   → matches that exact email
 //   "*@openreport.io"       → any email in the openreport.io domain
 //   "alice*"                → emails starting with "alice"
 //   "*admin*"               → emails containing "admin"
-//   "*"                     → matches any authenticated user
-const regexCache = new Map();
-function patternToRegex(pattern) {
-  const key = String(pattern);
-  let re = regexCache.get(key);
-  if (!re) {
-    const escaped = key.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-    re = new RegExp(`^${escaped}$`, 'i');
-    regexCache.set(key, re);
+//   "*"                     → matches any IDENTIFIED requester (see below)
+//
+// Deliberately NOT a RegExp. Compiling `*` to `.*` makes a pattern like
+// "*a*a*a*a*a*b" catastrophically backtrack — and this runs on every query
+// from a non-owner, on the shared event loop, against an email the requester
+// chose at registration. Splitting on `*` and walking with indexOf is linear
+// and cannot blow up.
+const MAX_PATTERN_LENGTH = 320;
+function globMatches(value, pattern) {
+  const p = String(pattern);
+  if (p.length > MAX_PATTERN_LENGTH) return false;
+  const parts = p.toLowerCase().split('*');
+  const s = String(value).toLowerCase();
+  if (parts.length === 1) return s === parts[0]; // no wildcard → exact match
+  if (!s.startsWith(parts[0])) return false;
+  let pos = parts[0].length;
+  for (let i = 1; i < parts.length - 1; i++) {
+    const seg = parts[i];
+    if (!seg) continue;
+    const at = s.indexOf(seg, pos);
+    if (at === -1) return false;
+    pos = at + seg.length;
   }
-  return re;
+  const tail = parts[parts.length - 1];
+  if (!tail) return true; // pattern ends with * → anything left over is fine
+  return s.length - pos >= tail.length && s.endsWith(tail);
 }
 
+// An empty identity matches NOTHING — not even "*". An anonymous viewer of a
+// public report (and an embed token minted without an email) arrives here with
+// email = '', and a model owner writing "*" means "anyone signed in", which is
+// what the RLS editor promises. Without this guard "*" publishes those rows to
+// the internet the moment any report on the model is shared publicly.
 function emailMatchesPattern(email, pattern) {
   if (!pattern) return false;
-  try { return patternToRegex(pattern).test(email || ''); } catch { return false; }
+  if (!email) return false;
+  return globMatches(email, pattern);
 }
 
 // One rule pattern against one requester. `group:<name>` compares the name
@@ -90,7 +111,6 @@ function getAllowedRlsKeys(rls, email, groupNames = []) {
 
 module.exports = {
   tablesReachableFrom,
-  patternToRegex,
   emailMatchesPattern,
   patternMatchesPrincipal,
   getAllowedRlsKeys,
