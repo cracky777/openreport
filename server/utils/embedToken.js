@@ -23,16 +23,24 @@ const jwt = require('jsonwebtoken');
 const HEADER = 'x-embed-token';
 const SCOPE = 'embed';
 const DEFAULT_TTL_SECONDS = 60 * 60;            // 1 h
-const MAX_TTL_SECONDS = 365 * 24 * 60 * 60;     // hard ceiling: a year
+// A year was long enough that a token leaked in a browser history, an iframe
+// src or a proxy log stayed usable well past the relationship it was issued
+// for. 90 days still covers a durable partner embed, and every token is
+// revocable (below) regardless of its expiry.
+const MAX_TTL_SECONDS = 90 * 24 * 60 * 60;
 
 function resolveSecret() {
   return process.env.EMBED_TOKEN_SECRET || process.env.INTERNAL_TOKEN_SECRET;
 }
 
-function sign({ reportId, email, groups, lockedFilters, expiresIn }) {
+function sign({ reportId, email, groups, lockedFilters, expiresIn, jti }) {
   if (!reportId) throw new Error('reportId is required');
   const ttl = Math.min(Math.max(parseInt(expiresIn, 10) || DEFAULT_TTL_SECONDS, 60), MAX_TTL_SECONDS);
+  // `jti` names the token so it can be revoked before it expires — a signed
+  // bearer string handed to a third party is otherwise valid until the day it
+  // lapses, whatever happens to the relationship in between.
   const payload = { scope: SCOPE, reportId };
+  if (jti) payload.jti = String(jti);
   if (email) payload.email = String(email).trim().toLowerCase();
   if (Array.isArray(groups) && groups.length) payload.groups = groups.map(String);
   if (Array.isArray(lockedFilters) && lockedFilters.length) payload.lockedFilters = lockedFilters;
@@ -43,9 +51,23 @@ function verify(token) {
   try {
     const payload = jwt.verify(token, resolveSecret());
     if (payload.scope !== SCOPE || !payload.reportId) return null;
+    if (payload.jti && isRevoked(payload.jti)) return null;
     return payload;
   } catch {
     return null;
+  }
+}
+
+// Revocations are recorded per token id. A token minted before this existed has
+// no jti and can't be named individually — those still stop at their expiry,
+// and revokeAllForReport covers them by refusing everything issued earlier.
+function isRevoked(jti) {
+  try {
+    const db = require('../db');
+    const row = db.prepare('SELECT revoked_at FROM embed_tokens WHERE jti = ?').get(String(jti));
+    return !!(row && row.revoked_at);
+  } catch {
+    return false; // a storage failure must not lock out every live embed
   }
 }
 

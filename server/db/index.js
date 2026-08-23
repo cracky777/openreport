@@ -92,6 +92,22 @@ safeMigrate("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc ON users(oidc_iss,
 // partition rows over from the previous generation file.
 safeMigrate("ALTER TABLE models ADD COLUMN incremental_months INTEGER");
 
+// Embed tokens issued for a report. The token itself stays self-contained
+// (signed, stateless); this table exists so one can be listed and revoked
+// before it expires — a bearer string handed to a third party otherwise stays
+// valid whatever happens to the relationship.
+db.exec(`CREATE TABLE IF NOT EXISTS embed_tokens (
+  jti TEXT PRIMARY KEY,
+  report_id TEXT NOT NULL,
+  created_by TEXT,
+  label TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  expires_at TEXT,
+  revoked_at TEXT,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_embed_tokens_report ON embed_tokens (report_id, created_at DESC)');
+
 // Report version history — snapshots taken on every meaningful save so an
 // admin can roll back. Capped at 20 versions per report (FIFO pruning in
 // the route handler that takes the snapshot).

@@ -198,12 +198,33 @@ function hostIsBlocked(rawHost) {
   return false;
 }
 
+// A NAME can point anywhere: "db.attacker.com A 127.0.0.1" sails past the
+// literal check above. Resolve it and apply the same ranges to every address
+// it answers with. Async, so it lives beside the literal guard rather than
+// inside it — createConnection is synchronous and shared by every query path.
+//
+// Residual: a name that resolves elsewhere AFTER this check still reaches the
+// old address (DNS rebinding). Closing that needs address pinning inside each
+// driver's socket; this shuts the practical case, which is a name that simply
+// points inward.
+async function hostResolvesInternally(rawHost) {
+  const host = String(rawHost || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!host || ipv4ToInt(host) !== null || host.includes(':')) return false; // a literal — already judged
+  let addresses;
+  try {
+    addresses = await require('dns').promises.lookup(host, { all: true });
+  } catch {
+    return false; // unresolvable: let the driver fail with its own error
+  }
+  return addresses.some((a) => hostIsBlocked(a.address));
+}
+
 // Test connection (without saving). Write-gated: a read-only account has no
 // reason to open outbound connections from the server.
 router.post('/test', authFor('write'), async (req, res) => {
   const { dbType, host, port, dbName, dbUser, dbPassword, extraConfig } = req.body;
 
-  if (hostIsBlocked(host)) {
+  if (hostIsBlocked(host) || await hostResolvesInternally(host)) {
     return res.status(400).json({ success: false, message: 'This host is not reachable from the server.' });
   }
 
@@ -228,7 +249,7 @@ router.post('/test', authFor('write'), async (req, res) => {
 });
 
 // Create datasource
-router.post('/', authFor('write'), (req, res) => {
+router.post('/', authFor('write'), async (req, res) => {
   const { name, dbType, host, port, dbName, dbUser, dbPassword, extraConfig } = req.body;
 
   // BigQuery and DuckDB don't need host/user
@@ -238,7 +259,7 @@ router.post('/', authFor('write'), (req, res) => {
   }
   // Same guard as /test — enforced HERE too, or the row is saved with an
   // internal host and reached through /:id/tables, /:id/query, etc.
-  if (needsHost && hostIsBlocked(host)) {
+  if (needsHost && (hostIsBlocked(host) || await hostResolvesInternally(host))) {
     return res.status(400).json({ error: 'This host is not reachable from the server.' });
   }
   if (rejectIfNameTaken('datasource', name, req, res)) return;
@@ -266,7 +287,7 @@ router.post('/', authFor('write'), (req, res) => {
 });
 
 // Update datasource (edit existing connection)
-router.put('/:id', authFor('write'), (req, res) => {
+router.put('/:id', authFor('write'), async (req, res) => {
   const existing = getDatasource(req.params.id, req);
   if (!existing) {
     return res.status(404).json({ error: 'Datasource not found' });
@@ -285,7 +306,7 @@ router.put('/:id', authFor('write'), (req, res) => {
   }
   // A host change must clear the same bar as a fresh create — otherwise the
   // guard is a create-time-only formality that an edit walks straight past.
-  if (needsHost && hostIsBlocked(newHost)) {
+  if (needsHost && (hostIsBlocked(newHost) || await hostResolvesInternally(newHost))) {
     return res.status(400).json({ error: 'This host is not reachable from the server.' });
   }
   if (rejectIfNameTaken('datasource', name, req, res, req.params.id)) return;

@@ -12,9 +12,10 @@ CREATE TABLE IF NOT EXISTS users (
 );
 -- oidc_iss / oidc_sub: the SSO identity this account is bound to. The pair is
 -- the stable link (an IdP may let a subject change its email); once set, a
--- login carrying a different subject for the same email is refused.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc ON users(oidc_iss, oidc_sub)
-  WHERE oidc_sub IS NOT NULL;
+-- login carrying a different subject for the same email is refused. The unique
+-- index is created in db/index.js, AFTER the ALTERs that add these columns to
+-- an already-existing users table — declaring it here would run before them and
+-- fail every upgrade with "no such column: oidc_iss".
 -- role: 'admin' | 'editor' | 'viewer'
 -- admin: full access + user management
 -- editor: create/edit reports, models, datasources

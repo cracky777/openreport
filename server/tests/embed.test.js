@@ -174,3 +174,57 @@ describe('model metadata (GET /models/:id) for anonymous readers', () => {
     expect(noPath.status).toBe(404);
   });
 });
+
+// SECURITY: an embed link is a bearer string handed to an outside page. It used
+// to be valid until it expired — up to a year — with no way to take it back.
+describe('embed link revocation', () => {
+  let owner; let model; let report;
+  beforeEach(() => {
+    owner = seedUser({ role: 'editor' });
+    const ds = seedDatasource({ userId: owner });
+    model = seedModel({ userId: owner, datasourceId: ds });
+    report = seedReport({ userId: owner, modelId: model });
+  });
+
+  const mint = () => request(app).post(`/api/reports/${report}/embed-token`)
+    .set('x-test-user', owner).send({ email: 'partner@client.io' });
+
+  test('a minted link is listed, then stops working the moment it is revoked', async () => {
+    const created = await mint();
+    expect(created.status).toBe(201);
+    const { id, token } = created.body;
+    expect(id).toBeTruthy();
+
+    // Works before revocation.
+    expect((await request(app).get(`/api/reports/${report}`).set('x-embed-token', token)).status).toBe(200);
+
+    const list = await request(app).get(`/api/reports/${report}/embed-tokens`).set('x-test-user', owner);
+    expect(list.status).toBe(200);
+    expect(list.body.tokens).toHaveLength(1);
+    expect(list.body.tokens[0]).toMatchObject({ id, label: 'partner@client.io', revoked_at: null });
+
+    const revoked = await request(app).delete(`/api/reports/${report}/embed-tokens/${id}`).set('x-test-user', owner);
+    expect(revoked.status).toBe(200);
+    expect(revoked.body.revoked).toBe(1);
+
+    // The signature is still valid — the token is refused because it was named
+    // and taken back, which is the whole point.
+    expect((await request(app).get(`/api/reports/${report}`).set('x-embed-token', token)).status).toBe(403);
+  });
+
+  test('every link of a report can be revoked at once', async () => {
+    const a = (await mint()).body;
+    const b = (await mint()).body;
+    const res = await request(app).delete(`/api/reports/${report}/embed-tokens/all`).set('x-test-user', owner);
+    expect(res.body.revoked).toBe(2);
+    for (const t of [a, b]) {
+      expect((await request(app).get(`/api/reports/${report}`).set('x-embed-token', t.token)).status).toBe(403);
+    }
+  });
+
+  test('managing links needs write access to the model, like minting one', async () => {
+    const stranger = seedUser({ role: 'editor' });
+    expect((await request(app).get(`/api/reports/${report}/embed-tokens`).set('x-test-user', stranger)).status).toBe(403);
+    expect((await request(app).delete(`/api/reports/${report}/embed-tokens/all`).set('x-test-user', stranger)).status).toBe(403);
+  });
+});

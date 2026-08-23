@@ -305,19 +305,62 @@ router.post('/:id/embed-token', authFor('read'), (req, res) => {
   }
   const cleanedGroups = (Array.isArray(groups) ? groups : []).map((g) => String(g).trim()).filter(Boolean);
 
+  const ttl = Math.min(Math.max(parseInt(expiresIn, 10) || embedToken.DEFAULT_TTL_SECONDS, 60), embedToken.MAX_TTL_SECONDS);
+  const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
+  // Record the token so it can be listed and revoked before it lapses.
+  const jti = uuidv4();
   const token = embedToken.sign({
     reportId: report.id,
     email: email ? String(email) : undefined,
     groups: cleanedGroups,
     lockedFilters: cleanedFilters,
     expiresIn,
+    jti,
   });
-  const ttl = Math.min(Math.max(parseInt(expiresIn, 10) || embedToken.DEFAULT_TTL_SECONDS, 60), embedToken.MAX_TTL_SECONDS);
+  db.prepare(`INSERT INTO embed_tokens (jti, report_id, created_by, label, expires_at)
+              VALUES (?, ?, ?, ?, ?)`)
+    .run(jti, report.id, req.user ? req.user.id : null, email ? String(email) : null, expiresAt);
   res.status(201).json({
+    id: jti,
     token,
     url: `${req.protocol}://${req.get('host')}/embed/${report.id}?token=${encodeURIComponent(token)}`,
-    expiresAt: new Date(Date.now() + ttl * 1000).toISOString(),
+    expiresAt,
   });
+});
+
+// The embed links currently live for a report. Same bar as minting one: an
+// embed hands the report's data to an outside page, so whoever owns the data
+// decides which of those links stay open.
+router.get('/:id/embed-tokens', authFor('read'), (req, res) => {
+  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Report not found' });
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(report.model_id);
+  if (!model || !canWriteModel(model, req.user, req)) {
+    return res.status(403).json({ error: 'Only someone with write access to the underlying model can manage embed links' });
+  }
+  const tokens = db.prepare(`
+    SELECT t.jti AS id, t.label, t.created_at, t.expires_at, t.revoked_at, u.email AS created_by_email
+    FROM embed_tokens t LEFT JOIN users u ON u.id = t.created_by
+    WHERE t.report_id = ? ORDER BY t.created_at DESC
+  `).all(report.id);
+  res.json({ tokens });
+});
+
+// Revoke one embed link (or every link of the report with ?all=1). Takes
+// effect immediately: verify() refuses a revoked token id on the next request.
+router.delete('/:id/embed-tokens/:jti', authFor('read'), (req, res) => {
+  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Report not found' });
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(report.model_id);
+  if (!model || !canWriteModel(model, req.user, req)) {
+    return res.status(403).json({ error: 'Only someone with write access to the underlying model can manage embed links' });
+  }
+  const revokeAll = req.params.jti === 'all';
+  const result = revokeAll
+    ? db.prepare("UPDATE embed_tokens SET revoked_at = datetime('now') WHERE report_id = ? AND revoked_at IS NULL").run(report.id)
+    : db.prepare("UPDATE embed_tokens SET revoked_at = datetime('now') WHERE report_id = ? AND jti = ? AND revoked_at IS NULL")
+      .run(report.id, req.params.jti);
+  res.json({ revoked: result.changes });
 });
 
 // Import report from a raw JSON bundle (the file produced by the client-side
