@@ -121,6 +121,35 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
           </div>
         </Section>
 
+        {/* What the Viewer does below ~640px of width: stack the widgets in
+            one column (default) or keep the page and scale it down. The
+            editor is unaffected either way. */}
+        <Section title="Small Screens">
+          <div style={_hs3}>
+            {[
+              { value: 'stack', label: 'Stack widgets' },
+              { value: 'scale', label: 'Scale the page' },
+            ].map((mode) => {
+              const active = (settings.smallScreens || 'stack') === mode.value;
+              return (
+                <button
+                  key={mode.value}
+                  onClick={() => update('smallScreens', mode.value)}
+                  style={{
+                    ...presetBtn,
+                    background: active ? 'var(--bg-active)' : 'var(--bg-panel)',
+                    borderColor: active ? 'var(--accent-primary)' : 'var(--border-default)',
+                    color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                    fontWeight: active ? 600 : 400,
+                  }}
+                >
+                  {mode.label}
+                </button>
+              );
+            })}
+          </div>
+        </Section>
+
         <Section title="Page Size">
           <Field label="Width (px)">
             <input

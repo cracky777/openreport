@@ -9,6 +9,9 @@ import { buildWidgetData } from '../utils/widgetDataBuilder';
 import { TbMaximize, TbMinimize, TbRefresh } from 'react-icons/tb';
 import { useTheme } from '../hooks/useTheme';
 import PagesColumn from '../components/PagesColumn/PagesColumn';
+import PagesTabs from '../components/PagesColumn/PagesTabs';
+import { useMediaQuery } from '../hooks/useMediaQuery';
+import { STACK_BREAKPOINT } from '../utils/stackedLayout';
 import ExportMenu from '../components/ExportMenu/ExportMenu';
 import BookmarkMenu from '../components/BookmarkMenu/BookmarkMenu';
 
@@ -38,6 +41,10 @@ export default function Viewer() {
   const { id } = useParams();
   const { getThemeVars } = useTheme();
   const [report, setReport] = useState(null);
+  // Small screens: the canvas stacks its widgets (ReportCanvas decides from
+  // its own width) and the page navigation moves from a side column to a
+  // row of tabs above the report — a 150px column would eat half a phone.
+  const narrowViewport = useMediaQuery(`(max-width: ${STACK_BREAKPOINT}px)`);
   const [model, setModel] = useState(null);
   const [error, setError] = useState(null);
   const [widgets, setWidgets] = useState({});
@@ -645,6 +652,7 @@ export default function Viewer() {
   if (!report) {
     return <div style={_hs1}>Loading...</div>;
   }
+  const stackMode = narrowViewport && !printMode && (report.settings?.smallScreens || 'stack') === 'stack';
 
   return (
     <div style={{
@@ -695,16 +703,29 @@ export default function Viewer() {
       {/* Report area — canvas + pages column live inside the report theme wrapper so the column inherits the report's theme. */}
       <div
         data-theme={report?.settings?.theme?.key || 'light'}
-        style={{ display: 'flex', flex: 1, minHeight: 0, ...(report?.settings?.theme?.vars || getThemeVars('light')) }}
+        style={{
+          display: 'flex', flex: 1, minHeight: 0,
+          flexDirection: stackMode ? 'column' : 'row',
+          ...(report?.settings?.theme?.vars || getThemeVars('light')),
+        }}
       >
         {(pages.length > 1 || report?.settings?.pageNav?.title || report?.settings?.pageNav?.logo) && (
-          <PagesColumn
-            editMode={false}
-            pages={pages}
-            currentPageIdx={currentPageIdx}
-            onSwitch={pageSwitchHandler}
-            config={report?.settings?.pageNav}
-          />
+          stackMode ? (
+            <PagesTabs
+              pages={pages}
+              currentPageIdx={currentPageIdx}
+              onSwitch={pageSwitchHandler}
+              config={report?.settings?.pageNav}
+            />
+          ) : (
+            <PagesColumn
+              editMode={false}
+              pages={pages}
+              currentPageIdx={currentPageIdx}
+              onSwitch={pageSwitchHandler}
+              config={report?.settings?.pageNav}
+            />
+          )
         )}
         <ReportCanvas
           layout={pages[currentPageIdx]?.layout || report.layout}

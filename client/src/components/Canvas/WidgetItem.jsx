@@ -97,7 +97,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners, stacked }) {
   const nodeRef = useRef(null);
   const [showSql, setShowSql] = useState(false);
   // Hover state for the in-flight cancel button — the X icon is hidden
@@ -187,7 +187,11 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           onSelect?.(item.i);
         }}
         style={{
-          position: 'absolute',
+          // Stacked (small-screen) mode flows the widgets in a column:
+          // the item's x/y are meaningless there, the frame just takes
+          // its slot. Absolute everywhere else (the pixel canvas).
+          position: stacked ? 'relative' : 'absolute',
+          flexShrink: 0,
           width: w,
           height: h,
           zIndex: Math.max(1, item.z || 1),

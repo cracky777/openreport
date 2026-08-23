@@ -3,6 +3,10 @@ import { TbMagnet, TbMagnetOff, TbMinus, TbLayersSubtract, TbLayersLinked, TbArr
 import { WIDGET_TYPES } from '../Widgets';
 import { getMergeGroups, groupSeams, mergeCorners, edgeMidpoint } from '../../utils/mergeFrames';
 import WidgetItem from './WidgetItem';
+import { stackedOrder, stackedHeight, STACK_BREAKPOINT, STACK_GAP } from '../../utils/stackedLayout';
+
+// Inner padding of the stacked (small-screen) column.
+const STACK_PAD = 12;
 
 
 
@@ -84,7 +88,7 @@ export default function ReportCanvas({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const update = () => setContainerSize({ w: el.clientWidth - 40, h: el.clientHeight - 40 });
+    const update = () => setContainerSize({ w: el.clientWidth - 40, h: el.clientHeight - 40, raw: el.clientWidth });
     update(); // Initial measurement
     const ro = new ResizeObserver(update);
     ro.observe(el);
@@ -96,6 +100,16 @@ export default function ReportCanvas({
   const viewMode = settings.viewMode || 'fitToWidth';
 
   const canvasHeight = pageHeight;
+
+  // Small screens (phone, narrow embed iframe): instead of scaling the fixed
+  // page down to an unreadable thumbnail, the READ-ONLY canvas stacks the
+  // widgets in one full-width column (slicers first, then reading order —
+  // see utils/stackedLayout). The editor never stacks: it is the desktop
+  // authoring surface, and the persisted layout stays in pixels. Authors
+  // can opt a report out ('scale') from the report settings.
+  const stacked = !!readOnly && !printMode && containerSize.raw > 0
+    && (settings.smallScreens || 'stack') === 'stack'
+    && containerSize.raw < STACK_BREAKPOINT;
 
   const scale = useMemo(() => {
     if (printMode) return 1;
@@ -244,6 +258,56 @@ export default function ReportCanvas({
     });
   }, [layout]);
 
+  // Stacked column: one widget per row, each spanning the column width at
+  // its authored height. No seams, magnets or z-order bar — those are
+  // absolute-canvas concerns and the canvas is read-only here anyway.
+  const stackedColumn = stacked ? (() => {
+    const colWidth = Math.max(200, containerSize.raw - 2 * STACK_PAD);
+    const viewportH = containerSize.h + 40;
+    return (
+      <div
+        ref={reportRef}
+        data-stacked="1"
+        style={{
+          display: 'flex', flexDirection: 'column', gap: STACK_GAP,
+          width: colWidth,
+          padding: STACK_PAD,
+          boxSizing: 'border-box',
+          backgroundColor: settings.transparentBg ? 'transparent' : (settings.backgroundColor || 'var(--bg-canvas)'),
+          borderRadius: settings.borderRadius ?? 8,
+        }}
+      >
+        {stackedOrder(layout, widgets).map((item) => {
+          const widget = widgets[item.i];
+          if (!WIDGET_TYPES[widget.type]) return null;
+          const stackedItem = {
+            ...item, x: 0, y: 0, z: 1,
+            w: colWidth - 2 * STACK_PAD,
+            h: stackedHeight(item, widget, viewportH),
+          };
+          return (
+            <WidgetItem
+              key={item.i}
+              stacked
+              item={stackedItem}
+              widget={widget}
+              readOnly
+              onLoadMore={onLoadMore}
+              onSlicerFilter={onSlicerFilter}
+              onSlicerSearch={onSlicerSearch}
+              onCrossFilter={onCrossFilter}
+              onDrillUp={onDrillUp}
+              onDrillReset={onDrillReset}
+              crossHighlight={crossHighlight}
+              reportFilters={reportFilters}
+              mergeCorners={null}
+            />
+          );
+        })}
+      </div>
+    );
+  })() : null;
+
   return (
     <div
       ref={containerRef}
@@ -255,12 +319,12 @@ export default function ReportCanvas({
         flex: 1,
         backgroundColor: printMode ? 'transparent' : 'var(--bg-app)',
         overflowX: 'hidden',
-        overflowY: viewMode === 'fitToPage' || printMode ? 'hidden' : 'auto',
-        padding: printMode ? 0 : 20,
+        overflowY: (viewMode === 'fitToPage' && !stacked) || printMode ? 'hidden' : 'auto',
+        padding: printMode ? 0 : (stacked ? STACK_PAD : 20),
         minWidth: 0, minHeight: 0,
       }}
     >
-      {/* Scale wrapper — takes the visual size in the layout */}
+      {stacked ? stackedColumn : (
       <div style={{
         width: scale < 1 ? pageWidth * scale : pageWidth,
         minHeight: scale < 1 ? canvasHeight * scale : canvasHeight,
@@ -609,6 +673,7 @@ export default function ReportCanvas({
         })}
         </div>
       </div>
+      )}
     </div>
   );
 }
