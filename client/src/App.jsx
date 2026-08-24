@@ -13,6 +13,7 @@ import Verify from './pages/Verify';
 // Cloud-edition routes — empty in the OSS build, populated in the cloud build.
 // The same import path resolves to either the stub or the real implementation.
 import cloudRoutes from './cloud';
+import { AppGate } from './cloud';
 import AppShell from './components/AppShell/AppShell';
 import ToastHost from './components/Toast/ToastHost';
 
@@ -44,6 +45,8 @@ function RootLayout() {
             between stages instead of being refetched on every step. */}
         <GraphProvider>
           <Outlet />
+          {/* Cloud-only gate (regulatory clauses). Null in OSS. */}
+          {AppGate && <AppGate />}
           <ToastHost />
         </GraphProvider>
       </AuthProvider>

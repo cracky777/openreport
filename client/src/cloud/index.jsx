@@ -43,3 +43,10 @@ export const AlertFormExtras = null;
 // Cloud-only: alertMetaExtra(alert) → string|null appended to the alert
 // card's meta line (e.g. " · 2 recipients"). Null in OSS.
 export const alertMetaExtra = null;
+
+// Cloud-only slot rendered inside the root layout, above every route, for a
+// gate the whole app must pass — the cloud edition uses it to collect the
+// regulatory clauses from someone who signed in through SSO. It renders
+// alongside the routes and decides for itself whether to show anything.
+// Null in OSS.
+export const AppGate = null;
