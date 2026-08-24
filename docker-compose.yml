@@ -37,6 +37,11 @@ services:
   nginx:
     image: nginx:alpine
     container_name: openreport-nginx
+    # nginx reads its certificates once, at start. A renewed certificate is
+    # therefore invisible to a running container — the site keeps serving the
+    # expired one. Reload every 6 h alongside the server itself; a reload is
+    # graceful (existing connections finish on the old workers).
+    command: /bin/sh -c 'while :; do sleep 6h & wait; nginx -s reload; done & nginx -g "daemon off;"'
     restart: unless-stopped
     ports:
       - "80:80"
@@ -58,7 +63,27 @@ services:
       - certbot-var:/var/lib/letsencrypt
     depends_on:
       - nginx
-    # Run manually: docker compose run certbot certonly --webroot -w /var/lib/letsencrypt -d yourdomain.com
+    # Issuance is a one-shot, run by hand for each new name. Renewal is the
+    # certbot-renew service below — deliberately a SEPARATE service so this one
+    # keeps the image's `certbot` entrypoint and the command below still works:
+    #   docker compose run --rm certbot certonly --webroot -w /var/lib/letsencrypt -d yourdomain.com
+
+  # Let's Encrypt certificates last 90 days. Nothing here renewed them: certbot
+  # in a container has neither the systemd timer nor the cron job it installs on
+  # a host, so the certificate simply expired and HTTPS broke. This loop asks
+  # twice a day; certbot itself no-ops until a certificate is within 30 days of
+  # expiry, so it is cheap and never hammers the ACME service.
+  certbot-renew:
+    image: certbot/certbot
+    container_name: openreport-certbot-renew
+    restart: unless-stopped
+    entrypoint: /bin/sh
+    command: -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/lib/letsencrypt --quiet; sleep 12h & wait; done'
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-var:/var/lib/letsencrypt
+    depends_on:
+      - nginx
 
 volumes:
   app-data:
