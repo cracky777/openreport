@@ -237,7 +237,14 @@ router.get('/oidc/login', async (req, res) => {
 router.get('/oidc/callback', async (req, res) => {
   if (!oidc.isEnabled()) return res.status(404).json({ error: 'SSO is not configured' });
   try {
-    const { user } = await oidc.completeLogin(req, db);
+    const { user, created } = await oidc.completeLogin(req, db);
+    // A FIRST SSO login is a signup, and must be provisioned like one. The
+    // cloud edition hangs a personal organization, the cloud role and any
+    // pending invitations off this hook; without it an SSO arrival lands with
+    // no organization at all and every tenant route answers "pick one first".
+    // `emailVerified` tells the hook the IdP already proved the address, so it
+    // skips the verification mail and grants invitations straight away.
+    if (created) await authHooks.runPostRegister({ user, req, emailVerified: true });
     loginWithFreshSession(req, user, (err) => {
       if (err) return res.redirect('/login?sso_error=' + encodeURIComponent('Session could not be established'));
       res.redirect('/');
