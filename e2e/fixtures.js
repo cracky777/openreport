@@ -11,6 +11,10 @@ module.exports = {
   DIM_LABEL: 'Country',
   MEASURE_LABEL: 'Sales',
   DIM: 'sales.country',
+  // Bound to no widget on purpose: the touch-drag spec needs a field it can
+  // actually drop somewhere.
+  SPARE_DIM: 'sales.city',
+  SPARE_DIM_LABEL: 'City',
   MEASURE: 'sales.amt_sum',
   // The title report B already occupies. Renaming A onto it is what makes the
   // server answer 409.

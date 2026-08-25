@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useIsCompact } from '../../hooks/useMediaQuery';
 import { toast } from '../Toast/toast';
 import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB_TYPES } from '../Widgets';
 import DataPanel from '../DataPanel/DataPanel';
@@ -91,7 +92,10 @@ const useSectionState = () => {
 export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model, onResizeStart, onResizeEnd }) {
   const sections = useSectionState();
   const { width, handleProps } = useResizableWidth({ storageKey: 'openreport.configPanelWidth', defaultWidth: 210, min: 180, max: 480, onDragStart: onResizeStart, onDragEnd: onResizeEnd });
-  const dynamicConfigStyle = { ...configPanelStyle, width, maxWidth: width, position: 'relative' };
+  const compact = useIsCompact();
+  const dynamicConfigStyle = compact
+    ? { ...configPanelStyle, width: '100%', maxWidth: 'none', borderLeft: 'none', position: 'relative' }
+    : { ...configPanelStyle, width, maxWidth: width, position: 'relative' };
 
   // Nothing selected, nothing to configure — so no panel, not a panel saying
   // there is nothing to configure (and no collapse machinery either: the
@@ -2024,7 +2028,13 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
 export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, onResizeStart, onResizeEnd, reportId, cacheBuiltAt }) {
   const [collapsed, setCollapsed] = useState(false);
   const { width, handleProps } = useResizableWidth({ storageKey: 'openreport.dataPanelWidth', defaultWidth: 220, min: 200, max: 480, onDragStart: onResizeStart, onDragEnd: onResizeEnd });
-  const dynamicDataStyle = { ...dataPanelStyle, width, maxWidth: width, position: 'relative' };
+  const compact = useIsCompact();
+  const dynamicDataStyle = compact
+    ? { ...dataPanelStyle, width: '100%', maxWidth: 'none', borderLeft: 'none', position: 'relative',
+        // One scroll for the whole panel: the lists inside no longer keep their
+        // own, so this is what carries them.
+        overflowY: 'auto', overflowX: 'hidden' }
+    : { ...dataPanelStyle, width, maxWidth: width, position: 'relative' };
 
   // Toggle: pin the canvas during the column animation, then unpin once it has settled.
   const toggleCollapsed = (val) => {

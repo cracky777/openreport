@@ -47,14 +47,26 @@ const panelSheetStyle = (open) => ({
   transition: 'transform 200ms ease',
   // Hidden from the tab order and from taps once it is down.
   visibility: open ? 'visible' : 'hidden',
-  overflowX: 'auto', overflowY: 'hidden',
+  overflow: 'hidden',
+});
+// The pane the tabs switch between: fills what the header leaves, and scrolls
+// on its own rather than growing the sheet.
+const sheetPaneStyle = (active) => ({
+  display: active ? 'flex' : 'none',
+  flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden',
+});
+const sheetTabsStyle = { display: 'flex', gap: 4 };
+const sheetTabBtn = (active) => ({
+  padding: '7px 14px', fontSize: 13, fontWeight: active ? 700 : 500,
+  border: 'none', borderRadius: 7, cursor: 'pointer',
+  background: active ? 'var(--accent-primary-soft)' : 'transparent',
+  color: active ? 'var(--accent-primary-text)' : 'var(--text-secondary)',
 });
 const sheetHandleStyle = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
   padding: '6px 12px', borderBottom: '1px solid var(--border-subtle)',
   position: 'sticky', left: 0, flexShrink: 0,
 };
-const sheetHandleLabel = { fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' };
 const sheetCloseBtn = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
   width: 36, height: 36, border: 'none', background: 'transparent',
@@ -161,7 +173,20 @@ export default function Editor() {
   // the moment nothing is selected.
   const compact = useIsCompact();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetTab, setSheetTab] = useState('settings');
   useEffect(() => { if (compact) setSheetOpen(!!selectedWidget); }, [compact, selectedWidget]);
+
+  // The fields live in the Data tab and the drop zones in Settings, and the
+  // sheet shows one at a time — so a drag lifted in Data would have nowhere to
+  // land. Bring Settings forward the moment a field leaves the ground; the
+  // finger is still down and the touch layer owns the payload, so switching
+  // what is on screen underneath it is safe.
+  useEffect(() => {
+    if (!compact) return undefined;
+    const onDragStart = () => { setSheetOpen(true); setSheetTab('settings'); };
+    window.addEventListener('or:dragstart', onDragStart);
+    return () => window.removeEventListener('or:dragstart', onDragStart);
+  }, [compact]);
   // Edit Interactions mode — Power BI–style toggle for configuring per-pair
   // cross-filter behaviour. While active, each non-source widget shows a
   // filter / off toggle in its top-right corner. The handler is declared
@@ -1893,15 +1918,25 @@ export default function Editor() {
 
         {/* Side by side on a desktop (`display: contents` keeps the row exactly
             as it was); a dismissable sheet over the canvas on a phone. */}
-        <div style={compact ? panelSheetStyle(sheetOpen) : panelsPassthroughStyle}>
+        <div data-editor-sheet={compact ? '' : undefined} style={compact ? panelSheetStyle(sheetOpen) : panelsPassthroughStyle}>
           {compact && (
             <div style={sheetHandleStyle}>
-              <span style={sheetHandleLabel}>Widget settings</span>
+              {/* One panel at a time, each with the whole sheet. Side by side
+                  they were 210 + 220 on a 390px screen. */}
+              <div style={sheetTabsStyle}>
+                <button onClick={() => setSheetTab('settings')} style={sheetTabBtn(sheetTab === 'settings')}
+                  aria-current={sheetTab === 'settings' ? 'true' : undefined}>Settings</button>
+                <button onClick={() => setSheetTab('data')} style={sheetTabBtn(sheetTab === 'data')}
+                  aria-current={sheetTab === 'data' ? 'true' : undefined}>Data</button>
+              </div>
               <button onClick={() => setSheetOpen(false)} style={sheetCloseBtn} aria-label="Close settings">
                 <TbChevronDown size={18} />
               </button>
             </div>
           )}
+        {/* Hidden, not unmounted: a panel that remounts loses its open
+            sections, its search and its scroll every time you switch tab. */}
+        <div style={compact ? sheetPaneStyle(sheetTab === 'settings') : panelsPassthroughStyle}>
         <WidgetConfigPanel
           widgetId={selectedWidget}
           widget={selectedWidget ? widgets[selectedWidget] : null}
@@ -1911,6 +1946,8 @@ export default function Editor() {
           onResizeStart={pinCanvas}
           onResizeEnd={unpinCanvas}
         />
+        </div>
+        <div style={compact ? sheetPaneStyle(sheetTab === 'data') : panelsPassthroughStyle}>
         <DataModelPanel
           widgetId={selectedWidget}
           widget={selectedWidget ? widgets[selectedWidget] : null}
@@ -1940,6 +1977,7 @@ export default function Editor() {
           onResizeStart={pinCanvas}
           onResizeEnd={unpinCanvas}
         />
+        </div>
         </div>
       </div>
 

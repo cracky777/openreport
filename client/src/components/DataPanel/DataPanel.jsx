@@ -1,4 +1,10 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
+import { armTouchDrag, isTouchDragging } from '../../utils/touchDrag';
+import { useIsCompact } from '../../hooks/useMediaQuery';
+
+// Pressing a field must not raise the selection loupe over its label. The list
+// stays scrollable: a press only becomes a drag after it has held still.
+const touchDragRow = { WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' };
 import { useCalcWizard } from '../../hooks/useCalcWizard';
 import { useFieldEdit } from '../../hooks/useFieldEdit';
 import { useSplitRatio } from '../../hooks/useSplitRatio';
@@ -107,6 +113,12 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   // short list gives its unused share back instead of leaving dead space.
   const measuresSectionRef = useRef(null);
   const dimsSectionRef = useRef(null);
+  // On a phone the panel is a sheet a few hundred pixels tall. Splitting that
+  // between Measures and Dimensions gives two scroll boxes of a couple of rows
+  // each, and a scrollbar inside a scrollbar. Compact drops the split: both
+  // lists run at their full height and the panel scrolls once, as one list.
+  const compact = useIsCompact();
+
   const { ratio: splitRatio, handleProps: splitHandleProps } = useSplitRatio({
     storageKey: 'openreport.dataPanelSplit',
     getSpan: () => (measuresSectionRef.current?.offsetHeight || 0) + (dimsSectionRef.current?.offsetHeight || 0),
@@ -509,7 +521,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         actions={
           <button onClick={(e) => { e.stopPropagation(); setShowCalcForm(!showCalcForm); }} style={addCalcBtnSmall}>+ Measure</button>
         }
-        style={measuresCollapsed ? { flex: '0 0 auto' } : { flex: `${effSplit * 100} 1 0%`, maxHeight: 'max-content' }}>
+        style={measuresCollapsed || compact ? { flex: '0 0 auto' } : { flex: `${effSplit * 100} 1 0%`, maxHeight: 'max-content' }}>
         {/* Unified measure wizard:
               - Aggregation (SUM/AVG/COUNT/MIN/MAX/Custom)
               - Column (or custom SQL when aggregation = 'custom')
@@ -686,7 +698,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
             </div>
           </div>
         )}
-        <div style={listBox}>
+        <div style={compact ? listBoxFlowing : listBox}>
           {q && visibleMeasures.length === 0 && (
             <div style={noMatchStyle}>No matching measures</div>
           )}
@@ -704,7 +716,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               <div
                 draggable
                 onDragStart={(e) => handleDragStart(e, m.name, 'measure')}
+                onPointerDown={(e) => armTouchDrag(e, { fieldName: m.name, fieldType: 'measure' }, m.label || m.column || m.name)}
+                style={touchDragRow}
                 onClick={(e) => {
+                  if (isTouchDragging()) return;
                   e.stopPropagation();
                   if (editingField === m.name) {
                     setEditingField(null);
@@ -1102,7 +1117,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
 
       {/* Splitter — drag to rebalance Measures vs Dimensions. Pointless
           while either section is folded, so it hides with them. */}
-      {model.dimensions?.length > 0 && !measuresCollapsed && !dimsCollapsed && (
+      {!compact && model.dimensions?.length > 0 && !measuresCollapsed && !dimsCollapsed && (
         <div
           {...splitHandleProps}
           style={splitterRow}
@@ -1147,16 +1162,17 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 style={_hs25}
               >✕ remove</button>
             </div>
-            <div style={_hs26}>
+            <div style={compact ? { ..._hs26, overflow: 'visible' } : _hs26}>
               {/* Main date column — always visible. The chevron lives here
                   because id_date is the field that decomposes into year /
                   month / weekday / … */}
               <div
                 draggable
                 onDragStart={(e) => handleDragStart(e, dateCol.name, 'dimension')}
+                onPointerDown={(e) => armTouchDrag(e, { fieldName: dateCol.name, fieldType: 'dimension' }, dateCol.label || dateCol.column || dateCol.name)}
                 title={`${dateCol.table}.${dateCol.column}`}
                 style={{
-                  ...dragItem, paddingLeft: 4,
+                  ...touchDragRow, ...dragItem, paddingLeft: 4,
                   backgroundColor: (selectedDims.includes(dateCol.name) || columnDims.includes(dateCol.name) || groupBy.includes(dateCol.name)) ? 'var(--state-warning-soft)' : 'transparent',
                   borderLeft: (selectedDims.includes(dateCol.name) || columnDims.includes(dateCol.name) || groupBy.includes(dateCol.name)) ? '3px solid var(--state-warning)' : '3px solid transparent',
                 }}
@@ -1189,9 +1205,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   key={dp.name}
                   draggable
                   onDragStart={(e) => handleDragStart(e, dp.name, 'dimension')}
+                onPointerDown={(e) => armTouchDrag(e, { fieldName: dp.name, fieldType: 'dimension' }, dp.datePart || dp.label || dp.name)}
                   title={dp.datePart}
                   style={{
-                    ...dragItem, paddingLeft: 20,
+                    ...touchDragRow, ...dragItem, paddingLeft: 20,
                     backgroundColor: (selectedDims.includes(dp.name) || columnDims.includes(dp.name) || groupBy.includes(dp.name)) ? 'var(--state-warning-soft)' : 'transparent',
                     borderLeft: (selectedDims.includes(dp.name) || columnDims.includes(dp.name) || groupBy.includes(dp.name)) ? '3px solid var(--state-warning)' : '3px solid transparent',
                   }}
@@ -1214,8 +1231,8 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           count={visibleDimCount}
           collapsed={dimsCollapsed}
           onToggle={() => setSectionCollapsed((s) => ({ ...s, dimensions: !s.dimensions }))}
-          style={dimsCollapsed ? { flex: '0 0 auto' } : { flex: `${(1 - effSplit) * 100} 1 0%`, maxHeight: 'max-content' }}>
-          <div style={listBoxLarge}>
+          style={dimsCollapsed || compact ? { flex: '0 0 auto' } : { flex: `${(1 - effSplit) * 100} 1 0%`, maxHeight: 'max-content' }}>
+          <div style={compact ? listBoxFlowing : listBoxLarge}>
             {q && visibleDimCount === 0 && (
               <div style={noMatchStyle}>No matching dimensions</div>
             )}
@@ -1227,7 +1244,9 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                     <div
                       draggable
                       onDragStart={(e) => handleDragStart(e, d.name, 'dimension')}
+                onPointerDown={(e) => armTouchDrag(e, { fieldName: d.name, fieldType: 'dimension' }, d.label || d.column || d.name)}
                       onClick={(e) => {
+                        if (isTouchDragging()) return;
                         e.stopPropagation();
                         if (editingDim === d.name) {
                           setEditingDim(null);
@@ -1239,6 +1258,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                       }}
                       title={`${d.table}.${d.column}`}
                       style={{
+                        ...touchDragRow,
                         ...dragItem,
                         paddingLeft: 12,
                         backgroundColor: editingDim === d.name ? 'var(--bg-active)' : (selectedDims.includes(d.name) || columnDims.includes(d.name) || groupBy.includes(d.name)) ? 'var(--bg-active)' : 'transparent',
@@ -1508,6 +1528,12 @@ const listBox = {
 const listBoxLarge = {
   flex: 1, overflow: 'auto', border: '1px solid var(--border-default)', borderRadius: 4, minHeight: 0,
   scrollbarGutter: 'stable', scrollbarWidth: 'thin',
+};
+// Compact: no box of its own to scroll — the list is as tall as its rows and
+// the panel around it does the scrolling.
+const listBoxFlowing = {
+  flex: '0 0 auto', overflow: 'visible',
+  border: '1px solid var(--border-default)', borderRadius: 4,
 };
 const tableGroupHeader = {
   fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase',

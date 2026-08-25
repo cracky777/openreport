@@ -4,7 +4,8 @@ import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB
 
 // Widget types whose flyout just adds the base type with the chosen sub-type.
 const SUB_TYPE_MENUS = { bar: BAR_SUB_TYPES, line: LINE_SUB_TYPES, combo: COMBO_SUB_TYPES, gauge: GAUGE_SUB_TYPES };
-import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbDownload, TbHandClick, TbFilter, TbToggleLeft, TbToggleRightFilled } from 'react-icons/tb';
+import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbDownload, TbHandClick, TbFilter, TbToggleLeft, TbToggleRightFilled, TbPlus, TbX } from 'react-icons/tb';
+import { useIsCompact } from '../../hooks/useMediaQuery';
 import { ICON_SIZE } from '../actionIcons';
 import ConfirmDeleteButton from '../ConfirmDeleteButton/ConfirmDeleteButton';
 import { useCustomVisuals } from '../../hooks/useCustomVisuals';
@@ -39,6 +40,8 @@ const _hs7 = {
           padding: '4px 8px', borderRadius: 6, textAlign: 'center',
           transition: 'background 0.12s, border-color 0.12s',
         };
+// Shares the first row with the back and undo groups instead of claiming one.
+const _hs7Compact = { ..._hs7, flex: 1, minWidth: 0, maxWidth: 'none', textAlign: 'left' };
 const _hs8 = { flex: 1 };
 const _hs9 = {
         display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2,
@@ -48,6 +51,15 @@ const _hs9 = {
         border: '1px solid var(--border-default)', borderRadius: 10,
       };
 const _hs10 = { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2 };
+const hiddenStyle = { display: 'none' };
+const paletteToggleStyle = (open) => ({
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  height: 38, width: 38, justifyContent: 'center', borderRadius: 10, cursor: 'pointer',
+  fontSize: 13, fontWeight: 600,
+  background: open ? 'var(--accent-primary-soft)' : 'var(--bg-subtle)',
+  border: '1px solid ' + (open ? 'var(--accent-primary-border)' : 'var(--border-default)'),
+  color: open ? 'var(--accent-primary-text)' : 'var(--text-secondary)',
+});
 const _hs11 = { width: 1, height: 22, background: 'var(--border-default)', margin: '0 4px' };
 const _hs12 = { position: 'relative' };
 const _hs13 = { fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 };
@@ -151,6 +163,12 @@ function WidgetTooltip({ text, show }) {
 
 export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, onRebuildCache, cacheWarming = false, cacheWarmPct = 0, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions, onOpenReportFilters, reportFilterCount = 0, reportFilterBarVisible = false }) {
   const navigate = useNavigate();
+  // Wrapped, this toolbar was taking 233px of an 844px screen — more than a
+  // quarter of the phone, most of it the widget palette you need once per
+  // widget. Compact folds the palette away and drops the spacer that was
+  // pushing the title onto a row of its own.
+  const compact = useIsCompact();
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState(null); // 'bar' | 'line' | 'refresh' | null
   const [hoverKey, setHoverKey] = useState(null);
   const hoverTimerRef = useRef(null);
@@ -249,6 +267,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           onMouseEnter={() => scheduleHover('back')}
           onMouseLeave={clearHover}>
           <button
+            aria-label="Back"
+            title="Back"
             onClick={() => navigate('/')}
             aria-label="Back"
             style={utilityIconBtn}
@@ -274,7 +294,9 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         <div style={_hs3}
           onMouseEnter={() => scheduleHover('undo')}
           onMouseLeave={clearHover}>
-          <button onClick={onUndo} disabled={!canUndo}
+          <button            aria-label="Undo"
+            title="Undo"
+ onClick={onUndo} disabled={!canUndo}
             style={{ ...utilityIconBtn, opacity: canUndo ? 1 : 0.35, cursor: canUndo ? 'pointer' : 'not-allowed' }}
             onMouseEnter={(e) => { if (canUndo) { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
@@ -287,7 +309,9 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         <div style={_hs5}
           onMouseEnter={() => scheduleHover('redo')}
           onMouseLeave={clearHover}>
-          <button onClick={onRedo} disabled={!canRedo}
+          <button            aria-label="Redo"
+            title="Redo"
+ onClick={onRedo} disabled={!canRedo}
             style={{ ...utilityIconBtn, opacity: canRedo ? 1 : 0.35, cursor: canRedo ? 'pointer' : 'not-allowed' }}
             onMouseEnter={(e) => { if (canRedo) { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'translateY(0)'; }}
@@ -298,21 +322,31 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         </div>
       </div>
 
-      <div style={_hs6} />
+      {!compact && <div style={_hs6} />}
 
       <input
         type="text"
         value={reportTitle}
         onChange={(e) => onTitleChange(e.target.value)}
-        style={_hs7}
+        style={compact ? _hs7Compact : _hs7}
         onFocus={(e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
         onBlur={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
         placeholder="Report title"
       />
 
-      <div style={_hs8} />
+      {!compact && <div style={_hs8} />}
 
-      <div style={_hs9}>
+      {compact && (
+        <button
+          onClick={() => setPaletteOpen((v) => !v)}
+          style={paletteToggleStyle(paletteOpen)}
+          aria-expanded={paletteOpen}
+          title={paletteOpen ? 'Hide the widget palette' : 'Add a widget'}
+        >
+          {paletteOpen ? <TbX size={16} /> : <TbPlus size={16} />}
+        </button>
+      )}
+      <div style={compact && !paletteOpen ? hiddenStyle : _hs9}>
         {groupedWidgets.map((group, gi) => (
           <div key={group.name} style={_hs10}>
             {gi > 0 && <div style={_hs11} />}
@@ -415,6 +449,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           onMouseLeave={() => setOpenMenu(null)}
         >
           <button
+            aria-label="Shapes"
+            title="Shapes"
             style={widgetBtnStyle(openMenu === 'objects', 'var(--text-muted)')}
             onMouseEnter={(e) => {
               scheduleHover('objects');
@@ -462,6 +498,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
               onMouseLeave={() => setOpenMenu(null)}
             >
               <button
+            aria-label="Custom visuals"
+            title="Custom visuals"
                 style={widgetBtnStyle(openMenu === 'customVisuals', 'var(--accent-primary)')}
                 onMouseEnter={(e) => {
                   scheduleHover('customVisuals');
@@ -584,6 +622,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                 onMouseEnter={() => { if (!onRebuildCache) scheduleHover('refresh'); }}
                 onMouseLeave={clearHover}>
                 <button
+            aria-label="Refresh data"
+            title="Refresh data"
                   onClick={() => { if (!onRebuildCache && !refreshing && !cacheWarming) onRefresh(); }}
                   disabled={refreshing || cacheWarming}
                   style={{ ...utilityIconBtn, opacity: (refreshing || cacheWarming) ? 0.5 : 1, cursor: (refreshing || cacheWarming) ? 'not-allowed' : 'pointer' }}
@@ -644,6 +684,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
               onMouseEnter={() => scheduleHover('editInteractions')}
               onMouseLeave={clearHover}>
               <button
+            aria-label="Edit interactions"
+            title="Edit interactions"
                 onClick={onToggleEditInteractions}
                 disabled={!canEditInteractions && !editInteractions}
                 style={{
@@ -671,6 +713,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           onMouseEnter={() => scheduleHover('settings')}
           onMouseLeave={clearHover}>
           <button
+            aria-label="Report settings"
+            title="Report settings"
             onClick={onOpenSettings}
             style={utilityIconBtn}
             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
@@ -698,6 +742,8 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         onMouseEnter={() => scheduleHover('preview')}
         onMouseLeave={clearHover}>
         <button
+            aria-label="Preview"
+            title="Preview"
           onClick={handlePreviewClick}
           style={previewBtnStyle}
           onMouseEnter={(e) => {

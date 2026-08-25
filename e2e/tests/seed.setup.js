@@ -6,6 +6,7 @@ const F = require('../fixtures');
 
 const DIMENSIONS = [
   { name: F.DIM, table: 'sales', column: 'country', type: 'string', label: F.DIM_LABEL },
+  { name: F.SPARE_DIM, table: 'sales', column: 'city', type: 'string', label: F.SPARE_DIM_LABEL },
 ];
 const MEASURES = [
   { name: F.MEASURE, table: 'sales', column: 'amt', aggregation: 'sum', label: F.MEASURE_LABEL },

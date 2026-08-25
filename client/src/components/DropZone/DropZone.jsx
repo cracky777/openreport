@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { TbArrowsSort, TbSortAscending, TbSortDescending, TbClock } from 'react-icons/tb';
 import { TIME_PRESETS, TP_SHORT, parseTimeVariant } from '../../utils/timeIntelligence';
+import { armTouchDrag } from '../../utils/touchDrag';
 
 const _hs0 = { marginBottom: 10 };
 const _hs1 = { fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 };
@@ -53,6 +54,11 @@ const SORT_OPTIONS = [
   { value: 'desc', icon: TbSortDescending, title: 'Descending' },
 ];
 
+// A pressed row must not raise the text-selection loupe, which would fight the
+// drag; the list around it stays scrollable because the press only becomes a
+// drag once the finger has held still (utils/touchDrag).
+const touchDragRow = { WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' };
+
 export default function DropZone({ label, accepts, fields, onDrop, onRemove, onReorder, multiple = false, fieldInfos = {}, dimensionNames, zoneName, measureInfos, onAggChange, onTimeVariant, sort, onSortChange }) {
   const [dragIdx, setDragIdx] = useState(null);
   const [dropIdx, setDropIdx] = useState(null);
@@ -62,15 +68,16 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
 
   const setDrop = (v) => { setDropIdx(v); dropIdxRef.current = v; };
 
-  const handleDrop = (e) => {
-    e.preventDefault();
+
+  // The rules of a drop, independent of what carried the payload here: a mouse
+  // fills a DataTransfer, a finger hands over a plain object (utils/touchDrag).
+  const fieldsRef = useRef(fields);
+  fieldsRef.current = fields;
+
+  const applyDrop = ({ fieldName, fieldType, sourceZone }) => {
     const idx = dropIdxRef.current;
     setDrop(null);
     setDragIdx(null);
-
-    const fieldName = e.dataTransfer.getData('application/field-name');
-    const fieldType = e.dataTransfer.getData('application/field-type');
-    const sourceZone = e.dataTransfer.getData('application/source-zone');
     if (!fieldName) return;
 
     // Internal reorder: source zone is this zone
@@ -93,6 +100,40 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
     // (calling onRemove + onDrop separately would race because both updates read stale React state).
     const replace = !multiple && fields.length > 0;
     onDrop(fieldName, fieldType, sourceZone || null, idx, replace);
+  };
+
+// Touch drops arrive as DOM events rather than React's synthetic drag props:
+  // the finger is located by hit-testing, not by bubbling from the source.
+  const zoneRef = useRef(null);
+  const dropRef = useRef(null);
+  dropRef.current = applyDrop;
+  useEffect(() => {
+    const el = zoneRef.current;
+    if (!el) return undefined;
+    const enter = () => setDrop(fieldsRef.current.length);
+    // null index = over the zone but between no two chips, i.e. append.
+    const over = (e) => setDrop(e.detail && e.detail.index != null ? e.detail.index : fieldsRef.current.length);
+    const leave = () => setDrop(null);
+    const drop = (e) => dropRef.current(e.detail || {});
+    el.addEventListener('or:dragenter', enter);
+    el.addEventListener('or:dragover', over);
+    el.addEventListener('or:dragleave', leave);
+    el.addEventListener('or:drop', drop);
+    return () => {
+      el.removeEventListener('or:dragenter', enter);
+      el.removeEventListener('or:dragover', over);
+      el.removeEventListener('or:dragleave', leave);
+      el.removeEventListener('or:drop', drop);
+    };
+  }, []);
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    applyDrop({
+      fieldName: e.dataTransfer.getData('application/field-name'),
+      fieldType: e.dataTransfer.getData('application/field-type'),
+      sourceZone: e.dataTransfer.getData('application/source-zone'),
+    });
   };
 
   const startItemDrag = (e, i) => {
@@ -152,6 +193,8 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
     <div style={_hs0}>
       <div style={_hs1}>{label}</div>
       <div
+        ref={zoneRef}
+        data-touch-drop=""
         onDragOver={(e) => {
           e.preventDefault();
           e.dataTransfer.dropEffect = 'move';
@@ -184,8 +227,16 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
           const willBeReplaced = isReplaceMode && isHovering;
           return (
             <div key={field} draggable
+              data-touch-drop-item={i}
               onDragStart={(e) => startItemDrag(e, i)}
               onDragEnd={endItemDrag}
+              // A finger gets the same move, through the touch layer.
+              onPointerDown={(e) => armTouchDrag(e, {
+                fieldName: field,
+                fieldType: (dimensionNames ? dimensionNames.has(field) : accepts?.includes('dimension')) ? 'dimension' : 'measure',
+                sourceZone: zoneName || null,
+              }, getDisplayName(field))}
+              style={touchDragRow}
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDrop(i); }}
             >
               {showBar && <div style={_hs2} />}
