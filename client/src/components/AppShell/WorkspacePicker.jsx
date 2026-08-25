@@ -128,7 +128,12 @@ export default function WorkspacePicker({ canCreate }) {
   );
 }
 
-const relStyle = { position: 'relative' };
+// The positioning wrapper is a flex item too. `min-width: auto` is the default
+// and refuses to shrink below its content, so the pill inside kept its full
+// width, overflowed its group and painted over the navigation next to it —
+// visible only once something else claims the row, as the cloud org switcher
+// does.
+const relStyle = { position: 'relative', minWidth: 0 };
 const pillStyle = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
   padding: '6px 10px', borderRadius: 8,
