@@ -4,7 +4,11 @@ import { TbArrowLeft, TbUpload } from 'react-icons/tb';
 // Shared page header styles matching the editor toolbar design language.
 
 export const headerShellStyle = {
-  display: 'flex', alignItems: 'center', gap: 12,
+  // Wraps rather than overflows: on a phone this row carries a title, a step
+  // switcher and Save, and Save was landing several hundred pixels off the
+  // right edge — the model could not be saved at all. Wide screens never
+  // reach the wrap, so their single row is unchanged.
+  display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12,
   padding: '10px 20px', backgroundColor: 'var(--bg-panel)',
   borderBottom: '1px solid var(--border-default)', flexShrink: 0,
 };

@@ -39,7 +39,7 @@ const _hs11 = { textAlign: 'center', marginTop: 80 };
 const _hs12 = { fontSize: 16, color: 'var(--text-muted)', marginBottom: 4 };
 const _hs13 = { fontSize: 13, color: 'var(--text-disabled)', marginBottom: 16 };
 const _hs14 = { display: 'flex', flexDirection: 'column', gap: 8 };
-const _hs15 = { cursor: 'pointer', flex: 1 };
+const _hs15 = { cursor: 'pointer', flex: '1 1 180px', minWidth: 0 };
 const _hs16 = { fontWeight: 600, color: 'var(--text-primary)', fontSize: 15 };
 const _hs17 = { fontSize: 13, color: 'var(--text-muted)', marginTop: 2 };
 const _hs18 = { fontSize: 12, color: 'var(--text-disabled)', marginTop: 2 };
@@ -405,7 +405,7 @@ const labelStyle = { display: 'block', fontSize: 13, color: 'var(--text-secondar
 const joinRowStyle = { display: 'flex', justifyContent: 'center' };
 // Outside the active workspace: dimmed, never hidden — see Datasources.
 const dimmedRowStyle = { ...joinRowStyle, opacity: 0.4 };
-const cardStyle = { width: 760, flexShrink: 0,
+const cardStyle = { width: '100%', maxWidth: 760, flexShrink: 0, flexWrap: 'wrap', rowGap: 10,
   backgroundColor: 'var(--bg-panel)', padding: '16px 20px', borderRadius: 8,
   border: '1px solid var(--border-default)', display: 'flex', alignItems: 'center', gap: 12,
 };

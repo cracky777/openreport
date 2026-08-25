@@ -24,7 +24,7 @@ const _hs2 = {
 const _hs3 = { fontSize: 9, color: 'var(--accent-primary)', marginLeft: 2 };
 const _hs4 = { flex: 1 };
 const _hs5 = {
-          display: 'flex', alignItems: 'center', gap: 2,
+          display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2,
           padding: '3px 4px', background: 'var(--bg-subtle)',
           border: '1px solid var(--border-default)', borderRadius: 10, marginRight: 8,
         };

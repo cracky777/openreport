@@ -32,7 +32,7 @@ import { actionModalTitle, actionModalInput, actionModalActions, actionModalBtnS
 
 // Fills the stage slot AppShell gives it — the shell owns the viewport height
 // and the header now.
-const _hs0 = { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, backgroundColor: 'var(--bg-app)' };
+const _hs0 = { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, backgroundColor: 'var(--bg-app)' };
 const _hs1 = { fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: -0.5, display: 'flex', alignItems: 'center', gap: 12 };
 const _hs2 = { height: 28 };
 const _hs3 = { display: 'flex', alignItems: 'center', gap: 6 };
@@ -42,7 +42,7 @@ const _hs6 = { display: 'inline-flex', alignItems: 'center', gap: 8 };
 const _hs7 = { fontSize: 9, color: 'var(--text-muted)' };
 const _hs8 = { display: 'inline-flex', alignItems: 'center', gap: 8 };
 const _hs9 = { color: 'var(--accent-primary)' };
-const _hs10 = { flex: 1, display: 'flex', minHeight: 0 };
+const _hs10 = { flex: 1, display: 'flex', minHeight: 0, minWidth: 0 };
 const _hs11 = { padding: '12px 16px', fontWeight: 600, fontSize: 11, color: 'var(--text-disabled)', textTransform: 'uppercase' };
 const _hs12 = { flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 const _hs13 = { fontSize: 10, color: 'var(--text-disabled)' };
@@ -70,7 +70,7 @@ const _hs18 = {
                     background: 'transparent', color: 'var(--text-muted)',
                     textAlign: 'left', transition: 'border-color 0.12s, color 0.12s, background 0.12s',
                   };
-const _hs19 = { flex: 1, overflow: 'auto', padding: '24px 32px' };
+const _hs19 = { flex: 1, minWidth: 0, overflow: 'auto', padding: '24px 32px' };
 // Three columns: the actions sit in the middle one, on the axis of the cards,
 // and stay put whether or not the crumb is showing. See Datasources.
 const _hs20 = {
@@ -141,7 +141,7 @@ const _hs67 = { display: 'flex', flexDirection: 'column', gap: 8 };
 // card used to stack a padded body over its own action bar, which made it
 // twice the height of the other two stages: the same journey read as three
 // unrelated kinds of object.
-const cardBody = { cursor: 'pointer', flex: 1, minWidth: 0 };
+const cardBody = { cursor: 'pointer', flex: '1 1 180px', minWidth: 0 };
 const cardTitle = {
   fontSize: 15, fontWeight: 600, color: 'var(--text-primary)',
   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
@@ -183,7 +183,7 @@ const metaProgressTrack = { width: 90 };
 // space either side of it.
 const joinRowStyle = { display: 'flex', justifyContent: 'center' };
 
-const cardStyle = { width: 760, flexShrink: 0,
+const cardStyle = { width: '100%', maxWidth: 760, flexShrink: 0, flexWrap: 'wrap', rowGap: 10,
   backgroundColor: 'var(--bg-panel)', padding: '16px 20px', borderRadius: 8,
   border: '1px solid var(--border-default)', display: 'flex', alignItems: 'center', gap: 14,
 };

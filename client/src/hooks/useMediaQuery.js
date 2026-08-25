@@ -14,3 +14,13 @@ export function useMediaQuery(query) {
   }, [query]);
   return matches;
 }
+
+// Width below which the app chrome switches to its compact form: one full-width
+// journey column instead of the peeking ribbon, icon-only navigation, stacked
+// tables. Distinct from STACK_BREAKPOINT, which is about the report canvas —
+// the two answer different questions and drift apart on tablets.
+export const COMPACT_WIDTH = 768;
+
+export function useIsCompact() {
+  return useMediaQuery(`(max-width: ${COMPACT_WIDTH}px)`);
+}

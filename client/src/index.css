@@ -179,13 +179,6 @@ body {
   z-index: 4;
 }
 
-/* Narrow window: a card of fixed width no longer fits the column, and squeezing
-   it would leave nothing readable. Give the width back to the cards — the joins
-   follow, since they are measured from the cards themselves. */
-@media (max-width: 1100px) {
-  .journey-card { width: 100%; }
-}
-
 /* Indeterminate loading bar — used on report cards while a rollup
    refresh is in flight (the server only reports busy/idle, not a
    percentage, so an indeterminate sweep is the honest representation). */
@@ -267,4 +260,17 @@ body {
 .btn-hover.btn-hover-primary:hover:not(:disabled) {
   background-color: var(--accent-primary-hover) !important;
   border-color: var(--accent-primary-hover) !important;
+}
+
+/* Below COMPACT_WIDTH (useMediaQuery.js) a data table with five columns cannot
+   fit a phone, and squeezing it turns every cell into a two-letter column.
+   Let the table scroll sideways inside its own box instead, so the page never
+   does. `overflow-x` needs the override: these tables set `overflow: hidden`
+   inline to clip their own rounded corners. */
+@media (max-width: 768px) {
+  .scroll-x {
+    display: block;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
 }

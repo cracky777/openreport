@@ -23,6 +23,7 @@ const _hs1 = {
         alignItems: 'center',
         gap: 12,
         padding: '10px 20px',
+        flexWrap: 'wrap',
         backgroundColor: 'var(--bg-panel)',
         borderBottom: '1px solid var(--border-default)',
         flexShrink: 0,
@@ -31,7 +32,7 @@ const _hs2 = { position: 'relative' };
 const _hs3 = { position: 'relative' };
 const _hs4 = { width: 1, height: 20, background: 'var(--border-default)' };
 const _hs5 = { position: 'relative' };
-const _hs6 = { flex: 1 };
+const _hs6 = { flex: 1, minWidth: 0 };
 const _hs7 = {
           fontSize: 16, fontWeight: 600, border: '1px solid transparent', outline: 'none',
           background: 'transparent', color: 'var(--text-primary)', minWidth: 180, maxWidth: 320,
@@ -40,11 +41,13 @@ const _hs7 = {
         };
 const _hs8 = { flex: 1 };
 const _hs9 = {
-        display: 'flex', alignItems: 'center', gap: 2,
+        display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2,
+        // Rows of the palette need a little air once they stack.
+        rowGap: 4,
         padding: '3px 6px', background: 'var(--bg-subtle)',
         border: '1px solid var(--border-default)', borderRadius: 10,
       };
-const _hs10 = { display: 'flex', alignItems: 'center', gap: 2 };
+const _hs10 = { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2 };
 const _hs11 = { width: 1, height: 22, background: 'var(--border-default)', margin: '0 4px' };
 const _hs12 = { position: 'relative' };
 const _hs13 = { fontSize: 7, color: 'var(--text-disabled)', marginLeft: 2 };

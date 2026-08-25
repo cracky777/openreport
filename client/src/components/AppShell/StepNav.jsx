@@ -20,15 +20,19 @@ const stepBtn = (active) => ({
 
 const sepStyle = { color: 'var(--text-disabled)', flexShrink: 0 };
 
+// Given the full width of its own row, the switcher stops being a compact pill
+// and becomes the primary navigation — so it takes the room and stays legible.
+const compactGroupStyle = { ...groupStyle, flex: 1, justifyContent: 'center', whiteSpace: 'nowrap' };
+
 // The stage switcher. `allowed` gates Sources/Models the same way the old
 // Dashboard nav did (canEditOrg) — a viewer only ever sees Reports, and with a
 // single stage left the switcher is noise, so it hides itself entirely.
-export default function StepNav({ current, onGo, allowed }) {
+export default function StepNav({ current, onGo, allowed, compact = false }) {
   const visible = STEPS.filter((s) => allowed(s.key));
   if (visible.length < 2) return null;
 
   return (
-    <nav style={groupStyle} aria-label="Data journey">
+    <nav style={compact ? compactGroupStyle : groupStyle} aria-label="Data journey">
       {visible.map((s, i) => {
         const active = s.key === current;
         const Icon = s.icon;

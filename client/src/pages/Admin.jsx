@@ -19,7 +19,7 @@ const _hs2 = { flex: 1 };
 const _hs3 = { maxWidth: 900, margin: '0 auto', padding: '32px 20px' };
 const _hs4 = { fontSize: 14, fontWeight: 600, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 };
 const _hs5 = { height: 1, background: 'var(--border-default)', margin: '14px 0' };
-const _hs6 = { display: 'flex', gap: 16, marginBottom: 24 };
+const _hs6 = { display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 24 };
 const _hs7 = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' };
 const _hs8 = { fontSize: 14, fontWeight: 600, marginBottom: 12 };
 const _hs9 = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 };
@@ -63,7 +63,7 @@ const ADMIN_TABS = [
   { key: 'usage', label: 'Usage', icon: TbActivity },
 ];
 const tabBar = {
-  display: 'flex', gap: 4, marginBottom: 20, padding: 4,
+  display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 20, padding: 4,
   background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 8,
 };
 const tabBtn = (active) => ({
@@ -346,7 +346,7 @@ export default function Admin() {
           <div style={_hs11}>Loading...</div>
         ) : (
           <Paged items={users} pageSize={20}>{(pageUsers) => (
-          <table style={_hs12}>
+          <table className="scroll-x" style={_hs12}>
             <thead>
               <tr style={_hs13}>
                 <th style={thStyle}>User</th>
@@ -594,7 +594,7 @@ function UsageSection() {
 
           <div style={usageSubTitle}>Most viewed reports</div>
           {data.topReports.length === 0 ? <div style={_hs20}>No report views in this window.</div> : (
-            <Paged items={data.topReports} pageSize={10} resetKey={days}>{(rows) => (<table style={usageTable}>
+            <Paged items={data.topReports} pageSize={10} resetKey={days}>{(rows) => (<table className="scroll-x" style={usageTable}>
               <thead><tr><th style={usageTh}>Report</th><th style={usageTh}>Views</th><th style={usageTh}>Readers</th><th style={usageTh}>Last viewed</th></tr></thead>
               <tbody>
                 {rows.map((r) => (
@@ -611,7 +611,7 @@ function UsageSection() {
 
           <div style={usageSubTitle}>Slowest queries</div>
           {data.slowQueries.length === 0 ? <div style={_hs20}>No queries in this window.</div> : (
-            <Paged items={data.slowQueries} pageSize={10} resetKey={days}>{(rows) => (<table style={usageTable}>
+            <Paged items={data.slowQueries} pageSize={10} resetKey={days}>{(rows) => (<table className="scroll-x" style={usageTable}>
               <thead><tr><th style={usageTh}>When</th><th style={usageTh}>Duration</th><th style={usageTh}>Served</th><th style={usageTh}>Model / report</th><th style={usageTh}>User</th><th style={usageTh}>Rows</th></tr></thead>
               <tbody>
                 {rows.map((q, i) => (
@@ -630,7 +630,7 @@ function UsageSection() {
 
           <div style={usageSubTitle}>Per model</div>
           {data.byModel.length === 0 ? <div style={_hs20}>No queries in this window.</div> : (
-            <Paged items={data.byModel} pageSize={10} resetKey={days}>{(rows) => (<table style={usageTable}>
+            <Paged items={data.byModel} pageSize={10} resetKey={days}>{(rows) => (<table className="scroll-x" style={usageTable}>
               <thead><tr><th style={usageTh}>Model</th><th style={usageTh}>Queries</th><th style={usageTh}>Rollup</th><th style={usageTh}>Cache</th><th style={usageTh}>Live</th><th style={usageTh}>Avg</th><th style={usageTh}>Max</th></tr></thead>
               <tbody>
                 {rows.map((m) => (
@@ -650,7 +650,7 @@ function UsageSection() {
 
           <div style={usageSubTitle}>Report freshness</div>
           {data.freshness.length === 0 ? <div style={_hs20}>No reports.</div> : (
-            <Paged items={data.freshness} pageSize={10} resetKey={days}>{(rows) => (<table style={usageTable}>
+            <Paged items={data.freshness} pageSize={10} resetKey={days}>{(rows) => (<table className="scroll-x" style={usageTable}>
               <thead><tr><th style={usageTh}>Report</th><th style={usageTh}>Model</th><th style={usageTh}>Mode</th><th style={usageTh}>Cache built</th><th style={usageTh}>Last viewed</th><th style={usageTh}>Views</th></tr></thead>
               <tbody>
                 {rows.map((f) => (
@@ -669,7 +669,7 @@ function UsageSection() {
 
           <div style={usageSubTitle}>Recent cache builds</div>
           {data.builds.length === 0 ? <div style={_hs20}>No cache build in this window.</div> : (
-            <Paged items={data.builds} pageSize={10} resetKey={days}>{(rows) => (<table style={usageTable}>
+            <Paged items={data.builds} pageSize={10} resetKey={days}>{(rows) => (<table className="scroll-x" style={usageTable}>
               <thead><tr><th style={usageTh}>When</th><th style={usageTh}>Model</th><th style={usageTh}>Duration</th><th style={usageTh}>Result</th></tr></thead>
               <tbody>
                 {rows.map((b, i) => (

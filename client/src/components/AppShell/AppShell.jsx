@@ -4,6 +4,7 @@ import { TbShield, TbBell, TbTelescope, TbUser, TbChevronDown, TbLogout, TbSun, 
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useIsCompact } from '../../hooks/useMediaQuery';
 import { TopbarSwitcher, UserMenuExtras } from '../../cloud';
 import Datasources from '../../pages/Datasources';
 import Models from '../../pages/Models';
@@ -55,6 +56,8 @@ export default function AppShell({ step }) {
   const visibleSteps = STEPS.filter((s) => stepAllowed(s.key));
   const index = Math.max(0, visibleSteps.findIndex((s) => s.key === step));
 
+  const compact = useIsCompact();
+
   const viewportRef = useRef(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
@@ -75,8 +78,17 @@ export default function AppShell({ step }) {
 
   // The active column is inset by PEEK on both sides, and that inset is exactly
   // what its neighbours show through.
-  const columnWidth = Math.max(MIN_COLUMN, viewportWidth - 2 * PEEK);
-  const offset = PEEK - index * columnWidth;
+  //
+  // On a phone there is no room to spend on that inset, and MIN_COLUMN is wider
+  // than the screen: the column would be clipped on the right while the peek ate
+  // the left edge, cutting the stage in half. Compact drops the peek and lets the
+  // column be exactly the viewport — the header's stage switcher is then the only
+  // way between stages, which is what it is there for.
+  const peek = compact ? 0 : PEEK;
+  const columnWidth = compact
+    ? Math.max(1, viewportWidth)
+    : Math.max(MIN_COLUMN, viewportWidth - 2 * PEEK);
+  const offset = peek - index * columnWidth;
 
   // Following a join focuses the relation's parent and moves to the stage the
   // click points at. Both directions focus the same node — walking back up a
@@ -115,47 +127,57 @@ export default function AppShell({ step }) {
 
   return (
     <div style={shellStyle}>
-      <header style={headerStyle}>
-        <div style={leftGroup}>
-          <img src={logoSrc} alt="Open Report" style={logoStyle} />
-          <WorkspacePicker canCreate={canEditOrg} />
-        </div>
+      <header style={compact ? headerCompactStyle : headerStyle}>
+        {/* One row on a wide screen, two on a phone. `display: contents` lets
+            the same children lay out directly in the header when there is room,
+            so the desktop header is untouched rather than reimplemented. */}
+        <div style={compact ? headerTopRowStyle : contentsStyle}>
+          <div style={leftGroup}>
+            {/* The wordmark eats a third of a phone screen; the mark alone
+                carries the same identity for a tenth of the room. */}
+            <img
+              src={compact ? '/favicon.png' : logoSrc}
+              alt="Open Report"
+              style={compact ? logoMarkStyle : logoStyle}
+            />
+            <WorkspacePicker canCreate={canEditOrg} />
+          </div>
 
-        <StepNav current={step} onGo={go} allowed={stepAllowed} />
+          {!compact && <StepNav current={step} onGo={go} allowed={stepAllowed} />}
 
-        <nav style={rightGroup}>
+          <nav style={rightGroup}>
           {/* Exploration is read-only: every authenticated user may ask
               ad-hoc questions of the models they can access. */}
-          <button onClick={() => navigate('/explore')} style={navBtnStyled}
+          <button onClick={() => navigate('/explore')} style={compact ? { ...navBtnStyled, ...navBtnCompact } : navBtnStyled} title="Explore" aria-label="Explore"
             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
           >
-            <TbTelescope size={15} /> <span>Explore</span>
+            <TbTelescope size={15} /> {!compact && <span>Explore</span>}
           </button>
           {/* Alerts need write role — the API refuses viewers, so don't
               show them a dead door. */}
           {(user?.role === 'admin' || user?.role === 'editor') && (
-            <button onClick={() => navigate('/alerts')} style={navBtnStyled}
+            <button onClick={() => navigate('/alerts')} style={compact ? { ...navBtnStyled, ...navBtnCompact } : navBtnStyled} title="Alerts" aria-label="Alerts"
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
-              <TbBell size={15} /> <span>Alerts</span>
+              <TbBell size={15} /> {!compact && <span>Alerts</span>}
             </button>
           )}
           {user?.role === 'admin' && (
-            <button onClick={() => navigate('/admin')} style={navBtnStyled}
+            <button onClick={() => navigate('/admin')} style={compact ? { ...navBtnStyled, ...navBtnCompact } : navBtnStyled} title="Admin" aria-label="Admin"
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
-              <TbShield size={15} /> <span>Admin</span>
+              <TbShield size={15} /> {!compact && <span>Admin</span>}
             </button>
           )}
           {isPlatformAdmin && (
-            <button onClick={() => navigate('/platform')} style={navBtnStyled}
+            <button onClick={() => navigate('/platform')} style={compact ? { ...navBtnStyled, ...navBtnCompact } : navBtnStyled} title="Platform" aria-label="Platform"
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
-              <TbShield size={15} color="var(--accent-primary)" /> <span>Platform</span>
+              <TbShield size={15} color="var(--accent-primary)" /> {!compact && <span>Platform</span>}
             </button>
           )}
 
@@ -167,12 +189,12 @@ export default function AppShell({ step }) {
           <div ref={userMenuRef} style={relStyle}>
             <button
               onClick={() => setUserMenuOpen((v) => !v)}
-              style={userPillStyle}
+              style={compact ? { ...userPillStyle, ...userPillCompact } : userPillStyle}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-primary-border)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent-primary-soft)'; }}
             >
               <TbUser size={14} color="var(--accent-primary)" />
-              <span>{user?.display_name || user?.email}</span>
+              {!compact && <span>{user?.display_name || user?.email}</span>}
               <TbChevronDown size={12} style={{ transition: 'transform 0.12s', transform: userMenuOpen ? 'rotate(180deg)' : 'none' }} />
             </button>
             {userMenuOpen && (
@@ -225,7 +247,16 @@ export default function AppShell({ step }) {
               </div>
             )}
           </div>
-        </nav>
+          </nav>
+        </div>
+
+        {/* Second row: the stage switcher gets the full width to itself, which
+            is the only way three labelled stages fit on a phone. */}
+        {compact && (
+          <div style={stepNavRowStyle}>
+            <StepNav current={step} onGo={go} allowed={stepAllowed} compact />
+          </div>
+        )}
       </header>
 
       {/* While a move is in flight both stages ride one ribbon and slide as a
@@ -274,7 +305,11 @@ export default function AppShell({ step }) {
               <Stage step={s.key} />
             </div>
           ))}
-          <JoinLayer onFollow={follow} />
+          {/* A join is a curve between two cards in ADJACENT columns. Compact
+              shows one column at a time, so every curve would run to a card
+              parked off-screen — drawing arrowheads, "+" affordances and target
+              labels over the cards that are on screen. Nothing to link here. */}
+          {!compact && <JoinLayer onFollow={follow} />}
         </div>
       </div>
     </div>
@@ -297,9 +332,28 @@ const headerStyle = {
   padding: '10px 20px', backgroundColor: 'var(--bg-panel)',
   borderBottom: '1px solid var(--border-default)', flexShrink: 0,
 };
+// Compact header: two stacked rows, and tighter padding — 20px of side gutter
+// is a twentieth of a phone screen.
+const headerCompactStyle = {
+  ...headerStyle, display: 'flex', flexDirection: 'column',
+  alignItems: 'stretch', gap: 8, padding: '8px 12px',
+};
+const headerTopRowStyle = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, minWidth: 0,
+};
+// Wide screens: the wrapper disappears from the layout so the header's own flex
+// sees logo / switcher / nav as its direct children, exactly as before.
+const contentsStyle = { display: 'contents' };
+// The switcher can still outgrow a very narrow phone; let it scroll rather than
+// squeeze its labels into ellipses.
+const stepNavRowStyle = {
+  display: 'flex', justifyContent: 'center',
+  overflowX: 'auto', scrollbarWidth: 'none',
+};
 const leftGroup = { display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 };
 const rightGroup = { display: 'flex', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'flex-end' };
 const logoStyle = { height: 28 };
+const logoMarkStyle = { height: 26, width: 26, objectFit: 'contain', flexShrink: 0 };
 const relStyle = { position: 'relative' };
 // The viewport clips the stages sideways while they slide, and owns the vertical
 // scroll. Scrolling used to belong to each column, which put the scrollbar at
@@ -335,6 +389,12 @@ const themeListStyle = { display: 'flex', flexDirection: 'column', gap: 2, paddi
 const themeRowLabel = { display: 'inline-flex', alignItems: 'center', gap: 8 };
 const autoTagStyle = { fontSize: 9, color: 'var(--text-muted)' };
 const accentStyle = { color: 'var(--accent-primary)' };
+// Icon-only, a nav button shrinks to about 35x27 — under the thumb it wants to
+// be square and nearer 40. Only the padding changes; the rest is shared.
+const navBtnCompact = {
+  padding: 0, width: 40, height: 40, justifyContent: 'center', flexShrink: 0,
+};
+const userPillCompact = { padding: 0, width: 40, height: 40, justifyContent: 'center', gap: 2, flexShrink: 0 };
 const navBtnStyled = {
   display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
   background: 'transparent', border: 'none', borderRadius: 7,

@@ -135,6 +135,9 @@ const pillStyle = {
   background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
   fontSize: 12, color: 'var(--text-secondary)', fontWeight: 500,
   cursor: 'pointer', transition: 'background 0.12s', maxWidth: 220,
+  // Lets the pill give way when the header is tight instead of overflowing its
+  // group and painting over the navigation; nameStyle then ellipsises.
+  minWidth: 0,
 };
 const nameStyle = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 const dropdown = {

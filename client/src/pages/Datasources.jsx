@@ -44,7 +44,7 @@ const _hs6 = { color: 'var(--text-disabled)', textAlign: 'center', marginTop: 60
 const _hs7 = { textAlign: 'center', marginTop: 80 };
 const _hs8 = { fontSize: 16, color: 'var(--text-muted)', marginBottom: 12 };
 const _hs9 = { display: 'flex', flexDirection: 'column', gap: 8 };
-const _hs10 = { flex: 1 };
+const _hs10 = { flex: '1 1 180px', minWidth: 0 };
 const _hs11 = { fontWeight: 600, color: 'var(--text-primary)', fontSize: 15 };
 const _hs12 = { fontSize: 13, color: 'var(--text-muted)', marginTop: 2 };
 const _hs13 = { display: 'flex', alignItems: 'center', gap: 6 };
@@ -391,7 +391,7 @@ const joinRowStyle = { display: 'flex', justifyContent: 'center' };
 // Outside the active workspace: dimmed, never hidden — a datasource no report
 // uses yet still has to be reachable and editable from here.
 const dimmedRowStyle = { ...joinRowStyle, opacity: 0.4 };
-const dsCardStyle = { width: 760, flexShrink: 0,
+const dsCardStyle = { width: '100%', maxWidth: 760, flexShrink: 0, flexWrap: 'wrap', rowGap: 10,
   backgroundColor: 'var(--bg-panel)', padding: '16px 20px', borderRadius: 8,
   border: '1px solid var(--border-default)', display: 'flex', alignItems: 'center', gap: 12,
 };

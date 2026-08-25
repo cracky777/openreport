@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { TbChevronDown } from 'react-icons/tb';
 import { v4 as uuidv4 } from 'uuid';
 import ReportCanvas from '../components/Canvas/ReportCanvas';
 import Toolbar from '../components/Toolbar/Toolbar';
@@ -21,13 +22,44 @@ import { filterForTarget } from '../utils/crossFilter';
 import { convertData, buildSnapshot } from '../utils/editorHelpers';
 import { transformBinding } from '../utils/widgetZones';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useIsCompact } from '../hooks/useMediaQuery';
 import { useAutoRefreshOnImport } from '../hooks/useAutoRefreshOnImport';
 import { useSaveAndDirtyTracking } from '../hooks/useSaveAndDirtyTracking';
 import { useWidgetFetch } from '../hooks/useWidgetFetch';
 
 const _hs0 = { padding: 40, color: 'var(--text-disabled)' };
 const _hs1 = { height: '100vh', display: 'flex', flexDirection: 'column' };
-const _hs2 = { display: 'flex', flex: 1, overflow: 'hidden' };
+const _hs2 = { display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' };
+
+// Wide screens: the wrapper leaves the layout so the two panels stay direct
+// children of the editor row, exactly as before.
+const panelsPassthroughStyle = { display: 'contents' };
+// Phone: a sheet over the canvas. The panels keep their own widths and scroll
+// sideways inside it — they are built for a fixed column, and reflowing them
+// would be a rewrite; swiping between the two is honest and costs nothing.
+const panelSheetStyle = (open) => ({
+  position: 'absolute', left: 0, right: 0, bottom: 0,
+  height: '62%', zIndex: 60,
+  display: 'flex', flexDirection: 'column',
+  background: 'var(--bg-panel)', borderTop: '1px solid var(--border-default)',
+  boxShadow: '0 -8px 24px rgba(0,0,0,0.18)',
+  transform: open ? 'translateY(0)' : 'translateY(100%)',
+  transition: 'transform 200ms ease',
+  // Hidden from the tab order and from taps once it is down.
+  visibility: open ? 'visible' : 'hidden',
+  overflowX: 'auto', overflowY: 'hidden',
+});
+const sheetHandleStyle = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  padding: '6px 12px', borderBottom: '1px solid var(--border-subtle)',
+  position: 'sticky', left: 0, flexShrink: 0,
+};
+const sheetHandleLabel = { fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' };
+const sheetCloseBtn = {
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  width: 36, height: 36, border: 'none', background: 'transparent',
+  color: 'var(--text-secondary)', cursor: 'pointer',
+};
 const _hs3 = {
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
             backgroundColor: 'rgba(0,0,0,0.4)',
@@ -122,6 +154,14 @@ export default function Editor() {
     };
   }, [model, settings]);
   const [selectedWidget, setSelectedWidget] = useState(null);
+
+  // On a phone the two side panels would leave the canvas about 170px wide, so
+  // they become a bottom sheet over it instead. It opens on the gesture that
+  // means "I want to change this" — picking a widget — and gets out of the way
+  // the moment nothing is selected.
+  const compact = useIsCompact();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  useEffect(() => { if (compact) setSheetOpen(!!selectedWidget); }, [compact, selectedWidget]);
   // Edit Interactions mode — Power BI–style toggle for configuring per-pair
   // cross-filter behaviour. While active, each non-source widget shows a
   // filter / off toggle in its top-right corner. The handler is declared
@@ -1851,6 +1891,17 @@ export default function Editor() {
           </div>
         </div>
 
+        {/* Side by side on a desktop (`display: contents` keeps the row exactly
+            as it was); a dismissable sheet over the canvas on a phone. */}
+        <div style={compact ? panelSheetStyle(sheetOpen) : panelsPassthroughStyle}>
+          {compact && (
+            <div style={sheetHandleStyle}>
+              <span style={sheetHandleLabel}>Widget settings</span>
+              <button onClick={() => setSheetOpen(false)} style={sheetCloseBtn} aria-label="Close settings">
+                <TbChevronDown size={18} />
+              </button>
+            </div>
+          )}
         <WidgetConfigPanel
           widgetId={selectedWidget}
           widget={selectedWidget ? widgets[selectedWidget] : null}
@@ -1889,6 +1940,7 @@ export default function Editor() {
           onResizeStart={pinCanvas}
           onResizeEnd={unpinCanvas}
         />
+        </div>
       </div>
 
       {showSettings && (
