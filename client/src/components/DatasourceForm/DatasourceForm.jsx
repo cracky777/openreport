@@ -155,11 +155,18 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
           <Field label="Dataset">
             <input style={inputStyle} value={form.extraConfig?.dataset || ''} onChange={(e) => updateForm('extraConfig', { ...form.extraConfig, dataset: e.target.value })} placeholder="my_dataset" />
           </Field>
+          <Field label="Location (optional)">
+            <input style={inputStyle} value={form.extraConfig?.location || ''}
+              onChange={(e) => updateForm('extraConfig', { ...form.extraConfig, location: e.target.value })}
+              placeholder="Auto-detected — set only to force a region (EU, US, europe-west1…)" />
+          </Field>
           <Field label="Service Account Key (JSON)">
             <textarea style={{ ...inputStyle, minHeight: 80, fontFamily: 'monospace', fontSize: 11 }}
               value={form.extraConfig?.credentials || ''}
               onChange={(e) => updateForm('extraConfig', { ...form.extraConfig, credentials: e.target.value })}
-              placeholder='{"type":"service_account","project_id":"..."}' />
+              placeholder={editingId
+                ? 'Leave blank to keep the existing key'
+                : '{"type":"service_account","project_id":"..."}'} />
           </Field>
         </>
       )}

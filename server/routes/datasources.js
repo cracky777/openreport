@@ -42,10 +42,35 @@ function encryptExtraConfig(extraConfig) {
   return cfg;
 }
 
+// Merge an incoming extra_config over the stored one, keeping the secret when
+// the caller did not supply a new one.
+//
+// The service-account key is withheld from every read — as it should be — so an
+// edit form has nothing to send back for it. Replacing the blob wholesale
+// therefore DELETED the key on any save that touched the connection, and the
+// datasource stopped authenticating with no visible cause. Same rule the
+// password already follows: empty means keep.
+function mergeExtraConfig(incoming, storedRaw) {
+  let stored = storedRaw;
+  if (typeof stored === 'string') {
+    try { stored = JSON.parse(stored); } catch { stored = {}; }
+  }
+  stored = (stored && typeof stored === 'object') ? stored : {};
+  const next = encryptExtraConfig(incoming);
+  // Already encrypted at rest, so it is carried over as-is.
+  if (!next.credentials && stored.credentials) next.credentials = stored.credentials;
+  return next;
+}
+
 // What the client is allowed to read off extra_config. A whitelist, not a
 // blacklist: the same blob carries the BigQuery service-account key, and a
 // field added later must be withheld until someone decides it is safe.
-const PUBLIC_EXTRA_KEYS = ['sourceFile', 'tableName', 'tables', 'rowCount', 'fileSize', 'importedAt'];
+const PUBLIC_EXTRA_KEYS = [
+  'sourceFile', 'tableName', 'tables', 'rowCount', 'fileSize', 'importedAt',
+  // Connection settings, not secrets — and the edit form has to be able to send
+  // them back unchanged. Withholding them blanked the dataset on every save.
+  'dataset', 'location', 'projectId', 'allowSelfSignedCert',
+];
 function publicExtraConfig(raw) {
   let cfg = raw;
   if (typeof cfg === 'string') {
@@ -327,7 +352,7 @@ router.put('/:id', authFor('write'), async (req, res) => {
     newDbName,
     dbUser !== undefined ? dbUser : existing.db_user,
     finalPassword,
-    extraConfig !== undefined ? JSON.stringify(encryptExtraConfig(extraConfig)) : existing.extra_config,
+    extraConfig !== undefined ? JSON.stringify(mergeExtraConfig(extraConfig, existing.extra_config)) : existing.extra_config,
     req.params.id,
   );
 

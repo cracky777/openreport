@@ -381,6 +381,17 @@ function buildConnector(datasource) {
     const bigquery = new BigQuery(bqOptions);
     const dataset = extra.dataset || db_name;
 
+    // Location is OPTIONAL, and defaulting it to 'US' was wrong: BigQuery
+    // refuses a job whose region does not match the dataset's, and it says so
+    // with "Not found: Dataset <project>:<name>" — which reads like a missing
+    // dataset, not a misplaced query. Any dataset outside the US (a GA4 export
+    // in the EU, say) was unreachable, while the connection test passed because
+    // `SELECT 1` references no dataset and runs anywhere.
+    //
+    // Omitted, the API infers the location from the tables the query names.
+    // Only pass it when the connection states one.
+    const atLocation = (opts) => (extra.location ? { ...opts, location: extra.location } : opts);
+
     // Cancellable variant — uses createQueryJob so we have a Job handle to
     // cancel via the BigQuery jobs.cancel API. Without this an aborted
     // request still bills the user for the full job.
@@ -389,7 +400,7 @@ function buildConnector(datasource) {
       let job = null;
       let canceled = false;
       const promise = (async () => {
-        const jobOpts = { query: q, location: extra.location || 'US' };
+        const jobOpts = atLocation({ query: q });
         if (timeoutMs > 0) jobOpts.jobTimeoutMs = String(Math.round(timeoutMs));
         const [createdJob] = await bigquery.createQueryJob(jobOpts);
         job = createdJob;
@@ -407,12 +418,12 @@ function buildConnector(datasource) {
       return withTimeout({ promise, cancel }, timeoutMs);
     };
     return {
-      query: async (q) => { const [rows] = await bigquery.query({ query: q, location: extra.location || 'US' }); return rows; },
+      query: async (q) => { const [rows] = await bigquery.query(atLocation({ query: q })); return rows; },
       queryCancellable,
       // BigQuery `CREATE TABLE AS SELECT` is supported but slow and billed per
       // bytes-scanned. Source-mode rollups on BQ are intentionally allowed for
       // power users who accept the cost; the duckdb default avoids it.
-      executeDDL: async (q) => { await bigquery.query({ query: q, location: extra.location || 'US' }); },
+      executeDDL: async (q) => { await bigquery.query(atLocation({ query: q })); },
       testConnection: async () => { await bigquery.query({ query: 'SELECT 1' }); return true; },
       getTables: async () => {
         const [tables] = await bigquery.dataset(dataset).getTables();
