@@ -198,6 +198,29 @@ function rejectIfReportTitleTaken(workspaceId, title, res, excludeId) {
   return false;
 }
 
+// A free title for a name the APP generated rather than the user typed.
+//
+// Rejecting a generated title makes the product argue with itself: "New report"
+// on a model always proposes "<model> — Report", so the second one failed with
+// an error about a name nobody chose. A typed title still gets its 409 — there
+// the conflict is worth telling the user about.
+//
+// Suffixes " (2)", " (3)"… and keeps counting, so the free slot left by a
+// deleted "(2)" is reused rather than skipped.
+function uniqueReportTitle(workspaceId, title) {
+  const base = typeof title === 'string' ? title.trim() : '';
+  if (!base || !workspaceId) return base;
+  const taken = (t) => !!db.prepare('SELECT id FROM reports WHERE workspace_id = ? AND title = ? COLLATE NOCASE').get(workspaceId, t);
+  if (!taken(base)) return base;
+  // Bounded: a workspace that somehow holds 999 of the same name gets the
+  // plain title back and the usual uniqueness error, rather than a hung loop.
+  for (let n = 2; n < 1000; n += 1) {
+    const candidate = `${base} (${n})`;
+    if (!taken(candidate)) return candidate;
+  }
+  return base;
+}
+
 // List reports for current user
 router.get('/', authFor('read'), (req, res) => {
   // Cloud scopes the list to the active org (cloudHooks.listReports); OSS lists
@@ -461,7 +484,7 @@ router.post('/import', authFor('read'), (req, res) => {
 // Create report
 router.post('/', authFor('read'), (req, res) => {
   const id = uuidv4();
-  const { title, modelId, workspaceId, settings } = req.body;
+  const { title, modelId, workspaceId, settings, autoTitle } = req.body;
 
   if (!modelId) {
     return res.status(400).json({ error: 'A data model is required' });
@@ -488,9 +511,11 @@ router.post('/', authFor('read'), (req, res) => {
   if (!canPlaceReportIn(targetWs, req)) {
     return res.status(403).json({ error: 'Not authorized to create a report in this workspace' });
   }
-  if (rejectIfReportTitleTaken(targetWs, title, res)) return;
+  // A generated title is made unique; a typed one is defended.
+  const finalTitle = autoTitle ? uniqueReportTitle(targetWs, title) : title;
+  if (!autoTitle && rejectIfReportTitleTaken(targetWs, title, res)) return;
   db.prepare('INSERT INTO reports (id, user_id, model_id, title, workspace_id, settings) VALUES (?, ?, ?, ?, ?, ?)').run(
-    id, req.user.id, modelId, title || 'Untitled Report', targetWs, initialSettings
+    id, req.user.id, modelId, finalTitle || 'Untitled Report', targetWs, initialSettings
   );
   stampNewReport(req, id);
 

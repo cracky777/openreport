@@ -394,6 +394,9 @@ export default function Dashboard() {
       // 4. Create report with this model
       const reportRes = await api.post('/reports', {
         title: newTitle || ds.name,
+        // Only when we fell back to the datasource's name — a title the user
+        // typed keeps its conflict error.
+        ...(newTitle ? {} : { autoTitle: true }),
         modelId,
         ...(selectedWs ? { workspaceId: selectedWs } : {}),
         settings: { theme: availableThemes[themeResolved] ? { key: themeResolved, ...availableThemes[themeResolved] } : null },

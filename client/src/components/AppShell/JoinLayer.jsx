@@ -17,7 +17,7 @@ import { useGraph } from '../../hooks/graphContext';
 // separate page components and the question — "what is on screen right now" —
 // is precisely what a DOM query answers.
 export default function JoinLayer({ onFollow }) {
-  const { scopedModels, scopedReports } = useGraph();
+  const { models, scopedReports, activeModelIds } = useGraph();
   const [links, setLinks] = useState([]);
   const hostRef = useRef(null);
 
@@ -47,13 +47,23 @@ export default function JoinLayer({ onFollow }) {
       };
     };
 
+    // Every model, not just the workspace's: the Models stage RENDERS them all
+    // and dims the ones the workspace does not touch. Drawing from the scoped
+    // list left a dimmed card floating with no line to the source it came from,
+    // which reads as "this model has no datasource" rather than "no report uses
+    // it yet". Reports stay scoped — one outside the workspace is not on screen
+    // at all, so a line to it would end nowhere.
     const edges = [
-      ...scopedModels.filter((m) => m.datasource_id).map((m) => ({
+      ...models.filter((m) => m.datasource_id).map((m) => ({
         from: `sources:${m.datasource_id}`,
         to: `models:${m.id}`,
         parentId: m.datasource_id,
         parentName: m.datasource_name,
         noun: 'model',
+        // Faded exactly when its card is: a full-strength line into a faded
+        // card would contradict it, and the line is what says the model still
+        // belongs to that source.
+        dim: !!(activeModelIds && !activeModelIds.has(m.id)),
       })),
       ...scopedReports.filter((r) => r.model_id).map((r) => ({
         from: `models:${r.model_id}`,
@@ -61,6 +71,9 @@ export default function JoinLayer({ onFollow }) {
         parentId: r.model_id,
         parentName: r.model_name,
         noun: 'report',
+        // Reports are already scoped to the workspace, so any that is drawn is
+        // one the workspace owns.
+        dim: false,
       })),
     ];
 
@@ -80,7 +93,11 @@ export default function JoinLayer({ onFollow }) {
     // a card with one line under it — the tally and the drawing answering the
     // same question from two different places.
     const children = new Map();
-    for (const { edge } of drawable) children.set(edge.from, (children.get(edge.from) || 0) + 1);
+    const live = new Set();
+    for (const { edge } of drawable) {
+      children.set(edge.from, (children.get(edge.from) || 0) + 1);
+      if (!edge.dim) live.add(edge.from);
+    }
 
     const next = [];
     const counted = new Set();
@@ -90,6 +107,7 @@ export default function JoinLayer({ onFollow }) {
       next.push({
         key: `${edge.from}->${edge.to}`,
         d: `M ${a.right} ${a.mid} C ${a.right + bend} ${a.mid}, ${b.left - bend} ${b.mid}, ${b.left} ${b.mid}`,
+        dim: edge.dim,
       });
 
       // One count per source card, parked just past it, and one origin name per
@@ -103,6 +121,9 @@ export default function JoinLayer({ onFollow }) {
           label: `${count} ${edge.noun}${count > 1 ? 's' : ''}`,
           x: a.right + 34, y: a.mid, align: 'left',
           follow: { dir: 'down', noun: edge.noun, id: edge.parentId },
+          // A tally standing for nothing the workspace uses fades with what it
+          // counts; one that covers even a single live relation stays lit.
+          dim: !live.has(edge.from),
         });
       }
       if (edge.parentName && !origins.has(edge.to)) {
@@ -112,11 +133,12 @@ export default function JoinLayer({ onFollow }) {
           label: edge.parentName,
           x: b.left - 34, y: b.mid, align: 'right',
           follow: { dir: 'up', noun: edge.noun, id: edge.parentId },
+          dim: edge.dim,
         });
       }
     }
     setLinks(next);
-  }, [scopedModels, scopedReports]);
+  }, [models, scopedReports, activeModelIds]);
 
   useLayoutEffect(() => {
     measure();
@@ -164,7 +186,7 @@ export default function JoinLayer({ onFollow }) {
             fill="none"
             stroke="var(--accent-primary)"
             strokeWidth={2}
-            opacity={0.9}
+            opacity={c.dim ? DIM_OPACITY : 0.9}
             markerEnd="url(#join-head)"
           />
         ))}
@@ -181,6 +203,7 @@ export default function JoinLayer({ onFollow }) {
             // beside the card rather than overlapping it.
             transform: l.align === 'right' ? 'translate(-100%, -50%)' : 'translateY(-50%)',
             color: l.follow.dir === 'up' ? 'var(--text-muted)' : 'var(--accent-primary-text)',
+            opacity: l.dim ? DIM_OPACITY : 1,
           }}
           title={l.follow.dir === 'up' ? `Back to ${l.label}` : `Show the ${l.label} built on this`}
         >
@@ -190,6 +213,10 @@ export default function JoinLayer({ onFollow }) {
     </div>
   );
 }
+
+// The cards fade to 0.4; a curve sits at 0.9, so the same fade applied to it
+// lands here. Kept as one constant so the two never drift apart.
+const DIM_OPACITY = 0.36;
 
 const layerStyle = {
   position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 3,

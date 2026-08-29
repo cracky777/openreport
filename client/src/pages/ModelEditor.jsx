@@ -513,6 +513,10 @@ export default function ModelEditor() {
       });
       const res = await api.post('/reports', {
         title: `${name || 'New'} — Report`,
+        // The title comes from the model, not the user: a second report on the
+        // same model becomes "… — Report (2)" instead of failing on a name
+        // nobody typed.
+        autoTitle: true,
         modelId: id,
         // Inherit the user's current theme so the new report doesn't open
         // in the default light scheme when they're working in dark mode.
