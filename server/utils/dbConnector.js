@@ -2,6 +2,7 @@ const path = require('path');
 const { Pool, Client } = require('pg');
 const mysql = require('mysql2/promise');
 const { decrypt } = require('./secretCrypto');
+const { quoteLiteral } = require('./sqlDialect');
 
 // Process-wide DuckDB cache. One open file lock per path — concurrent
 // callers share the same resolved Database instance, and concurrent
@@ -488,6 +489,107 @@ function buildConnector(datasource) {
         }));
       },
       close: () => {},
+    };
+  }
+
+  // ─── Databricks ───
+  if (db_type === 'databricks') {
+    const { DBSQLClient } = require('@databricks/sql');
+    // Le chemin HTTP désigne l'entrepôt SQL (ou le cluster) : deux entrepôts du
+    // même workspace ne diffèrent que par lui. Sans, la connexion s'ouvre sur
+    // rien. Le jeton d'accès personnel tient lieu de mot de passe.
+    const httpPath = String(extra.httpPath || '').trim();
+    const connectOptions = { host, path: httpPath, token: db_password || '' };
+
+    // Une session par requête serait payée d'un aller-retour à chaque visuel ;
+    // une session partagée, ouverte à la demande et reconstruite si elle tombe.
+    let sessionPromise = null;
+    const getSession = () => {
+      if (!sessionPromise) {
+        sessionPromise = (async () => {
+          const client = new DBSQLClient();
+          await client.connect(connectOptions);
+          const session = await client.openSession({
+            // Unity Catalog nomme en trois niveaux (catalogue.schéma.table).
+            // Poser les deux premiers ici, c'est permettre au modèle de ne
+            // nommer que la table, comme sur les autres moteurs.
+            ...(extra.catalog ? { initialCatalog: extra.catalog } : {}),
+            ...(extra.schema ? { initialSchema: extra.schema } : {}),
+          });
+          return { client, session };
+        })().catch((err) => { sessionPromise = null; throw err; });
+      }
+      return sessionPromise;
+    };
+
+    // `runAsync` rend la main avant la fin : c'est ce qui laisse une prise pour
+    // annuler. Sans lui, l'opération ne serait connue qu'une fois terminée.
+    const runStatement = async (sqlText, onOperation) => {
+      const { session } = await getSession();
+      const op = await session.executeStatement(sqlText, { runAsync: true });
+      if (onOperation) onOperation(op);
+      try {
+        return await op.fetchAll();
+      } finally {
+        try { await op.close(); } catch { /* déjà fermée par un cancel */ }
+      }
+    };
+
+    const queryCancellable = (sqlText, opts = {}) => {
+      const timeoutMs = Number(opts.timeoutMs) || 0;
+      let op = null;
+      let canceled = false;
+      const promise = runStatement(sqlText, (o) => {
+        op = o;
+        if (canceled) { try { o.cancel(); } catch { /* déjà partie */ } }
+      });
+      const cancel = async () => {
+        if (canceled) return;
+        canceled = true;
+        // Databricks n'expose pas de délai d'exécution par requête : le seul
+        // levier est cette annulation, et le garde-fou JS qui la déclenche.
+        try { if (op) await op.cancel(); } catch (e) { console.warn('[databricks cancel]', e.message); }
+      };
+      return withTimeout({ promise, cancel }, timeoutMs);
+    };
+
+    const defaultSchema = extra.schema || 'default';
+    return {
+      query: (sqlText) => runStatement(sqlText),
+      queryCancellable,
+      executeDDL: async (sqlText) => { await runStatement(sqlText); },
+      testConnection: async () => { await runStatement('SELECT 1'); return true; },
+      getTables: async () => {
+        const rows = await runStatement(`
+          SELECT table_schema, table_name FROM information_schema.tables
+          WHERE table_schema <> 'information_schema'
+          ORDER BY table_schema, table_name
+        `);
+        return rows.map((r) => (r.table_schema === defaultSchema ? r.table_name : `${r.table_schema}.${r.table_name}`));
+      },
+      getColumns: async (tableName) => {
+        const parts = String(tableName).split('.');
+        const schema = parts.length > 1 ? parts[0] : defaultSchema;
+        const table = parts.length > 1 ? parts[1] : parts[0];
+        // Le driver Thrift n'expose pas de liaison de paramètres sur laquelle on
+        // puisse compter d'une version à l'autre ; l'échappement du dialecte est
+        // la garantie qui reste, et c'est celle que le reste du code utilise.
+        const rows = await runStatement(
+          'SELECT column_name, full_data_type AS data_type, is_nullable'
+          + ' FROM information_schema.columns'
+          + ` WHERE table_schema = ${quoteLiteral(schema, 'databricks')}`
+          + ` AND table_name = ${quoteLiteral(table, 'databricks')}`
+          + ' ORDER BY ordinal_position',
+        );
+        return rows;
+      },
+      close: async () => {
+        if (!sessionPromise) return;
+        const held = sessionPromise;
+        sessionPromise = null;
+        try { const { client, session } = await held; await session.close(); await client.close(); }
+        catch { /* déjà tombée */ }
+      },
     };
   }
 

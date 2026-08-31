@@ -70,6 +70,21 @@ function buildDatePartExpr(dim, dbType, columnTypes) {
   // donnerait le mois ailleurs, n'existe pas ici. Le nom du mois passe donc par
   // monthName(), qui ne laisse aucune place au doute, et seul le jour dépend du
   // format — noté ici pour que personne ne « corrige » %W en %A.
+  // Databricks formate par motifs Java : « MMMM » est le nom complet du mois et
+  // « EEEE » celui du jour — quatre lettres exactement, la règle Java pour la
+  // forme longue. Ni le '%B' de strftime ni le '%M' de MySQL n'ont cours ici.
+  if (dbType === 'databricks') {
+    switch (dim.datePart) {
+      case 'num_year': return `year(${dateExpr})`;
+      case 'num_month': return `month(${dateExpr})`;
+      case 'name_month': return `date_format(${dateExpr}, 'MMMM')`;
+      case 'num_week': return `weekofyear(${dateExpr})`;
+      case 'num_day_of_week': return `dayofweek(${dateExpr})`;
+      case 'name_day': return `date_format(${dateExpr}, 'EEEE')`;
+      default: return col;
+    }
+  }
+
   if (dbType === 'clickhouse') {
     switch (dim.datePart) {
       case 'num_year': return `toYear(${dateExpr})`;

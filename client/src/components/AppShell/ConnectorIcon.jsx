@@ -1,5 +1,6 @@
 import { SiPostgresql, SiMysql, SiSnowflake, SiGooglebigquery, SiDuckdb, SiClickhouse } from 'react-icons/si';
 import { FaAws } from 'react-icons/fa';
+import { SiDatabricks } from 'react-icons/si';
 import { DiMsqlServer } from 'react-icons/di';
 import { VscAzure } from 'react-icons/vsc';
 import { TbDatabase } from 'react-icons/tb';
@@ -21,6 +22,7 @@ const MARKS = {
   azure_postgres: { Icon: SiPostgresql,     color: 'var(--brand-azure-postgres)', label: 'Azure PostgreSQL' },
   redshift:       { Icon: FaAws,            color: 'var(--brand-redshift)',       label: 'Amazon Redshift' },
   snowflake:      { Icon: SiSnowflake,      color: 'var(--brand-snowflake)',      label: 'Snowflake' },
+  databricks:     { Icon: SiDatabricks,      color: 'var(--brand-databricks)',    label: 'Databricks' },
   mysql:          { Icon: SiMysql,          color: 'var(--brand-mysql)',          label: 'MySQL' },
   mssql:          { Icon: DiMsqlServer,     color: 'var(--brand-mssql)',          label: 'SQL Server' },
   azure_sql:      { Icon: VscAzure,         color: 'var(--brand-azure-sql)',      label: 'Azure SQL Database' },

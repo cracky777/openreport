@@ -47,6 +47,20 @@ const STRFTIME_FORMATS = {
   yyyymmdd: '%Y%m%d',
 };
 
+// Motifs datetime Java, la quatrième famille de formats de ce fichier après
+// strftime, les masques PostgreSQL et les codes de style SQL Server. Spark et
+// Databricks n'en connaissent pas d'autre : « MM » y est le mois et « mm » la
+// minute, l'inverse d'une casse de strftime — passer les jetons d'une famille à
+// l'autre ne donne pas une erreur, mais une date fausse.
+const JAVA_FORMATS = {
+  iso: 'yyyy-MM-dd',
+  'dd/mm/yyyy': 'dd/MM/yyyy',
+  'mm/dd/yyyy': 'MM/dd/yyyy',
+  'dd-mm-yyyy': 'dd-MM-yyyy',
+  'dd.mm.yyyy': 'dd.MM.yyyy',
+  yyyymmdd: 'yyyyMMdd',
+};
+
 // Cast an expression to the dialect's text type (see `textCast` in the dialect
 // table). Used everywhere we coerce values to text for IN / LIKE / equality.
 function castToString(expr, dbType) {
@@ -107,6 +121,12 @@ function castToDate(expr, dbType, fmt) {
     const m = STRFTIME_FORMATS[f];
     if (m) return `PARSE_DATE('${m}', ${expr})`;
     return `CAST(${expr} AS DATE)`;
+  }
+
+  if (dbType === 'databricks') {
+    const m = JAVA_FORMATS[f];
+    if (m) return `to_date(${expr}, '${m}')`;
+    return `to_date(${expr})`;
   }
 
   if (dbType === 'clickhouse') {

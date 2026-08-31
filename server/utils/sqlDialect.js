@@ -131,6 +131,17 @@ const CAPABILITIES = {
   // vaut donc des deux côtés. L'antislash y est significatif dans une chaîne,
   // d'où escapesBackslash. Son type colonne INTERVAL n'existe pas (INTERVAL n'y
   // sert qu'à l'arithmétique de dates), et sum(Float32) rend déjà du Float64.
+  // Databricks parle du Spark SQL. Les guillemets doubles y délimitent une
+  // CHAÎNE, pas un identifiant : l'accent grave n'est donc pas une préférence,
+  // c'est la seule forme qui désigne une colonne. DECIMAL sans échelle vaut
+  // DECIMAL(10,0) — encore une troncature muette, comme MySQL, SQL Server et
+  // Snowflake. Et sum(FLOAT) rend déjà du DOUBLE.
+  databricks: {
+    quoting: 'backtick', escapesBackslash: true, quoteEscape: 'double',
+    textCast: 'STRING', intCast: 'BIGINT', decimalCast: 'DECIMAL(38, 10)',
+    wideFloat: null,
+    nullsLast: 'inline', pagination: 'limit', extractEpoch: false, joinUsing: true,
+  },
   clickhouse: {
     quoting: 'backtick', escapesBackslash: true, quoteEscape: 'double',
     textCast: 'String', intCast: 'Int64', decimalCast: 'Decimal(38, 10)',

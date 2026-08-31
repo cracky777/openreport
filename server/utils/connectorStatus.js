@@ -21,7 +21,7 @@
  */
 
 // Écrits et testés unitairement, jamais exécutés contre le moteur visé.
-const PREVIEW = new Set(['redshift', 'mssql', 'snowflake', 'clickhouse']);
+const PREVIEW = new Set(['redshift', 'mssql', 'snowflake', 'clickhouse', 'databricks']);
 
 function enabledPreviews() {
   const raw = String(process.env.OPENREPORT_PREVIEW_CONNECTORS || '').trim();

@@ -7,7 +7,7 @@ const request = require('supertest');
 const { buildApp, seedUser } = require('./helpers/testApp');
 
 const app = buildApp();
-const PREVIEWS = ['redshift', 'mssql', 'snowflake', 'clickhouse'];
+const PREVIEWS = ['redshift', 'mssql', 'snowflake', 'clickhouse', 'databricks'];
 
 let user;
 beforeEach(() => {
