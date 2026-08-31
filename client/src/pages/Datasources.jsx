@@ -308,7 +308,7 @@ export default function Datasources() {
               return (
                 <div key={ds.id} style={activeDatasourceIds && !activeDatasourceIds.has(ds.id) ? dimmedRowStyle : joinRowStyle}>
                 <div className="journey-card" data-join-anchor={`sources:${ds.id}`} style={dsCardStyle}>
-                  <SourceIcon file={isUploadedFile} />
+                  <SourceIcon file={isUploadedFile} dbType={ds.db_type} />
                   <div style={_hs10}>
                     <div style={_hs11}>{ds.name}</div>
                     <div style={_hs12}>

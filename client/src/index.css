@@ -61,10 +61,34 @@
   --shadow-purple-lg: 0 4px 12px rgba(124, 58, 237, 0.3);
 
   /* Scheme hint for native form controls, scrollbars, etc. */
+
+  /* Couleurs de marque des connecteurs. Elles vivent ici et non dans le
+     composant parce qu'elles changent avec le thème : #336791, l'éléphant de
+     PostgreSQL, tombe à 2,9:1 sur le fond sombre — sous le seuil de 3:1 exigé
+     d'un élément d'interface non textuel. Les variantes sombres sont éclaircies
+     jusqu'à passer 4,5:1, en restant reconnaissables. */
+  --brand-postgres: #336791;
+  --brand-azure-postgres: #0089d6;
+  --brand-redshift: #ff9900;
+  --brand-snowflake: #29b5e8;
+  --brand-mysql: #4479a1;
+  --brand-mssql: #cc2927;
+  --brand-azure-sql: #0089d6;
+  --brand-bigquery: #4285f4;
+  /* Le jaune officiel de DuckDB (#fff000) disparaît sur fond clair. */
+  --brand-duckdb: #d9a400;
   color-scheme: light;
 }
 
 [data-theme="dark"] {
+  /* Éclaircies pour tenir sur #111827 — voir le bloc clair. */
+  --brand-postgres: #6b9ec9;
+  --brand-azure-postgres: #4aa8e6;
+  --brand-snowflake: #29b5e8;
+  --brand-mysql: #7aa9cc;
+  --brand-mssql: #ef6b67;
+  --brand-azure-sql: #4aa8e6;
+  --brand-bigquery: #6ba1f7;
   --bg-app: #0b1220;
   --bg-panel: #111827;
   --bg-panel-alt: #0f172a;

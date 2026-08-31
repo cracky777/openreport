@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import api from '../../utils/api';
 import { toast } from '../Toast/toast';
+import ConnectorIcon from '../AppShell/ConnectorIcon';
 
 const _hs0 = { display: 'flex', gap: 12 };
 const _hs1 = { flex: 1 };
@@ -15,12 +16,12 @@ const _hs8 = { display: 'block', fontSize: 13, color: 'var(--text-secondary)', m
 const DB_TYPES = [
   { value: 'postgres', label: 'PostgreSQL', defaultPort: 5432 },
   { value: 'azure_postgres', label: 'Azure PostgreSQL', defaultPort: 5432 },
-  { value: 'redshift', label: 'Amazon Redshift', defaultPort: 5439 },
+  { value: 'redshift', label: 'Redshift', defaultPort: 5439 },
   { value: 'mysql', label: 'MySQL', defaultPort: 3306 },
-  { value: 'azure_sql', label: 'Azure SQL Database', defaultPort: 1433 },
+  { value: 'azure_sql', label: 'Azure SQL', defaultPort: 1433 },
   { value: 'mssql', label: 'SQL Server', defaultPort: 1433 },
   { value: 'snowflake', label: 'Snowflake', defaultPort: 0, noHost: true },
-  { value: 'bigquery', label: 'Google BigQuery', defaultPort: 0, noHost: true },
+  { value: 'bigquery', label: 'BigQuery', defaultPort: 0, noHost: true },
   { value: 'duckdb', label: 'DuckDB', defaultPort: 0, noHost: true },
 ];
 
@@ -28,6 +29,16 @@ const DB_TYPES = [
 // BigQuery et DuckDB n'ont pas de socket TLS à nous : l'un passe par le SDK
 // Google, l'autre est un fichier local.
 const SELF_SIGNED_OPT_OUT = new Set(['postgres', 'azure_postgres', 'redshift', 'mysql', 'mssql', 'azure_sql']);
+
+const typeGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(182px, 1fr))', gap: 8 };
+const typeCardStyle = {
+  display: 'flex', alignItems: 'center', gap: 8, padding: '9px 11px', borderRadius: 6,
+  border: '1px solid var(--border-default)', background: 'var(--bg-panel)',
+  color: 'var(--text-primary)',
+  cursor: 'pointer', font: 'inherit', fontSize: 13, textAlign: 'left', width: '100%',
+};
+const typeCardSelected = { borderColor: 'var(--accent-primary)', boxShadow: '0 0 0 1px var(--accent-primary)' };
+const typeCardLabel = { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 
 const blankForm = {
   name: '',
@@ -109,9 +120,27 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
       </Field>
 
       <Field label="Type">
-        <select style={inputStyle} value={form.dbType} onChange={(e) => updateForm('dbType', e.target.value)}>
-          {DB_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-        </select>
+        {/* Une grille plutôt qu'un <select> : un <option> ne sait pas porter
+            d'icône, et c'est le logo qu'on reconnaît avant le libellé. */}
+        <div style={typeGridStyle} role="radiogroup" aria-label="Database type">
+          {DB_TYPES.map((t) => {
+            const selected = form.dbType === t.value;
+            return (
+              <button
+                key={t.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                title={t.label}
+                onClick={() => updateForm('dbType', t.value)}
+                style={{ ...typeCardStyle, ...(selected ? typeCardSelected : null) }}
+              >
+                <ConnectorIcon dbType={t.value} size={18} />
+                <span style={typeCardLabel}>{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </Field>
 
       {/* Standard DB fields */}

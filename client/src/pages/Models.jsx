@@ -64,6 +64,14 @@ export default function Models() {
   // Which sources are uploaded files, so a model can say what it actually sits
   // on rather than making the user walk back a column to find out.
   // `extra_config` comes off the row as JSON text.
+  // Le moteur derrière chaque source, pour que la pastille du glyphe descende
+  // jusqu'aux modèles — c'est la promesse que porte SourceIcon : la même marque
+  // sur la source et sur tout ce qui en dérive.
+  const dbTypeByDatasource = useMemo(() => {
+    const map = new Map();
+    for (const ds of datasources) map.set(ds.id, ds.db_type);
+    return map;
+  }, [datasources]);
   const fileDatasourceIds = useMemo(() => {
     const ids = new Set();
     for (const ds of datasources) {
@@ -319,7 +327,7 @@ export default function Models() {
               return (
               <div key={m.id} style={activeModelIds && !activeModelIds.has(m.id) ? dimmedRowStyle : joinRowStyle}>
               <div className="journey-card" data-join-anchor={`models:${m.id}`} style={cardStyle}>
-                <SourceIcon file={fileDatasourceIds.has(m.datasource_id)} />
+                <SourceIcon file={fileDatasourceIds.has(m.datasource_id)} dbType={dbTypeByDatasource.get(m.datasource_id)} />
                 <div onClick={() => navigate(`/models/${m.id}`)} style={_hs15}>
                   <div style={_hs16}>{m.name}</div>
                   <div style={_hs17}>
