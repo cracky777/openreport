@@ -420,7 +420,13 @@ export default function Viewer() {
     const prev = crossHighlightRef.current;
     const isSame = prev && prev.widgetId === sourceWidgetId && prev.value === value;
     if (isSame) {
-      crossFilterSourceRef.current = null;
+      // Le widget source garde ses données au clic comme au déclic : le
+      // cross-filter ne s'applique jamais à lui-même, donc il n'y a rien à
+      // recharger. Le viewer remettait `null` ici, ce qui le faisait refetcher
+      // au déclic — c'est ainsi que l'instabilité de l'ordre des lignes est
+      // remontée à l'écran alors que l'éditeur, qui l'exclut, n'a jamais rien
+      // montré. Même valeur que dans useWidgetFetch (l'éditeur).
+      crossFilterSourceRef.current = sourceWidgetId;
       setCrossHighlight(null);
       setReportFilters((p) => {
         const n = { ...p };
