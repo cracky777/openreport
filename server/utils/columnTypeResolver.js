@@ -24,16 +24,14 @@
  */
 
 const { createConnection } = require('./dbConnector');
-const { quoteCol } = require('./sqlDialect');
+const { quoteCol, capabilities } = require('./sqlDialect');
 
 // key: `${datasourceId}::${table}` → Map<column_name, data_type lowercased>
 const _schemaCache = new Map();
 
-// Datasources whose interval columns can be flattened with EXTRACT(EPOCH …).
-// MySQL / MSSQL have no interval column type; BigQuery's INTERVAL has no
-// EPOCH extract (its values are flattened by the row post-processor). So
-// only these benefit from resolving interval-ness at SQL-build time.
-const EXTRACT_EPOCH_DBS = new Set(['postgres', 'azure_postgres', 'duckdb']);
+// Only the dialects that expose EXTRACT(EPOCH …) — `extractEpoch` in the
+// dialect table — benefit from resolving interval-ness at SQL-build time;
+// elsewhere there is nothing to flatten.
 
 /**
  * Resolve which of the given (table, column) pairs are INTERVAL-typed in
@@ -45,7 +43,7 @@ const EXTRACT_EPOCH_DBS = new Set(['postgres', 'azure_postgres', 'duckdb']);
  */
 async function resolveIntervalColumns(datasource, cols) {
   const out = new Set();
-  if (!datasource || !EXTRACT_EPOCH_DBS.has(datasource.db_type)) return out;
+  if (!datasource || !capabilities(datasource.db_type).extractEpoch) return out;
 
   // Distinct tables we still need to introspect (cache miss).
   const wantTables = new Set();
@@ -157,14 +155,10 @@ function extractColumnRefsFromExpression(expression) {
 // negative lookbehind skips refs already inside an EXTRACT(EPOCH FROM …)
 // wrap, so calling the function twice is harmless.
 //
-// Same dialect gate as elsewhere — only PG / Azure-PG / DuckDB expose
-// EXTRACT(EPOCH …); MySQL / MSSQL have no interval column type; BigQuery's
-// INTERVAL has no EPOCH extract (row post-processor flattens those).
+// Same dialect gate as elsewhere — the table's `extractEpoch`.
 function preWrapIntervalRefs(expression, columnTypes, dbType) {
   if (!expression) return expression;
-  if (dbType !== 'postgres' && dbType !== 'azure_postgres' && dbType !== 'duckdb') {
-    return expression;
-  }
+  if (!capabilities(dbType).extractEpoch) return expression;
   let result = String(expression);
   for (const [key, info] of Object.entries(columnTypes || {})) {
     if (!info || info.type !== 'interval') continue;

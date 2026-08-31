@@ -2,27 +2,22 @@
 // handling and the OFFSET…FETCH vs LIMIT split. Extracted from routes/models.js
 // where the identical cascade appeared twice (main query + x-grain subquery).
 // `topN` is { aggExpr, direction, n }. Covered by tests/orderLimit.
+const { capabilities } = require('../sqlDialect');
 function buildTopNOrderLimit(topN, dbType) {
-  // NULL-handling on ORDER BY is dialect-specific. Postgres / Redshift / DuckDB
-  // / BigQuery accept "NULLS LAST" inline; MySQL emulates with "<col> IS NULL";
-  // SQL Server / Azure SQL have neither (aggregates over a non-empty group
-  // rarely NULL).
-  const supportsNullsLast = dbType === 'postgres' || dbType === 'redshift'
-    || dbType === 'duckdb' || dbType === 'bigquery';
+  const { nullsLast, pagination } = capabilities(dbType);
   let out;
-  if (dbType === 'mysql') {
+  if (nullsLast === 'emulated') {
     out = ` ORDER BY ${topN.aggExpr} IS NULL, ${topN.aggExpr} ${topN.direction}`;
-  } else if (supportsNullsLast) {
+  } else if (nullsLast === 'inline') {
     out = ` ORDER BY ${topN.aggExpr} ${topN.direction} NULLS LAST`;
   } else {
+    // No NULL ordering available — an aggregate over a non-empty group is
+    // rarely NULL, so the plain ORDER BY is close enough.
     out = ` ORDER BY ${topN.aggExpr} ${topN.direction}`;
   }
-  // SQL Server / Azure SQL: OFFSET/FETCH instead of LIMIT.
-  if (dbType === 'mssql' || dbType === 'azure_sql') {
-    out += ` OFFSET 0 ROWS FETCH NEXT ${topN.n} ROWS ONLY`;
-  } else {
-    out += ` LIMIT ${topN.n}`;
-  }
+  out += pagination === 'fetch'
+    ? ` OFFSET 0 ROWS FETCH NEXT ${topN.n} ROWS ONLY`
+    : ` LIMIT ${topN.n}`;
   return out;
 }
 

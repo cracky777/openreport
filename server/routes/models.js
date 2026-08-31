@@ -12,7 +12,7 @@ const { canAccessReport, canAccessModel, canWriteModel, canReadModel } = require
 const { getQueryTimeoutMs } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
-const { quoteIdent, quoteTable, quoteCol, escapeLiteral, quoteLiteral, normalizeAggregation } = require('../utils/sqlDialect');
+const { quoteIdent, quoteTable, quoteCol, escapeLiteral, quoteLiteral, normalizeAggregation, capabilities } = require('../utils/sqlDialect');
 const {
   castToString,
   castToNumber,
@@ -493,10 +493,10 @@ router.get('/:id/rls/rows', authFor('write'), async (req, res) => {
       // CAST to VARCHAR so the LIKE works regardless of the column's native type (number, date, etc.)
       sql += ` WHERE LOWER(${castToString(quoteCol(table, primaryKey, dbType), dbType)}) LIKE LOWER('%${escaped}%')`;
     }
-    // SQL Server / Azure SQL doesn't support LIMIT — use OFFSET/FETCH instead.
-    const isMssql = dbType === 'azure_sql' || dbType === 'mssql';
+    // A 'fetch' dialect (SQL Server / Azure SQL) has no LIMIT clause.
+    const usesTopFetch = capabilities(dbType).pagination === 'fetch';
     sql += ` ORDER BY ${quoteIdent(primaryKey, dbType)}`;
-    sql += isMssql ? ` OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY` : ` LIMIT 1000`;
+    sql += usesTopFetch ? ` OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY` : ` LIMIT 1000`;
 
     const rawRows = await conn.query(sql);
     // Mirror the /query post-process — empty `{}` from pg for zero
@@ -574,10 +574,10 @@ router.post('/:id/validate-column-type', authFor('write'), async (req, res) => {
     const SAMPLE = 100000;
     const dbType = datasource.db_type;
     const colExpr = quoteCol(table, column, dbType);
-    const isMssql = dbType === 'azure_sql' || dbType === 'mssql';
-    // SQL Server uses TOP <n>; everyone else uses LIMIT <n>. WHERE filters
+    const usesTopFetch = capabilities(dbType).pagination === 'fetch';
+    // A 'fetch' dialect caps rows with TOP <n>; everyone else with LIMIT <n>. WHERE filters
     // out NULLs so they don't pollute the validity ratio.
-    const sql = isMssql
+    const sql = usesTopFetch
       ? `SELECT TOP ${SAMPLE} ${colExpr} AS v FROM ${quoteTable(table, dbType)} WHERE ${colExpr} IS NOT NULL`
       : `SELECT ${colExpr} AS v FROM ${quoteTable(table, dbType)} WHERE ${colExpr} IS NOT NULL LIMIT ${SAMPLE}`;
 
@@ -686,8 +686,8 @@ router.post('/:id/detect-cardinality', requireAuth, async (req, res) => {
     const SAMPLE = 1000;
     const dbType = datasource.db_type;
     const colExpr = quoteCol(table, column, dbType);
-    const isMssql = dbType === 'azure_sql' || dbType === 'mssql';
-    const sql = isMssql
+    const usesTopFetch = capabilities(dbType).pagination === 'fetch';
+    const sql = usesTopFetch
       ? `SELECT TOP ${SAMPLE} ${colExpr} AS v FROM ${quoteTable(table, dbType)} WHERE ${colExpr} IS NOT NULL`
       : `SELECT ${colExpr} AS v FROM ${quoteTable(table, dbType)} WHERE ${colExpr} IS NOT NULL LIMIT ${SAMPLE}`;
 
@@ -1606,7 +1606,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       // processor (and HAVING on intervals there is rare anyway).
       const isIntervalH = String(measDef.dataType || '').toLowerCase() === 'interval'
         || ovTypeH === 'interval';
-      const supportsExtractEpochH = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
+      const supportsExtractEpochH = capabilities(dbType).extractEpoch;
       aggExpr = (isIntervalH && supportsExtractEpochH && effAggH !== 'count')
         ? `EXTRACT(EPOCH FROM ${baseAggExpr})`
         : baseAggExpr;
@@ -1904,7 +1904,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
         : Math.min(Math.max(1, parsedLimit || 1000), MAX_ROWS);
       builderCapLimit = safeLimit;
       const safeOffset = Math.max(0, parseInt(offset, 10) || 0);
-      if (dbType === 'azure_sql' || dbType === 'mssql') {
+      if (capabilities(dbType).pagination === 'fetch') {
         sql += ` OFFSET ${safeOffset} ROWS FETCH NEXT ${safeLimit} ROWS ONLY`;
       } else {
         sql += ` LIMIT ${safeLimit}`;

@@ -2,7 +2,7 @@
 // from routes/models.js (god-file split). Pure functions: no req/res/db, no
 // closure state. `dbType` is threaded in explicitly (it used to be captured from
 // the handler closure). Covered by tests/sqlSnapshot + tests/measureAgg.
-const { quoteCol, normalizeAggregation } = require('../sqlDialect');
+const { quoteCol, normalizeAggregation, capabilities } = require('../sqlDialect');
 const { castToNumber } = require('./casts');
 const { getOverrideType } = require('./datePart');
 
@@ -61,20 +61,12 @@ function transformAggregates(expression, fns, transform) {
 // Wrap each top-level aggregate so its result is in a decimal/numeric
 // type — prevents the integer-division-truncates-to-0 trap when the
 // user writes a / inside a custom expression. Dialect-aware so it works
-// on every supported backend:
-//   - PG / Azure PG / DuckDB: CAST(... AS NUMERIC) — arbitrary precision
-//   - MySQL / MSSQL / Azure SQL: CAST(... AS DECIMAL(38,10)). MySQL refuses
-//     CAST AS NUMERIC without precision; MSSQL/Azure DEFAULT NUMERIC to scale
-//     0, silently truncating the decimals — pin the scale on both.
-//   - BigQuery: CAST(... AS NUMERIC) — BQ already returns FLOAT64 from
-//     `/` so this is mostly defensive, but harmless
+// on every supported backend — the dialect table's `decimalCast`, which pins an
+// explicit scale wherever a bare NUMERIC would truncate.
 // SUM/AVG/MIN/MAX get the argument cast (preserves decimal precision);
 // COUNT gets cast on its return value (it ignores its argument's type).
 function dialectNumericCast(inner, dbType) {
-  if (dbType === 'mysql' || dbType === 'mssql' || dbType === 'azure_sql') {
-    return `CAST(${inner} AS DECIMAL(38,10))`;
-  }
-  return `CAST(${inner} AS NUMERIC)`;
+  return `CAST(${inner} AS ${capabilities(dbType).decimalCast})`;
 }
 function applyNumericCast(expression, dbType) {
   return transformAggregates(
@@ -90,20 +82,10 @@ function applyNumericCast(expression, dbType) {
 // digits — and T-SQL does the same. Harmless for a number the user reads
 // directly, not for an atom that a later division amplifies: a sub-total
 // rebuilt from a truncated sum lands a couple of units away from the single row
-// it sums, which reads as a bug. MySQL and BigQuery already widen SUM to
-// DOUBLE/FLOAT64, and old MySQL has no CAST AS DOUBLE, so leave their SQL alone.
-// DOUBLE rather than NUMERIC on purpose: DuckDB's NUMERIC is DECIMAL(18,3),
-// which would both round and overflow on a large sum.
-const WIDE_FLOAT = {
-  postgres: 'DOUBLE PRECISION',
-  azure_postgres: 'DOUBLE PRECISION',
-  redshift: 'DOUBLE PRECISION',
-  duckdb: 'DOUBLE',
-  mssql: 'FLOAT',
-  azure_sql: 'FLOAT',
-};
+// it sums, which reads as a bug. The dialect table's `wideFloat` is null where
+// SUM already returns a wide type.
 function widenFloat(inner, dbType) {
-  const t = WIDE_FLOAT[dbType];
+  const t = capabilities(dbType).wideFloat;
   return t ? `CAST(${inner} AS ${t})` : inner;
 }
 
@@ -130,8 +112,7 @@ function buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql = null }) {
   const aggExpr = caseWhenSql
     ? `${agg}(CASE WHEN ${caseWhenSql} THEN ${colExpr} END)`
     : `${agg}(${colExpr})`;
-  const supportsExtractEpoch = dbType === 'postgres' || dbType === 'azure_postgres' || dbType === 'duckdb';
-  return (isInterval && supportsExtractEpoch) ? `EXTRACT(EPOCH FROM ${aggExpr})` : aggExpr;
+  return (isInterval && capabilities(dbType).extractEpoch) ? `EXTRACT(EPOCH FROM ${aggExpr})` : aggExpr;
 }
 
 module.exports = { transformAggregates, dialectNumericCast, applyNumericCast, buildMeasureAggExpr };

@@ -12,7 +12,7 @@
 // measures, x-grain HAVING, measure HAVING/TopN, RLS, distinct, or a dim/filter
 // not conformed to every fact) returns null → the caller's single-query path
 // runs unchanged. Covered by tests/sqlSnapshotJoins (multi-fact).
-const { quoteIdent, quoteCol, quoteTable } = require('../sqlDialect');
+const { quoteIdent, quoteCol, quoteTable, capabilities } = require('../sqlDialect');
 const { deriveJoinKeyword } = require('./joins');
 const { buildMeasureAggExpr } = require('./measureAgg');
 const { buildDimensionExpr } = require('./datePart');
@@ -125,7 +125,7 @@ function buildMultiFactBody({
     // ON. La requête multi-faits partait donc en SQL invalide sur ces deux
     // moteurs — et le snapshot la figeait sans le voir, puisqu'il garde la forme
     // du SQL, pas sa validité.
-    if (dbType === 'mssql' || dbType === 'azure_sql') {
+    if (!capabilities(dbType).joinUsing) {
       // USING fond les deux colonnes de grain en une seule ; ON les laisse
       // côte à côte, dont l'une NULL sur les lignes que l'autre côté n'a pas.
       // Il faut donc rendre ce COALESCE explicite — à la fois dans le SELECT

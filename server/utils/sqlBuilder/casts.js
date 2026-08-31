@@ -14,7 +14,7 @@
  * PostgreSQL — same convention as `utils/sqlDialect.js`.
  */
 
-const { quoteLiteral } = require('../sqlDialect');
+const { quoteLiteral, capabilities } = require('../sqlDialect');
 
 const NUMERIC_TYPES = new Set(['integer', 'decimal', 'number']);
 // Native DB column types that are ALREADY numeric. REPLACE(expr, ',', '.')
@@ -47,18 +47,10 @@ const STRFTIME_FORMATS = {
   yyyymmdd: '%Y%m%d',
 };
 
-// Cast an expression to a string type using the dialect's expected keyword.
-// PostgreSQL / SQL Server / DuckDB accept VARCHAR; MySQL refuses VARCHAR
-// and wants CHAR; BigQuery wants STRING. Used everywhere we coerce values
-// to text for IN / LIKE / equality comparisons.
+// Cast an expression to the dialect's text type (see `textCast` in the dialect
+// table). Used everywhere we coerce values to text for IN / LIKE / equality.
 function castToString(expr, dbType) {
-  if (dbType === 'mysql') return `CAST(${expr} AS CHAR)`;
-  if (dbType === 'bigquery') return `CAST(${expr} AS STRING)`;
-  // A bare VARCHAR is unbounded on PG/DuckDB but means VARCHAR(256) on
-  // Redshift, which truncates a longer value instead of comparing it — an
-  // IN-list would then match rows it shouldn't. 65535 is the type's maximum.
-  if (dbType === 'redshift') return `CAST(${expr} AS VARCHAR(65535))`;
-  return `CAST(${expr} AS VARCHAR)`;
+  return `CAST(${expr} AS ${capabilities(dbType).textCast})`;
 }
 
 // Convert a (possibly text) column expression into a numeric SQL value using
@@ -77,17 +69,8 @@ function castToNumber(expr, dbType, type, nativeType) {
   const cleaned = (wantsInt || isNativeNumericType(nativeType))
     ? expr
     : `REPLACE(${castToString(expr, dbType)}, ',', '.')`;
-  if (dbType === 'mysql') {
-    return wantsInt ? `CAST(${cleaned} AS SIGNED)` : `CAST(${cleaned} AS DECIMAL(38,10))`;
-  }
-  if (dbType === 'azure_sql' || dbType === 'mssql') {
-    return wantsInt ? `CAST(${cleaned} AS INT)` : `CAST(${cleaned} AS DECIMAL(38,10))`;
-  }
-  if (dbType === 'bigquery') {
-    return wantsInt ? `CAST(${cleaned} AS INT64)` : `CAST(${cleaned} AS NUMERIC)`;
-  }
-  // PostgreSQL / Azure PostgreSQL / DuckDB
-  return wantsInt ? `CAST(${cleaned} AS INTEGER)` : `CAST(${cleaned} AS NUMERIC)`;
+  const caps = capabilities(dbType);
+  return `CAST(${cleaned} AS ${wantsInt ? caps.intCast : caps.decimalCast})`;
 }
 
 // Generate the SQL expression that converts a (possibly text) column into
