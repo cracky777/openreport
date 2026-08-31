@@ -96,3 +96,21 @@ for (const dbType of ['postgres', 'redshift', 'mysql', 'mssql']) {
     expect(res.body.sql).toMatchSnapshot();
   });
 }
+
+// Même requête multi-faits, sans dimension : un scorecard qui n'a aucun grain à
+// raccorder, donc CROSS JOIN au lieu de FULL JOIN. Ce chemin n'était couvert par
+// aucun snapshot, et il tombait sur SQL Server pour une deuxième raison — un
+// OFFSET…FETCH sans ORDER BY est une erreur de syntaxe en T-SQL.
+for (const dbType of ['postgres', 'redshift', 'mysql', 'mssql']) {
+  test(`multi-fact sans grain SQL is stable — ${dbType}`, async () => {
+    const owner = seedUser({ role: 'editor' });
+    const ds = seedDatasource({ userId: owner, dbType });
+    const model = seedModel({ userId: owner, datasourceId: ds, selectedTables: MF_TABLES, joins: MF_JOINS, dimensions: MF_DIMENSIONS, measures: MF_MEASURES });
+    const res = await request(app)
+      .post(`/api/models/${model}/query`)
+      .set('x-test-user', owner)
+      .send({ dimensionNames: [], measureNames: ['sales.amt_sum', 'returns.amt_sum'], sqlOnly: true });
+    expect(res.status).toBe(200);
+    expect(res.body.sql).toMatchSnapshot();
+  });
+}

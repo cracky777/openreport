@@ -1881,7 +1881,9 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     // Stable ordering: ORDER BY the first dimension to keep consistent colors across refetches
     if (multiFactBody) {
       // Outer query exposes dim aliases (not the dim exprs), so order by alias.
-      if (multiFactBody.orderByAlias) sql += ` ORDER BY ${multiFactBody.orderByAlias}`;
+      // A grainless scorecard has no alias to name — it still needs an ORDER BY,
+      // because SQL Server's OFFSET…FETCH below is a syntax error without one.
+      sql += multiFactBody.orderByAlias ? ` ORDER BY ${multiFactBody.orderByAlias}` : ' ORDER BY 1';
     } else if (groupByParts.length > 0) {
       sql += ` ORDER BY ${groupByParts[0]}`;
     } else if (selectParts.length > 0) {

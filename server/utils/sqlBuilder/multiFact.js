@@ -106,18 +106,52 @@ function buildMultiFactBody({
     if (!from) { ok = false; break; }
     const fMeasures = selectedMeasures.filter((m) => m.table === fact);
     const mSel = fMeasures.map(measureSelectOf);
-    mSel.forEach((x) => measureAliases.push(x.alias));
+    // `g` = l'indice de la sous-requête d'où sort la mesure. Inutile sous USING
+    // (les alias y sont uniques et non ambigus), indispensable sous ON.
+    mSel.forEach((x) => measureAliases.push({ alias: x.alias, g: subs.length }));
     subs.push(`SELECT ${[...dimSelects, ...mSel.map((x) => x.sql)].join(', ')} FROM ${from}${whereSql}${groupSql}`);
   }
   if (ok && subs.length >= 2) {
     const wrapped = subs.map((s, i) => `(${s}) g${i}`);
-    const joiner = dimAliases.length > 0
-      ? (acc, cur) => `${acc} FULL JOIN ${cur} USING (${dimAliases.join(', ')})`
-      : (acc, cur) => `${acc} CROSS JOIN ${cur}`;
-    const joined = wrapped.reduce((acc, cur, i) => (i === 0 ? cur : joiner(acc, cur)));
+    const measureRefs = measureAliases.map((x) => x.alias);
+
+    // Scorecard sans grain : rien à raccorder, chaque sous-requête rend une ligne.
+    if (dimAliases.length === 0) {
+      const joined = wrapped.reduce((acc, cur, i) => (i === 0 ? cur : `${acc} CROSS JOIN ${cur}`));
+      return { sql: `SELECT ${measureRefs.join(', ')} FROM ${joined}`, orderByAlias: null };
+    }
+
+    // T-SQL n'a pas de clause USING : SQL Server et Azure SQL ne connaissent que
+    // ON. La requête multi-faits partait donc en SQL invalide sur ces deux
+    // moteurs — et le snapshot la figeait sans le voir, puisqu'il garde la forme
+    // du SQL, pas sa validité.
+    if (dbType === 'mssql' || dbType === 'azure_sql') {
+      // USING fond les deux colonnes de grain en une seule ; ON les laisse
+      // côte à côte, dont l'une NULL sur les lignes que l'autre côté n'a pas.
+      // Il faut donc rendre ce COALESCE explicite — à la fois dans le SELECT
+      // final et dans le ON du raccord suivant, qui compare au grain déjà fusionné.
+      const merged = (ai, upTo) => (upTo === 0
+        ? `g0.${dimAliases[ai]}`
+        : `COALESCE(${Array.from({ length: upTo + 1 }, (_, g) => `g${g}.${dimAliases[ai]}`).join(', ')})`);
+      let joined = wrapped[0];
+      for (let i = 1; i < wrapped.length; i++) {
+        const on = dimAliases.map((a, ai) => `${merged(ai, i - 1)} = g${i}.${a}`).join(' AND ');
+        joined = `${joined} FULL JOIN ${wrapped[i]} ON ${on}`;
+      }
+      const dimSelect = dimAliases.map((a, ai) => `${merged(ai, wrapped.length - 1)} AS ${a}`);
+      const measSelect = measureAliases.map((x) => `g${x.g}.${x.alias}`);
+      return {
+        sql: `SELECT ${[...dimSelect, ...measSelect].join(', ')} FROM ${joined}`,
+        orderByAlias: dimAliases[0],
+      };
+    }
+
+    const joined = wrapped.reduce((acc, cur, i) => (i === 0
+      ? cur
+      : `${acc} FULL JOIN ${cur} USING (${dimAliases.join(', ')})`));
     return {
-      sql: `SELECT ${[...dimAliases, ...measureAliases].join(', ')} FROM ${joined}`,
-      orderByAlias: dimAliases.length > 0 ? dimAliases[0] : null,
+      sql: `SELECT ${[...dimAliases, ...measureRefs].join(', ')} FROM ${joined}`,
+      orderByAlias: dimAliases[0],
     };
   }
   return null;
