@@ -85,7 +85,31 @@ function buildDatePartExpr(dim, dbType, columnTypes) {
       default: return col;
     }
   }
-  // PostgreSQL / Azure PostgreSQL / BigQuery
+  // BigQuery shares EXTRACT with PostgreSQL but not the rest, and falling
+  // through to the PG branch made three parts unusable: it has no `TO_CHAR`
+  // (names come from FORMAT_DATE) and no `DOW` part (it is DAYOFWEEK). The
+  // queries came back as `Function not found: TO_CHAR` and `A valid date part
+  // name is required but found DOW` — an error on the visual, not a wrong
+  // number, so year/month kept working and nobody suspected the rest.
+  //
+  // `castToDate` always hands us a DATE here (PARSE_DATE or a CAST), so
+  // FORMAT_DATE is the right formatter — no need to guess TIMESTAMP vs DATE.
+  if (dbType === 'bigquery') {
+    switch (dim.datePart) {
+      case 'num_year': return `EXTRACT(YEAR FROM ${dateExpr})`;
+      case 'num_month': return `EXTRACT(MONTH FROM ${dateExpr})`;
+      case 'name_month': return `FORMAT_DATE('%B', ${dateExpr})`;
+      case 'num_week': return `EXTRACT(WEEK FROM ${dateExpr})`;
+      // 1 = Sunday … 7 = Saturday. Each dialect numbers this its own way
+      // (PG starts at 0, SQL Server follows DATEFIRST) — the part is meant to
+      // group and sort within one connection, never to be compared across two.
+      case 'num_day_of_week': return `EXTRACT(DAYOFWEEK FROM ${dateExpr})`;
+      case 'name_day': return `FORMAT_DATE('%A', ${dateExpr})`;
+      default: return col;
+    }
+  }
+
+  // PostgreSQL / Azure PostgreSQL
   switch (dim.datePart) {
     case 'num_year': return `EXTRACT(YEAR FROM ${dateExpr})`;
     case 'num_month': return `EXTRACT(MONTH FROM ${dateExpr})`;
