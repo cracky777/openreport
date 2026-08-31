@@ -484,7 +484,10 @@ async function tryServeFromRollup(opts) {
   for (const g of groups) for (const a of g.atoms) finalAtomSelects.push(qIdent(a.col));
 
   let sql = `SELECT ${[...finalDimSelects, ...finalAtomSelects].join(', ')} FROM ${fromSql}`;
-  if (dimNameCols.length > 0) sql += ` ORDER BY ${dimNameCols[0]}`;
+  // Toutes les dimensions, comme sur le chemin live : un ORDER BY partiel
+  // ferait ressortir les mêmes lignes dans un ordre différent selon que la
+  // requête passe par le cache ou par la source.
+  if (dimNameCols.length > 0) sql += ` ORDER BY ${dimNameCols.join(', ')}`;
   // No LIMIT at all when a top_n/bottom_n or measure filter (HAVING) is in
   // play: both run in memory below and must see EVERY rollup row first —
   // the true top-N can be cut off by a LIMIT, and a pre-truncated HAVING

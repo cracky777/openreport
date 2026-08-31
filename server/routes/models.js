@@ -1878,14 +1878,19 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     // with a dialect-aware ORDER BY <aggExpr> <dir> [NULLS handling] + limit.
     sql += buildTopNOrderLimit(topNOverride, dbType);
   } else {
-    // Stable ordering: ORDER BY the first dimension to keep consistent colors across refetches
+    // Stable ordering across refetches. Every group-by dimension has to be in
+    // the ORDER BY, not just the first: two rows sharing the first dimension
+    // are otherwise free to come back in either order, and they do — the plan,
+    // the parallel workers and the cache state all change it between two runs
+    // of the identical query. A grouped bar chart derives its legend order from
+    // the row order, so the series silently swapped places on any refetch.
     if (multiFactBody) {
       // Outer query exposes dim aliases (not the dim exprs), so order by alias.
       // A grainless scorecard has no alias to name — it still needs an ORDER BY,
       // because SQL Server's OFFSET…FETCH below is a syntax error without one.
-      sql += multiFactBody.orderByAlias ? ` ORDER BY ${multiFactBody.orderByAlias}` : ' ORDER BY 1';
+      sql += multiFactBody.orderByAliases ? ` ORDER BY ${multiFactBody.orderByAliases}` : ' ORDER BY 1';
     } else if (groupByParts.length > 0) {
-      sql += ` ORDER BY ${groupByParts[0]}`;
+      sql += ` ORDER BY ${groupByParts.join(', ')}`;
     } else if (selectParts.length > 0) {
       sql += ` ORDER BY 1`;
     }

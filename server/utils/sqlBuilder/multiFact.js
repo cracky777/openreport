@@ -7,7 +7,7 @@
 // fact independently at the requested grain, then FULL JOIN the per-fact results
 // on the dimension aliases (CROSS JOIN for a grainless scorecard).
 //
-// Pure: reads only its inputs, returns `{ sql, orderByAlias }` or null. Strictly
+// Pure: reads only its inputs, returns `{ sql, orderByAliases }` or null. Strictly
 // gated to the clean common case; anything exotic (custom/HLL/override/filtered
 // measures, x-grain HAVING, measure HAVING/TopN, RLS, distinct, or a dim/filter
 // not conformed to every fact) returns null → the caller's single-query path
@@ -118,7 +118,7 @@ function buildMultiFactBody({
     // Scorecard sans grain : rien à raccorder, chaque sous-requête rend une ligne.
     if (dimAliases.length === 0) {
       const joined = wrapped.reduce((acc, cur, i) => (i === 0 ? cur : `${acc} CROSS JOIN ${cur}`));
-      return { sql: `SELECT ${measureRefs.join(', ')} FROM ${joined}`, orderByAlias: null };
+      return { sql: `SELECT ${measureRefs.join(', ')} FROM ${joined}`, orderByAliases: null };
     }
 
     // T-SQL n'a pas de clause USING : SQL Server et Azure SQL ne connaissent que
@@ -142,7 +142,7 @@ function buildMultiFactBody({
       const measSelect = measureAliases.map((x) => `g${x.g}.${x.alias}`);
       return {
         sql: `SELECT ${[...dimSelect, ...measSelect].join(', ')} FROM ${joined}`,
-        orderByAlias: dimAliases[0],
+        orderByAliases: dimAliases.join(', '),
       };
     }
 
@@ -151,7 +151,7 @@ function buildMultiFactBody({
       : `${acc} FULL JOIN ${cur} USING (${dimAliases.join(', ')})`));
     return {
       sql: `SELECT ${[...dimAliases, ...measureRefs].join(', ')} FROM ${joined}`,
-      orderByAlias: dimAliases[0],
+      orderByAliases: dimAliases.join(', '),
     };
   }
   return null;
