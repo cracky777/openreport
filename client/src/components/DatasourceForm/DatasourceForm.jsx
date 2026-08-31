@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import api from '../../utils/api';
 import { toast } from '../Toast/toast';
+import { TbLock } from 'react-icons/tb';
 import ConnectorIcon from '../AppShell/ConnectorIcon';
 
 const _hs0 = { display: 'flex', gap: 12 };
@@ -13,19 +14,24 @@ const _hs6 = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, colo
 const _hs7 = { display: 'flex', gap: 8, justifyContent: 'flex-end' };
 const _hs8 = { display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4, fontWeight: 500 };
 
+// `family` regroupe ce que l'utilisateur perçoit comme un même moteur, pas ce
+// qu'un juriste appellerait un éditeur : Azure PostgreSQL est du PostgreSQL
+// hébergé, il se cherche à côté de lui et non dans un rayon Microsoft. L'ordre
+// de la liste est l'ordre des familles.
 const DB_TYPES = [
-  { value: 'postgres', label: 'PostgreSQL', defaultPort: 5432 },
-  { value: 'azure_postgres', label: 'Azure PostgreSQL', defaultPort: 5432 },
-  { value: 'redshift', label: 'Redshift', defaultPort: 5439 },
-  { value: 'mysql', label: 'MySQL', defaultPort: 3306 },
-  { value: 'clickhouse', label: 'ClickHouse', defaultPort: 8123 },
-  { value: 'databricks', label: 'Databricks', defaultPort: 443 },
-  { value: 'azure_sql', label: 'Azure SQL', defaultPort: 1433 },
-  { value: 'mssql', label: 'SQL Server', defaultPort: 1433 },
-  { value: 'snowflake', label: 'Snowflake', defaultPort: 0, noHost: true },
-  { value: 'bigquery', label: 'BigQuery', defaultPort: 0, noHost: true },
-  { value: 'duckdb', label: 'DuckDB', defaultPort: 0, noHost: true },
+  { value: 'postgres', label: 'PostgreSQL', family: 'postgres', defaultPort: 5432 },
+  { value: 'azure_postgres', label: 'Azure PostgreSQL', family: 'postgres', defaultPort: 5432 },
+  { value: 'redshift', label: 'Redshift', family: 'postgres', defaultPort: 5439 },
+  { value: 'mysql', label: 'MySQL', family: 'mysql', defaultPort: 3306 },
+  { value: 'azure_sql', label: 'Azure SQL', family: 'sqlserver', defaultPort: 1433 },
+  { value: 'mssql', label: 'SQL Server', family: 'sqlserver', defaultPort: 1433 },
+  { value: 'bigquery', label: 'BigQuery', family: 'cloud', defaultPort: 0, noHost: true },
+  { value: 'snowflake', label: 'Snowflake', family: 'cloud', defaultPort: 0, noHost: true },
+  { value: 'databricks', label: 'Databricks', family: 'cloud', defaultPort: 443 },
+  { value: 'clickhouse', label: 'ClickHouse', family: 'olap', defaultPort: 8123 },
+  { value: 'duckdb', label: 'DuckDB', family: 'olap', defaultPort: 0, noHost: true },
 ];
+const FAMILY_ORDER = ['postgres', 'mysql', 'sqlserver', 'cloud', 'olap'];
 
 // Moteurs dont le certificat peut légitimement ne pas être vérifiable.
 // BigQuery et DuckDB n'ont pas de socket TLS à nous : l'un passe par le SDK
@@ -39,28 +45,35 @@ const PREVIEW_DEFAULT = ['redshift', 'mssql', 'snowflake', 'clickhouse', 'databr
 const PREVIEW_HINT = 'Preview connector — written and unit-tested, but never run against a real engine. '
   + 'An operator can enable it with OPENREPORT_PREVIEW_CONNECTORS.';
 
-// Le libellé le plus long — « Azure PostgreSQL » — tient à cette largeur avec
-// son logo ; en dessous, un badge « Preview » le faisait couper.
-const typeGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(182px, 1fr))', gap: 8 };
+// « Azure PostgreSQL », le libellé le plus long, tient tout juste à cette
+// largeur avec son logo et son cadenas.
+const typeGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(136px, 1fr))', gap: 6 };
 const typeCardStyle = {
-  display: 'flex', alignItems: 'center', gap: 8, padding: '9px 11px', borderRadius: 6,
+  display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 5,
   border: '1px solid var(--border-default)', background: 'var(--bg-panel)',
   color: 'var(--text-primary)',
-  cursor: 'pointer', font: 'inherit', fontSize: 13, textAlign: 'left', width: '100%',
+  cursor: 'pointer', font: 'inherit', fontSize: 12, textAlign: 'left', width: '100%',
 };
 const typeCardSelected = { borderColor: 'var(--accent-primary)', boxShadow: '0 0 0 1px var(--accent-primary)' };
 // Pas d'opacité globale : elle délaverait aussi le fond de la carte, et sur le
 // thème sombre le libellé tomberait sous le seuil de lisibilité. Chaque couleur
 // est nommée, donc chaque thème garde son contraste.
+//
+// Le fond est `--bg-app`, seule surface plus SOMBRE que le panneau dans les deux
+// thèmes : `--bg-subtle` recule bien en clair mais éclaircit en sombre, où les
+// cartes verrouillées se mettaient à ressortir au lieu de s'effacer. Et le
+// libellé reste en `--text-muted` : c'est le fond creusé, l'icône éteinte et le
+// cadenas qui disent « indisponible », pas un texte qu'on ne peut plus lire —
+// `--text-disabled` y tombait à 2,3:1.
 const typeCardLocked = {
-  cursor: 'not-allowed', background: 'var(--bg-subtle)',
-  borderColor: 'var(--border-subtle)', color: 'var(--text-disabled)',
+  cursor: 'not-allowed', background: 'var(--bg-app)',
+  borderColor: 'var(--border-subtle)', color: 'var(--text-muted)',
 };
 const typeCardLabel = { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
-const previewBadge = {
-  fontSize: 10, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600,
-  padding: '1px 5px', borderRadius: 3, background: 'var(--bg-hover)', color: 'var(--text-muted)',
-};
+// Un badge « PREVIEW » mangeait 44 px de la carte, soit plus que le libellé
+// lui-même une fois les cartes réduites. Le cadenas dit la même chose en onze,
+// et l'infobulle comme la note sous la grille portent la phrase entière.
+const previewLock = { display: 'inline-flex', alignItems: 'center', color: 'var(--text-disabled)', flexShrink: 0 };
 const previewNote = { marginTop: 6, fontSize: 12, lineHeight: 1.45, color: 'var(--text-secondary)' };
 
 const blankForm = {
@@ -103,6 +116,23 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
       .catch(() => { /* on garde le verrouillage par défaut */ });
     return () => { alive = false; };
   }, []);
+
+  // Ce qu'on peut brancher passe devant ce qu'on ne peut pas — un écran dont la
+  // moitié est inerte se lit mal si l'inerte est intercalé. À l'intérieur de
+  // chaque moitié, les familles restent groupées. Recalculé et non figé : le
+  // serveur peut ouvrir une préversion, et la carte doit alors remonter.
+  const orderedTypes = useMemo(() => {
+    const rank = (t) => [
+      unavailable.has(t.value) ? 1 : 0,
+      FAMILY_ORDER.indexOf(t.family),
+      DB_TYPES.indexOf(t),
+    ];
+    return [...DB_TYPES].sort((a, b) => {
+      const ra = rank(a); const rb = rank(b);
+      for (let i = 0; i < ra.length; i++) if (ra[i] !== rb[i]) return ra[i] - rb[i];
+      return 0;
+    });
+  }, [unavailable]);
 
   const updateForm = (key, value) => {
     setForm((prev) => {
@@ -162,7 +192,7 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
             porte aussi l'état « préversion », qu'une liste déroulante ne
             pourrait qu'écrire entre parenthèses. */}
         <div style={typeGridStyle} role="radiogroup" aria-label="Database type">
-          {DB_TYPES.map((t) => {
+          {orderedTypes.map((t) => {
             const locked = unavailable.has(t.value);
             const selected = form.dbType === t.value;
             return (
@@ -180,9 +210,9 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
                   ...(locked ? typeCardLocked : null),
                 }}
               >
-                <ConnectorIcon dbType={t.value} size={18} muted={locked} />
+                <ConnectorIcon dbType={t.value} size={16} muted={locked} />
                 <span style={typeCardLabel}>{t.label}</span>
-                {locked && <span style={previewBadge}>Preview</span>}
+                {locked && <TbLock size={11} style={previewLock} aria-hidden="true" />}
               </button>
             );
           })}
