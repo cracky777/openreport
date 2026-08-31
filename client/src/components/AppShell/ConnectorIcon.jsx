@@ -1,4 +1,4 @@
-import { SiPostgresql, SiMysql, SiSnowflake, SiGooglebigquery, SiDuckdb } from 'react-icons/si';
+import { SiPostgresql, SiMysql, SiSnowflake, SiGooglebigquery, SiDuckdb, SiClickhouse } from 'react-icons/si';
 import { FaAws } from 'react-icons/fa';
 import { DiMsqlServer } from 'react-icons/di';
 import { VscAzure } from 'react-icons/vsc';
@@ -25,6 +25,7 @@ const MARKS = {
   mssql:          { Icon: DiMsqlServer,     color: 'var(--brand-mssql)',          label: 'SQL Server' },
   azure_sql:      { Icon: VscAzure,         color: 'var(--brand-azure-sql)',      label: 'Azure SQL Database' },
   bigquery:       { Icon: SiGooglebigquery, color: 'var(--brand-bigquery)',       label: 'Google BigQuery' },
+  clickhouse:     { Icon: SiClickhouse,      color: 'var(--brand-clickhouse)',     label: 'ClickHouse' },
   duckdb:         { Icon: SiDuckdb,         color: 'var(--brand-duckdb)',         label: 'DuckDB' },
 };
 

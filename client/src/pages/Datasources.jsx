@@ -54,6 +54,7 @@ const DB_TYPE_LABELS = {
   azure_postgres: 'Azure PostgreSQL',
   redshift: 'Amazon Redshift',
   mysql: 'MySQL',
+  clickhouse: 'ClickHouse',
   azure_sql: 'Azure SQL Database',
   mssql: 'SQL Server',
   snowflake: 'Snowflake',

@@ -109,6 +109,14 @@ function castToDate(expr, dbType, fmt) {
     return `CAST(${expr} AS DATE)`;
   }
 
+  if (dbType === 'clickhouse') {
+    // parseDateTime lit la même syntaxe MySQL que STRFTIME_FORMATS — mêmes
+    // jetons, donc rien à traduire. toDate ramène ensuite au grain jour.
+    const m = STRFTIME_FORMATS[f];
+    if (m) return `toDate(parseDateTime(${expr}, '${m}'))`;
+    return `toDate(${expr})`;
+  }
+
   if (dbType === 'duckdb') {
     const m = STRFTIME_FORMATS[f];
     if (m) return `CAST(STRPTIME(${expr}, '${m}') AS DATE)`;

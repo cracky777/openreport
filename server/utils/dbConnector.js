@@ -491,6 +491,76 @@ function buildConnector(datasource) {
     };
   }
 
+  // ─── ClickHouse ───
+  if (db_type === 'clickhouse') {
+    const { createClient } = require('@clickhouse/client');
+    // ClickHouse écoute l'interface HTTP sur 8123 en clair et 8443 en TLS. Deux
+    // ports pour un même serveur : le défaut suit donc la case, sinon activer
+    // le TLS ferait taper au mauvais endroit sans autre symptôme qu'un timeout.
+    const secure = !!extra.secure;
+    const proto = secure ? 'https' : 'http';
+    const resolvedPort = port || (secure ? 8443 : 8123);
+    const client = createClient({
+      url: `${proto}://${host}:${resolvedPort}`,
+      username: db_user || 'default',
+      password: db_password || '',
+      database: db_name || 'default',
+      application: 'OpenReport',
+    });
+
+    const rowsOf = async (sqlText, opts = {}) => {
+      const rs = await client.query({ query: sqlText, format: 'JSONEachRow', ...opts });
+      return rs.json();
+    };
+
+    const queryCancellable = (sqlText, opts = {}) => {
+      const timeoutMs = Number(opts.timeoutMs) || 0;
+      const controller = new AbortController();
+      const promise = rowsOf(sqlText, {
+        abort_signal: controller.signal,
+        // Coupure côté serveur en plus de l'abandon côté client : sans elle,
+        // abandonner la réponse HTTP laisse la requête finir sur le cluster.
+        ...(timeoutMs > 0
+          ? { clickhouse_settings: { max_execution_time: Math.max(1, Math.round(timeoutMs / 1000)) } }
+          : {}),
+      });
+      return withTimeout({ promise, cancel: () => controller.abort() }, timeoutMs);
+    };
+
+    // La « base » de ClickHouse est ce que les autres moteurs appellent schéma :
+    // une table de la base courante se nomme nue, les autres se qualifient.
+    const defaultDb = db_name || 'default';
+    return {
+      query: (sqlText) => rowsOf(sqlText),
+      queryCancellable,
+      executeDDL: async (sqlText) => { await client.command({ query: sqlText }); },
+      testConnection: async () => { await client.ping(); return true; },
+      getTables: async () => {
+        const rows = await rowsOf(`
+          SELECT database, name FROM system.tables
+          WHERE database NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema')
+            AND NOT is_temporary
+          ORDER BY database, name
+        `);
+        return rows.map((r) => (r.database === defaultDb ? r.name : `${r.database}.${r.name}`));
+      },
+      getColumns: async (tableName) => {
+        const parts = String(tableName).split('.');
+        const database = parts.length > 1 ? parts[0] : defaultDb;
+        const table = parts.length > 1 ? parts[1] : parts[0];
+        const rows = await rowsOf(
+          'SELECT name AS column_name, type AS data_type FROM system.columns'
+          + ' WHERE database = {db:String} AND table = {tbl:String} ORDER BY position',
+          { query_params: { db: database, tbl: table } },
+        );
+        // ClickHouse n'a pas de colonne « nullable » : la nullabilité fait
+        // partie du type, écrit Nullable(...).
+        return rows.map((r) => ({ ...r, is_nullable: /^Nullable\(/.test(r.data_type) ? 'YES' : 'NO' }));
+      },
+      close: () => client.close(),
+    };
+  }
+
   // ─── Snowflake ───
   if (db_type === 'snowflake') {
     const snowflake = require('snowflake-sdk');

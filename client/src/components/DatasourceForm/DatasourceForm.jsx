@@ -18,6 +18,7 @@ const DB_TYPES = [
   { value: 'azure_postgres', label: 'Azure PostgreSQL', defaultPort: 5432 },
   { value: 'redshift', label: 'Redshift', defaultPort: 5439 },
   { value: 'mysql', label: 'MySQL', defaultPort: 3306 },
+  { value: 'clickhouse', label: 'ClickHouse', defaultPort: 8123 },
   { value: 'azure_sql', label: 'Azure SQL', defaultPort: 1433 },
   { value: 'mssql', label: 'SQL Server', defaultPort: 1433 },
   { value: 'snowflake', label: 'Snowflake', defaultPort: 0, noHost: true },
@@ -33,7 +34,7 @@ const SELF_SIGNED_OPT_OUT = new Set(['postgres', 'azure_postgres', 'redshift', '
 // Connecteurs écrits mais jamais exécutés contre le moteur qu'ils visent. Le
 // serveur fait foi (utils/connectorStatus) ; cette copie ne sert qu'à verrouiller
 // avant que sa réponse arrive.
-const PREVIEW_DEFAULT = ['redshift', 'mssql', 'snowflake'];
+const PREVIEW_DEFAULT = ['redshift', 'mssql', 'snowflake', 'clickhouse'];
 const PREVIEW_HINT = 'Preview connector — written and unit-tested, but never run against a real engine. '
   + 'An operator can enable it with OPENREPORT_PREVIEW_CONNECTORS.';
 
@@ -303,6 +304,23 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
             </Field>
           </div>
         </>
+      )}
+
+      {/* ClickHouse serves HTTP on 8123 and HTTPS on 8443 — two ports for one
+          server, so the checkbox moves the default port with it. */}
+      {form.dbType === 'clickhouse' && (
+        <Field label="TLS">
+          <label style={_hs6}>
+            <input type="checkbox"
+              checked={!!form.extraConfig?.secure}
+              onChange={(e) => {
+                const secure = e.target.checked;
+                updateForm('extraConfig', { ...form.extraConfig, secure });
+                updateForm('port', secure ? 8443 : 8123);
+              }} />
+            Connect over HTTPS (port 8443)
+          </label>
+        </Field>
       )}
 
       {/* SQL Server on-prem: a named instance has no fixed port — the SQL Browser

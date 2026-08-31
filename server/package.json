@@ -17,6 +17,7 @@
     "supertest": "^7.0.0"
   },
   "dependencies": {
+    "@clickhouse/client": "^1.23.1",
     "@google-cloud/bigquery": "^8.1.1",
     "adm-zip": "^0.6.0",
     "bcryptjs": "^2.4.3",

@@ -63,6 +63,25 @@ function buildDatePartExpr(dim, dbType, columnTypes) {
       default: return col;
     }
   }
+  // ClickHouse nomme ses parties de date par des fonctions dédiées.
+  //
+  // PIÈGE : formatDateTime y suit la syntaxe MySQL, pas strftime. '%M' est le
+  // nom complet du MOIS (pas la minute) et '%W' celui du jour ; '%B', qui
+  // donnerait le mois ailleurs, n'existe pas ici. Le nom du mois passe donc par
+  // monthName(), qui ne laisse aucune place au doute, et seul le jour dépend du
+  // format — noté ici pour que personne ne « corrige » %W en %A.
+  if (dbType === 'clickhouse') {
+    switch (dim.datePart) {
+      case 'num_year': return `toYear(${dateExpr})`;
+      case 'num_month': return `toMonth(${dateExpr})`;
+      case 'name_month': return `monthName(${dateExpr})`;
+      case 'num_week': return `toWeek(${dateExpr})`;
+      case 'num_day_of_week': return `toDayOfWeek(${dateExpr})`;
+      case 'name_day': return `formatDateTime(${dateExpr}, '%W')`;
+      default: return col;
+    }
+  }
+
   if (dbType === 'mysql') {
     switch (dim.datePart) {
       case 'num_year': return `YEAR(${dateExpr})`;

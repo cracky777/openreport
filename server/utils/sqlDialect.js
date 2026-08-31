@@ -126,6 +126,17 @@ const CAPABILITIES = {
     wideFloat: null, // FLOAT/REAL/DOUBLE sont tous du 64 bits chez Snowflake
     nullsLast: 'inline', pagination: 'limit', extractEpoch: false, joinUsing: true,
   },
+  // ClickHouse cite par accent grave comme MySQL, et l'échappement d'un
+  // identifiant y suit les mêmes règles que celui d'un littéral — le doublement
+  // vaut donc des deux côtés. L'antislash y est significatif dans une chaîne,
+  // d'où escapesBackslash. Son type colonne INTERVAL n'existe pas (INTERVAL n'y
+  // sert qu'à l'arithmétique de dates), et sum(Float32) rend déjà du Float64.
+  clickhouse: {
+    quoting: 'backtick', escapesBackslash: true, quoteEscape: 'double',
+    textCast: 'String', intCast: 'Int64', decimalCast: 'Decimal(38, 10)',
+    wideFloat: null,
+    nullsLast: 'inline', pagination: 'limit', extractEpoch: false, joinUsing: true,
+  },
   duckdb: {
     quoting: 'ansi', escapesBackslash: false,
     quoteEscape: 'double',

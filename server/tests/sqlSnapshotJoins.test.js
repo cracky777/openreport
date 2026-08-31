@@ -39,7 +39,7 @@ async function compile(dbType, body) {
   return res.body.sql;
 }
 
-for (const dbType of ['postgres', 'redshift', 'snowflake', 'mysql', 'mssql']) {
+for (const dbType of ['postgres', 'redshift', 'snowflake', 'mysql', 'clickhouse', 'mssql']) {
   // Dim on the joined table + a fact measure → forces the INNER JOIN + ON clause
   // and the group/order over a cross-table projection.
   test(`join + group SQL is stable — ${dbType}`, async () => {
@@ -83,7 +83,7 @@ const MF_MEASURES = [
   { name: 'returns.amt_sum', table: 'returns', column: 'amount', aggregation: 'sum', label: 'retours' },
 ];
 
-for (const dbType of ['postgres', 'redshift', 'snowflake', 'mysql', 'mssql']) {
+for (const dbType of ['postgres', 'redshift', 'snowflake', 'mysql', 'clickhouse', 'mssql']) {
   test(`multi-fact fan-out SQL is stable — ${dbType}`, async () => {
     const owner = seedUser({ role: 'editor' });
     const ds = seedDatasource({ userId: owner, dbType });
@@ -101,7 +101,7 @@ for (const dbType of ['postgres', 'redshift', 'snowflake', 'mysql', 'mssql']) {
 // raccorder, donc CROSS JOIN au lieu de FULL JOIN. Ce chemin n'était couvert par
 // aucun snapshot, et il tombait sur SQL Server pour une deuxième raison — un
 // OFFSET…FETCH sans ORDER BY est une erreur de syntaxe en T-SQL.
-for (const dbType of ['postgres', 'redshift', 'snowflake', 'mysql', 'mssql']) {
+for (const dbType of ['postgres', 'redshift', 'snowflake', 'mysql', 'clickhouse', 'mssql']) {
   test(`multi-fact sans grain SQL is stable — ${dbType}`, async () => {
     const owner = seedUser({ role: 'editor' });
     const ds = seedDatasource({ userId: owner, dbType });
