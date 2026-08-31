@@ -5,7 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const { passport, requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const authHooks = require('../hooks/auth');
-const { loginWithFreshSession, destroySessionsForUser } = require('../utils/sessionRegistry');
+const { loginWithFreshSession } = require('../utils/sessionRegistry');
 
 const router = express.Router();
 
