@@ -15,6 +15,7 @@ const _hs8 = { display: 'block', fontSize: 13, color: 'var(--text-secondary)', m
 const DB_TYPES = [
   { value: 'postgres', label: 'PostgreSQL', defaultPort: 5432 },
   { value: 'azure_postgres', label: 'Azure PostgreSQL', defaultPort: 5432 },
+  { value: 'redshift', label: 'Amazon Redshift', defaultPort: 5439 },
   { value: 'mysql', label: 'MySQL', defaultPort: 3306 },
   { value: 'azure_sql', label: 'Azure SQL Database', defaultPort: 1433 },
   { value: 'bigquery', label: 'Google BigQuery', defaultPort: 0, noHost: true },
@@ -134,8 +135,10 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
       )}
 
       {/* TLS verification is on by default; let on-prem servers with a
-          self-signed / internal-CA cert opt out (pg + mysql only). */}
-      {(form.dbType === 'postgres' || form.dbType === 'mysql') && (
+          self-signed / internal-CA cert opt out (pg + mysql + redshift).
+          Redshift needs it for older clusters, whose certificate chains to
+          the Redshift CA bundle rather than to a root Node already trusts. */}
+      {(form.dbType === 'postgres' || form.dbType === 'mysql' || form.dbType === 'redshift') && (
         <Field label="SSL">
           <label style={_hs6}>
             <input type="checkbox"

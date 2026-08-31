@@ -54,6 +54,10 @@ const STRFTIME_FORMATS = {
 function castToString(expr, dbType) {
   if (dbType === 'mysql') return `CAST(${expr} AS CHAR)`;
   if (dbType === 'bigquery') return `CAST(${expr} AS STRING)`;
+  // A bare VARCHAR is unbounded on PG/DuckDB but means VARCHAR(256) on
+  // Redshift, which truncates a longer value instead of comparing it — an
+  // IN-list would then match rows it shouldn't. 65535 is the type's maximum.
+  if (dbType === 'redshift') return `CAST(${expr} AS VARCHAR(65535))`;
   return `CAST(${expr} AS VARCHAR)`;
 }
 

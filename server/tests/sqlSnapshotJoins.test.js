@@ -39,7 +39,7 @@ async function compile(dbType, body) {
   return res.body.sql;
 }
 
-for (const dbType of ['postgres', 'mysql', 'mssql']) {
+for (const dbType of ['postgres', 'redshift', 'mysql', 'mssql']) {
   // Dim on the joined table + a fact measure → forces the INNER JOIN + ON clause
   // and the group/order over a cross-table projection.
   test(`join + group SQL is stable — ${dbType}`, async () => {
@@ -83,7 +83,7 @@ const MF_MEASURES = [
   { name: 'returns.amt_sum', table: 'returns', column: 'amount', aggregation: 'sum', label: 'retours' },
 ];
 
-for (const dbType of ['postgres', 'mysql', 'mssql']) {
+for (const dbType of ['postgres', 'redshift', 'mysql', 'mssql']) {
   test(`multi-fact fan-out SQL is stable — ${dbType}`, async () => {
     const owner = seedUser({ role: 'editor' });
     const ds = seedDatasource({ userId: owner, dbType });

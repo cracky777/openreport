@@ -18,6 +18,9 @@ const DIALECTS = {
   postgres:       { open: '"', close: '"', esc: (s) => s.replace(/"/g, '""') },
   azure_postgres: { open: '"', close: '"', esc: (s) => s.replace(/"/g, '""') },
   duckdb:         { open: '"', close: '"', esc: (s) => s.replace(/"/g, '""') },
+  // Redshift forked PostgreSQL 8.0.2 — same quoting, and the same backslash
+  // handling (standard_conforming_strings is on and cannot be turned off).
+  redshift:       { open: '"', close: '"', esc: (s) => s.replace(/"/g, '""') },
   // MSSQL/Azure SQL accept `"name"` only when QUOTED_IDENTIFIER is ON (which
   // is the default since SQL Server 2000, but linked-server connections can
   // flip it off). Square brackets are unambiguous — always allowed.

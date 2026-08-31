@@ -3,10 +3,12 @@
 // where the identical cascade appeared twice (main query + x-grain subquery).
 // `topN` is { aggExpr, direction, n }. Covered by tests/orderLimit.
 function buildTopNOrderLimit(topN, dbType) {
-  // NULL-handling on ORDER BY is dialect-specific. Postgres / DuckDB / BigQuery
-  // accept "NULLS LAST" inline; MySQL emulates with "<col> IS NULL"; SQL Server
-  // / Azure SQL have neither (aggregates over a non-empty group rarely NULL).
-  const supportsNullsLast = dbType === 'postgres' || dbType === 'duckdb' || dbType === 'bigquery';
+  // NULL-handling on ORDER BY is dialect-specific. Postgres / Redshift / DuckDB
+  // / BigQuery accept "NULLS LAST" inline; MySQL emulates with "<col> IS NULL";
+  // SQL Server / Azure SQL have neither (aggregates over a non-empty group
+  // rarely NULL).
+  const supportsNullsLast = dbType === 'postgres' || dbType === 'redshift'
+    || dbType === 'duckdb' || dbType === 'bigquery';
   let out;
   if (dbType === 'mysql') {
     out = ` ORDER BY ${topN.aggExpr} IS NULL, ${topN.aggExpr} ${topN.direction}`;

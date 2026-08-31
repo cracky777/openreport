@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+// Jest Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`join + filter + limit/offset SQL is stable — mssql 1`] = `"SELECT [customers].[country] AS [country], (SELECT SUM([orders].[amount]) FROM [orders] WHERE [orders].[status] = 'paid') AS [total] FROM [orders] LEFT JOIN [customers] ON [orders].[customer_id] = [customers].[id] WHERE [orders].[status] = 'paid' AND [customers].[country] IN ('FR', 'DE') GROUP BY [customers].[country] ORDER BY [customers].[country] OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY"`;
 
@@ -6,14 +6,20 @@ exports[`join + filter + limit/offset SQL is stable — mysql 1`] = `"SELECT \`c
 
 exports[`join + filter + limit/offset SQL is stable — postgres 1`] = `"SELECT "customers"."country" AS "country", (SELECT SUM("orders"."amount") FROM "orders" WHERE "orders"."status" = 'paid') AS "total" FROM "orders" LEFT JOIN "customers" ON "orders"."customer_id" = "customers"."id" WHERE "orders"."status" = 'paid' AND "customers"."country" IN ('FR', 'DE') GROUP BY "customers"."country" ORDER BY "customers"."country" LIMIT 10 OFFSET 20"`;
 
+exports[`join + filter + limit/offset SQL is stable — redshift 1`] = `"SELECT "customers"."country" AS "country", (SELECT SUM("orders"."amount") FROM "orders" WHERE "orders"."status" = 'paid') AS "total" FROM "orders" LEFT JOIN "customers" ON "orders"."customer_id" = "customers"."id" WHERE "orders"."status" = 'paid' AND "customers"."country" IN ('FR', 'DE') GROUP BY "customers"."country" ORDER BY "customers"."country" LIMIT 10 OFFSET 20"`;
+
 exports[`join + group SQL is stable — mssql 1`] = `"SELECT [customers].[country] AS [country], (SELECT SUM([orders].[amount]) FROM [orders]) AS [total], (SELECT COUNT(*) FROM [orders]) AS [nb] FROM [customers] GROUP BY [customers].[country] ORDER BY [customers].[country] OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY"`;
 
 exports[`join + group SQL is stable — mysql 1`] = `"SELECT \`customers\`.\`country\` AS \`country\`, (SELECT SUM(\`orders\`.\`amount\`) FROM \`orders\`) AS \`total\`, (SELECT COUNT(*) FROM \`orders\`) AS \`nb\` FROM \`customers\` GROUP BY \`customers\`.\`country\` ORDER BY \`customers\`.\`country\` LIMIT 1000"`;
 
 exports[`join + group SQL is stable — postgres 1`] = `"SELECT "customers"."country" AS "country", (SELECT SUM("orders"."amount") FROM "orders") AS "total", (SELECT COUNT(*) FROM "orders") AS "nb" FROM "customers" GROUP BY "customers"."country" ORDER BY "customers"."country" LIMIT 1000"`;
 
+exports[`join + group SQL is stable — redshift 1`] = `"SELECT "customers"."country" AS "country", (SELECT SUM("orders"."amount") FROM "orders") AS "total", (SELECT COUNT(*) FROM "orders") AS "nb" FROM "customers" GROUP BY "customers"."country" ORDER BY "customers"."country" LIMIT 1000"`;
+
 exports[`multi-fact fan-out SQL is stable — mssql 1`] = `"SELECT [produit], [ventes], [retours] FROM (SELECT [product].[name] AS [produit], SUM([sales].[amount]) AS [ventes] FROM [sales] LEFT JOIN [product] ON [product].[id] = [sales].[product_id] GROUP BY [product].[name]) g0 FULL JOIN (SELECT [product].[name] AS [produit], SUM([returns].[amount]) AS [retours] FROM [returns] LEFT JOIN [product] ON [product].[id] = [returns].[product_id] GROUP BY [product].[name]) g1 USING ([produit]) ORDER BY [produit] OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY"`;
 
 exports[`multi-fact fan-out SQL is stable — mysql 1`] = `"SELECT \`produit\`, \`ventes\`, \`retours\` FROM (SELECT \`product\`.\`name\` AS \`produit\`, SUM(\`sales\`.\`amount\`) AS \`ventes\` FROM \`sales\` LEFT JOIN \`product\` ON \`product\`.\`id\` = \`sales\`.\`product_id\` GROUP BY \`product\`.\`name\`) g0 FULL JOIN (SELECT \`product\`.\`name\` AS \`produit\`, SUM(\`returns\`.\`amount\`) AS \`retours\` FROM \`returns\` LEFT JOIN \`product\` ON \`product\`.\`id\` = \`returns\`.\`product_id\` GROUP BY \`product\`.\`name\`) g1 USING (\`produit\`) ORDER BY \`produit\` LIMIT 1000"`;
 
 exports[`multi-fact fan-out SQL is stable — postgres 1`] = `"SELECT "produit", "ventes", "retours" FROM (SELECT "product"."name" AS "produit", SUM("sales"."amount") AS "ventes" FROM "sales" LEFT JOIN "product" ON "product"."id" = "sales"."product_id" GROUP BY "product"."name") g0 FULL JOIN (SELECT "product"."name" AS "produit", SUM("returns"."amount") AS "retours" FROM "returns" LEFT JOIN "product" ON "product"."id" = "returns"."product_id" GROUP BY "product"."name") g1 USING ("produit") ORDER BY "produit" LIMIT 1000"`;
+
+exports[`multi-fact fan-out SQL is stable — redshift 1`] = `"SELECT "produit", "ventes", "retours" FROM (SELECT "product"."name" AS "produit", SUM("sales"."amount") AS "ventes" FROM "sales" LEFT JOIN "product" ON "product"."id" = "sales"."product_id" GROUP BY "product"."name") g0 FULL JOIN (SELECT "product"."name" AS "produit", SUM("returns"."amount") AS "retours" FROM "returns" LEFT JOIN "product" ON "product"."id" = "returns"."product_id" GROUP BY "product"."name") g1 USING ("produit") ORDER BY "produit" LIMIT 1000"`;

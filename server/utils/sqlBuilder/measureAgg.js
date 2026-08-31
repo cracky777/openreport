@@ -97,6 +97,7 @@ function applyNumericCast(expression, dbType) {
 const WIDE_FLOAT = {
   postgres: 'DOUBLE PRECISION',
   azure_postgres: 'DOUBLE PRECISION',
+  redshift: 'DOUBLE PRECISION',
   duckdb: 'DOUBLE',
   mssql: 'FLOAT',
   azure_sql: 'FLOAT',

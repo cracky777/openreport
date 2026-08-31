@@ -52,6 +52,7 @@ const _hs13 = { display: 'flex', alignItems: 'center', gap: 6 };
 const DB_TYPE_LABELS = {
   postgres: 'PostgreSQL',
   azure_postgres: 'Azure PostgreSQL',
+  redshift: 'Amazon Redshift',
   mysql: 'MySQL',
   azure_sql: 'Azure SQL Database',
   bigquery: 'Google BigQuery',

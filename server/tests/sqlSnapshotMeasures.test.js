@@ -27,7 +27,7 @@ async function compile(dbType, { measures, dimensions } = {}, body) {
   return res.body.sql;
 }
 
-for (const dbType of ['postgres', 'mysql', 'mssql']) {
+for (const dbType of ['postgres', 'redshift', 'mysql', 'mssql']) {
   // Custom expression with a division → applyNumericCast wraps each aggregate so
   // integer division doesn't truncate (SUM(x)→SUM(CAST(x AS NUMERIC))).
   test(`custom-expression measure SQL is stable — ${dbType}`, async () => {

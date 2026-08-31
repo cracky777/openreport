@@ -103,11 +103,14 @@ function buildConnector(datasource) {
   const extra = extra_config ? (typeof extra_config === 'string' ? JSON.parse(extra_config) : extra_config) : {};
   if (extra.credentials) extra.credentials = decrypt(extra.credentials);
 
-  // ─── PostgreSQL / Azure PostgreSQL ───
-  if (db_type === 'postgres' || db_type === 'azure_postgres') {
+  // ─── PostgreSQL / Azure PostgreSQL / Amazon Redshift ───
+  // Redshift speaks the PostgreSQL wire protocol, so `pg` drives it unchanged.
+  // Only three things differ: the default port, the extra system schemas its
+  // catalog exposes, and the SQL dialect (handled in utils/sqlBuilder).
+  if (db_type === 'postgres' || db_type === 'azure_postgres' || db_type === 'redshift') {
     const pgConfig = {
       host,
-      port: port || 5432,
+      port: port || (db_type === 'redshift' ? 5439 : 5432),
       database: db_name,
       user: db_user,
       password: db_password,
@@ -194,11 +197,20 @@ function buildConnector(datasource) {
       executeDDL: async (sql) => { await pool.query(sql); },
       testConnection: async () => { const client = await pool.connect(); client.release(); return true; },
       getTables: async () => {
+        // Redshift's catalog carries two system schemas PostgreSQL doesn't have;
+        // listed here rather than in the shared NOT IN so a real PG database with
+        // a user schema called `catalog_history` still shows it. Spectrum
+        // external tables live in svv_external_tables, not information_schema,
+        // so they are not listed.
+        const hidden = db_type === 'redshift'
+          ? ['pg_catalog', 'information_schema', 'pg_internal', 'catalog_history']
+          : ['pg_catalog', 'information_schema'];
+        const placeholders = hidden.map((_, i) => `$${i + 1}`).join(', ');
         const result = await pool.query(`
           SELECT table_schema, table_name FROM information_schema.tables
-          WHERE table_schema NOT IN ('pg_catalog', 'information_schema') AND table_type = 'BASE TABLE'
+          WHERE table_schema NOT IN (${placeholders}) AND table_type = 'BASE TABLE'
           ORDER BY table_schema, table_name
-        `);
+        `, hidden);
         return result.rows.map((r) => r.table_schema === 'public' ? r.table_name : `${r.table_schema}.${r.table_name}`);
       },
       getColumns: async (tableName) => {
