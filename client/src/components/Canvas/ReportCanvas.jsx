@@ -121,7 +121,13 @@ export default function ReportCanvas({
 
   const gridSize = (settings.snapToGrid ?? true) ? (settings.gridSize || 20) : 1;
   const snap = useCallback((v) => Math.round(v / gridSize) * gridSize, [gridSize]);
-  const snapGrid = (settings.snapToGrid ?? true) ? [gridSize, gridSize] : undefined;
+  // The grid react-draggable enforces is in SCREEN pixels — it quantises the
+  // raw pointer delta, before the scale is divided out. Handed the page-pixel
+  // grid it snapped a scaled-down canvas to cells larger than its own, and the
+  // widget advanced one cell per tick whatever the cursor did: it crawled
+  // behind the mouse at exactly the raw distance, the scale correction rounded
+  // away. Scaled here, one cell on screen is one cell on the page.
+  const snapGrid = (settings.snapToGrid ?? true) ? [gridSize * scale, gridSize * scale] : undefined;
 
   // Groups of merged widgets (gid -> items, only groups with >= 2 present
   // members). Used to render the single shared frame + drive solid-block
@@ -199,8 +205,11 @@ export default function ReportCanvas({
     const { dir } = resizing;
 
     const handleMouseMove = (e) => {
-      const dx = e.clientX - resizing.startX;
-      const dy = e.clientY - resizing.startY;
+      // Pointer deltas are screen pixels; `w`/`h` are page pixels. On a canvas
+      // scaled to fit, the two are not the same unit — the widget grew by the
+      // raw distance, so the edge crept away from the handle under the cursor.
+      const dx = (e.clientX - resizing.startX) / scale;
+      const dy = (e.clientY - resizing.startY) / scale;
       const updates = {};
 
       // Width changes (snap to grid)
@@ -240,7 +249,7 @@ export default function ReportCanvas({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [resizing, layout, onLayoutChange, emitLive]);
+  }, [resizing, layout, onLayoutChange, emitLive, scale, snap]);
 
   const startResize = useCallback((e, id, dir = 'se') => {
     e.stopPropagation();
@@ -407,6 +416,7 @@ export default function ReportCanvas({
               onDrillReset={onDrillReset}
               crossHighlight={crossHighlight}
               snapGrid={snapGrid}
+              scale={scale}
               reportFilters={reportFilters}
               editInteractionsActive={editInteractionsActive}
               isExcludedFromSource={isExcludedFromSource}

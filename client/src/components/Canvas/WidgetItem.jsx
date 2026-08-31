@@ -97,7 +97,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners, stacked }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, scale = 1, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners, stacked }) {
   const nodeRef = useRef(null);
   const [showSql, setShowSql] = useState(false);
   // Hover state for the in-flight cancel button — the X icon is hidden
@@ -179,6 +179,14 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
       disabled={readOnly}
       cancel=".widget-content, .resize-handle"
       grid={snapGrid}
+      // The canvas is a fixed page scaled down to fit (`fitToWidth`, the
+      // default), so a pointer that travels 100px on screen has travelled
+      // 100/scale page pixels. Without this the widget was moved by the RAW
+      // delta and lagged the cursor by (1 - scale) of the distance: the visual
+      // no longer followed the mouse, and on a long move the cursor ended up
+      // outside it — so the click that closes the gesture landed on the canvas,
+      // which deselects, and the configuration bar vanished on drop.
+      scale={scale}
     >
       <div
         ref={nodeRef}

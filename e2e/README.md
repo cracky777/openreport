@@ -11,6 +11,7 @@ n'est atteignable par un test unitaire — c'est la raison d'être de ce harnais
 | `warming-burst.spec.js` | Redimensionner un widget ne déclenche aucun `GET /cache-schedules/warming`. |
 | `viewer-race.spec.js` | Deux filtres enchaînés : la réponse lente du premier ne doit pas écraser celle du second. |
 | `shell-compact.spec.js` | La coquille et l'éditeur sur petit écran : ruban, en-tête, barre d'outils, feuille de réglages — et le glisser d'un champ vers une zone, au doigt comme à la souris. |
+| `canvas-scale.spec.js` | L'éditeur travaille sur une page mise à l'échelle : un visuel déplacé ou redimensionné parcourt la même distance que le curseur, et reste sélectionné après le lâcher. |
 | `viewer-stacked.spec.js` | Sous 640 px le viewer empile les widgets en pleine largeur ; au-dessus, et en mode « scale », le canevas en pixels est intact. |
 
 Chaque scénario a été validé en réinjectant la régression : sans son correctif, le test échoue —
