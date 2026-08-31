@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import api from '../../utils/api';
 import { toast } from '../Toast/toast';
 import ConnectorIcon from '../AppShell/ConnectorIcon';
@@ -30,6 +30,15 @@ const DB_TYPES = [
 // Google, l'autre est un fichier local.
 const SELF_SIGNED_OPT_OUT = new Set(['postgres', 'azure_postgres', 'redshift', 'mysql', 'mssql', 'azure_sql']);
 
+// Connecteurs écrits mais jamais exécutés contre le moteur qu'ils visent. Le
+// serveur fait foi (utils/connectorStatus) ; cette copie ne sert qu'à verrouiller
+// avant que sa réponse arrive.
+const PREVIEW_DEFAULT = ['redshift', 'mssql', 'snowflake'];
+const PREVIEW_HINT = 'Preview connector — written and unit-tested, but never run against a real engine. '
+  + 'An operator can enable it with OPENREPORT_PREVIEW_CONNECTORS.';
+
+// Le libellé le plus long — « Azure PostgreSQL » — tient à cette largeur avec
+// son logo ; en dessous, un badge « Preview » le faisait couper.
 const typeGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(182px, 1fr))', gap: 8 };
 const typeCardStyle = {
   display: 'flex', alignItems: 'center', gap: 8, padding: '9px 11px', borderRadius: 6,
@@ -38,7 +47,19 @@ const typeCardStyle = {
   cursor: 'pointer', font: 'inherit', fontSize: 13, textAlign: 'left', width: '100%',
 };
 const typeCardSelected = { borderColor: 'var(--accent-primary)', boxShadow: '0 0 0 1px var(--accent-primary)' };
+// Pas d'opacité globale : elle délaverait aussi le fond de la carte, et sur le
+// thème sombre le libellé tomberait sous le seuil de lisibilité. Chaque couleur
+// est nommée, donc chaque thème garde son contraste.
+const typeCardLocked = {
+  cursor: 'not-allowed', background: 'var(--bg-subtle)',
+  borderColor: 'var(--border-subtle)', color: 'var(--text-disabled)',
+};
 const typeCardLabel = { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const previewBadge = {
+  fontSize: 10, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600,
+  padding: '1px 5px', borderRadius: 3, background: 'var(--bg-hover)', color: 'var(--text-muted)',
+};
+const previewNote = { marginTop: 6, fontSize: 12, lineHeight: 1.45, color: 'var(--text-secondary)' };
 
 const blankForm = {
   name: '',
@@ -63,9 +84,23 @@ const blankForm = {
  */
 export default function DatasourceForm({ editingId = null, initialValues = null, onSaved, onCancel }) {
   const [form, setForm] = useState(initialValues || blankForm);
+  // Quels connecteurs ce déploiement refuse. La liste vient du serveur, pas
+  // d'une constante du client : un opérateur peut lever le garde-fou avec
+  // OPENREPORT_PREVIEW_CONNECTORS, et l'écran doit alors le refléter. Tant que
+  // la réponse n'est pas là, on verrouille — le contraire proposerait un
+  // connecteur que l'enregistrement rejetterait ensuite.
+  const [unavailable, setUnavailable] = useState(() => new Set(PREVIEW_DEFAULT));
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api.get('/datasources/connectors')
+      .then((res) => { if (alive) setUnavailable(new Set(res.data?.unavailable || [])); })
+      .catch(() => { /* on garde le verrouillage par défaut */ });
+    return () => { alive = false; };
+  }, []);
 
   const updateForm = (key, value) => {
     setForm((prev) => {
@@ -121,9 +156,12 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
 
       <Field label="Type">
         {/* Une grille plutôt qu'un <select> : un <option> ne sait pas porter
-            d'icône, et c'est le logo qu'on reconnaît avant le libellé. */}
+            d'icône, et c'est le logo qu'on reconnaît avant le libellé. Elle
+            porte aussi l'état « préversion », qu'une liste déroulante ne
+            pourrait qu'écrire entre parenthèses. */}
         <div style={typeGridStyle} role="radiogroup" aria-label="Database type">
           {DB_TYPES.map((t) => {
+            const locked = unavailable.has(t.value);
             const selected = form.dbType === t.value;
             return (
               <button
@@ -131,16 +169,25 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
                 type="button"
                 role="radio"
                 aria-checked={selected}
-                title={t.label}
-                onClick={() => updateForm('dbType', t.value)}
-                style={{ ...typeCardStyle, ...(selected ? typeCardSelected : null) }}
+                disabled={locked}
+                title={locked ? PREVIEW_HINT : t.label}
+                onClick={() => !locked && updateForm('dbType', t.value)}
+                style={{
+                  ...typeCardStyle,
+                  ...(selected ? typeCardSelected : null),
+                  ...(locked ? typeCardLocked : null),
+                }}
               >
-                <ConnectorIcon dbType={t.value} size={18} />
+                <ConnectorIcon dbType={t.value} size={18} muted={locked} />
                 <span style={typeCardLabel}>{t.label}</span>
+                {locked && <span style={previewBadge}>Preview</span>}
               </button>
             );
           })}
         </div>
+        {[...unavailable].includes(form.dbType) && (
+          <div style={previewNote}>{PREVIEW_HINT}</div>
+        )}
       </Field>
 
       {/* Standard DB fields */}

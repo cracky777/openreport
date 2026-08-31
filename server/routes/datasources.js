@@ -4,6 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const { authFor } = require('../middleware/auth');
 const db = require('../db');
 const { createConnection, invalidateDatasource } = require('../utils/dbConnector');
+const { PREVIEW, isAvailable, unavailableMessage } = require('../utils/connectorStatus');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
 const { encrypt } = require('../utils/secretCrypto');
@@ -95,6 +96,15 @@ router.get('/', authFor('write'), (req, res) => {
 });
 
 // Get single datasource — project the safe columns (never secrets).
+// Quels connecteurs sont en préversion, et lesquels le déploiement autorise
+// malgré tout. Déclaré AVANT `/:id`, sinon Express lirait « connectors » comme
+// un identifiant. Le client s'en sert pour griser ; l'autorité reste les
+// contrôles de /test, POST / et PUT /:id — une UI ne ferme pas une API.
+router.get('/connectors', authFor('write'), (req, res) => {
+  const preview = [...PREVIEW];
+  res.json({ preview, unavailable: preview.filter((t) => !isAvailable(t)) });
+});
+
 router.get('/:id', authFor('write'), (req, res) => {
   const s = getDatasource(req.params.id, req);
   if (!s) {
@@ -249,6 +259,10 @@ async function hostResolvesInternally(rawHost) {
 router.post('/test', authFor('write'), async (req, res) => {
   const { dbType, host, port, dbName, dbUser, dbPassword, extraConfig } = req.body;
 
+  if (!isAvailable(dbType)) {
+    return res.status(400).json({ success: false, message: unavailableMessage(dbType) });
+  }
+
   if (hostIsBlocked(host) || await hostResolvesInternally(host)) {
     return res.status(400).json({ success: false, message: 'This host is not reachable from the server.' });
   }
@@ -282,6 +296,8 @@ router.post('/', authFor('write'), async (req, res) => {
   if (!name || !dbType || (needsHost && !host) || !dbName) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
+  // Le <select> grise déjà ces types, ce qui n'engage que le navigateur.
+  if (!isAvailable(dbType)) return res.status(400).json({ error: unavailableMessage(dbType) });
   // Same guard as /test — enforced HERE too, or the row is saved with an
   // internal host and reached through /:id/tables, /:id/query, etc.
   if (needsHost && (hostIsBlocked(host) || await hostResolvesInternally(host))) {
@@ -321,6 +337,12 @@ router.put('/:id', authFor('write'), async (req, res) => {
   const { name, dbType, host, port, dbName, dbUser, dbPassword, extraConfig } = req.body;
   const newDbType = dbType || existing.db_type;
   const needsHost = !['bigquery', 'duckdb', 'snowflake'].includes(newDbType);
+  // Seulement si le type CHANGE : une datasource déjà enregistrée sur un
+  // connecteur passé en préversion doit rester modifiable (renommage, mot de
+  // passe), sinon on la rendrait inutilisable rétroactivement.
+  if (newDbType !== existing.db_type && !isAvailable(newDbType)) {
+    return res.status(400).json({ error: unavailableMessage(newDbType) });
+  }
   const newHost = host !== undefined ? host : existing.host;
   // Same reason as on create: for DuckDB the name IS a server path, so it stays
   // whatever the import pipeline set. Everything else on the row is editable.
