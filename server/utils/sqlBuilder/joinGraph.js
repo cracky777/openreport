@@ -15,6 +15,13 @@ const { extractColumnRefsFromExpression } = require('../columnTypeResolver');
 // (rather than every from_table) is what lets an EXPLICIT fact defined as
 // `fact.fk (*) → dim.pk (1)` — i.e. the fact is the from_table — still count as a
 // fact, while snowflake bridge tables (which ARE a one-side somewhere) stay dims.
+//
+// A "1" only demotes a table when it faces a "*". The set exists to name the
+// tables a join would FAN OUT, and a 1:1 join fans out nothing: read literally,
+// a single `fact (1) → detail (1)` relation stripped the fact of its status,
+// every measure on it fell through to the dim-only grand total, and each row of
+// the visual showed the same number. One such join in a model was enough to flatten
+// every other one.
 function computeRealFacts(allJoins) {
   const list = Array.isArray(allJoins) ? allJoins : [];
   const many = new Set();
@@ -24,8 +31,8 @@ function computeRealFacts(allJoins) {
     const c = j.cardinality || {};
     if (c.from === '*') many.add(j.from_table);
     if (c.to === '*') many.add(j.to_table);
-    if (c.from === '1') one.add(j.from_table);
-    if (c.to === '1') one.add(j.to_table);
+    if (c.from === '1' && c.to === '*') one.add(j.from_table);
+    if (c.to === '1' && c.from === '*') one.add(j.to_table);
     if (!c.from && !c.to) { many.add(j.to_table); one.add(j.from_table); }
   }
   return new Set([...many].filter((t) => !one.has(t)));

@@ -33,6 +33,19 @@ describe('factConformedDimTables — fact = many side never on a one side', () =
     expect([...facts]).toEqual(['fact']);
   });
 
+  // A `1` facing another `1` is not a dim: the one-side set names the tables a
+  // join would fan out, and 1:1 fans out nothing. Read literally it emptied
+  // `facts`, so the plan came back empty and the model was never cached.
+  test('a 1:1 detail table does not cost the fact its status', () => {
+    const { facts, conformed } = factConformedDimTables([
+      { from_table: 'products', from_column: 'id', to_table: 'order_items', to_column: 'product_id', cardinality: { from: '1', to: '*' } },
+      { from_table: 'inventory', from_column: 'id', to_table: 'order_items', to_column: 'inv_id', cardinality: { from: '1', to: '1' } },
+    ]);
+    expect([...facts]).toEqual(['order_items']);
+    expect(conformed.get('order_items').has('products')).toBe(true);
+    expect(conformed.get('order_items').has('inventory')).toBe(true);
+  });
+
   test('snowflake child dim (a `*` side but also a `1` side) stays a dim', () => {
     const { facts, conformed } = factConformedDimTables([
       { from_table: 'd_client', from_column: 'id', to_table: 'd_dest', to_column: 'client_id', cardinality: { from: '1', to: '*' } },

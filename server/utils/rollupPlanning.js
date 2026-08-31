@@ -272,8 +272,12 @@ function factConformedDimTables(joins) {
     const c = j.cardinality || {};
     if (c.from === '*') manyTables.add(j.from_table);
     if (c.to === '*') manyTables.add(j.to_table);
-    if (c.from === '1') oneTables.add(j.from_table);
-    if (c.to === '1') oneTables.add(j.to_table);
+    // A `1` only demotes a table when it faces a `*`: the set names the tables
+    // a join would fan out, and a 1:1 relation fans out nothing. Read
+    // literally, one `fact (1) → detail (1)` join emptied `facts`, the plan
+    // came back empty and the model was never cached.
+    if (c.from === '1' && c.to === '*') oneTables.add(j.from_table);
+    if (c.to === '1' && c.from === '*') oneTables.add(j.to_table);
     if (!c.from && !c.to) { oneTables.add(j.from_table); manyTables.add(j.to_table); } // legacy dim→fact
   }
   const facts = new Set([...manyTables].filter((t) => !oneTables.has(t)));

@@ -61,3 +61,42 @@ describe('unrelated-table measure is a scalar total, not a cross join', () => {
     expect(res.body.error).toMatch(/unrelated tables/i);
   });
 });
+
+// A 1:1 join must not cost a fact its status.
+//
+// `realFacts` is "a many side that is never a one side", and a 1:1 relation put
+// its BOTH ends on the one side. So a star schema that also carried a detail
+// table joined 1:1 to the fact — `order_items (1) → inventory_items (1)`, next
+// to the ordinary `products (1) → order_items (*)` — had no fact left at all.
+// Every measure then fell through to the unrelated-table treatment above, and
+// each row of the visual showed the same grand total. One such join flattened
+// every other join in the model.
+function starWithOneToOneDetail() {
+  const u = seedUser({ role: 'editor' });
+  const ds = seedDatasource({ userId: u, dbType: 'postgres' });
+  const model = seedModel({
+    userId: u, datasourceId: ds, selectedTables: ['order_items', 'products', 'inventory_items'],
+    dimensions: [
+      { name: 'products.category', table: 'products', column: 'category', type: 'string', label: 'category' },
+    ],
+    measures: [
+      { name: 'order_items.sale_price_sum', table: 'order_items', column: 'sale_price', aggregation: 'sum', label: 'sale_price' },
+    ],
+    joins: [
+      { from_table: 'products', from_column: 'id', to_table: 'order_items', to_column: 'product_id', cardinality: { from: '1', to: '*' } },
+      { from_table: 'inventory_items', from_column: 'id', to_table: 'order_items', to_column: 'inventory_item_id', cardinality: { from: '1', to: '1' } },
+    ],
+  });
+  return { u, model };
+}
+
+describe('a 1:1 join leaves the fact a fact', () => {
+  test('the measure aggregates per group, through the join', async () => {
+    const { u, model } = starWithOneToOneDetail();
+    const sql = await sqlFor(model, u, ['products.category'], ['order_items.sale_price_sum']);
+    expect(sql).toMatch(/SUM\("order_items"\."sale_price"\)/);
+    expect(sql).toMatch(/FROM "order_items" LEFT JOIN "products" ON/);
+    // The grand-total shape: the same number on every row.
+    expect(sql).not.toMatch(/\(SELECT SUM\("order_items"\."sale_price"\) FROM "order_items"\)/);
+  });
+});
