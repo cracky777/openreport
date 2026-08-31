@@ -52,6 +52,10 @@ const QUOTING = {
  *   quoting          how identifiers are delimited — see QUOTING above
  *   escapesBackslash `\` opens an escape sequence inside a string literal, so
  *                    a user-supplied `'` would end the string and inject SQL
+ *   quoteEscape      how a single quote is neutralised inside a literal:
+ *                    'double'    — '' , the SQL standard
+ *                    'backslash' — \' ; BigQuery reads '' as two adjacent
+ *                    string literals and refuses the query outright
  *   textCast         CAST target for text — compares values in IN lists
  *   intCast          CAST target for a column overridden to an integer
  *   decimalCast      CAST target for a column overridden to a decimal
@@ -69,6 +73,7 @@ const QUOTING = {
 const CAPABILITIES = {
   postgres: {
     quoting: 'ansi', escapesBackslash: false,
+    quoteEscape: 'double',
     textCast: 'VARCHAR', intCast: 'INTEGER', decimalCast: 'NUMERIC',
     wideFloat: 'DOUBLE PRECISION',
     nullsLast: 'inline', pagination: 'limit', extractEpoch: true, joinUsing: true,
@@ -78,12 +83,14 @@ const CAPABILITIES = {
   // and its INTERVAL column type is late and exposes no EPOCH extract.
   redshift: {
     quoting: 'ansi', escapesBackslash: false,
+    quoteEscape: 'double',
     textCast: 'VARCHAR(65535)', intCast: 'INTEGER', decimalCast: 'NUMERIC',
     wideFloat: 'DOUBLE PRECISION',
     nullsLast: 'inline', pagination: 'limit', extractEpoch: false, joinUsing: true,
   },
   mysql: {
     quoting: 'backtick', escapesBackslash: true,
+    quoteEscape: 'double',
     // MySQL refuses CAST(x AS VARCHAR) and wants CHAR; a bare NUMERIC there
     // truncates to zero decimals, hence the explicit scale.
     textCast: 'CHAR', intCast: 'SIGNED', decimalCast: 'DECIMAL(38,10)',
@@ -92,12 +99,14 @@ const CAPABILITIES = {
   },
   mssql: {
     quoting: 'bracket', escapesBackslash: false,
+    quoteEscape: 'double',
     textCast: 'VARCHAR', intCast: 'INT', decimalCast: 'DECIMAL(38,10)',
     wideFloat: 'FLOAT',
     nullsLast: null, pagination: 'fetch', extractEpoch: false, joinUsing: false,
   },
   bigquery: {
     quoting: 'bqtick', escapesBackslash: true,
+    quoteEscape: 'backslash',
     textCast: 'STRING', intCast: 'INT64', decimalCast: 'NUMERIC',
     wideFloat: null, // FLOAT64 already
     nullsLast: 'inline', pagination: 'limit',
@@ -107,6 +116,7 @@ const CAPABILITIES = {
   },
   duckdb: {
     quoting: 'ansi', escapesBackslash: false,
+    quoteEscape: 'double',
     textCast: 'VARCHAR', intCast: 'INTEGER', decimalCast: 'NUMERIC',
     // DOUBLE rather than NUMERIC: DuckDB's NUMERIC is DECIMAL(18,3), which
     // would both round and overflow on a large sum.
@@ -168,11 +178,14 @@ function quoteCol(table, column, dbType) {
 // Returns the raw escaped string (no surrounding quotes). Callers wrap
 // with their own `'<escaped>'`.
 function escapeLiteral(value, dbType) {
-  const s = String(value);
-  if (capabilities(dbType).escapesBackslash) {
-    return s.replace(/\\/g, '\\\\').replace(/'/g, "''");
-  }
-  return s.replace(/'/g, "''");
+  const caps = capabilities(dbType);
+  // L'ordre compte : doubler les antislashs d'abord, sinon celui qu'on ajoute
+  // pour échapper une apostrophe serait doublé à son tour.
+  let s = String(value);
+  if (caps.escapesBackslash) s = s.replace(/\\/g, '\\\\');
+  return caps.quoteEscape === 'backslash'
+    ? s.replace(/'/g, "\\'")
+    : s.replace(/'/g, "''");
 }
 
 // Convenience wrapper returning a complete quoted literal — `'foo''bar'`.

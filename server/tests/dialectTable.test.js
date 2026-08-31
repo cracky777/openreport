@@ -20,6 +20,7 @@ const BACKSLASH = String.fromCharCode(92);
 const AXES = {
   quoting: (v) => ['ansi', 'bracket', 'backtick', 'bqtick'].includes(v),
   escapesBackslash: (v) => typeof v === 'boolean',
+  quoteEscape: (v) => v === 'double' || v === 'backslash',
   textCast: (v) => typeof v === 'string' && v.length > 0,
   intCast: (v) => typeof v === 'string' && v.length > 0,
   decimalCast: (v) => typeof v === 'string' && v.length > 0,
@@ -31,7 +32,7 @@ const AXES = {
 };
 
 describe('la table est complète', () => {
-  test.each(dialectTypes())('%s déclare les dix axes, chacun avec une valeur admise', (dbType) => {
+  test.each(dialectTypes())('%s déclare les onze axes, chacun avec une valeur admise', (dbType) => {
     const caps = capabilities(dbType);
     for (const [axis, isValid] of Object.entries(AXES)) {
       expect({ axis, value: caps[axis] }).toEqual({ axis, value: caps[axis] });
@@ -87,14 +88,38 @@ describe('la ligne sécurité — sortir d’un identifiant ou d’un littéral'
   });
 
   test('seuls MySQL et BigQuery traitent l’antislash comme une échappée', () => {
-    const raw = "O'Brien" + BACKSLASH;
+    const raw = 'chemin' + BACKSLASH + 'fin';
     for (const dbType of dialectTypes()) {
       const doubled = capabilities(dbType).escapesBackslash;
       expect(quoteLiteral(raw, dbType))
-        .toBe("'O''Brien" + (doubled ? BACKSLASH + BACKSLASH : BACKSLASH) + "'");
+        .toBe("'chemin" + (doubled ? BACKSLASH + BACKSLASH : BACKSLASH) + "fin'");
     }
     expect(capabilities('mysql').escapesBackslash).toBe(true);
     expect(capabilities('bigquery').escapesBackslash).toBe(true);
     expect(capabilities('postgres').escapesBackslash).toBe(false);
+  });
+
+  // BigQuery ne connaît pas le doublement : il lit '' comme deux littéraux
+  // collés et refuse la requête — « concatenated string literals must be
+  // separated by whitespace ». Toute valeur portant une apostrophe (O'Brien,
+  // L'Oréal) faisait donc échouer le visuel, ce qu'aucun test ne voyait parce
+  // qu'ils pinaient tous la forme doublée.
+  test('BigQuery échappe l’apostrophe par antislash, les autres la doublent', () => {
+    expect(quoteLiteral("O'Brien", 'bigquery')).toBe("'O" + BACKSLASH + "'Brien'");
+    for (const dbType of dialectTypes()) {
+      if (capabilities(dbType).quoteEscape === 'backslash') continue;
+      expect(quoteLiteral("O'Brien", dbType)).toBe("'O''Brien'");
+    }
+  });
+
+  test('une apostrophe ne peut pas refermer le littéral, quel que soit le dialecte', () => {
+    for (const dbType of dialectTypes()) {
+      const caps = capabilities(dbType);
+      const body = quoteLiteral("x' OR '1'='1", dbType).slice(1, -1);
+      const neutralise = caps.quoteEscape === 'backslash'
+        ? body.split(BACKSLASH + "'").join('')
+        : body.split("''").join('');
+      expect(neutralise).not.toContain("'");
+    }
   });
 });
