@@ -18,9 +18,15 @@ const DB_TYPES = [
   { value: 'redshift', label: 'Amazon Redshift', defaultPort: 5439 },
   { value: 'mysql', label: 'MySQL', defaultPort: 3306 },
   { value: 'azure_sql', label: 'Azure SQL Database', defaultPort: 1433 },
+  { value: 'mssql', label: 'SQL Server', defaultPort: 1433 },
   { value: 'bigquery', label: 'Google BigQuery', defaultPort: 0, noHost: true },
   { value: 'duckdb', label: 'DuckDB', defaultPort: 0, noHost: true },
 ];
+
+// Moteurs dont le certificat peut légitimement ne pas être vérifiable.
+// BigQuery et DuckDB n'ont pas de socket TLS à nous : l'un passe par le SDK
+// Google, l'autre est un fichier local.
+const SELF_SIGNED_OPT_OUT = new Set(['postgres', 'azure_postgres', 'redshift', 'mysql', 'mssql', 'azure_sql']);
 
 const blankForm = {
   name: '',
@@ -134,11 +140,13 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
         </>
       )}
 
-      {/* TLS verification is on by default; let on-prem servers with a
-          self-signed / internal-CA cert opt out (pg + mysql + redshift).
-          Redshift needs it for older clusters, whose certificate chains to
-          the Redshift CA bundle rather than to a root Node already trusts. */}
-      {(form.dbType === 'postgres' || form.dbType === 'mysql' || form.dbType === 'redshift') && (
+      {/* TLS verification is on by default; let a server with a self-signed or
+          internal-CA cert opt out. Redshift needs it for older clusters, whose
+          certificate chains to the Redshift CA bundle rather than to a root
+          Node already trusts; an on-prem SQL Server needs it because its
+          default certificate is self-signed. The connection stays encrypted
+          either way — only the certificate check is waived. */}
+      {SELF_SIGNED_OPT_OUT.has(form.dbType) && (
         <Field label="SSL">
           <label style={_hs6}>
             <input type="checkbox"
@@ -175,6 +183,16 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
                 : '{"type":"service_account","project_id":"..."}'} />
           </Field>
         </>
+      )}
+
+      {/* SQL Server on-prem: a named instance has no fixed port — the SQL Browser
+          service resolves it from the name, so the port field is ignored then. */}
+      {form.dbType === 'mssql' && (
+        <Field label="Named instance (optional)">
+          <input style={inputStyle} value={form.extraConfig?.instanceName || ''}
+            onChange={(e) => updateForm('extraConfig', { ...form.extraConfig, instanceName: e.target.value })}
+            placeholder="SQLEXPRESS — leave blank for a default instance on the port above" />
+        </Field>
       )}
 
       {/* DuckDB fields */}

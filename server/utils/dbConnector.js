@@ -309,18 +309,28 @@ function buildConnector(datasource) {
     // mid-flight, and bump the floor to 10 minutes by default.
     const requestTimeoutMs = parseInt(process.env.MSSQL_REQUEST_TIMEOUT_MS || '600000', 10);
     const connectionTimeoutMs = parseInt(process.env.MSSQL_CONNECTION_TIMEOUT_MS || '15000', 10);
+    // An on-prem named instance (SERVER\SQLEXPRESS) listens on a port the SQL
+    // Browser hands out at connect time, so there is none to configure — and
+    // passing one alongside instanceName makes tedious skip the lookup and dial
+    // the wrong port. Azure SQL never has named instances.
+    const instanceName = String(extra.instanceName || '').trim();
     const config = {
       server: host,
-      port: port || 1433,
+      ...(instanceName ? {} : { port: port || 1433 }),
       database: db_name,
       user: db_user,
       password: db_password,
       options: {
+        // Always encrypt. An on-prem SQL Server ships a self-signed certificate,
+        // which is why the trust opt-out exists — but waiving the certificate
+        // check is not the same as sending credentials in clear, and only the
+        // former is on offer.
         encrypt: true,
         // Same opt-out as pg/mysql, same key. Hardcoded to true, no SQL Server
         // certificate was ever verified: credentials and results travelled to
         // whoever answered, unauthenticated.
         trustServerCertificate: !!extra.allowSelfSignedCert,
+        ...(instanceName ? { instanceName } : {}),
       },
       connectionTimeout: connectionTimeoutMs,
       requestTimeout: requestTimeoutMs,

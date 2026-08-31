@@ -55,6 +55,7 @@ const DB_TYPE_LABELS = {
   redshift: 'Amazon Redshift',
   mysql: 'MySQL',
   azure_sql: 'Azure SQL Database',
+  mssql: 'SQL Server',
   bigquery: 'Google BigQuery',
   duckdb: 'DuckDB',
 };
