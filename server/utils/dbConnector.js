@@ -379,7 +379,21 @@ function buildConnector(datasource) {
     if (extra.keyFilename) bqOptions.keyFilename = extra.keyFilename;
     if (extra.credentials) bqOptions.credentials = typeof extra.credentials === 'string' ? JSON.parse(extra.credentials) : extra.credentials;
     const bigquery = new BigQuery(bqOptions);
-    const dataset = extra.dataset || db_name;
+
+    // The project that OWNS the data is not always the one that PAYS for the
+    // job. Reading `bigquery-public-data.thelook_ecommerce` means running the
+    // job in your own project against tables in Google's, and a single project
+    // field cannot say that: pointing it at the public project makes BigQuery
+    // try to create the job there, where nobody has the right to.
+    //
+    // So a dataset written `project.dataset` names its own project, and the
+    // connection's Project ID keeps its real job: billing and quota. A plain
+    // `dataset` still means "in my project", as before.
+    const rawDataset = extra.dataset || db_name;
+    const dot = String(rawDataset).indexOf('.');
+    const dataProject = dot > 0 ? rawDataset.slice(0, dot) : bqOptions.projectId;
+    const dataset = dot > 0 ? rawDataset.slice(dot + 1) : rawDataset;
+    const datasetRef = () => bigquery.dataset(dataset, { projectId: dataProject });
 
     // Location is OPTIONAL, and defaulting it to 'US' was wrong: BigQuery
     // refuses a job whose region does not match the dataset's, and it says so
@@ -390,7 +404,21 @@ function buildConnector(datasource) {
     //
     // Omitted, the API infers the location from the tables the query names.
     // Only pass it when the connection states one.
-    const atLocation = (opts) => (extra.location ? { ...opts, location: extra.location } : opts);
+    //
+    // `defaultDataset` is what makes the models portable. Every other backend
+    // resolves a bare table name against a current database or schema;
+    // BigQuery has no such notion at connection level and refuses the query
+    // outright — "Table \"data_2\" must be qualified with a dataset". The
+    // models store table names as the introspection returned them (bare, from
+    // `dataset(...).getTables()`), so the dataset is stated here instead, once,
+    // rather than glued onto every table in every FROM and JOIN. A name that
+    // already carries its own `dataset.table` still wins over this default.
+    const jobOptions = (opts) => {
+      const o = { ...opts };
+      if (extra.location) o.location = extra.location;
+      if (dataset) o.defaultDataset = { datasetId: dataset, projectId: dataProject };
+      return o;
+    };
 
     // Cancellable variant — uses createQueryJob so we have a Job handle to
     // cancel via the BigQuery jobs.cancel API. Without this an aborted
@@ -400,7 +428,7 @@ function buildConnector(datasource) {
       let job = null;
       let canceled = false;
       const promise = (async () => {
-        const jobOpts = atLocation({ query: q });
+        const jobOpts = jobOptions({ query: q });
         if (timeoutMs > 0) jobOpts.jobTimeoutMs = String(Math.round(timeoutMs));
         const [createdJob] = await bigquery.createQueryJob(jobOpts);
         job = createdJob;
@@ -418,19 +446,19 @@ function buildConnector(datasource) {
       return withTimeout({ promise, cancel }, timeoutMs);
     };
     return {
-      query: async (q) => { const [rows] = await bigquery.query(atLocation({ query: q })); return rows; },
+      query: async (q) => { const [rows] = await bigquery.query(jobOptions({ query: q })); return rows; },
       queryCancellable,
       // BigQuery `CREATE TABLE AS SELECT` is supported but slow and billed per
       // bytes-scanned. Source-mode rollups on BQ are intentionally allowed for
       // power users who accept the cost; the duckdb default avoids it.
-      executeDDL: async (q) => { await bigquery.query(atLocation({ query: q })); },
+      executeDDL: async (q) => { await bigquery.query(jobOptions({ query: q })); },
       testConnection: async () => { await bigquery.query({ query: 'SELECT 1' }); return true; },
       getTables: async () => {
-        const [tables] = await bigquery.dataset(dataset).getTables();
+        const [tables] = await datasetRef().getTables();
         return tables.map((t) => t.id);
       },
       getColumns: async (tableName) => {
-        const [metadata] = await bigquery.dataset(dataset).table(tableName).getMetadata();
+        const [metadata] = await datasetRef().table(tableName).getMetadata();
         return (metadata.schema?.fields || []).map((f) => ({
           column_name: f.name,
           data_type: f.type.toLowerCase(),

@@ -153,7 +153,10 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
             <input style={inputStyle} value={form.dbName} onChange={(e) => updateForm('dbName', e.target.value)} placeholder="my-gcp-project" />
           </Field>
           <Field label="Dataset">
-            <input style={inputStyle} value={form.extraConfig?.dataset || ''} onChange={(e) => updateForm('extraConfig', { ...form.extraConfig, dataset: e.target.value })} placeholder="my_dataset" />
+            {/* A dataset in another project is written `project.dataset` — the
+                Project ID above still pays for the queries. That is how a
+                public dataset is read (bigquery-public-data.thelook_ecommerce). */}
+            <input style={inputStyle} value={form.extraConfig?.dataset || ''} onChange={(e) => updateForm('extraConfig', { ...form.extraConfig, dataset: e.target.value })} placeholder="my_dataset — or other-project.their_dataset" />
           </Field>
           <Field label="Location (optional)">
             <input style={inputStyle} value={form.extraConfig?.location || ''}
