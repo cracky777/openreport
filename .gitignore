@@ -17,3 +17,9 @@ server/data/
 e2e/.tmp/
 e2e/test-results/
 e2e/playwright-report/
+
+# Notes de travail locales : revue de sécurité (payloads inclus) et brouillon de CLAUDE.md
+REVUE_OPENREPORT.txt
+SONAR_OPENREPORT.txt
+PROMPT_CLAUDE_CODE.txt
+new_CLAUDE.md
