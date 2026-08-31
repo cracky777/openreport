@@ -85,6 +85,24 @@ function buildDatePartExpr(dim, dbType, columnTypes) {
       default: return col;
     }
   }
+  // Snowflake partage EXTRACT avec PostgreSQL mais pas TO_CHAR : ses masques
+  // sont MM / MON / MMMM, pas 'Month'. Et il n'a AUCUN élément de format pour
+  // un nom de jour complet — DAYNAME() et 'DY' rendent l'abréviation. D'où le
+  // DECODE, monté sur DAYOFWEEKISO plutôt que DAYOFWEEK : ce dernier dépend du
+  // paramètre de session WEEK_START, que l'utilisateur peut avoir déplacé, et
+  // la correspondance chiffre → nom deviendrait fausse sans rien signaler.
+  if (dbType === 'snowflake') {
+    switch (dim.datePart) {
+      case 'num_year': return `EXTRACT(YEAR FROM ${dateExpr})`;
+      case 'num_month': return `EXTRACT(MONTH FROM ${dateExpr})`;
+      case 'name_month': return `TO_CHAR(${dateExpr}, 'MMMM')`;
+      case 'num_week': return `EXTRACT(WEEK FROM ${dateExpr})`;
+      case 'num_day_of_week': return `EXTRACT(DAYOFWEEK FROM ${dateExpr})`;
+      case 'name_day': return `DECODE(EXTRACT(DAYOFWEEKISO FROM ${dateExpr}), 1, 'Monday', 2, 'Tuesday', 3, 'Wednesday', 4, 'Thursday', 5, 'Friday', 6, 'Saturday', 7, 'Sunday')`;
+      default: return col;
+    }
+  }
+
   // BigQuery shares EXTRACT with PostgreSQL but not the rest, and falling
   // through to the PG branch made three parts unusable: it has no `TO_CHAR`
   // (names come from FORMAT_DATE) and no `DOW` part (it is DAYOFWEEK). The

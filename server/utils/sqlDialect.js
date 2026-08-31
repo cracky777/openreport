@@ -114,6 +114,18 @@ const CAPABILITIES = {
     // the row post-processor in routes/models.js instead.
     extractEpoch: false, joinUsing: true,
   },
+  // Snowflake plie un identifiant non cité en MAJUSCULES ; comme on cite
+  // toujours, la casse de l'introspection est celle qu'on émet, et l'aller-retour
+  // se referme. Deux cellules valent la peine d'être lues : NUMBER y vaut
+  // NUMBER(38,0) — une décimale castée en NUMERIC serait tronquée en silence —
+  // et il n'existe pas de type colonne INTERVAL, seulement des littéraux
+  // d'arithmétique de dates.
+  snowflake: {
+    quoting: 'ansi', escapesBackslash: true, quoteEscape: 'double',
+    textCast: 'VARCHAR', intCast: 'INTEGER', decimalCast: 'DECIMAL(38,10)',
+    wideFloat: null, // FLOAT/REAL/DOUBLE sont tous du 64 bits chez Snowflake
+    nullsLast: 'inline', pagination: 'limit', extractEpoch: false, joinUsing: true,
+  },
   duckdb: {
     quoting: 'ansi', escapesBackslash: false,
     quoteEscape: 'double',

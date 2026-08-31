@@ -25,7 +25,7 @@ La donnée est répartie sur trois stockages aux rôles distincts — c'est un c
 |---|---|---|
 | **Control plane** | SQLite (`server/data/open-report.db`, WAL) | Métadonnées de l'app : `users`, `datasources`, `models`, `reports`, `report_versions`, `workspaces`, `workspace_members`, `custom_visuals`, `cache_schedules`, `rollups` (manifest), `app_settings`, et les sessions. |
 | **Cache layer** | DuckDB (`server/data/rollups_*.duckdb`) | Tables de pré-agrégation (rollups), fichiers par génération, bascule blue-green. |
-| **Data plane** | Bases externes des clients | Données analytiques brutes (Postgres / Redshift / MySQL / MSSQL / BigQuery / DuckDB). Interrogées en live ; **la donnée client reste chez le client**. |
+| **Data plane** | Bases externes des clients | Données analytiques brutes (Postgres / Redshift / Snowflake / MySQL / MSSQL / BigQuery / DuckDB). Interrogées en live ; **la donnée client reste chez le client**. |
 
 Les secrets de connexion (`datasources.db_password`, credentials dans `extra_config`) sont
 **chiffrés au repos en AES-256-GCM** (clé `DATASOURCE_ENC_KEY`), déchiffrés uniquement au moment de
@@ -55,7 +55,7 @@ flowchart TB
     META[("SQLite<br/>métadonnées (control plane)")]
     RUP[("DuckDB<br/>rollups (cache)")]
   end
-  EXT[("Bases externes des clients (data plane)<br/>Postgres / Redshift / MySQL / MSSQL / BigQuery / DuckDB")]
+  EXT[("Bases externes des clients (data plane)<br/>Postgres / Redshift / Snowflake / MySQL / MSSQL / BigQuery / DuckDB")]
 
   AX -->|"HTTP /api"| RT
   RT --> AUTH

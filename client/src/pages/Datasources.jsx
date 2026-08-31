@@ -56,6 +56,7 @@ const DB_TYPE_LABELS = {
   mysql: 'MySQL',
   azure_sql: 'Azure SQL Database',
   mssql: 'SQL Server',
+  snowflake: 'Snowflake',
   bigquery: 'Google BigQuery',
   duckdb: 'DuckDB',
 };
@@ -314,7 +315,7 @@ export default function Datasources() {
                       {(() => {
                         const dbLabel = DB_TYPE_LABELS[ds.db_type] || ds.db_type.toUpperCase();
                         if (extra.sourceFile) return `${dbLabel} — 📄 ${extra.sourceFile} (${extra.rowCount?.toLocaleString() || '?'} rows)`;
-                        if (ds.db_type === 'bigquery' || ds.db_type === 'duckdb') return `${dbLabel} — ${ds.db_name}`;
+                        if (ds.db_type === 'bigquery' || ds.db_type === 'duckdb' || ds.db_type === 'snowflake') return `${dbLabel} — ${ds.db_name}`;
                         return `${dbLabel} — ${ds.host}:${ds.port}/${ds.db_name}`;
                       })()}
                     </div>

@@ -491,6 +491,102 @@ function buildConnector(datasource) {
     };
   }
 
+  // ─── Snowflake ───
+  if (db_type === 'snowflake') {
+    const snowflake = require('snowflake-sdk');
+    // Le SDK journalise abondamment sur stdout via winston dès le premier
+    // appel. Sans ça, une seule requête noie la sortie du serveur.
+    try { snowflake.configure({ logLevel: 'OFF' }); } catch { /* SDK trop ancien */ }
+
+    // Snowflake ne se joint pas par hôte/port : l'identifiant de compte porte
+    // la région et le cloud. L'entrepôt (warehouse) est le calcul, distinct de
+    // la base — sans lui, toute requête est refusée faute de ressource assignée.
+    const connOptions = {
+      account: extra.account || host,
+      username: db_user,
+      password: db_password,
+      database: db_name,
+      application: 'OpenReport',
+    };
+    if (extra.warehouse) connOptions.warehouse = extra.warehouse;
+    if (extra.schema) connOptions.schema = extra.schema;
+    if (extra.role) connOptions.role = extra.role;
+
+    // 10 plutôt que les 20 du pool PG : chez Snowflake la concurrence est
+    // absorbée par l'entrepôt, pas par le nombre de sessions ouvertes.
+    let pool;
+    const getPool = () => {
+      if (!pool) pool = snowflake.createPool(connOptions, { max: 10, min: 0 });
+      return pool;
+    };
+
+    // `execute` rend le statement, seul objet porteur du cancel. On le remonte
+    // à l'appelant pour que queryCancellable puisse l'annuler côté serveur.
+    const exec = (conn, sqlText, { binds, onStatement } = {}) => new Promise((resolve, reject) => {
+      const stmt = conn.execute({
+        sqlText,
+        ...(binds ? { binds } : {}),
+        complete: (err, _s, rows) => (err ? reject(err) : resolve(rows || [])),
+      });
+      if (onStatement) onStatement(stmt);
+    });
+
+    const queryCancellable = (sqlText, opts = {}) => {
+      const timeoutMs = Number(opts.timeoutMs) || 0;
+      let stmt = null;
+      let canceled = false;
+      const promise = getPool().use(async (conn) => {
+        if (canceled) throw new Error('Query canceled');
+        // Best-effort, comme le SET statement_timeout de PG : un rôle restreint
+        // peut refuser l'ALTER SESSION, et le garde-fou JS reste la vraie limite.
+        if (timeoutMs > 0) {
+          try { await exec(conn, `ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS = ${Math.max(1, Math.round(timeoutMs / 1000))}`); }
+          catch (e) { console.warn('[snowflake statement_timeout]', e.message); }
+        }
+        return exec(conn, sqlText, { onStatement: (st) => { stmt = st; } });
+      });
+      const cancel = () => {
+        if (canceled) return;
+        canceled = true;
+        try { if (stmt && typeof stmt.cancel === 'function') stmt.cancel(() => {}); }
+        catch (e) { console.warn('[snowflake cancel]', e.message); }
+      };
+      return withTimeout({ promise, cancel }, timeoutMs);
+    };
+
+    // Snowflake plie les noms non cités en MAJUSCULES : sans alias cités en
+    // minuscules, les lignes reviendraient en TABLE_NAME / DATA_TYPE et le
+    // reste de l'application, qui lit `table_name`, ne verrait rien.
+    const run = (sqlText, binds) => getPool().use((conn) => exec(conn, sqlText, { binds }));
+    return {
+      query: run,
+      queryCancellable,
+      executeDDL: async (sqlText) => { await run(sqlText); },
+      testConnection: async () => { await run('SELECT 1'); return true; },
+      getTables: async () => {
+        const rows = await run(`
+          SELECT table_schema AS "table_schema", table_name AS "table_name"
+          FROM information_schema.tables
+          WHERE table_type = 'BASE TABLE' AND table_schema <> 'INFORMATION_SCHEMA'
+          ORDER BY table_schema, table_name
+        `);
+        return rows.map((r) => (r.table_schema === 'PUBLIC' ? r.table_name : `${r.table_schema}.${r.table_name}`));
+      },
+      getColumns: async (tableName) => {
+        const parts = String(tableName).split('.');
+        const schema = parts.length > 1 ? parts[0] : 'PUBLIC';
+        const table = parts.length > 1 ? parts[1] : parts[0];
+        return run(`
+          SELECT column_name AS "column_name", data_type AS "data_type", is_nullable AS "is_nullable"
+          FROM information_schema.columns
+          WHERE table_schema = ? AND table_name = ?
+          ORDER BY ordinal_position
+        `, [schema, table]);
+      },
+      close: async () => { if (pool) { await pool.drain(); await pool.clear(); pool = null; } },
+    };
+  }
+
   // ─── DuckDB ───
   if (db_type === 'duckdb') {
     const duckdb = require('duckdb-async');

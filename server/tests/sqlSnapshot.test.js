@@ -30,7 +30,7 @@ async function compileSql(dbType) {
   return res.body.sql;
 }
 
-for (const dbType of ['postgres', 'redshift', 'mysql', 'mssql']) {
+for (const dbType of ['postgres', 'redshift', 'snowflake', 'mysql', 'mssql']) {
   test(`aggregate SQL is stable — ${dbType}`, async () => {
     expect(await compileSql(dbType)).toMatchSnapshot();
   });

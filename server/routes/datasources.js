@@ -278,7 +278,7 @@ router.post('/', authFor('write'), async (req, res) => {
   const { name, dbType, host, port, dbName, dbUser, dbPassword, extraConfig } = req.body;
 
   // BigQuery and DuckDB don't need host/user
-  const needsHost = !['bigquery', 'duckdb'].includes(dbType);
+  const needsHost = !['bigquery', 'duckdb', 'snowflake'].includes(dbType);
   if (!name || !dbType || (needsHost && !host) || !dbName) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
@@ -320,7 +320,7 @@ router.put('/:id', authFor('write'), async (req, res) => {
 
   const { name, dbType, host, port, dbName, dbUser, dbPassword, extraConfig } = req.body;
   const newDbType = dbType || existing.db_type;
-  const needsHost = !['bigquery', 'duckdb'].includes(newDbType);
+  const needsHost = !['bigquery', 'duckdb', 'snowflake'].includes(newDbType);
   const newHost = host !== undefined ? host : existing.host;
   // Same reason as on create: for DuckDB the name IS a server path, so it stays
   // whatever the import pipeline set. Everything else on the row is editable.

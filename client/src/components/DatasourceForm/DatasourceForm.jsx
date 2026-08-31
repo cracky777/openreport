@@ -19,6 +19,7 @@ const DB_TYPES = [
   { value: 'mysql', label: 'MySQL', defaultPort: 3306 },
   { value: 'azure_sql', label: 'Azure SQL Database', defaultPort: 1433 },
   { value: 'mssql', label: 'SQL Server', defaultPort: 1433 },
+  { value: 'snowflake', label: 'Snowflake', defaultPort: 0, noHost: true },
   { value: 'bigquery', label: 'Google BigQuery', defaultPort: 0, noHost: true },
   { value: 'duckdb', label: 'DuckDB', defaultPort: 0, noHost: true },
 ];
@@ -182,6 +183,49 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
                 ? 'Leave blank to keep the existing key'
                 : '{"type":"service_account","project_id":"..."}'} />
           </Field>
+        </>
+      )}
+
+      {/* Snowflake fields — no host/port: the account identifier already carries
+          the region and cloud, and the warehouse is the compute, separate from
+          the database that holds the data. */}
+      {form.dbType === 'snowflake' && (
+        <>
+          <Field label="Account identifier">
+            <input style={inputStyle} value={form.extraConfig?.account || ''}
+              onChange={(e) => updateForm('extraConfig', { ...form.extraConfig, account: e.target.value })}
+              placeholder="myorg-myaccount — the part before .snowflakecomputing.com" />
+          </Field>
+          <Field label="Warehouse">
+            {/* Without a warehouse Snowflake has no compute to run on and
+                refuses every query, with an error that names neither. */}
+            <input style={inputStyle} value={form.extraConfig?.warehouse || ''}
+              onChange={(e) => updateForm('extraConfig', { ...form.extraConfig, warehouse: e.target.value })}
+              placeholder="COMPUTE_WH" />
+          </Field>
+          <Field label="Database">
+            <input style={inputStyle} value={form.dbName} onChange={(e) => updateForm('dbName', e.target.value)} placeholder="SNOWFLAKE_SAMPLE_DATA" />
+          </Field>
+          <div style={_hs3}>
+            <Field label="Schema (optional)" style={_hs4}>
+              <input style={inputStyle} value={form.extraConfig?.schema || ''}
+                onChange={(e) => updateForm('extraConfig', { ...form.extraConfig, schema: e.target.value })} placeholder="PUBLIC" />
+            </Field>
+            <Field label="Role (optional)" style={_hs5}>
+              <input style={inputStyle} value={form.extraConfig?.role || ''}
+                onChange={(e) => updateForm('extraConfig', { ...form.extraConfig, role: e.target.value })} placeholder="ACCOUNTADMIN" />
+            </Field>
+          </div>
+          <div style={_hs3}>
+            <Field label="User" style={_hs4}>
+              <input style={inputStyle} value={form.dbUser} onChange={(e) => updateForm('dbUser', e.target.value)} />
+            </Field>
+            <Field label="Password" style={_hs5}>
+              <input style={inputStyle} type="password" value={form.dbPassword}
+                onChange={(e) => updateForm('dbPassword', e.target.value)}
+                placeholder={editingId ? 'Leave blank to keep existing' : ''} />
+            </Field>
+          </div>
         </>
       )}
 
