@@ -29,6 +29,13 @@ const journeyWidth = (page) => page.evaluate(
   () => document.querySelector('[data-journey-ribbon]').parentElement.clientWidth,
 );
 
+const NO_ZONE = '(no visible zone)';
+// The zone the sheet is showing, if it is showing one at all.
+const visibleZone = (page) => page.evaluate((none) => {
+  const z = [...document.querySelectorAll('[data-touch-drop]')].find((d) => d.getBoundingClientRect().height > 0);
+  return z ? z.innerText.replace(/\s+/g, ' ').trim() : none;
+}, NO_ZONE);
+
 test('on a phone the active stage fills the screen', async ({ page }) => {
   await page.setViewportSize(PHONE);
   await page.goto('/');
@@ -245,7 +252,7 @@ test('on a phone a field can be dragged into a zone with one finger', async ({ p
   await page.getByRole('button', { name: 'Data', exact: true }).click();
   expect(await activeSheetTab(page)).toBe('Data');
 
-  const row = page.locator('[data-editor-sheet] [draggable="true"]', { hasText: F.SPARE_DIM_LABEL }).first();
+  const row = page.locator('[data-editor-sheet] [data-drag-field]', { hasText: F.SPARE_DIM_LABEL }).first();
   await expect(row).toBeVisible();
   const from = await row.boundingBox();
 
@@ -278,6 +285,62 @@ test('on a phone a field can be dragged into a zone with one finger', async ({ p
     return z ? z.innerText : '';
   })).toContain(F.SPARE_DIM_LABEL);
   expect(await page.evaluate(() => [...document.body.children].some((c) => c.style && c.style.zIndex === '10000'))).toBe(false);
+});
+
+// A desktop zoomed past the breakpoint is compact too, and it has a mouse.
+//
+// Its drag used to be the browser's own, which the sheet cannot serve: the
+// fields and the zones take turns on screen, and bringing the zones forward
+// hides the element the drag started from. Chromium answers that by wedging the
+// drag session — the page stops responding to anything until it is reloaded.
+// Leaving the panel alone instead is no better: with no zone ever on screen,
+// there is simply nowhere to drop, which is what the user actually hit.
+test('zoomed in on a desktop a field can still be dragged into a zone', async ({ page }) => {
+  const { reportId } = ids();
+  // 627px of layout — a 250% page zoom on a laptop, not a phone.
+  await page.setViewportSize({ width: 627, height: 950 });
+  await page.goto(`/edit/${reportId}`);
+
+  await page.locator('.widget-content').nth(1).click({ position: { x: 10, y: 10 } });
+  await page.getByRole('button', { name: 'Data', exact: true }).click();
+  expect(await visibleZone(page)).toBe(NO_ZONE);
+
+  const row = page.locator('[data-editor-sheet] [data-drag-field]', { hasText: F.SPARE_DIM_LABEL }).first();
+  await expect(row).toBeVisible();
+  const b = await row.boundingBox();
+  const from = { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
+
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  // Past the tolerance that tells a drag from a press.
+  await page.mouse.move(from.x + 6, from.y - 40, { steps: 4 });
+
+  // The zones came forward: without that the drag has no destination at all.
+  await expect.poll(() => visibleZone(page)).not.toBe(NO_ZONE);
+  const zone = await page.evaluate(() => {
+    const z = [...document.querySelectorAll('[data-touch-drop]')].find((d) => d.getBoundingClientRect().height > 0);
+    const r = z.getBoundingClientRect();
+    return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+  });
+  await page.mouse.move(zone.x, zone.y, { steps: 8 });
+  await page.mouse.up();
+
+  // The field landed — and the page still answers, which a wedged drag session
+  // would not.
+  await expect.poll(() => visibleZone(page)).toContain(F.SPARE_DIM_LABEL);
+  expect(await page.evaluate(() => 1 + 1)).toBe(2);
+});
+
+// The native drag is what a full-size desktop keeps: it carries the browser's
+// own affordances, and nothing there ever hides the source.
+test('on a full desktop the fields keep the browser own drag', async ({ page }) => {
+  const { reportId } = ids();
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto(`/edit/${reportId}`);
+  await page.locator('.widget-content').nth(1).click({ position: { x: 10, y: 10 } });
+  const row = page.locator('[data-drag-field]', { hasText: F.SPARE_DIM_LABEL }).first();
+  await expect(row).toBeVisible();
+  expect(await row.getAttribute('draggable')).toBe('true');
 });
 
 // NOT COVERED HERE: reordering a chip WITHIN a zone by touch.

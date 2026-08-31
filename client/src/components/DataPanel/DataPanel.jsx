@@ -714,9 +714,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           ) : (
             <Fragment key={m.name}>
               <div
-                draggable
+                data-drag-field=""
+                draggable={!compact}
                 onDragStart={(e) => handleDragStart(e, m.name, 'measure')}
-                onPointerDown={(e) => armTouchDrag(e, { fieldName: m.name, fieldType: 'measure' }, m.label || m.column || m.name)}
+                onPointerDown={(e) => armTouchDrag(e, { fieldName: m.name, fieldType: 'measure' }, m.label || m.column || m.name, compact)}
                 style={touchDragRow}
                 onClick={(e) => {
                   if (isTouchDragging()) return;
@@ -1167,9 +1168,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   because id_date is the field that decomposes into year /
                   month / weekday / … */}
               <div
-                draggable
+                data-drag-field=""
+                draggable={!compact}
                 onDragStart={(e) => handleDragStart(e, dateCol.name, 'dimension')}
-                onPointerDown={(e) => armTouchDrag(e, { fieldName: dateCol.name, fieldType: 'dimension' }, dateCol.label || dateCol.column || dateCol.name)}
+                onPointerDown={(e) => armTouchDrag(e, { fieldName: dateCol.name, fieldType: 'dimension' }, dateCol.label || dateCol.column || dateCol.name, compact)}
                 title={`${dateCol.table}.${dateCol.column}`}
                 style={{
                   ...touchDragRow, ...dragItem, paddingLeft: 4,
@@ -1203,9 +1205,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               {showParts && partsVisible.map((dp) => (
                 <div
                   key={dp.name}
-                  draggable
+                  data-drag-field=""
+                  draggable={!compact}
                   onDragStart={(e) => handleDragStart(e, dp.name, 'dimension')}
-                onPointerDown={(e) => armTouchDrag(e, { fieldName: dp.name, fieldType: 'dimension' }, dp.datePart || dp.label || dp.name)}
+                onPointerDown={(e) => armTouchDrag(e, { fieldName: dp.name, fieldType: 'dimension' }, dp.datePart || dp.label || dp.name, compact)}
                   title={dp.datePart}
                   style={{
                     ...touchDragRow, ...dragItem, paddingLeft: 20,
@@ -1242,9 +1245,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   {dims.map((d) => (
                     <Fragment key={d.name}>
                     <div
-                      draggable
+                      data-drag-field=""
+                      draggable={!compact}
                       onDragStart={(e) => handleDragStart(e, d.name, 'dimension')}
-                onPointerDown={(e) => armTouchDrag(e, { fieldName: d.name, fieldType: 'dimension' }, d.label || d.column || d.name)}
+                onPointerDown={(e) => armTouchDrag(e, { fieldName: d.name, fieldType: 'dimension' }, d.label || d.column || d.name, compact)}
                       onClick={(e) => {
                         if (isTouchDragging()) return;
                         e.stopPropagation();

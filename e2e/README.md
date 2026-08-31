@@ -1,19 +1,21 @@
 # Tests e2e
 
-Trois scénarios, trois bugs qui n'existent que dans un navigateur qui tourne : une navigation
-survenue malgré une sauvegarde refusée, une rafale de requêtes déclenchée par un geste de souris, et
-deux réponses qui arrivent dans le désordre. Aucun n'est atteignable par un test unitaire — c'est la
-raison d'être de ce harnais.
+Des bugs qui n'existent que dans un navigateur qui tourne : une navigation survenue malgré une
+sauvegarde refusée, une rafale de requêtes déclenchée par un geste de souris, deux réponses qui
+arrivent dans le désordre, et des mises en page que seul un moteur de rendu sait trancher. Aucun
+n'est atteignable par un test unitaire — c'est la raison d'être de ce harnais.
 
 | Spec | Garde |
 |---|---|
 | `save-conflict.spec.js` | Un `PUT` refusé en 409 laisse l'éditeur ouvert, l'erreur à l'écran et les édits en place. Le second cas vérifie qu'une sauvegarde réussie, elle, quitte bien. |
 | `warming-burst.spec.js` | Redimensionner un widget ne déclenche aucun `GET /cache-schedules/warming`. |
 | `viewer-race.spec.js` | Deux filtres enchaînés : la réponse lente du premier ne doit pas écraser celle du second. |
+| `shell-compact.spec.js` | La coquille et l'éditeur sur petit écran : ruban, en-tête, barre d'outils, feuille de réglages — et le glisser d'un champ vers une zone, au doigt comme à la souris. |
+| `viewer-stacked.spec.js` | Sous 640 px le viewer empile les widgets en pleine largeur ; au-dessus, et en mode « scale », le canevas en pixels est intact. |
 
 Chaque scénario a été validé en réinjectant la régression : sans son correctif, le test échoue —
-respectivement navigation vers `/`, 12 requêtes `/warming` (une par frame), et la valeur périmée
-affichée.
+navigation vers `/`, 12 requêtes `/warming` (une par frame), la valeur périmée affichée, ou le champ
+qui n'a nulle part où atterrir.
 
 ## Lancer
 

@@ -1,9 +1,15 @@
 /**
- * Dragging a field with a finger.
+ * Dragging a field without the browser's own drag.
  *
  * The panels use HTML5 drag-and-drop (`draggable` + `dataTransfer`), which no
  * mobile browser fires from a touch: on a phone the field list simply could not
  * be dragged anywhere. This replays the same contract over pointer events.
+ *
+ * The compact editor sends its MOUSE drags here too (`withMouse`), for a reason
+ * that has nothing to do with input: there the fields and the drop zones take
+ * turns on screen, so one of them has to come forward mid-drag — and a native
+ * drag whose source is hidden under it leaves Chromium wedged, the page dead
+ * until it is reloaded. Nothing here can be wedged that way.
  *
  * The payload travels as a plain object instead of a DataTransfer, and the drop
  * zones are found in the DOM (`[data-touch-drop]`) rather than by bubbling —
@@ -18,12 +24,13 @@
  * right panel forward while the finger is still down.
  *
  * A press starts a drag, not a scroll: the field list has to stay scrollable, so
- * the gesture only becomes a drag after LONG_PRESS_MS without moving. Moving
- * before that is a scroll and cancels the arming.
+ * a FINGER only starts dragging after LONG_PRESS_MS without moving, and moving
+ * before that is a scroll that cancels the arming. A mouse press scrolls
+ * nothing, so there the first move past MOVE_TOLERANCE is the drag.
  */
 
 const LONG_PRESS_MS = 260;
-// Beyond this the finger is scrolling, not pressing.
+// Beyond this the finger is scrolling, not pressing — and the mouse is dragging.
 const MOVE_TOLERANCE = 10;
 
 let armed = null; // { timer, x, y, payload, label, pointerId }
@@ -133,8 +140,14 @@ function finish(x, y) {
 
 function onMove(e) {
   if (armed) {
-    if (Math.hypot(e.clientX - armed.x, e.clientY - armed.y) > MOVE_TOLERANCE) disarm();
-    return;
+    if (Math.hypot(e.clientX - armed.x, e.clientY - armed.y) <= MOVE_TOLERANCE) return;
+    // A mouse has nothing to arbitrate with: a press on a list does not scroll
+    // it, so the first move IS the drag — waiting out the long press would just
+    // make the row feel stuck. A finger moving this early is scrolling.
+    if (!armed.mouse) { disarm(); return; }
+    // Falls through, so the ghost lands under the cursor instead of back at the
+    // point it was picked up from.
+    begin();
   }
   if (!dragging) return;
   moveGhost(e.clientX, e.clientY);
@@ -181,36 +194,50 @@ function detach() {
   document.removeEventListener('pointercancel', onCancel);
 }
 
+// Turn the armed press into a drag. Split out of the long-press timer because a
+// mouse gets here from the first move instead.
+function begin() {
+  const { x, y, payload, label, pointerId } = armed;
+  armed = null;
+  dragging = { ghost: makeGhost(label || payload.fieldName), zone: null, index: undefined, payload, pointerId };
+  moveGhost(x, y);
+  // Stops the text-selection loupe from fighting the drag.
+  document.body.style.userSelect = 'none';
+
+  // A pointer is IMPLICITLY captured by the element it went down on.
+  // Listeners on `or:dragstart` bring another panel forward, which hides
+  // that element — and the browser answers a vanished capture target with
+  // `pointercancel`, killing the drag mid-gesture. Move the capture to the
+  // body BEFORE anyone can react, so what happens to the source no longer
+  // concerns the pointer.
+  try { document.body.setPointerCapture(pointerId); } catch { /* pointer already gone */ }
+
+  window.dispatchEvent(new CustomEvent('or:dragstart', { detail: payload }));
+}
+
 /**
- * Arm a touch drag from a pointerdown. Mouse and pen keep the native HTML5
- * drag, which works for them and carries the browser's own affordances.
+ * Arm a drag from a pointerdown.
+ *
+ * `withMouse` is for the callers that turn the native HTML5 drag off — the
+ * compact editor, where the panel holding the fields and the panel holding the
+ * zones take turns on screen. Bringing the other one forward mid-drag is a
+ * layout change under the drag, and a native drag session does not survive
+ * having its source hidden: Chromium wedges, and the page answers nothing until
+ * it is reloaded. This layer has no such session to lose. Everywhere else the
+ * mouse keeps the native drag, with the browser's own affordances.
  *
  * `payload` is what a drop zone receives: { fieldName, fieldType, sourceZone }.
  */
-export function armTouchDrag(e, payload, label) {
-  if (e.pointerType === 'mouse') return;
+export function armTouchDrag(e, payload, label, withMouse = false) {
+  const mouse = e.pointerType === 'mouse';
+  if (mouse && !withMouse) return;
   if (!payload || !payload.fieldName) return;
   disarm();
   const { clientX: x, clientY: y, pointerId } = e;
   armed = {
-    x, y, payload, label, pointerId,
-    timer: setTimeout(() => {
-      armed = null;
-      dragging = { ghost: makeGhost(label || payload.fieldName), zone: null, index: undefined, payload, pointerId };
-      moveGhost(x, y);
-      // Stops the text-selection loupe from fighting the drag.
-      document.body.style.userSelect = 'none';
-
-      // A touch pointer is IMPLICITLY captured by the element it went down on.
-      // Listeners on `or:dragstart` bring another panel forward, which hides
-      // that element — and the browser answers a vanished capture target with
-      // `pointercancel`, killing the drag mid-gesture. Move the capture to the
-      // body BEFORE anyone can react, so what happens to the source no longer
-      // concerns the pointer.
-      try { document.body.setPointerCapture(pointerId); } catch { /* pointer already gone */ }
-
-      window.dispatchEvent(new CustomEvent('or:dragstart', { detail: payload }));
-    }, LONG_PRESS_MS),
+    x, y, payload, label, pointerId, mouse,
+    // A finger has to hold still first, or the list would stop scrolling.
+    timer: mouse ? null : setTimeout(begin, LONG_PRESS_MS),
   };
   attach();
 }

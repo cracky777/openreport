@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { TbArrowsSort, TbSortAscending, TbSortDescending, TbClock } from 'react-icons/tb';
 import { TIME_PRESETS, TP_SHORT, parseTimeVariant } from '../../utils/timeIntelligence';
-import { armTouchDrag } from '../../utils/touchDrag';
+import { armTouchDrag, isTouchDragging } from '../../utils/touchDrag';
+import { useIsCompact } from '../../hooks/useMediaQuery';
 
 const _hs0 = { marginBottom: 10 };
 const _hs1 = { fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 };
@@ -60,6 +61,10 @@ const SORT_OPTIONS = [
 const touchDragRow = { WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' };
 
 export default function DropZone({ label, accepts, fields, onDrop, onRemove, onReorder, multiple = false, fieldInfos = {}, dimensionNames, zoneName, measureInfos, onAggChange, onTimeVariant, sort, onSortChange }) {
+  // In the compact editor the fields and the zones take turns on screen, so a
+  // drag has to survive the panel switch — which the native HTML5 one does not
+  // (utils/touchDrag). There, the mouse joins the finger on the pointer layer.
+  const compact = useIsCompact();
   const [dragIdx, setDragIdx] = useState(null);
   const [dropIdx, setDropIdx] = useState(null);
   const dropIdxRef = useRef(null);
@@ -226,7 +231,7 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
           const showBar = !isReplaceMode && dropIdx === i && !(isDragging && (dragIdx === i || dragIdx === i - 1));
           const willBeReplaced = isReplaceMode && isHovering;
           return (
-            <div key={field} draggable
+            <div key={field} draggable={!compact}
               data-touch-drop-item={i}
               onDragStart={(e) => startItemDrag(e, i)}
               onDragEnd={endItemDrag}
@@ -235,7 +240,7 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
                 fieldName: field,
                 fieldType: (dimensionNames ? dimensionNames.has(field) : accepts?.includes('dimension')) ? 'dimension' : 'measure',
                 sourceZone: zoneName || null,
-              }, getDisplayName(field))}
+              }, getDisplayName(field), compact)}
               style={touchDragRow}
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDrop(i); }}
             >
@@ -284,7 +289,9 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
                 )}
                 <span style={_hs5}>{getDisplayName(field)}</span>
                 {missing && <span title="This field no longer exists in the data model" style={_hs6}>!</span>}
-                <button onClick={() => onRemove(field)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: missing ? 'var(--state-danger)' : 'var(--text-disabled)', fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
+                {/* A drag released on this × would read as a click on it and
+                    drop the field the user was busy moving. */}
+                <button onClick={() => { if (isTouchDragging()) return; onRemove(field); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: missing ? 'var(--state-danger)' : 'var(--text-disabled)', fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
               </span>
               {/* Time-period preset menu (add on base / retarget on variant) */}
               {tpMenuField === field && (
