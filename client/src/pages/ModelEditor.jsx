@@ -796,16 +796,6 @@ export default function ModelEditor() {
 }
 
 
-const incrCardStyle = {
-  maxWidth: 1100, margin: '16px auto 0', padding: '16px 20px',
-  background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 8,
-};
-const incrLabelStyle = { fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' };
-const incrSelectStyle = {
-  padding: '6px 10px', fontSize: 13, borderRadius: 6,
-  border: '1px solid var(--border-default)', background: 'var(--bg-panel)', color: 'var(--text-primary)',
-};
-
 // Même langage que les boutons-icônes de l'éditeur de rapport : discret, il ne
 // dispute pas la place à Save.
 const bugBtnStyle = {
