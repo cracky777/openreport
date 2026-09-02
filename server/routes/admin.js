@@ -19,6 +19,8 @@ const {
   setQueryCacheTtlMs,
   getPublicSharingPolicy,
   setPublicSharingPolicy,
+  getSupportEmail,
+  setSupportEmail,
 } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
 const { validatePassword } = require('./auth');
@@ -223,6 +225,7 @@ router.get('/settings', requireAdmin, (req, res) => {
   } catch { /* file not created yet (no rollups built) */ }
 
   res.json({
+    supportEmail: getSupportEmail(),
     queryTimeoutMs: getQueryTimeoutMs(),
     queryTimeoutMinMs: QUERY_TIMEOUT_MIN_MS,
     queryTimeoutMaxMs: QUERY_TIMEOUT_MAX_MS,
@@ -255,6 +258,17 @@ router.get('/settings', requireAdmin, (req, res) => {
 router.put('/settings/public-sharing', requireAdmin, (req, res) => {
   try {
     res.json({ publicSharingPolicy: setPublicSharingPolicy(String(req.body?.policy || '')) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Où partent les signalements de bug de cette installation. Vide = le bouton
+// dit à l'utilisateur qu'aucune adresse n'est configurée, plutôt que d'ouvrir
+// un mailto sans destinataire.
+router.put('/settings/support-email', requireAdmin, (req, res) => {
+  try {
+    res.json({ supportEmail: setSupportEmail(req.body?.supportEmail) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

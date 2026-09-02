@@ -25,6 +25,7 @@ function buildApp() {
   app.use('/api/datasources', require('../../routes/datasources'));
   app.use('/api/models', require('../../routes/models'));
   app.use('/api/admin', require('../../routes/admin'));
+  app.use('/api/support', require('../../routes/support'));
   app.use('/api/cache-schedules', require('../../routes/cacheSchedules'));
   app.use('/api/alerts', require('../../routes/alerts'));
   app.use('/api/reports', require('../../routes/bookmarks'));

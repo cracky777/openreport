@@ -24,6 +24,30 @@ function setSetting(key, value) {
   `).run(key, json);
 }
 
+// ─── Adresse de signalement ─────────────────────────────────────────
+// Où partent les rapports de bug de l'édition auto-hébergée. Un réglage plutôt
+// qu'une constante, pour deux raisons : une installation d'entreprise voudra
+// souvent router vers son propre support avant de remonter en amont, et une
+// adresse en dur dans un dépôt public est une adresse récoltée par les robots.
+// La valeur d'usine vient de l'environnement, ce qui permet à une image Docker
+// de la porter sans toucher à la base.
+function getSupportEmail() {
+  const stored = getSetting('support_email', null);
+  if (typeof stored === 'string' && stored.trim()) return stored.trim();
+  const fromEnv = String(process.env.OPENREPORT_SUPPORT_EMAIL || '').trim();
+  return fromEnv || null;
+}
+
+// Validation volontairement lâche : le seul but est d'écarter ce qui ne peut
+// pas fonctionner dans un lien mailto — pas de décider ce qu'est une adresse.
+function setSupportEmail(email) {
+  const v = String(email == null ? '' : email).trim();
+  if (!v) { setSetting('support_email', ''); return null; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) throw new Error('Invalid e-mail address');
+  setSetting('support_email', v);
+  return v;
+}
+
 function clampQueryTimeout(ms) {
   const n = Number(ms);
   if (!Number.isFinite(n)) return QUERY_TIMEOUT_DEFAULT_MS;
@@ -123,4 +147,6 @@ module.exports = {
   PUBLIC_SHARING_POLICIES,
   getPublicSharingPolicy,
   setPublicSharingPolicy,
+  getSupportEmail,
+  setSupportEmail,
 };

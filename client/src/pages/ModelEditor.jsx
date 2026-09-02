@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useBugReport } from '../components/BugReport/BugReportProvider';
+import { TbBug } from 'react-icons/tb';
 import { useParams, useNavigate, useNavigationType } from 'react-router-dom';
 import Step1Schema from './Step1Schema';
 import api from '../utils/api';
@@ -68,6 +70,7 @@ const _hs40 = { fontSize: 12, lineHeight: 1.5 };
 const STEPS = ['Tables', 'Schema & Joins', 'Dimensions & Measures'];
 
 export default function ModelEditor() {
+  const openBugReport = useBugReport();
   const { id } = useParams();
   const navigate = useNavigate();
   const { resolved: themeResolved, themes: availableThemes } = useTheme();
@@ -618,6 +621,17 @@ export default function ModelEditor() {
             );
           })}
         </div>
+        {/* Même raison que dans la barre de l'éditeur de rapport : cet écran a
+            son propre en-tête et ne passe pas par AppShell. */}
+        <button
+          type="button"
+          aria-label="Report a bug"
+          title="Report a bug"
+          onClick={() => openBugReport({ Screen: 'Model editor', Model: name || id })}
+          style={bugBtnStyle}
+        >
+          <TbBug size={17} />
+        </button>
         <SecondaryButton
           onClick={handleCreateReport}
           disabled={creatingReport || saving || selectedTables.length === 0}
@@ -866,4 +880,13 @@ const incrLabelStyle = { fontSize: 12, fontWeight: 500, color: 'var(--text-secon
 const incrSelectStyle = {
   padding: '6px 10px', fontSize: 13, borderRadius: 6,
   border: '1px solid var(--border-default)', background: 'var(--bg-panel)', color: 'var(--text-primary)',
+};
+
+// Même langage que les boutons-icônes de l'éditeur de rapport : discret, il ne
+// dispute pas la place à Save.
+const bugBtnStyle = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  width: 32, height: 32, borderRadius: 6, cursor: 'pointer',
+  border: '1px solid var(--border-default)', background: 'transparent',
+  color: 'var(--text-secondary)',
 };

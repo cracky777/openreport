@@ -50,3 +50,11 @@ export const alertMetaExtra = null;
 // alongside the routes and decides for itself whether to show anything.
 // Null in OSS.
 export const AppGate = null;
+
+// Cloud-only: submitBugReport({ summary, details, context }) -> Promise.
+// Null in OSS, where there is no server to receive a report — the dialog then
+// opens a pre-filled mail to the address an administrator configured. The cloud
+// edition sets this to POST onto its own endpoint, so a tenant's error messages
+// (which name tables, columns, and sometimes the filter values that produced
+// them) never leave its own instance.
+export const submitBugReport = null;

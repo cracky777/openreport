@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { TbCheck } from 'react-icons/tb';
+import { TbCheck, TbBug } from 'react-icons/tb';
 import { useTheme } from '../../hooks/useTheme';
 import { parseIntOrNull } from '../../utils/input';
+import { useBugReport } from '../BugReport/BugReportProvider';
 
 const _hs0 = { fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' };
 const _hs1 = { display: 'flex', flexDirection: 'column', gap: 4 };
@@ -35,6 +36,7 @@ const _hs17 = { flexShrink: 1, minWidth: 0, overflow: 'hidden' };
 
 export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
   const { themes: availableThemes } = useTheme();
+  const openBugReport = useBugReport();
   const update = (key, value) => {
     onSettingsChange({ ...settings, [key]: value });
   };
@@ -60,6 +62,22 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
         <div style={headerStyle}>
           <span style={_hs0}>Settings</span>
           <button onClick={onClose} style={closeBtn}>x</button>
+        </div>
+
+        {/* Hors des sections, et séparé d'elles : tout ce qui suit décrit le
+            rapport, ceci est une action. Une section repliable le rangerait
+            parmi les réglages, ce qu'il n'est pas — et le laisserait masquer. */}
+        <div style={bugRowWrap}>
+          <button
+            type="button"
+            onClick={() => { onClose(); openBugReport({ Screen: 'Report editor' }); }}
+            style={bugRowStyle}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            <TbBug size={15} />
+            <span>Report a bug</span>
+          </button>
         </div>
 
         <Section title="Report Theme">
@@ -368,3 +386,13 @@ const presetBtn = {
   borderRadius: 4, background: 'var(--bg-panel)', cursor: 'pointer', color: 'var(--text-secondary)',
 };
 
+const bugRowWrap = {
+  marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid var(--border-subtle)',
+};
+const bugRowStyle = {
+  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+  padding: '7px 10px', borderRadius: 6, cursor: 'pointer', font: 'inherit',
+  fontSize: 12, textAlign: 'left',
+  border: '1px solid var(--border-default)', background: 'transparent',
+  color: 'var(--text-secondary)',
+};

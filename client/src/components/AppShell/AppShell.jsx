@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { TbShield, TbBell, TbTelescope, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop } from 'react-icons/tb';
+import { TbShield, TbBell, TbTelescope, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug } from 'react-icons/tb';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useIsCompact } from '../../hooks/useMediaQuery';
 import { TopbarSwitcher, UserMenuExtras } from '../../cloud';
+import { useBugReport } from '../BugReport/BugReportProvider';
 import Datasources from '../../pages/Datasources';
 import Models from '../../pages/Models';
 import Dashboard from '../../pages/Dashboard';
@@ -34,6 +35,7 @@ export default function AppShell({ step }) {
   const { isPlatformAdmin, canEditOrg } = usePermissions(null, user, null);
 
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const openBugReport = useBugReport();
   const userMenuRef = useRef(null);
   useEffect(() => {
     if (!userMenuOpen) return;
@@ -235,6 +237,21 @@ export default function AppShell({ step }) {
                   </>
                 )}
                 <div style={userMenuDivider} />
+                {/* Le signalement général vit ici plutôt que dans l'en-tête : on
+                    le cherche quand on en a besoin, il n'a pas à occuper une
+                    barre qu'on regarde en permanence. Le signalement qui compte
+                    vraiment part de l'erreur elle-même, où il emporte son
+                    contexte (voir Canvas/WidgetItem). */}
+                <button
+                  onClick={() => { setUserMenuOpen(false); openBugReport({ Step: step || '' }); }}
+                  style={userMenuItem}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <TbBug size={15} />
+                  <span>Report a bug</span>
+                </button>
+                <div style={userMenuDivider} />
                 <button
                   onClick={() => { setUserMenuOpen(false); logout(); }}
                   style={userMenuItem}
@@ -312,6 +329,7 @@ export default function AppShell({ step }) {
           {!compact && <JoinLayer onFollow={follow} />}
         </div>
       </div>
+
     </div>
   );
 }

@@ -1,11 +1,12 @@
 import { memo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Draggable from 'react-draggable';
-import { TbCode, TbCopy, TbRefresh, TbX } from 'react-icons/tb';
+import { TbCode, TbCopy, TbRefresh, TbX, TbBug } from 'react-icons/tb';
 import { WIDGET_TYPES } from '../Widgets';
 import { fontStack } from '../../utils/googleFonts';
 import MaxRowsWarning from '../Widgets/MaxRowsWarning';
 import { evaluateColorCondition } from '../../utils/conditionalFormat';
+import { useBugReport } from '../BugReport/BugReportProvider';
 
 // A single positioned/draggable widget on the report canvas: chrome (border,
 // gradient, shadow), the widget body, loading spinner, drill controls, the SQL
@@ -98,6 +99,7 @@ function buildShadowCSS(s) {
 }
 
 const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, scale = 1, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners, stacked }) {
+  const openBugReport = useBugReport();
   const nodeRef = useRef(null);
   const [showSql, setShowSql] = useState(false);
   // Hover state for the in-flight cancel button — the X icon is hidden
@@ -433,9 +435,37 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
                   ? 'Simplify the query, add filters, or ask an admin to raise the timeout.'
                   : 'Check the model — a referenced field may have been removed or renamed.'}
               </div>
+              {/* La surcouche est en pointerEvents:none pour laisser passer la
+                  sélection du widget ; seul ce bouton la réactive. C'est le
+                  signalement qui vaut : il part d'ici avec le message du moteur,
+                  le type de visuel et les champs liés — la différence entre
+                  « le graphique est cassé » et une cause nommée. */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openBugReport({
+                    Widget: widget.title || widget.name || item.i,
+                    'Widget type': widget.type,
+                    Error: widget.data?._error,
+                    'Error code': widget.data?._errorCode,
+                    Dimensions: (widget.dataBinding?.selectedDimensions || []).join(', '),
+                    Measures: (widget.dataBinding?.selectedMeasures || []).join(', '),
+                  });
+                }}
+                style={{
+                  pointerEvents: 'auto', marginTop: 8, padding: '4px 10px', borderRadius: 5,
+                  border: '1px solid ' + accent, background: 'transparent', color: accent,
+                  font: 'inherit', fontSize: 11, cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                }}
+              >
+                <TbBug size={12} /> Report this
+              </button>
             </div>
           );
         })()}
+
         </div>{/* end rotation wrapper */}
 
         {/* Resize handles — all edges and corners, only when selected */}

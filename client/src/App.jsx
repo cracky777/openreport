@@ -15,6 +15,7 @@ import Verify from './pages/Verify';
 import cloudRoutes from './cloud';
 import { AppGate } from './cloud';
 import AppShell from './components/AppShell/AppShell';
+import { BugReportProvider } from './components/BugReport/BugReportProvider';
 import ToastHost from './components/Toast/ToastHost';
 
 const _hs0 = { padding: 40, color: 'var(--text-disabled)' };
@@ -44,10 +45,15 @@ function RootLayout() {
         {/* Above the router so the Sources→Models→Reports graph survives moving
             between stages instead of being refetched on every step. */}
         <GraphProvider>
-          <Outlet />
-          {/* Cloud-only gate (regulatory clauses). Null in OSS. */}
-          {AppGate && <AppGate />}
-          <ToastHost />
+          {/* Au-dessus du routeur : l'éditeur de rapport et celui de modèle ont
+              leur propre en-tête et ne passent pas par AppShell. Monté ici, le
+              formulaire de signalement s'ouvre depuis n'importe quel écran. */}
+          <BugReportProvider>
+            <Outlet />
+            {/* Cloud-only gate (regulatory clauses). Null in OSS. */}
+            {AppGate && <AppGate />}
+            <ToastHost />
+          </BugReportProvider>
         </GraphProvider>
       </AuthProvider>
     </ThemeProvider>
