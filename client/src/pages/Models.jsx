@@ -330,8 +330,12 @@ export default function Models() {
                 <SourceIcon file={fileDatasourceIds.has(m.datasource_id)} dbType={dbTypeByDatasource.get(m.datasource_id)} />
                 <div onClick={() => navigate(`/models/${m.id}`)} style={_hs15}>
                   <div style={_hs16}>{m.name}</div>
+                  {/* Pas de nom de source ici : le trait du parcours le relie
+                      déjà à sa carte dans la colonne de gauche, et la pastille
+                      du glyphe en dit le moteur. L'écrire une troisième fois ne
+                      répondait à aucune question. */}
                   <div style={_hs17}>
-                    Source: {m.datasource_name} — Updated {new Date(m.updated_at).toLocaleDateString()}
+                    Updated {new Date(m.updated_at).toLocaleDateString()}
                   </div>
                   {m.description && <div style={_hs18}>{m.description}</div>}
                 </div>

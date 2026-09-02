@@ -316,7 +316,7 @@ export default function Datasources() {
                     <div style={_hs12}>
                       {(() => {
                         const dbLabel = DB_TYPE_LABELS[ds.db_type] || ds.db_type.toUpperCase();
-                        if (extra.sourceFile) return `${dbLabel} — 📄 ${extra.sourceFile} (${extra.rowCount?.toLocaleString() || '?'} rows)`;
+                        if (extra.sourceFile) return `${dbLabel} — ${extra.sourceFile} (${extra.rowCount?.toLocaleString() || '?'} rows)`;
                         if (ds.db_type === 'bigquery' || ds.db_type === 'duckdb' || ds.db_type === 'snowflake') return `${dbLabel} — ${ds.db_name}`;
                         return `${dbLabel} — ${ds.host}:${ds.port}/${ds.db_name}`;
                       })()}

@@ -1206,7 +1206,11 @@ export default function Dashboard() {
                             })()}
                           </div>
                         </>
-                      ) : stats ? (
+                      ) : stats?.rollupCount > 0 ? (
+                        // Un rapport sans cache n'a rien à dire ici : c'est
+                        // l'état par défaut de tout rapport neuf, et l'annoncer
+                        // le faisait passer pour un manque à combler. La ligne
+                        // ne porte donc le cache que lorsqu'il existe.
                         <>
                           <span style={metaDot}>·</span>
                           <span
@@ -1216,9 +1220,7 @@ export default function Dashboard() {
                               ? `Last refresh ${formatWhen(stats.builtAt)} — click to see the rollup storage breakdown`
                               : 'Click to see the rollup storage breakdown'}
                           >
-                            {stats.rollupCount > 0
-                              ? `cache ${formatBytes(stats.diskBytes || 0)} · ${(stats.totalRows || 0).toLocaleString()} rows`
-                              : 'No cache — Refresh to build'}
+                            {`cache ${formatBytes(stats.diskBytes || 0)} · ${(stats.totalRows || 0).toLocaleString()} rows`}
                           </span>
                         </>
                       ) : null}
