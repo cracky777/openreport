@@ -154,12 +154,15 @@ const cardMeta = {
   fontSize: 12, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden',
 };
 const metaDot = { color: 'var(--border-strong)', flexShrink: 0 };
-// The 90px floor lives on the GROUP (name + pencil), not the name: on the name
-// it inflated short names to 90px and pushed the pencil away from the text.
-// Here the pencil hugs the name (gap 3) and any leftover width sits after it,
-// while a crowded card still can't shrink the segment below the floor — the
-// report keeps the one word saying what it was built on.
-const metaModel = { display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 90, flex: '0 1 auto' };
+// Largeur FIXE et non plancher. Avec un minimum, un nom de modèle long poussait
+// « Last edit » plus loin qu'un nom court, et la date ne tombait au même endroit
+// sur aucune carte : l'œil devait la rechercher à chaque ligne. À largeur fixe,
+// tout ce qui suit le modèle s'aligne d'une carte à l'autre — un nom trop long
+// s'abrège, et son infobulle le donne en entier.
+//
+// Le plancher vivait déjà sur le GROUPE (nom + crayon) et non sur le nom : posé
+// sur le nom, il gonflait les noms courts et éloignait le crayon de son texte.
+const metaModel = { display: 'inline-flex', alignItems: 'center', gap: 3, flex: '0 0 150px', width: 150 };
 const metaModelName = {
   color: 'var(--accent-primary)',
   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
@@ -170,7 +173,6 @@ const metaModelEdit = {
   color: 'var(--accent-primary)', opacity: 0.55, transition: 'opacity 0.12s',
   display: 'inline-flex', alignItems: 'center', flexShrink: 0,
 };
-const metaSize = { color: 'var(--text-muted)', flexShrink: 0 };
 const metaWhen = { color: 'var(--text-disabled)', flexShrink: 0 };
 const cardActions = { display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 };
 const cardMenuWrap = { position: 'relative' };
@@ -1163,18 +1165,6 @@ export default function Dashboard() {
                           <span style={metaDot}>·</span>
                         </>
                       )}
-                      {typeof report.fileSize === 'number' && (
-                        // Two byte counts can share this line (source file here,
-                        // rollup cache after Last edit) — prefix both so they
-                        // read unambiguously.
-                        <>
-                          <span
-                            style={metaSize}
-                            title={`Imported source file${report.sourceFile ? ` (${report.sourceFile})` : ''}`}
-                          >{`file ${formatFileSize(report.fileSize)}`}</span>
-                          <span style={metaDot}>·</span>
-                        </>
-                      )}
                       <span style={metaWhen}>Last edit {formatWhen(report.updated_at)}</span>
                       {/* Cache footprint for this report. Populated lazily —
                           only after the user clicks Refresh at least once,
@@ -1613,12 +1603,6 @@ function formatWhen(value) {
   return new Date(value).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
 }
 
-function formatFileSize(bytes) {
-  if (!bytes || bytes < 1024) return `${bytes || 0} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
 const inputStyle = { width: '100%', padding: '8px 10px', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box', background: 'var(--bg-panel)', color: 'var(--text-primary)' };
 const labelStyle = { display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4, fontWeight: 500 };
 const sourceCard = {
