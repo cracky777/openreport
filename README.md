@@ -30,7 +30,7 @@ An open-source, self-hosted reporting and data visualization platform. Build int
 - **Data labels** — Configurable content, position, size, color, background
 
 ### Data
-- **Multi-database** — PostgreSQL, Amazon Redshift, Snowflake, Databricks, ClickHouse, MySQL, SQL Server, Azure SQL, BigQuery, DuckDB
+- **Multi-database** — PostgreSQL, Amazon Redshift, Snowflake, Databricks, ClickHouse, MySQL, Oracle, SQL Server, Azure SQL, BigQuery, DuckDB
 - **File import** — CSV, Excel (.xlsx), Parquet, JSON, TSV
 - **Data modeling** — Visual schema editor with joins, dimensions, measures, calculated fields
 - **Date intelligence** — Auto-detection, date parts (year, month, week, day), chronological sorting

@@ -492,6 +492,109 @@ function buildConnector(datasource) {
     };
   }
 
+  // ─── Oracle ───
+  if (db_type === 'oracle') {
+    const oracledb = require('oracledb');
+    // Mode « thin » : plus besoin d'Instant Client installé sur la machine,
+    // c'est ce qui rend ce connecteur livrable dans une image Docker ordinaire.
+    // On ne bascule donc JAMAIS en mode épais.
+    oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
+
+    // Un service Oracle se nomme host:port/service. Le nom de service n'est pas
+    // le nom de la base : deux services peuvent servir la même, et c'est lui
+    // que l'écouteur résout.
+    const connectString = String(extra.connectString || '').trim()
+      || `${host}:${port || 1521}/${db_name}`;
+    const poolConfig = {
+      user: db_user,
+      password: db_password,
+      connectString,
+      poolMin: 0,
+      poolMax: 10,
+    };
+
+    let poolPromise = null;
+    const getPool = () => {
+      if (!poolPromise) {
+        poolPromise = oracledb.createPool(poolConfig)
+          .catch((err) => { poolPromise = null; throw err; });
+      }
+      return poolPromise;
+    };
+
+    // `binds` reste un objet nommé : Oracle attend :nom, pas ?.
+    const run = async (sqlText, binds = {}, onConnection) => {
+      const pool = await getPool();
+      const conn = await pool.getConnection();
+      if (onConnection) onConnection(conn);
+      try {
+        const res = await conn.execute(sqlText, binds);
+        return res.rows || [];
+      } finally {
+        try { await conn.close(); } catch { /* déjà rendue au pool */ }
+      }
+    };
+
+    const queryCancellable = (sqlText, opts = {}) => {
+      const timeoutMs = Number(opts.timeoutMs) || 0;
+      let conn = null;
+      let canceled = false;
+      const promise = run(sqlText, {}, (c) => {
+        conn = c;
+        // callTimeout coupe l'appel côté client ; break() interrompt la requête
+        // côté serveur. Les deux, parce que le premier rend la main sans que le
+        // serveur cesse pour autant de travailler.
+        if (timeoutMs > 0) { try { c.callTimeout = Math.round(timeoutMs); } catch { /* option absente */ } }
+        if (canceled) { try { c.break(); } catch { /* déjà finie */ } }
+      });
+      const cancel = async () => {
+        if (canceled) return;
+        canceled = true;
+        try { if (conn) await conn.break(); } catch (e) { console.warn('[oracle cancel]', e.message); }
+      };
+      return withTimeout({ promise, cancel }, timeoutMs);
+    };
+
+    // Oracle plie les noms non cités en MAJUSCULES, et son catalogue les stocke
+    // ainsi. Le schéma par défaut est l'utilisateur de connexion, majuscules
+    // comprises — d'où la normalisation avant toute comparaison.
+    const defaultSchema = String(extra.schema || db_user || '').toUpperCase();
+    return {
+      query: (sqlText) => run(sqlText),
+      queryCancellable,
+      executeDDL: async (sqlText) => { await run(sqlText); },
+      testConnection: async () => { await run('SELECT 1 FROM dual'); return true; },
+      getTables: async () => {
+        // ALL_TABLES plutôt que USER_TABLES : un compte de lecture voit souvent
+        // des tables d'un autre schéma, et USER_TABLES les masquerait toutes.
+        const rows = await run(`
+          SELECT owner AS "table_schema", table_name AS "table_name"
+          FROM all_tables
+          WHERE owner NOT IN ('SYS', 'SYSTEM', 'OUTLN', 'XDB', 'CTXSYS', 'MDSYS', 'ORDSYS', 'DBSNMP', 'APPQOSSYS', 'AUDSYS', 'WMSYS', 'OJVMSYS', 'GSMADMIN_INTERNAL', 'LBACSYS', 'DVSYS')
+          ORDER BY owner, table_name
+        `);
+        return rows.map((r) => (r.table_schema === defaultSchema ? r.table_name : `${r.table_schema}.${r.table_name}`));
+      },
+      getColumns: async (tableName) => {
+        const parts = String(tableName).split('.');
+        const owner = (parts.length > 1 ? parts[0] : defaultSchema).toUpperCase();
+        const table = (parts.length > 1 ? parts[1] : parts[0]).toUpperCase();
+        return run(`
+          SELECT column_name AS "column_name", data_type AS "data_type", nullable AS "is_nullable"
+          FROM all_tab_columns
+          WHERE owner = :owner AND table_name = :tbl
+          ORDER BY column_id
+        `, { owner, tbl: table });
+      },
+      close: async () => {
+        if (!poolPromise) return;
+        const held = poolPromise;
+        poolPromise = null;
+        try { const pool = await held; await pool.close(0); } catch { /* déjà fermé */ }
+      },
+    };
+  }
+
   // ─── Databricks ───
   if (db_type === 'databricks') {
     const { DBSQLClient } = require('@databricks/sql');

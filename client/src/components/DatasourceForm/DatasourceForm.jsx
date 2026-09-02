@@ -23,6 +23,7 @@ const DB_TYPES = [
   { value: 'azure_postgres', label: 'Azure PostgreSQL', family: 'postgres', defaultPort: 5432 },
   { value: 'redshift', label: 'Redshift', family: 'postgres', defaultPort: 5439 },
   { value: 'mysql', label: 'MySQL', family: 'mysql', defaultPort: 3306 },
+  { value: 'oracle', label: 'Oracle', family: 'oracle', defaultPort: 1521 },
   { value: 'azure_sql', label: 'Azure SQL', family: 'sqlserver', defaultPort: 1433 },
   { value: 'mssql', label: 'SQL Server', family: 'sqlserver', defaultPort: 1433 },
   { value: 'bigquery', label: 'BigQuery', family: 'cloud', defaultPort: 0, noHost: true },
@@ -31,7 +32,7 @@ const DB_TYPES = [
   { value: 'clickhouse', label: 'ClickHouse', family: 'olap', defaultPort: 8123 },
   { value: 'duckdb', label: 'DuckDB', family: 'olap', defaultPort: 0, noHost: true },
 ];
-const FAMILY_ORDER = ['postgres', 'mysql', 'sqlserver', 'cloud', 'olap'];
+const FAMILY_ORDER = ['postgres', 'mysql', 'oracle', 'sqlserver', 'cloud', 'olap'];
 
 // Moteurs dont le certificat peut légitimement ne pas être vérifiable.
 // BigQuery et DuckDB n'ont pas de socket TLS à nous : l'un passe par le SDK
@@ -41,7 +42,7 @@ const SELF_SIGNED_OPT_OUT = new Set(['postgres', 'azure_postgres', 'redshift', '
 // Connecteurs écrits mais jamais exécutés contre le moteur qu'ils visent. Le
 // serveur fait foi (utils/connectorStatus) ; cette copie ne sert qu'à verrouiller
 // avant que sa réponse arrive.
-const PREVIEW_DEFAULT = ['redshift', 'mssql', 'snowflake', 'clickhouse', 'databricks'];
+const PREVIEW_DEFAULT = ['redshift', 'mssql', 'snowflake', 'clickhouse', 'databricks', 'oracle'];
 const PREVIEW_HINT = 'Preview connector — written and unit-tested, but never run against a real engine. '
   + 'An operator can enable it with OPENREPORT_PREVIEW_CONNECTORS.';
 
@@ -334,6 +335,30 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
                 placeholder={editingId ? 'Leave blank to keep existing' : ''} />
             </Field>
           </div>
+        </>
+      )}
+
+      {/* Oracle: an Oracle service is host:port/service — the service name is not
+          the database name, and it is what the listener resolves. */}
+      {form.dbType === 'oracle' && (
+        <>
+          <Field label="Service name">
+            <input style={inputStyle} value={form.dbName} onChange={(e) => updateForm('dbName', e.target.value)}
+              placeholder="ORCLPDB1 — the service, not the database file" />
+          </Field>
+          <Field label="Connect string (optional)">
+            {/* Overrides host/port/service above — for a TNS alias or an Easy
+                Connect string with extra parameters. */}
+            <input style={inputStyle} value={form.extraConfig?.connectString || ''}
+              onChange={(e) => updateForm('extraConfig', { ...form.extraConfig, connectString: e.target.value })}
+              placeholder="Leave blank to build it from Host, Port and Service name" />
+          </Field>
+          <Field label="Schema (optional)">
+            {/* Defaults to the connecting user, which is what Oracle does too. */}
+            <input style={inputStyle} value={form.extraConfig?.schema || ''}
+              onChange={(e) => updateForm('extraConfig', { ...form.extraConfig, schema: e.target.value })}
+              placeholder="Defaults to the connecting user" />
+          </Field>
         </>
       )}
 

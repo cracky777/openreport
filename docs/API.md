@@ -87,7 +87,7 @@ Routes techniques également publiques : `GET /api/health`, les images servies s
 | `GET` | `/api/datasources` | ✅ | soi-même | Liste les datasources possédées. |
 | `GET` | `/api/datasources/:id` | ✅ | propriétaire (ou admin) | Une datasource (sans le mot de passe). |
 | `POST` | `/api/datasources/test` | ✅ | soi-même | Teste une connexion sans sauvegarder. |
-| `POST` | `/api/datasources` | ✅ | soi-même | Crée une datasource (PG/Redshift/Snowflake/Databricks/ClickHouse/MySQL/MSSQL/BigQuery/DuckDB…). |
+| `POST` | `/api/datasources` | ✅ | soi-même | Crée une datasource (PG/Redshift/Snowflake/Databricks/ClickHouse/MySQL/Oracle/MSSQL/BigQuery/DuckDB…). |
 | `PUT` | `/api/datasources/:id` | ✅ | propriétaire (ou admin) | Met à jour ; invalide le queryCache et les rollups liés. |
 | `DELETE` | `/api/datasources/:id` | ✅ | propriétaire (ou admin) | Supprime (échoue si des modèles l'utilisent). |
 | `GET` | `/api/datasources/:id/tables` | ✅ | propriétaire (ou admin) | Liste les tables. |

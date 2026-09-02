@@ -2,6 +2,7 @@ import { SiPostgresql, SiMysql, SiSnowflake, SiGooglebigquery, SiDuckdb, SiClick
 import { FaAws } from 'react-icons/fa';
 import { SiDatabricks } from 'react-icons/si';
 import { DiMsqlServer } from 'react-icons/di';
+import { TbDatabaseCog } from 'react-icons/tb';
 import { VscAzure } from 'react-icons/vsc';
 import { TbDatabase } from 'react-icons/tb';
 
@@ -23,6 +24,9 @@ const MARKS = {
   redshift:       { Icon: FaAws,            color: 'var(--brand-redshift)',       label: 'Amazon Redshift' },
   snowflake:      { Icon: SiSnowflake,      color: 'var(--brand-snowflake)',      label: 'Snowflake' },
   databricks:     { Icon: SiDatabricks,      color: 'var(--brand-databricks)',    label: 'Databricks' },
+  // Simple Icons ne publie pas non plus la marque Oracle : un glyphe neutre
+  // plutôt qu'un logo approximatif.
+  oracle:         { Icon: TbDatabaseCog,     color: 'var(--brand-oracle)',        label: 'Oracle' },
   mysql:          { Icon: SiMysql,          color: 'var(--brand-mysql)',          label: 'MySQL' },
   mssql:          { Icon: DiMsqlServer,     color: 'var(--brand-mssql)',          label: 'SQL Server' },
   azure_sql:      { Icon: VscAzure,         color: 'var(--brand-azure-sql)',      label: 'Azure SQL Database' },

@@ -136,6 +136,19 @@ const CAPABILITIES = {
   // c'est la seule forme qui désigne une colonne. DECIMAL sans échelle vaut
   // DECIMAL(10,0) — encore une troncature muette, comme MySQL, SQL Server et
   // Snowflake. Et sum(FLOAT) rend déjà du DOUBLE.
+  // Oracle est le dialecte le plus éloigné du lot, et sa cellule de cast texte
+  // est la seule du tableau qui REFUSE une forme nue : `CAST(x AS VARCHAR2)`
+  // est une erreur de syntaxe, il faut une longueur. Même famille de piège que
+  // le VARCHAR(256) de Redshift, mais bruyante au lieu d'être silencieuse.
+  // SUM(BINARY_FLOAT) rend du BINARY_FLOAT — 32 bits — d'où l'élargissement.
+  oracle: {
+    quoting: 'ansi', escapesBackslash: false, quoteEscape: 'double',
+    textCast: 'VARCHAR2(4000)', intCast: 'INTEGER', decimalCast: 'NUMBER(38,10)',
+    wideFloat: 'BINARY_DOUBLE',
+    // OFFSET … FETCH NEXT depuis 12c ; les versions antérieures passaient par
+    // ROWNUM, qu'on ne vise pas.
+    nullsLast: 'inline', pagination: 'fetch', extractEpoch: false, joinUsing: true,
+  },
   databricks: {
     quoting: 'backtick', escapesBackslash: true, quoteEscape: 'double',
     textCast: 'STRING', intCast: 'BIGINT', decimalCast: 'DECIMAL(38, 10)',

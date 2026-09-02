@@ -70,6 +70,27 @@ function buildDatePartExpr(dim, dbType, columnTypes) {
   // donnerait le mois ailleurs, n'existe pas ici. Le nom du mois passe donc par
   // monthName(), qui ne laisse aucune place au doute, et seul le jour dépend du
   // format — noté ici pour que personne ne « corrige » %W en %A.
+  // Oracle n'a que six parties dans EXTRACT — YEAR, MONTH, DAY, HOUR, MINUTE,
+  // SECOND. Ni WEEK ni DOW : la semaine et le jour de semaine passent donc par
+  // TO_CHAR, converti en nombre pour rester triable.
+  //
+  // Les noms sont pinés en anglais par le troisième argument de TO_CHAR. Sans
+  // lui, ils suivent NLS_DATE_LANGUAGE : la même requête rendrait « January »
+  // ou « Janvier » selon la session, et deux utilisateurs verraient des
+  // libellés différents sur le même rapport. « FM » supprime le remplissage —
+  // sans lui Oracle complète à neuf caractères, « July     ».
+  if (dbType === 'oracle') {
+    switch (dim.datePart) {
+      case 'num_year': return `EXTRACT(YEAR FROM ${dateExpr})`;
+      case 'num_month': return `EXTRACT(MONTH FROM ${dateExpr})`;
+      case 'name_month': return `TO_CHAR(${dateExpr}, 'FMMonth', 'NLS_DATE_LANGUAGE=ENGLISH')`;
+      case 'num_week': return `TO_NUMBER(TO_CHAR(${dateExpr}, 'IW'))`;
+      case 'num_day_of_week': return `TO_NUMBER(TO_CHAR(${dateExpr}, 'D'))`;
+      case 'name_day': return `TO_CHAR(${dateExpr}, 'FMDay', 'NLS_DATE_LANGUAGE=ENGLISH')`;
+      default: return col;
+    }
+  }
+
   // Databricks formate par motifs Java : « MMMM » est le nom complet du mois et
   // « EEEE » celui du jour — quatre lettres exactement, la règle Java pour la
   // forme longue. Ni le '%B' de strftime ni le '%M' de MySQL n'ont cours ici.
