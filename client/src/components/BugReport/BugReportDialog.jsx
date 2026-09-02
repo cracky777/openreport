@@ -63,7 +63,7 @@ export default function BugReportDialog({ context = {}, onClose }) {
           details: body,
           context: includeContext ? context : {},
         });
-        toast.success('Report sent. Thank you.');
+        toast('Report sent. Thank you.', 'success');
       } else {
         // Certains clients mail tronquent un lien trop long sans le dire. Le
         // contexte est court par construction, mais on borne quand même.
@@ -74,7 +74,7 @@ export default function BugReportDialog({ context = {}, onClose }) {
       }
       onClose();
     } catch (err) {
-      toast.error(err?.response?.data?.error || err?.message || 'Could not send the report');
+      toast(err?.response?.data?.error || err?.message || 'Could not send the report');
     } finally {
       setSending(false);
     }
