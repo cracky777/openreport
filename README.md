@@ -4,46 +4,21 @@
 
 > Source-available under [PolyForm Noncommercial 1.0.0](LICENSE) — forks allowed with attribution, commercial use prohibited.
 
-An open-source, self-hosted reporting and data visualization platform. Build interactive dashboards with a drag-and-drop canvas — no vendor lock-in.
+Superset is too complicated ? Metabase is too limited ? Power BI is not open-source ? Thas is why I have created Open-Report.
+An open-source, self-hosted reporting and data visualization platform easy to use and to configure. Build interactive dashboards with a drag-and-drop canvas, and with no vendor lock-in.
 
 **Think Power BI / Looker Studio, but open source and self-hosted.**
 
 ## Features
+- More than 10 types of vizualisations
+- Capacity to build your own visuals
+- Row Line Security
+- Schedule refresh
+- Cache management
+- Workspace/user management
+- Connect to PostgreSQL, Amazon Redshift, Snowflake, Databricks, ClickHouse, MySQL, Oracle, SQL Server, Azure SQL, BigQuery, DuckDB
+- Import your files : CSV, Excel (.xlsx), Parquet, JSON, TSV
 
-### Visualizations
-- **Bar Chart** — Clustered, Stacked, 100% Stacked with 4-direction orientation
-- **Line Chart** — Line, Area, Stacked Area, 100% Stacked Area
-- **Combo Chart** — Line + Stacked Bar, Line + Clustered Bar with secondary Y axis
-- **Pie / Donut Chart** — With inside/outside labels
-- **Scatter / Bubble Chart** — X, Y, Size measures with custom symbols and images
-- **Table** — Sortable, paginated, conditional formatting, column reordering
-- **Pivot Table** — Client-side pivoting with row/column dimensions
-- **Scorecard** — Single KPI display
-- **Filter / Slicer** — List, Dropdown, Buttons, Range, Date Range, Relative Date
-
-### Design
-- **Drag & drop canvas** — Freely position and resize widgets
-- **Snap-to-grid** — Configurable grid with magnet snapping
-- **Shape objects** — Square, Round, Line, Arrow for layout decoration
-- **Container rotation** — Rotate any widget 0-360 degrees
-- **Custom legend colors** — Per-value color customization on all charts
-- **Data labels** — Configurable content, position, size, color, background
-
-### Data
-- **Multi-database** — PostgreSQL, Amazon Redshift, Snowflake, Databricks, ClickHouse, MySQL, Oracle, SQL Server, Azure SQL, BigQuery, DuckDB
-- **File import** — CSV, Excel (.xlsx), Parquet, JSON, TSV
-- **Data modeling** — Visual schema editor with joins, dimensions, measures, calculated fields
-- **Date intelligence** — Auto-detection, date parts (year, month, week, day), chronological sorting
-- **Cross-filtering** — Click on any chart to filter all other visuals
-- **Cross-highlighting** — Power BI-style opacity highlight on source widget
-
-### Platform
-- **Role-based access** — Admin, Editor, Viewer roles
-- **Workspaces** — Organize reports with team members
-- **Public sharing** — Share reports via public link
-- **Export** — PDF, PNG, Excel, Print
-- **Undo/Redo** — Full history with Ctrl+Z / Ctrl+Y
-- **Self-hosted** — Your data stays on your infrastructure
 
 ## Tech Stack
 
