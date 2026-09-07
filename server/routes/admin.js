@@ -21,8 +21,13 @@ const {
   setPublicSharingPolicy,
   getSupportEmail,
   setSupportEmail,
+  isApiEnabled,
+  setApiEnabled,
+  getApiMinRole,
+  setApiMinRole,
 } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
+const apiToken = require('../utils/apiToken');
 const { validatePassword } = require('./auth');
 const { destroySessionsForUser } = require('../utils/sessionRegistry');
 const usage = require('../utils/usage');
@@ -249,7 +254,36 @@ router.get('/settings', requireAdmin, (req, res) => {
       uploadedBytes: totalUploadedBytes,
     },
     publicSharingPolicy: getPublicSharingPolicy(),
+    apiEnabled: isApiEnabled(),
+    apiMinRole: getApiMinRole(),
   });
+});
+
+// Every API token on the instance. The admin who decides whether the API is
+// open needs to be able to answer "by whom, and is any of this still in use" —
+// and to cut one integration without taking the whole API down.
+router.get('/api-tokens', requireAdmin, (req, res) => {
+  res.json({ tokens: apiToken.listAll() });
+});
+
+router.delete('/api-tokens/:id', requireAdmin, (req, res) => {
+  if (!apiToken.revokeAny(req.params.id)) {
+    return res.status(404).json({ error: 'Token not found or already revoked' });
+  }
+  res.json({ ok: true });
+});
+
+// The public API: off until an admin turns it on, then limited to a role
+// floor. Both land in one handler because the panel presents them as one
+// decision — "is the API open, and to whom".
+router.put('/settings/api', requireAdmin, (req, res) => {
+  try {
+    if (req.body?.enabled != null) setApiEnabled(!!req.body.enabled);
+    if (req.body?.minRole != null) setApiMinRole(String(req.body.minRole));
+    res.json({ apiEnabled: isApiEnabled(), apiMinRole: getApiMinRole() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Public-sharing policy — who may flip a report public, instance-wide.

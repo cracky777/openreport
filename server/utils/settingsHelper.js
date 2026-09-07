@@ -126,6 +126,49 @@ function setPublicSharingPolicy(policy) {
   return policy;
 }
 
+// ─── API access ─────────────────────────────────────────────────────
+// The public API is OFF on a fresh install and stays off until an admin turns
+// it on. A BI instance is a key to every database it connects to, so the
+// surface that answers to a bearer string is opt-in, not opt-out.
+//
+// `api_min_role` says who may hold a token once the API is on. Read as a floor
+// on the role ladder (admin > editor > viewer), so 'viewer' means everyone.
+// It is enforced at BOTH ends: minting refuses a user below the floor, and the
+// bearer middleware re-checks on every call — demoting someone kills the tokens
+// they already hold, without anyone having to remember to revoke them.
+const API_MIN_ROLES = ['admin', 'editor', 'viewer'];
+const ROLE_RANK = { admin: 3, editor: 2, viewer: 1 };
+
+function isApiEnabled() {
+  return getSetting('api_enabled', false) === true;
+}
+
+function setApiEnabled(enabled) {
+  setSetting('api_enabled', !!enabled);
+  return !!enabled;
+}
+
+function getApiMinRole() {
+  const v = getSetting('api_min_role', 'admin');
+  return API_MIN_ROLES.includes(v) ? v : 'admin';
+}
+
+function setApiMinRole(role) {
+  if (!API_MIN_ROLES.includes(role)) {
+    throw new Error(`Minimum role must be one of: ${API_MIN_ROLES.join(', ')}`);
+  }
+  setSetting('api_min_role', role);
+  return role;
+}
+
+// Whether `user` may hold and use an API token right now. The single place
+// both the mint route and the bearer middleware ask.
+function canUseApi(user) {
+  if (!isApiEnabled()) return false;
+  if (!user) return false;
+  return (ROLE_RANK[user.role] || 0) >= ROLE_RANK[getApiMinRole()];
+}
+
 module.exports = {
   QUERY_TIMEOUT_MIN_MS,
   QUERY_TIMEOUT_MAX_MS,
@@ -149,4 +192,10 @@ module.exports = {
   setPublicSharingPolicy,
   getSupportEmail,
   setSupportEmail,
+  API_MIN_ROLES,
+  isApiEnabled,
+  setApiEnabled,
+  getApiMinRole,
+  setApiMinRole,
+  canUseApi,
 };

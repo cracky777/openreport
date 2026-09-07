@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { TbShield, TbBell, TbTelescope, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug } from 'react-icons/tb';
+import { TbShield, TbBell, TbTelescope, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug, TbPlugConnected } from 'react-icons/tb';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -25,7 +25,7 @@ import { STEPS } from './steps';
 export default function AppShell({ step }) {
   const navigate = useNavigate();
   const { search } = useLocation();
-  const { user, logout } = useAuth();
+  const { user, logout, instance } = useAuth();
   const { mode: themeMode, resolved: themeResolved, setMode: setThemeMode, themes: availableThemes } = useTheme();
   const logoSrc = themeResolved === 'dark' ? '/logo-dark.png' : '/logo.png';
 
@@ -237,6 +237,20 @@ export default function AppShell({ step }) {
                   </>
                 )}
                 <div style={userMenuDivider} />
+                {/* Only shown when the instance has the API on AND this account
+                    passes the role floor — no point offering a door it cannot
+                    open. Both flags come from /auth/me. */}
+                {instance?.apiEnabled && instance?.apiAllowed && (
+                  <button
+                    onClick={() => { setUserMenuOpen(false); navigate('/api-tokens'); }}
+                    style={userMenuItem}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <TbPlugConnected size={15} />
+                    <span>API tokens</span>
+                  </button>
+                )}
                 {/* Le signalement général vit ici plutôt que dans l'en-tête : on
                     le cherche quand on en a besoin, il n'a pas à occuper une
                     barre qu'on regarde en permanence. Le signalement qui compte

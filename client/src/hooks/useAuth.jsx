@@ -9,7 +9,7 @@ export function AuthProvider({ children }) {
   // Non-sensitive instance-wide policies (from /auth/me) the UI adapts to,
   // e.g. hiding "Share public link" when the admin restricted it. The server
   // enforces regardless; this only avoids dead-end menu items.
-  const [instance, setInstance] = useState({ publicSharingPolicy: 'everyone' });
+  const [instance, setInstance] = useState({ publicSharingPolicy: 'everyone', apiEnabled: false, apiAllowed: false });
 
   useEffect(() => {
     api.get('/auth/me')

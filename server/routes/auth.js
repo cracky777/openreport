@@ -149,8 +149,17 @@ router.post('/logout', (req, res) => {
 router.get('/me', requireAuth, (req, res) => {
   // `instance` = non-sensitive instance-wide policy the client UI adapts to
   // (e.g. hiding the "Share public link" action). Enforcement stays server-side.
-  const { getPublicSharingPolicy } = require('../utils/settingsHelper');
-  res.json({ user: req.user, instance: { publicSharingPolicy: getPublicSharingPolicy() } });
+  const { getPublicSharingPolicy, isApiEnabled, canUseApi } = require('../utils/settingsHelper');
+  res.json({
+    user: req.user,
+    instance: {
+      publicSharingPolicy: getPublicSharingPolicy(),
+      // Drives whether the account menu shows an API tokens entry at all —
+      // no point offering a door this account cannot open.
+      apiEnabled: isApiEnabled(),
+      apiAllowed: canUseApi(req.user),
+    },
+  });
 });
 
 // Autocomplete for user discovery (RLS assignment, workspace invites). To keep

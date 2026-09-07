@@ -22,6 +22,7 @@ An open source, self-hosted reporting and data visualization platform, easy to r
 - Export to PDF, PNG, Excel
 - Connects to PostgreSQL, Amazon Redshift, Snowflake, Databricks, ClickHouse, MySQL, Oracle, SQL Server, Azure SQL, BigQuery, DuckDB
 - Imports CSV, Excel (.xlsx), Parquet, JSON, TSV
+- [REST API](API.md) for scripted refreshes, with scoped tokens
 
 ## What it doesn't do (yet)
 
@@ -108,6 +109,7 @@ open-report/
 │   ├── db/                 # SQLite schema & connection
 │   ├── utils/              # Database connectors
 │   └── middleware/         # Auth middleware
+├── API.md                  # Public API (v1) reference
 ├── LICENSE                 # GNU AGPL-3.0
 ├── CONTRIBUTING.md
 └── README.md

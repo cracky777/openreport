@@ -3,11 +3,12 @@ import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
-import { TbShield, TbEdit, TbEye, TbUserPlus, TbKey, TbExternalLink, TbClock, TbUsersGroup, TbChevronDown, TbChevronRight, TbBell, TbPlayerPause, TbPlayerPlay, TbActivity, TbUsers, TbSettings } from 'react-icons/tb';
+import { TbShield, TbEdit, TbEye, TbUserPlus, TbKey, TbExternalLink, TbClock, TbUsersGroup, TbChevronDown, TbChevronRight, TbBell, TbPlayerPause, TbPlayerPlay, TbActivity, TbUsers, TbSettings, TbPlugConnected } from 'react-icons/tb';
 import { ICON_SIZE } from '../components/actionIcons';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
 import Paged from '../components/Pager/Paged';
+import ApiTokensPanel from '../components/ApiTokens/ApiTokensPanel';
 import { formatDuration, formatBytes } from '../utils/formatHuman';
 import { headerShellStyle, headerTitleStyle, BackButton, PrimaryButton } from '../components/PageHeader/PageHeader';
 // Cloud edition contributes extra admin links here (e.g. Billing). Empty in OSS builds.
@@ -61,6 +62,7 @@ const ADMIN_TABS = [
   { key: 'groups', label: 'Groups', icon: TbUsersGroup },
   { key: 'alerts', label: 'Alerts', icon: TbBell },
   { key: 'usage', label: 'Usage', icon: TbActivity },
+  { key: 'api', label: 'API tokens', icon: TbPlugConnected },
 ];
 const tabBar = {
   display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 20, padding: 4,
@@ -404,6 +406,7 @@ export default function Admin() {
         {tab === 'groups' && <GroupsSection />}
         {tab === 'alerts' && <AlertsSection />}
         {tab === 'usage' && <UsageSection />}
+        {tab === 'api' && <ApiTokensSection />}
       </main>
     </div>
   );
@@ -502,6 +505,175 @@ function AlertsSection() {
     </div>
   );
 }
+
+// Admin › API. Two instance-level decisions — is the API on at all, and which
+// roles may hold a token — sitting above the admin's own token list. The list
+// itself is the same panel every allowed user gets from the account menu.
+const API_MIN_ROLE_OPTIONS = [
+  { value: 'admin', label: 'Admins only' },
+  { value: 'editor', label: 'Admins and editors' },
+  { value: 'viewer', label: 'Everyone' },
+];
+
+function ApiTokensSection() {
+  const [enabled, setEnabled] = useState(false);
+  const [minRole, setMinRole] = useState('admin');
+  // Remounts the panel after a settings change so it re-reads what it may do.
+  const [panelKey, setPanelKey] = useState(0);
+
+  useEffect(() => {
+    api.get('/admin/settings')
+      .then((res) => {
+        setEnabled(!!res.data.apiEnabled);
+        setMinRole(res.data.apiMinRole || 'admin');
+      })
+      .catch(() => { /* admin gate handled by the page's users fetch */ });
+  }, []);
+
+  const save = async (patch) => {
+    try {
+      const res = await api.put('/admin/settings/api', patch);
+      setEnabled(res.data.apiEnabled);
+      setMinRole(res.data.apiMinRole);
+      setPanelKey((k) => k + 1);
+    } catch (err) {
+      toast(err.response?.data?.error || 'Failed to update the API settings');
+    }
+  };
+
+  return (
+    <>
+      <div style={formCard}>
+        <h3 style={_hs4}>
+          <TbPlugConnected size={16} color="var(--accent-primary)" /> API access
+        </h3>
+        <div style={apiSettingRow}>
+          <div style={_hs22}>
+            <div style={_hs19}>Enable the API</div>
+            <p style={_hs24}>
+              Off by default. This instance holds credentials to every database it
+              connects to, so the surface that answers to a bearer string is opt-in.
+              Switching it off refuses every existing token at once — there is
+              nothing to revoke.
+            </p>
+          </div>
+          <button
+            onClick={() => save({ enabled: !enabled })}
+            aria-pressed={enabled}
+            style={{ ...apiToggle, ...(enabled ? apiToggleOn : null) }}
+          >
+            {enabled ? 'Enabled' : 'Disabled'}
+          </button>
+        </div>
+        <div style={_hs5} />
+        <div style={apiSettingRow}>
+          <div style={_hs22}>
+            <div style={_hs19}>Who may hold a token</div>
+            <p style={_hs24}>
+              A token acts as the user who created it and never grants more than
+              that account has. Lowering this bar lets more people automate; it
+              does not widen what any of them can reach.
+            </p>
+          </div>
+          <select
+            value={minRole}
+            onChange={(e) => save({ minRole: e.target.value })}
+            disabled={!enabled}
+            style={{ ...inputStyle, width: 220, opacity: enabled ? 1 : 0.5 }}
+          >
+            {API_MIN_ROLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div style={formCard}>
+        <h3 style={_hs4}>
+          <TbPlugConnected size={16} color="var(--accent-primary)" /> Your API tokens
+        </h3>
+        <ApiTokensPanel key={panelKey} embedded />
+      </div>
+
+      <AllApiTokens refreshKey={panelKey} />
+    </>
+  );
+}
+
+// Every token on the instance, whoever created it. Read-and-revoke: there is
+// no way to mint one on someone else's behalf, which would forge an identity
+// the admin does not hold. Sorted by last use, so dormant integrations and
+// never-used tokens collect at the bottom.
+function AllApiTokens({ refreshKey }) {
+  const [tokens, setTokens] = useState([]);
+
+  const load = () => {
+    api.get('/admin/api-tokens')
+      .then((res) => setTokens(res.data.tokens || []))
+      .catch(() => { /* admin gate handled by the page's users fetch */ });
+  };
+  useEffect(load, [refreshKey]);
+
+  const revoke = async (t) => {
+    try {
+      await api.delete(`/admin/api-tokens/${t.id}`);
+      load();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Failed to revoke the token');
+    }
+  };
+
+  const isExpired = (t) => t.expires_at && new Date(`${t.expires_at}Z`) < new Date();
+
+  return (
+    <div style={formCard}>
+      <h3 style={_hs4}>
+        <TbPlugConnected size={16} color="var(--accent-primary)" /> Tokens on this instance
+      </h3>
+      <p style={{ ..._hs24, marginBottom: 14 }}>
+        Every token anyone has created here. You can revoke any of them — that cuts
+        one integration without switching the API off or changing anyone&apos;s role.
+        Creating a token stays personal: nobody can issue one in someone else&apos;s name.
+      </p>
+      {tokens.length === 0 ? (
+        <div style={_hs20}>No API tokens on this instance.</div>
+      ) : (
+        <div style={_hs26}>
+          <Paged items={tokens} pageSize={20}>{(page) => page.map((t) => {
+            const dead = !!t.revoked_at || isExpired(t);
+            return (
+              <div key={t.id} style={{ ...invRow, opacity: dead ? 0.55 : 1 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={invName}>
+                    {t.name}
+                    <code style={{ fontSize: 11, color: 'var(--text-muted)' }}>…{t.token_hint}</code>
+                    {t.revoked_at && <span style={invDeadTag}>revoked</span>}
+                    {!t.revoked_at && isExpired(t) && <span style={invDeadTag}>expired</span>}
+                  </div>
+                  <div style={_hs29}>
+                    {t.owner_email || t.user_id} ({t.owner_role || 'unknown role'}) ·{' '}
+                    {t.scopes.split(',').join(' · ')}
+                    {t.expires_at ? ` · expires ${t.expires_at}` : ''}
+                    {t.last_used_at ? ` · last used ${t.last_used_at}` : ' · never used'}
+                  </div>
+                </div>
+                {!dead && (
+                  <ConfirmDeleteButton variant="icon" label="Revoke token" onConfirm={() => revoke(t)} />
+                )}
+              </div>
+            );
+          })}</Paged>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const invRow = { display: 'flex', alignItems: 'center', gap: 10, border: '1px solid var(--border-default)', borderRadius: 6, padding: '8px 12px' };
+const invName = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 };
+const invDeadTag = { fontSize: 11, color: 'var(--state-danger)' };
+
+const apiSettingRow = { display: 'flex', alignItems: 'center', gap: 12 };
+const apiToggle = { padding: '7px 16px', fontSize: 13, fontWeight: 600, borderRadius: 6, cursor: 'pointer', minWidth: 100, background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', color: 'var(--text-secondary)' };
+const apiToggleOn = { background: 'var(--state-success-soft)', border: '1px solid var(--state-success)', color: 'var(--state-success)' };
 
 // Usage & observability — what is actually read, what is slow, how fresh
 // each report's cache is. Reads GET /admin/usage (utils/usage.js events,

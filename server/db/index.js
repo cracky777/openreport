@@ -108,6 +108,29 @@ db.exec(`CREATE TABLE IF NOT EXISTS embed_tokens (
 )`);
 db.exec('CREATE INDEX IF NOT EXISTS idx_embed_tokens_report ON embed_tokens (report_id, created_at DESC)');
 
+// API tokens for machine callers (an ETL job triggering a refresh, mostly).
+// Only ever accepted on /api/v1 — see utils/apiToken.js for why the middleware
+// is mounted there and nowhere else.
+//
+// token_hash is a plain SHA-256, not bcrypt: the token is 256 bits of CSPRNG
+// output, so there is no low-entropy secret to slow an attacker down, and the
+// hash is recomputed on every single API call. Storing the digest still means
+// a dump of this table hands over nothing usable.
+db.exec(`CREATE TABLE IF NOT EXISTS api_tokens (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  token_hint TEXT NOT NULL,           -- last 4 chars, so a user can tell two tokens apart
+  scopes TEXT NOT NULL,               -- comma-separated subset of read,refresh
+  created_at TEXT DEFAULT (datetime('now')),
+  last_used_at TEXT,
+  expires_at TEXT,
+  revoked_at TEXT,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens (user_id, created_at DESC)');
+
 // Report version history — snapshots taken on every meaningful save so an
 // admin can roll back. Capped at 20 versions per report (FIFO pruning in
 // the route handler that takes the snapshot).

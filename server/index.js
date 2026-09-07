@@ -23,6 +23,8 @@ const cacheScheduleRoutes = require('./routes/cacheSchedules');
 const alertRoutes = require('./routes/alerts');
 const bookmarkRoutes = require('./routes/bookmarks');
 const rollupRoutes = require('./routes/rollups');
+const apiTokenRoutes = require('./routes/apiTokens');
+const v1Routes = require('./routes/v1');
 const internalToken = require('./utils/internalToken');
 const cacheScheduler = require('./utils/cacheScheduler');
 const alertRunner = require('./utils/alertRunner');
@@ -188,6 +190,10 @@ app.use('/api/cache-schedules', cacheScheduleRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/reports', bookmarkRoutes);
 app.use('/api/rollups', rollupRoutes);
+app.use('/api/api-tokens', apiTokenRoutes);
+// Public API. Mounted last among the /api routers because it carries its own
+// bearer-token middleware — everything above stays session-only.
+app.use('/api/v1', v1Routes);
 // Custom visuals share the /api/workspaces prefix — mount BEFORE workspaces so
 // /:wsId/visuals/... is matched here instead of falling through to a 404 in the
 // workspaces router.
