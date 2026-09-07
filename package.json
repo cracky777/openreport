@@ -1,7 +1,7 @@
 {
   "name": "open-report",
   "version": "0.1.0",
-  "description": "Open-source reporting and data visualization tool",
+  "description": "Self-hosted reporting and data visualization tool",
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
@@ -17,7 +17,7 @@
     "reporting",
     "dataviz",
     "dashboard",
-    "open-source",
+    "self-hosted",
     "looker-studio"
   ],
   "license": "SEE LICENSE IN LICENSE",

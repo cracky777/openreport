@@ -2,48 +2,34 @@
 
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](LICENSE)
 
-> Source-available under [PolyForm Noncommercial 1.0.0](LICENSE) — forks allowed with attribution, commercial use prohibited.
+> Source-available under [PolyForm Noncommercial 1.0.0](LICENSE) — free for personal, research and nonprofit use; commercial use requires a license.
 
-An open-source, self-hosted reporting and data visualization platform. Build interactive dashboards with a drag-and-drop canvas — no vendor lock-in.
+Superset too complicated? Metabase too limited? Power BI tied to a Microsoft tenant? That's why I built Open Report.
 
-**Think Power BI / Looker Studio, but open source and self-hosted.**
+A self-hosted reporting and data visualization platform, easy to run and easy to configure. Point it at your database, describe your tables once (joins, dimensions, measures), then build interactive dashboards on a drag-and-drop canvas. It compiles the SQL for you, in your dialect, against your data. Nothing leaves your infrastructure.
+
+**Think Power BI / Looker Studio, but self-hosted and yours to fork.**
 
 ## Features
 
-### Visualizations
-- **Bar Chart** — Clustered, Stacked, 100% Stacked with 4-direction orientation
-- **Line Chart** — Line, Area, Stacked Area, 100% Stacked Area
-- **Combo Chart** — Line + Stacked Bar, Line + Clustered Bar with secondary Y axis
-- **Pie / Donut Chart** — With inside/outside labels
-- **Scatter / Bubble Chart** — X, Y, Size measures with custom symbols and images
-- **Table** — Sortable, paginated, conditional formatting, column reordering
-- **Pivot Table** — Client-side pivoting with row/column dimensions
-- **Scorecard** — Single KPI display
-- **Filter / Slicer** — List, Dropdown, Buttons, Range, Date Range, Relative Date
+- 10+ visualization types, and you can write your own
+- Drag-and-drop canvas with snap-to-grid, shapes and free positioning
+- Semantic model: joins, dimensions, measures, calculated fields, date intelligence
+- Row-Level Security
+- Scheduled refresh and a pre-aggregation cache
+- Cross-filtering and cross-highlighting between visuals
+- Workspace and user management, public share links
+- Export to PDF, PNG, Excel
+- Connects to PostgreSQL, Amazon Redshift, Snowflake, Databricks, ClickHouse, MySQL, Oracle, SQL Server, Azure SQL, BigQuery, DuckDB
+- Imports CSV, Excel (.xlsx), Parquet, JSON, TSV
 
-### Design
-- **Drag & drop canvas** — Freely position and resize widgets
-- **Snap-to-grid** — Configurable grid with magnet snapping
-- **Shape objects** — Square, Round, Line, Arrow for layout decoration
-- **Container rotation** — Rotate any widget 0-360 degrees
-- **Custom legend colors** — Per-value color customization on all charts
-- **Data labels** — Configurable content, position, size, color, background
+## What it doesn't do (yet)
 
-### Data
-- **Multi-database** — PostgreSQL, Amazon Redshift, Snowflake, Databricks, ClickHouse, MySQL, Oracle, SQL Server, Azure SQL, BigQuery, DuckDB
-- **File import** — CSV, Excel (.xlsx), Parquet, JSON, TSV
-- **Data modeling** — Visual schema editor with joins, dimensions, measures, calculated fields
-- **Date intelligence** — Auto-detection, date parts (year, month, week, day), chronological sorting
-- **Cross-filtering** — Click on any chart to filter all other visuals
-- **Cross-highlighting** — Power BI-style opacity highlight on source widget
-
-### Platform
-- **Role-based access** — Admin, Editor, Viewer roles
-- **Workspaces** — Organize reports with team members
-- **Public sharing** — Share reports via public link
-- **Export** — PDF, PNG, Excel, Print
-- **Undo/Redo** — Full history with Ctrl+Z / Ctrl+Y
-- **Self-hosted** — Your data stays on your infrastructure
+- One fact table per widget. Combining two fact tables in a single query inflates the numbers through join fan-out, so it is deliberately not offered.
+- The pre-aggregation cache doesn't cover every measure. Non-additive ones and exotic SQL functions fall back to a live query against the source.
+- Report building is a desktop workflow. Viewing on mobile works; editing on mobile is not something I have designed for.
+- Pivot tables are computed client-side, so very large result sets will hurt.
+- No schema migration tool. Upgrades run idempotent ALTERs at boot.
 
 ## Tech Stack
 
@@ -133,8 +119,8 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before
 
 ## License
 
-This project is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE) — fork allowed with attribution, no commercial use.
+[PolyForm Noncommercial 1.0.0](LICENSE). **This is not an OSI-approved open source license** — the code is source-available.
 
-## Author
+Free for personal projects, research, teaching and nonprofits. Any use by or for a business, including internal dashboards inside a company, needs a commercial license: open an issue to ask about one.
 
-Open Report contributors
+Forks are allowed with attribution, for the uses above.
