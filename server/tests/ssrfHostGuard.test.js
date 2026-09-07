@@ -72,3 +72,59 @@ describe('enforced (cloud / OSS opt-in) — internal hosts are refused', () => {
     expect(res.body.error).toMatch(/not reachable/i);
   });
 });
+
+// La chaîne de connexion Oracle désigne sa cible ailleurs que dans `host` : la
+// garde doit la lire aussi, sinon elle ne borde que la porte d'entrée
+// officielle. Même bascule de politique que le reste du fichier.
+describe('enforced — la connect string Oracle passe par la même liste', () => {
+  // Oracle est en préversion : sans l'ouvrir, chaque création répondrait 400
+  // pour la mauvaise raison et les refus attendus deviendraient de faux succès.
+  beforeAll(() => {
+    process.env.OPENREPORT_BLOCK_INTERNAL_HOSTS = '1';
+    process.env.OPENREPORT_PREVIEW_CONNECTORS = 'oracle';
+  });
+  afterAll(() => {
+    delete process.env.OPENREPORT_BLOCK_INTERNAL_HOSTS;
+    delete process.env.OPENREPORT_PREVIEW_CONNECTORS;
+  });
+
+  const oracle = { ...base, dbType: 'oracle', host: 'db.example.com', port: 1521 };
+
+  test('easy connect vers une adresse interne — refusé à la création', async () => {
+    const res = await post(user, { ...oracle, name: 'o1', extraConfig: { connectString: '169.254.169.254:1521/x' } });
+    expect(res.status).toBe(400);
+  });
+
+  test('descripteur (HOST=…) interne — refusé', async () => {
+    const res = await post(user, { ...oracle, name: 'o2', extraConfig: { connectString: '(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=127.0.0.1)(PORT=1521)))' } });
+    expect(res.status).toBe(400);
+  });
+
+  test('descripteur illisible — refusé plutôt que cru sur parole', async () => {
+    const res = await post(user, { ...oracle, name: 'o3', extraConfig: { connectString: '(FOO=bar)' } });
+    expect(res.status).toBe(400);
+  });
+
+  test('un alias TNS nu passe — il se résout via la conf du serveur', async () => {
+    const res = await post(user, { ...oracle, name: 'o4', extraConfig: { connectString: 'prod_alias' } });
+    expect(res.status).toBe(201);
+  });
+
+  test('la mise à jour est bordée aussi — y compris la valeur héritée', async () => {
+    const created = await post(user, { ...oracle, name: 'o5' });
+    expect(created.status).toBe(201);
+    const id = created.body.datasource.id;
+    const put = await request(app).put(`/api/datasources/${id}`).set('x-test-user', user)
+      .send({ name: 'o5', dbName: 'd', extraConfig: { connectString: '//10.0.0.5/x' } });
+    expect(put.status).toBe(400);
+  });
+});
+
+describe('OSS par défaut — la connect string interne reste permise', () => {
+  beforeAll(() => { process.env.OPENREPORT_PREVIEW_CONNECTORS = 'oracle'; });
+  afterAll(() => { delete process.env.OPENREPORT_PREVIEW_CONNECTORS; });
+  test('même 127.0.0.1 : un opérateur seul chez lui', async () => {
+    const res = await post(user, { ...base, dbType: 'oracle', name: 'o-def', host: 'db.example.com', extraConfig: { connectString: '127.0.0.1:1521/x' } });
+    expect(res.status).toBe(201);
+  });
+});

@@ -209,6 +209,11 @@ function ipv6IsBlocked(host) {
 // / private target in any encoding. A hostname that RESOLVES to an internal
 // address (DNS rebinding) still passes here — closing that needs a
 // resolve-and-check in the connector, tracked as a follow-up.
+function blockListEnforced() {
+  return process.env.OPENREPORT_CLOUD === '1'
+    || process.env.OPENREPORT_BLOCK_INTERNAL_HOSTS === '1';
+}
+
 function hostIsBlocked(rawHost) {
   // Policy gate. The block-list defends a MULTI-TENANT host: an untrusted org
   // member probing the internal range to reach the cloud metadata service. That
@@ -218,9 +223,7 @@ function hostIsBlocked(rawHost) {
   // primary use case. So OSS is OFF unless a multi-user instance opts in via
   // OPENREPORT_BLOCK_INTERNAL_HOSTS=1. Read at call time so a deploy can flip it
   // without a rebuild. Kept inside the predicate so no call site can forget it.
-  const enforced = process.env.OPENREPORT_CLOUD === '1'
-    || process.env.OPENREPORT_BLOCK_INTERNAL_HOSTS === '1';
-  if (!enforced) return false;
+  if (!blockListEnforced()) return false;
   if (!rawHost) return false;
   let h = String(rawHost).trim().toLowerCase();
   // Strip an IPv6 bracket wrapper and any :port a caller may have appended.
@@ -254,6 +257,37 @@ async function hostResolvesInternally(rawHost) {
   return addresses.some((a) => hostIsBlocked(a.address));
 }
 
+// Un connecteur peut désigner sa cible ailleurs que dans `host` : la chaîne de
+// connexion Oracle porte le sien, et passait donc sous la garde — un membre
+// d'organisation pouvait sonder le réseau interne avec un `host` innocent et
+// connectString=«169.254.169.254:1521/x». On extrait donc les hôtes que la
+// chaîne désigne et on leur applique la même liste. Trois formes :
+//   - Easy Connect «host:port/service» ou «host/service» — l'hôte est devant ;
+//   - descripteur «(DESCRIPTION=…(HOST=x)…)» — chaque HOST= est contrôlé, et un
+//     descripteur où aucun ne se lit est refusé plutôt que cru sur parole ;
+//   - alias TNS nu — aucun hôte dedans : il se résout via la configuration du
+//     SERVEUR (tnsnames.ora), que l'appelant ne contrôle pas. Laissé passer.
+function oracleConnectStringHosts(raw) {
+  const s = String(raw || '').trim().replace(/^\/\//, '');
+  if (!s) return { hosts: [], opaque: false };
+  if (s.includes('(')) {
+    const hosts = [...s.matchAll(/host\s*=\s*([^)\s]+)/gi)].map((m) => m[1]);
+    return { hosts, opaque: hosts.length === 0 };
+  }
+  if (s.includes(':') || s.includes('/')) return { hosts: [s.split(/[:/]/)[0]], opaque: false };
+  return { hosts: [], opaque: false };
+}
+
+async function extraConfigTargetsBlocked(dbType, extraConfig) {
+  if (dbType !== 'oracle' || !blockListEnforced()) return false;
+  const { hosts, opaque } = oracleConnectStringHosts(extraConfig?.connectString);
+  if (opaque) return true;
+  for (const h of hosts) {
+    if (hostIsBlocked(h) || await hostResolvesInternally(h)) return true;
+  }
+  return false;
+}
+
 // Test connection (without saving). Write-gated: a read-only account has no
 // reason to open outbound connections from the server.
 router.post('/test', authFor('write'), async (req, res) => {
@@ -263,7 +297,8 @@ router.post('/test', authFor('write'), async (req, res) => {
     return res.status(400).json({ success: false, message: unavailableMessage(dbType) });
   }
 
-  if (hostIsBlocked(host) || await hostResolvesInternally(host)) {
+  if (hostIsBlocked(host) || await hostResolvesInternally(host)
+      || await extraConfigTargetsBlocked(dbType, extraConfig)) {
     return res.status(400).json({ success: false, message: 'This host is not reachable from the server.' });
   }
 
@@ -302,6 +337,9 @@ router.post('/', authFor('write'), async (req, res) => {
   // internal host and reached through /:id/tables, /:id/query, etc.
   if (needsHost && (hostIsBlocked(host) || await hostResolvesInternally(host))) {
     return res.status(400).json({ error: 'This host is not reachable from the server.' });
+  }
+  if (await extraConfigTargetsBlocked(dbType, extraConfig)) {
+    return res.status(400).json({ error: 'This connect string is not reachable from the server.' });
   }
   if (rejectIfNameTaken('datasource', name, req, res)) return;
 
@@ -355,6 +393,17 @@ router.put('/:id', authFor('write'), async (req, res) => {
   // guard is a create-time-only formality that an edit walks straight past.
   if (needsHost && (hostIsBlocked(newHost) || await hostResolvesInternally(newHost))) {
     return res.status(400).json({ error: 'This host is not reachable from the server.' });
+  }
+  // Sur la config FUSIONNÉE : un appel qui ne renvoie pas connectString hérite
+  // de la valeur stockée, et c'est elle qui se connectera.
+  let mergedExtra = {};
+  try {
+    mergedExtra = extraConfig !== undefined
+      ? mergeExtraConfig(extraConfig, existing.extra_config)
+      : JSON.parse(existing.extra_config || '{}');
+  } catch { /* ligne corrompue — rien d'exploitable à contrôler */ }
+  if (await extraConfigTargetsBlocked(newDbType, mergedExtra)) {
+    return res.status(400).json({ error: 'This connect string is not reachable from the server.' });
   }
   if (rejectIfNameTaken('datasource', name, req, res, req.params.id)) return;
 
