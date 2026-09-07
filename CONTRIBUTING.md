@@ -64,7 +64,7 @@ Open a [GitHub Issue](https://github.com/cracky777/openreport/issues) with the `
 
 ## Contributor License Agreement
 
-By submitting a pull request, you agree that your contributions are licensed under the same [PolyForm Noncommercial 1.0.0 License](LICENSE) that covers the project, and you grant the project maintainer the right to relicense your contributions if needed for the project.
+By submitting a pull request, you agree that your contributions are licensed under the same [GNU AGPL-3.0](LICENSE) that covers the project, and you grant the project maintainer a perpetual, worldwide, irrevocable right to use, modify and relicense your contributions, including under a commercial license. This is what lets Open Report stay AGPL for everyone while offering a commercial license to organisations that cannot use copyleft.
 
 ## Code of Conduct
 

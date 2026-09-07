@@ -1,25 +1,24 @@
 # Open Report — Cloud development workflow
 
 This document describes the dual-repo workflow used to maintain Open Report
-as both a source-available project (PolyForm Noncommercial 1.0.0) and a hosted
-commercial offering.
+as both an open source project (GNU AGPL-3.0) and a hosted commercial offering.
 
 It is meant for the project maintainer. End users of either edition can ignore it.
 
-> **License note.** The OSS edition is licensed under PolyForm Noncommercial 1.0.0
-> (forks allowed with attribution, no commercial use). The cloud edition is a
-> derivative work that is dual-licensed by the copyright holder under a separate
-> commercial license that authorizes commercial deployment. This dual-licensing
-> is only valid as long as the copyright holder owns rights to all the code
-> merged into the cloud repository. Future external contributors must therefore
-> sign a CLA before their code is accepted upstream.
+> **License note.** The OSS edition is licensed under the GNU AGPL-3.0 (free to
+> use, self-host and fork; network use requires publishing modifications). The
+> cloud edition is a derivative work that is dual-licensed by the copyright
+> holder under a separate commercial license that authorizes commercial
+> deployment. This dual-licensing is only valid as long as the copyright holder
+> owns rights to all the code merged into the cloud repository. External
+> contributors therefore grant a relicensing right in CONTRIBUTING.md.
 
 ---
 
 ## Repository layout
 
 ```
-github.com/cracky777/openreport          (public, PolyForm Noncommercial 1.0.0)   ← OSS edition
+github.com/cracky777/openreport          (public, GNU AGPL-3.0)                   ← OSS edition
 github.com/cracky777/openreport-cloud    (private)                                ← Cloud edition
 ```
 

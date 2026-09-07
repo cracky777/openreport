@@ -1,14 +1,14 @@
 # Open Report
 
-[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 
-> Source-available under [PolyForm Noncommercial 1.0.0](LICENSE) — free for personal, research and nonprofit use; commercial use requires a license.
+> Free and open source under [AGPL-3.0](LICENSE). Self-host it, fork it, use it at work.
 
-Superset too complicated? Metabase too limited? Power BI tied to a Microsoft tenant? That's why I built Open Report.
+Superset too complicated? Metabase too limited? Power BI not open source? That's why I built Open Report.
 
-A self-hosted reporting and data visualization platform, easy to run and easy to configure. Point it at your database, describe your tables once (joins, dimensions, measures), then build interactive dashboards on a drag-and-drop canvas. It compiles the SQL for you, in your dialect, against your data. Nothing leaves your infrastructure.
+An open source, self-hosted reporting and data visualization platform, easy to run and easy to configure. Point it at your database, describe your tables once (joins, dimensions, measures), then build interactive dashboards on a drag-and-drop canvas. It compiles the SQL for you, in your dialect, against your data. Nothing leaves your infrastructure.
 
-**Think Power BI / Looker Studio, but self-hosted and yours to fork.**
+**Think Power BI / Looker Studio, but open source and self-hosted.**
 
 ## Features
 
@@ -108,7 +108,7 @@ open-report/
 │   ├── db/                 # SQLite schema & connection
 │   ├── utils/              # Database connectors
 │   └── middleware/         # Auth middleware
-├── LICENSE                 # PolyForm Noncommercial 1.0.0
+├── LICENSE                 # GNU AGPL-3.0
 ├── CONTRIBUTING.md
 └── README.md
 ```
@@ -119,8 +119,11 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE). **This is not an OSI-approved open source license** — the code is source-available.
+[GNU Affero General Public License v3.0](LICENSE).
 
-Free for personal projects, research, teaching and nonprofits. Any use by or for a business, including internal dashboards inside a company, needs a commercial license: open an issue to ask about one.
+Free to use, self-host, modify and redistribute. If you run a modified version
+as a network service, the AGPL requires you to publish your changes under the
+same license.
 
-Forks are allowed with attribution, for the uses above.
+Contributions are accepted under the same license (see
+[CONTRIBUTING.md](CONTRIBUTING.md)).
