@@ -299,12 +299,21 @@ export default function AppShell({ step }) {
             transition: viewportWidth ? ribbonStyle.transition : 'none',
           }}
         >
-          {visibleSteps.map((s) => (
+          {visibleSteps.map((s) => {
+            const peeking = !compact && s.key !== step;
+            return (
             <div
               key={s.key}
+              // La bande qui dépasse d'un côté ou de l'autre est la façon la
+              // plus directe d'aller à l'étape voisine : on clique là où elle
+              // se trouve. Sur un écran étroit il n'y a pas de bande, et le
+              // sélecteur du haut reste la seule voie.
+              onClick={peeking ? () => go(s.key) : undefined}
+              title={peeking ? `Go to ${s.label}` : undefined}
               style={{
                 ...panelStyle,
                 width: columnWidth,
+                ...(peeking ? { cursor: 'pointer' } : null),
                 // Les trois colonnes font un seul ensemble : chacune se rend
                 // tout entière, et c'est la plus longue qui donne sa hauteur au
                 // ruban. On peut donc parcourir le graphe complet.
@@ -327,9 +336,17 @@ export default function AppShell({ step }) {
               aria-label={s.label}
               aria-current={s.key === step ? 'page' : undefined}
             >
-              <Stage step={s.key} />
+              {/* Une carte dont quatre-vingt-seize pixels dépassent n'est pas
+                  cliquable de façon fiable : viser son bouton de suppression
+                  tient du hasard. La bande ne transmet donc plus le clic à ce
+                  qu'elle montre — elle mène à l'étape, ce qui est la seule
+                  chose qu'on puisse vouloir y faire. */}
+              <div style={peeking ? { ...stageBoxStyle, pointerEvents: 'none' } : stageBoxStyle}>
+                <Stage step={s.key} />
+              </div>
             </div>
-          ))}
+            );
+          })}
           {/* A join is a curve between two cards in ADJACENT columns. Compact
               shows one column at a time, so every curve would run to a card
               parked off-screen — drawing arrowheads, "+" affordances and target
@@ -400,6 +417,11 @@ const MIN_COLUMN = 360;
 // column so the viewport has something to scroll. It stays the positioning
 // context for JoinLayer, which is why the curves scroll with the cards instead
 // of being re-measured on every frame.
+// L'enveloppe qui rend la bande inerte s'intercale entre le panneau et son
+// étape : elle doit donc reprendre le dimensionnement du panneau, sans quoi
+// elle se réduit à son contenu et les cartes perdent leur largeur.
+const stageBoxStyle = { display: 'flex', flex: 1, minWidth: 0 };
+
 const ribbonStyle = {
   position: 'relative', display: 'flex',
   transition: 'transform var(--stage-ms) cubic-bezier(0.4, 0, 0.2, 1)',

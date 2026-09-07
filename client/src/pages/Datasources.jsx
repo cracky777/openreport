@@ -227,6 +227,8 @@ export default function Datasources() {
                 label={focus.label}
                 verb={focus.stage === 'sources' ? 'Showing' : 'Following'}
                 onClear={focus.clear}
+                options={focus.options}
+                onPick={focus.pick}
               />
             )}
           </div>

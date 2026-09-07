@@ -866,7 +866,8 @@ export default function Dashboard() {
           <div style={_hs20}>
             <div style={_hs21}>
               {focus.active && (
-                <FilterCrumb label={focus.label} onClear={focus.clear} />
+                <FilterCrumb label={focus.label} onClear={focus.clear}
+                  options={focus.options} onPick={focus.pick} />
               )}
             </div>
             {canEdit && (

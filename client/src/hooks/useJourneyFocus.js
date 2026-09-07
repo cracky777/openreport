@@ -58,7 +58,23 @@ export function useJourneyFocus() {
   // columns. Dropping the parameter keeps the URL honest about that.
   const clear = useCallback(() => setSearchParams({}), [setSearchParams]);
 
-  return { ...resolved, clear };
+  // Changer de branche sans repasser par « tout ». Le filtre est affiché : il
+  // doit se modifier là où il se lit, et non s'effacer pour être refait — c'est
+  // trois clics et une liste entière à reparcourir pour la même question.
+  const pick = useCallback(
+    (id) => setSearchParams(id ? { focus: `${resolved.stage}:${id}` } : {}),
+    [setSearchParams, resolved.stage],
+  );
+
+  // Les branches voisines, dans l'ordre de leur colonne — celles vers
+  // lesquelles il est sensé de basculer depuis celle-ci.
+  const options = useMemo(() => {
+    if (!resolved.active) return [];
+    const rows = resolved.stage === 'sources' ? datasources : models;
+    return rows.map((r) => ({ id: r.id, name: r.name }));
+  }, [resolved.active, resolved.stage, datasources, models]);
+
+  return { ...resolved, clear, pick, options };
 }
 
 // Null sets, not empty ones: "no filter" and "a filter that matches nothing"
