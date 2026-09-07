@@ -44,7 +44,11 @@
     "passport-local": "^1.0.0",
     "pg": "^8.20.0",
     "snowflake-sdk": "^3.2.0",
-    "uuid": "^10.0.0",
+    "uuid": "^11.1.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "overrides": {
+    "tar": "^7.5.22",
+    "toml": "^4.3.0"
   }
 }
