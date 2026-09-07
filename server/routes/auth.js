@@ -184,14 +184,27 @@ router.get('/users/search', requireAuth, userSearchLimiter, (req, res) => {
   const q = (req.query.q || '').trim();
   if (q.length < 3) return res.json({ users: [] });
 
-  // Group suggestions ride along for the RLS dialog: names are org-level and
-  // not sensitive, and model editors need them to write `group:<name>` rules.
+  // Group suggestions ride along for the RLS dialog, under the same rule as
+  // users: a non-admin only sees groups that touch their collaboration circle
+  // (a group they belong to, or one with a member they share a workspace with).
+  // The table is instance-global, so without this filter a cloud tenant could
+  // enumerate every other tenant's group names and sizes — names are sometimes
+  // telling («Direction-ClientX»). Instance admins keep full sight: they manage
+  // the groups themselves in /admin, hiding them here would only break the
+  // RLS-authoring flow.
   const matchGroups = (needle) => db.prepare(`
     SELECT g.id, g.name, COUNT(gm.user_id) AS member_count
     FROM groups g LEFT JOIN group_members gm ON gm.group_id = g.id
     WHERE g.name LIKE @like
+      AND (@isAdmin = 1 OR EXISTS (
+        SELECT 1 FROM group_members gm2
+        WHERE gm2.group_id = g.id
+          AND (gm2.user_id = @me
+            OR gm2.user_id IN (SELECT user_id FROM workspace_members WHERE workspace_id IN (${MY_WORKSPACES}))
+            OR gm2.user_id IN (SELECT owner_id FROM workspaces WHERE id IN (${MY_WORKSPACES})))
+      ))
     GROUP BY g.id ORDER BY g.name LIMIT 5
-  `).all({ like: `%${needle}%` });
+  `).all({ like: `%${needle}%`, me: req.user.id, isAdmin: req.user.role === 'admin' ? 1 : 0 });
 
   // Full email → exact lookup, allowed even for someone you don't share a
   // workspace with (that's the "invite a new collaborator" path).
