@@ -305,11 +305,19 @@ export default function AppShell({ step }) {
               style={{
                 ...panelStyle,
                 width: columnWidth,
-                // Only the column in focus sets the scroll length. A peeking
-                // neighbour is clipped to the screen, otherwise a long list one
-                // stage over would leave the active column scrolling past its
-                // own end.
-                ...(s.key === step ? null : { maxHeight: viewportHeight || undefined, overflow: 'hidden' }),
+                // Les trois colonnes font un seul ensemble : chacune se rend
+                // tout entière, et c'est la plus longue qui donne sa hauteur au
+                // ruban. On peut donc parcourir le graphe complet.
+                //
+                // La colonne voisine était auparavant coupée à un écran, pour
+                // que la colonne en cours seule décide de la longueur de
+                // défilement. Mais une carte coupée n'est pas à l'écran, et la
+                // couche de liens ne trace rien vers une carte absente : passé
+                // une liste d'un écran, des relations bien réelles n'avaient
+                // plus aucun trait. Vu de l'utilisateur, « ce modèle a deux
+                // rapports et je ne vois qu'une ligne » — et c'était vrai.
+                // Défiler un peu plus loin coûte moins cher que de perdre la
+                // moitié du parcours.
                 // Neighbours are legible enough to show where a join lands,
                 // quiet enough not to compete with the column in focus.
                 opacity: s.key === step ? 1 : 0.45,
