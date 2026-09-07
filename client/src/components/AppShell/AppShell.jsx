@@ -32,7 +32,7 @@ export default function AppShell({ step }) {
   // Nav-level gates only. Stages that care about a specific workspace keep
   // their own usePermissions call — that one needs the selected workspace,
   // which the shell has no business knowing.
-  const { isPlatformAdmin, canEditOrg } = usePermissions(null, user, null);
+  const { canEditOrg } = usePermissions(null, user, null);
 
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const openBugReport = useBugReport();
@@ -172,14 +172,6 @@ export default function AppShell({ step }) {
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
               <TbShield size={15} /> {!compact && <span>Admin</span>}
-            </button>
-          )}
-          {isPlatformAdmin && (
-            <button onClick={() => navigate('/platform')} style={compact ? { ...navBtnStyled, ...navBtnCompact } : navBtnStyled} title="Platform" aria-label="Platform"
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-            >
-              <TbShield size={15} color="var(--accent-primary)" /> {!compact && <span>Platform</span>}
             </button>
           )}
 
