@@ -15,6 +15,24 @@ import { useBugReport } from '../BugReport/BugReportProvider';
 // NB: `mergeCorners` is a PROP here (the frame-merge corner geometry), not the
 // mergeFrames import — which is intentionally NOT imported in this file.
 
+// What a drag must never start on. A chart is grabbable anywhere: a click that
+// does not move still reaches it, so cross-filtering is untouched.
+//
+// The two grids reserve the grid itself — sortable headers, selectable text,
+// scrollbars — but nothing else, so the empty space around and below the rows
+// moves the widget like any chart.
+//
+// A slicer, a text widget and a custom visual are controls edge to edge; they
+// keep the 8px frame as their handle, because there is no inert area to grab.
+const DRAG_CANCEL = {
+  table: '.widget-content table, .resize-handle',
+  pivotTable: '.widget-content table, .resize-handle',
+  filter: '.widget-content, .resize-handle',
+  text: '.widget-content, .resize-handle',
+  customVisual: '.widget-content, .resize-handle',
+};
+const DEFAULT_DRAG_CANCEL = '.resize-handle';
+
 const _hs0 = { position: 'absolute', bottom: 0, left: 0, right: 0, height: 8, cursor: 'move', zIndex: 2 };
 const _hs1 = { position: 'absolute', top: 0, left: 0, bottom: 0, width: 8, cursor: 'move', zIndex: 2 };
 const _hs2 = { position: 'absolute', top: 0, right: 0, bottom: 0, width: 8, cursor: 'move', zIndex: 2 };
@@ -107,10 +125,15 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
   // surfacing it only on hover keeps the cancel affordance discoverable
   // without the red glyph competing with the rotating ring at rest.
   const [cancelHover, setCancelHover] = useState(false);
+  // Where the drag started, and whether it actually moved — read by the click
+  // guard below. Declared with the other hooks, above the unknown-type guard.
+  const dragOriginRef = useRef(null);
+  const movedRef = useRef(false);
   const WidgetType = WIDGET_TYPES[widget.type];
   if (!WidgetType) return null;
 
   const Component = WidgetType.component;
+  const dragCancel = DRAG_CANCEL[widget.type] || DEFAULT_DRAG_CANCEL;
   const w = item.w || 400;
   const isAutoHeight = widget.type === 'table' && widget.config?.autoHeight;
   const h = isAutoHeight ? 'auto' : (item.h || 300);
@@ -176,10 +199,19 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
     <Draggable
       nodeRef={nodeRef}
       position={{ x: item.x || 0, y: item.y || 0 }}
+      onStart={(e, data) => { dragOriginRef.current = { x: data.x, y: data.y }; }}
       onDrag={(e, data) => onDrag?.(item.i, data)}
-      onStop={(e, data) => onDragStop(item.i, data)}
+      onStop={(e, data) => {
+        // Releasing a drag also fires a click on whatever sits under the
+        // cursor. On a chart that click cross-filters the report — moving a
+        // widget must not silently filter it — so a real move is remembered
+        // and the click it produces is swallowed below.
+        const from = dragOriginRef.current;
+        movedRef.current = !!from && (Math.abs(data.x - from.x) > 2 || Math.abs(data.y - from.y) > 2);
+        onDragStop(item.i, data);
+      }}
       disabled={readOnly}
-      cancel=".widget-content, .resize-handle"
+      cancel={dragCancel}
       grid={snapGrid}
       // The canvas is a fixed page scaled down to fit (`fitToWidth`, the
       // default), so a pointer that travels 100px on screen has travelled
@@ -232,7 +264,17 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             <div style={_hs2} />
           </>
         )}
-        <div className="widget-content" style={{
+        <div
+          className="widget-content"
+          onClickCapture={(e) => {
+            if (!movedRef.current) return;
+            movedRef.current = false;
+            // Stops the visual seeing it, and selects instead: dropping a
+            // widget should leave it selected, not cross-filter the page.
+            e.stopPropagation();
+            onSelect?.(item.i);
+          }}
+          style={{
           // Override the project-wide `* { box-sizing: border-box }` for
           // this one node: contentWidth/contentHeight are computed as
           // `w - paddingTotal` and only make sense as the *content* size,

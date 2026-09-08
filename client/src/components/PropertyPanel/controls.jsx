@@ -239,9 +239,6 @@ function ColorInput({ value, onChange, allowTransparent = true }) {
           </button>
         )}
       </div>
-      {/* The recents also live inside the popover; this row is the one-click
-          path, which is the whole point of remembering them. */}
-      <RecentColorStrip value={value} onPick={onChange} />
       {open && (
         <ColorPickerPopover
           value={value}
