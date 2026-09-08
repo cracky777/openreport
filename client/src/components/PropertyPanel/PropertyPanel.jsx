@@ -857,8 +857,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
                 <select value={widget.config?.labelPosition || 'above'}
                   onChange={(e) => updateConfig('labelPosition', e.target.value)}
                   style={{ ...inputStyle, marginBottom: 0 }}>
-                  <option value="above">Above the value</option>
-                  <option value="below">Below the value</option>
+                  <option value="above">Above</option>
+                  <option value="below">Below</option>
                 </select>
               </Field>
               <Field label="Value size">
