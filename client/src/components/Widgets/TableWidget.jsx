@@ -226,16 +226,12 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                   const hs = getColumnHeaderStyle(tc, col);
                   const displayName = getColumnDisplayName(tc, col);
                   const isFrozenCol = freeze.freezeFirstColumn && ci === 0;
-                  // Auto-wrap when the column has an explicit width
-                  // (user dragged or persisted). Without this, narrowing
-                  // a column with the resize handle would just clip the
-                  // content with an ellipsis — visually useful only for
-                  // widening. `hs.wordWrap === false` keeps the explicit
-                  // no-wrap intent if the user toggled it off in the
-                  // header style options.
-                  const hasExplicitW = !!(colWidths[col] || getColumnWidth(tc, col));
-                  const hWrap = hs.wordWrap === true
-                    || (hs.wordWrap !== false && hasExplicitW);
+                  // Wrapping is the default, and the checkbox in the panel
+                  // says so. It used to depend on whether the column had been
+                  // resized, which meant the box read "off" while the table
+                  // wrapped — the setting described nothing observable.
+                  const explicitW = colWidths[col] || getColumnWidth(tc, col) || null;
+                  const hWrap = hs.wordWrap !== false;
                   return (
                     <th
                       key={ci}
@@ -256,7 +252,11 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                         // explicit column width — that width IS the
                         // bound now, the maxWidth would otherwise lock
                         // a user-resized wide column to 200px.
-                        maxWidth: hWrap ? 'none' : (hasExplicitW ? 'none' : 200),
+                        // A resized column is a width the user asked for, so
+                        // it bounds the cell and the overflow ellipsis applies.
+                        // 'none' let the cell grow back to its content instead,
+                        // and narrowing a column changed nothing on screen.
+                        maxWidth: hWrap ? 'none' : (explicitW || 200),
                         // Allow long words (URLs, IDs) to break inside
                         // when wrapping is on — `overflow-wrap: anywhere`
                         // is the modern way to break unbreakable strings.
@@ -332,14 +332,9 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                     const isNum = !isNaN(numVal) && cell !== '' && cell != null;
                     const align = vs.alignment === 'auto' || !vs.alignment ? (isNum ? 'right' : 'left') : vs.alignment;
                     const isFrozenCol = freeze.freezeFirstColumn && ci === 0;
-                    // Same auto-wrap rule as the header: explicit width
-                    // (drag / persisted) defaults to wrapping content so
-                    // narrowing the column doesn't just ellipsis-clip.
-                    // `vs.wordWrap === false` keeps the explicit no-wrap
-                    // intent if set in the column value-style options.
-                    const hasExplicitW = !!(colWidths[col] || getColumnWidth(tc, col));
-                    const cellWrap = vs.wordWrap === true
-                      || (vs.wordWrap !== false && hasExplicitW);
+                    // Same rule as the header: wrap unless turned off.
+                    const explicitW = colWidths[col] || getColumnWidth(tc, col) || null;
+                    const cellWrap = vs.wordWrap !== false;
                     // Interval-typed measures arrive as EPOCH seconds (the
                     // server flattens INTERVAL values to a number) — format
                     // them as a duration ("1h", "30min", "45s") rather than
@@ -379,7 +374,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                           whiteSpace: cellWrap ? 'normal' : 'nowrap',
                           overflow: cellWrap ? 'visible' : 'hidden',
                           textOverflow: cellWrap ? 'unset' : 'ellipsis',
-                          maxWidth: cellWrap ? 'none' : (hasExplicitW ? 'none' : 250),
+                          maxWidth: cellWrap ? 'none' : (explicitW || 250),
                           overflowWrap: cellWrap ? 'anywhere' : 'normal',
                           borderBottom: grid.horizontalLines ? `${grid.horizontalWidth}px solid ${grid.horizontalColor}` : 'none',
                           borderRight: grid.verticalLines && ci < columns.length - 1 ? `${grid.verticalWidth}px solid ${grid.verticalColor}` : 'none',

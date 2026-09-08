@@ -114,7 +114,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
           </div>
         </Field>
         <Field label="Word wrap">
-          <input type="checkbox" checked={get('header', 'wordWrap', false)}
+          <input type="checkbox" checked={get('header', 'wordWrap', true)}
             onChange={(e) => update('header.wordWrap', e.target.checked)} />
         </Field>
         {selectedCol && (
@@ -166,7 +166,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
           </div>
         </Field>
         <Field label="Word wrap">
-          <input type="checkbox" checked={get('values', 'wordWrap', false)}
+          <input type="checkbox" checked={get('values', 'wordWrap', true)}
             onChange={(e) => update('values.wordWrap', e.target.checked)} />
         </Field>
         <SubSection label="Number format">
