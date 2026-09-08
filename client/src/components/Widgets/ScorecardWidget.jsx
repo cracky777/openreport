@@ -136,23 +136,30 @@ export default function ScorecardWidget({ data, config }) {
     );
   };
 
+  // The label sits above the figure by default. Below reads better when the
+  // scorecard is stacked in a row of tiles and the eye scans the numbers first.
+  const labelBelow = config?.labelPosition === 'below';
+  const labelEl = (
+    <div
+      style={{
+        fontSize: config?.labelSize || 14,
+        color: config?.labelColor || 'var(--text-muted)',
+        fontFamily: config?.labelFontFamily ? fontStack(config.labelFontFamily) : undefined,
+        [labelBelow ? 'marginTop' : 'marginBottom']: 4,
+        fontWeight: 500,
+      }}
+    >
+      {/* Persisted per-widget override (config.label) wins; empty/unset
+          falls back to the measure's default label baked into data. */}
+      {(config?.label || data?.label) || ''}
+    </div>
+  );
+
   return (
     <div
       style={_hs0}
     >
-      <div
-        style={{
-          fontSize: config?.labelSize || 14,
-          color: config?.labelColor || 'var(--text-muted)',
-          fontFamily: config?.labelFontFamily ? fontStack(config.labelFontFamily) : undefined,
-          marginBottom: 4,
-          fontWeight: 500,
-        }}
-      >
-        {/* Persisted per-widget override (config.label) wins; empty/unset
-            falls back to the measure's default label baked into data. */}
-        {(config?.label || data?.label) || ''}
-      </div>
+      {!labelBelow && labelEl}
       {/* Main row: optional left lines + value + optional right lines.
           Each side picks up the per-line spacing as a horizontal gap so
           the user can fine-tune how far the comparison sits from the
@@ -185,6 +192,7 @@ export default function ScorecardWidget({ data, config }) {
           </div>
         )}
       </div>
+      {labelBelow && labelEl}
       {bottomLines.length > 0 && (
         <div style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
