@@ -24,7 +24,9 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
   const showLegend = config?.showLegend ?? false;
   const legendPosition = config?.legendPosition || 'top';
   const subType = config?.subType || 'line';
-  const isArea = subType !== 'line';
+  // The sub-type carries the area for Area / Stacked Area; `showArea` is the
+  // Options checkbox, which until now wrote a config key nobody read.
+  const isArea = subType !== 'line' || config?.showArea === true;
   const isStacked = subType === 'stackedArea' || subType === 'stackedArea100';
   const showXAxis = config?.showXAxis ?? true;
   const showYAxis = config?.showYAxis ?? true;

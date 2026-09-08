@@ -42,6 +42,12 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
   const gridLineWidth = config?.gridLineWidth ?? 1;
   const showSecondaryAxis = config?.showSecondaryAxis ?? true;
   const smoothLine = config?.smooth ?? true;
+  // The line half of a combo is a line chart, so it answers to the same three
+  // options. There is no sub-type picker here to carry the area (the combo's
+  // sub-type describes the BARS), which is why showArea is the switch.
+  const lineArea = config?.showArea === true;
+  const lineSymbol = config?.lineSymbol ?? 'circle';
+  const lineSymbolSize = config?.lineSymbolSize ?? 6;
   const { sortOrder, axisSort, groupBySort } = resolveZoneSorts(config);
 
   // Stable color ordering across filters: combine bar + line series into one seen-order list
@@ -250,8 +256,12 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
         smooth: smoothLine,
         lineStyle: { color, width: 2 },
         itemStyle: { color },
-        symbol: 'circle',
-        symbolSize: 6,
+        symbol: lineSymbol,
+        symbolSize: lineSymbolSize,
+        showSymbol: lineSymbol !== 'none',
+        // Same opacity as an unstacked area line, so a combo and a line chart
+        // of the same data read alike.
+        areaStyle: lineArea ? { opacity: 0.15, color } : undefined,
         emphasis: { disabled: true },
         label: {
           show: showDataLabels, position: 'top', fontSize: dataLabelFontSize, fontFamily: dataLabelFontFamily, color: dataLabelColor,
@@ -436,7 +446,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
     return { option: opt, legendItems, rawLabels };
   }, [data, hasData, isStacked, showXAxis, showYAxis, showDataLabels, dataLabelFontSize, dataLabelColor,
       valueAbbr, hideZeros, showLegend, legendPosition, gridLineStyle, gridLineWidth,
-      showSecondaryAxis, smoothLine, sortOrder, axisSort, groupBySort, hiddenSeries, highlightValue,
+      showSecondaryAxis, smoothLine, lineArea, lineSymbol, lineSymbolSize, sortOrder, axisSort, groupBySort, hiddenSeries, highlightValue,
       config?.legendColors, config?.barDirection, config?.yAxisInterval, config?.secondaryYAxisInterval,
       config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
       config?.secondaryYAxisLabelFontSize, config?.secondaryYAxisLabelColor,

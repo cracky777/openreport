@@ -1322,12 +1322,6 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
                 onChange={(e) => updateConfig('symbolSize', parseIntOrNull(e.target.value))} suffix="px" />
             </Field>
           )}
-          {widget.type === 'combo' && (
-            <Field label="Smooth lines">
-              <input type="checkbox" checked={widget.config?.smooth ?? true}
-                onChange={(e) => updateConfig('smooth', e.target.checked)} />
-            </Field>
-          )}
           {(widget.type === 'bar' || widget.type === 'line' || widget.type === 'scatter' || widget.type === 'combo') && (
             <>
               <Field label="Show X axis">
@@ -1714,6 +1708,43 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
           </Field>
           <Field label="Show area">
             <input type="checkbox" checked={widget.config?.showArea || false} onChange={(e) => updateConfig('showArea', e.target.checked)} />
+          </Field>
+          <Field label="Point shape">
+            <select value={widget.config?.lineSymbol ?? 'circle'}
+              onChange={(e) => updateConfig('lineSymbol', e.target.value)}
+              style={{ ...inputStyle, marginBottom: 0 }}>
+              <option value="circle">● Circle</option>
+              <option value="emptyCircle">○ Empty circle</option>
+              <option value="rect">■ Square</option>
+              <option value="roundRect">▢ Rounded square</option>
+              <option value="triangle">▲ Triangle</option>
+              <option value="diamond">◆ Diamond</option>
+              <option value="pin">📍 Pin</option>
+              <option value="arrow">➤ Arrow</option>
+              <option value="none">— Hide</option>
+            </select>
+          </Field>
+          {(widget.config?.lineSymbol ?? 'circle') !== 'none' && (
+            <Field label="Point size" vertical>
+              <RangeInput min={2} max={20} value={widget.config?.lineSymbolSize ?? 6}
+                onChange={(e) => updateConfig('lineSymbolSize', parseIntOrNull(e.target.value))} suffix="px" />
+            </Field>
+          )}
+        </Section>
+      )}
+
+      {/* The combo's line half gets the line chart's Options, and only when a
+          measure is actually bound to the line zone — options for a line that
+          isn't drawn are noise. */}
+      {widget.type === 'combo' && (widget.dataBinding?.comboLineMeasures?.length > 0) && (
+        <Section title="Line options" sectionState={sections}>
+          <Field label="Smooth">
+            <input type="checkbox" checked={widget.config?.smooth ?? true}
+              onChange={(e) => updateConfig('smooth', e.target.checked)} />
+          </Field>
+          <Field label="Show area">
+            <input type="checkbox" checked={widget.config?.showArea || false}
+              onChange={(e) => updateConfig('showArea', e.target.checked)} />
           </Field>
           <Field label="Point shape">
             <select value={widget.config?.lineSymbol ?? 'circle'}
