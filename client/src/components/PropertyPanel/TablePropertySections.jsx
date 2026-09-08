@@ -268,7 +268,7 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
           <input type="checkbox" checked={getGlobal('rows.striped', true)}
             onChange={(e) => updateGlobal('rows.striped', e.target.checked)} />
         </Field>
-        {getGlobal('rows.striped', true) && (
+{getGlobal('rows.striped', true) ? (
           <SubSection label="Stripe colors">
             <Field label="Color 1">
               <ColorInput value={getGlobal('rows.stripeColor1', '#ffffff')}
@@ -279,6 +279,15 @@ export default function TablePropertySections({ widget, updateConfig, Section, S
                 onChange={(v) => updateGlobal('rows.stripeColor2', v)} />
             </Field>
           </SubSection>
+        ) : (
+          /* Without stripes the rows still have a colour — it was simply
+             unreachable: the only control lived inside the stripe subsection.
+             Its own key, so toggling stripes on and off does not shuffle the
+             two settings into each other. */
+          <Field label="Background">
+            <ColorInput value={getGlobal('rows.bgColor', getGlobal('rows.stripeColor1', '#ffffff'))}
+              onChange={(v) => updateGlobal('rows.bgColor', v)} />
+          </Field>
         )}
         <Field label="Hover highlight">
           <input type="checkbox" checked={getGlobal('rows.hoverHighlight', true)}

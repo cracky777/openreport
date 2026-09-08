@@ -311,9 +311,11 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
           <tbody>
             {displayRows.map((row, ri) => {
               const isHovered = hoveredRow === ri;
+              // Unstriped rows fall back to stripeColor1 so a report that
+              // relied on it before there was a Background field keeps its look.
               const stripeBg = rowCfg.striped
                 ? (ri % 2 === 0 ? rowCfg.stripeColor1 : rowCfg.stripeColor2)
-                : rowCfg.stripeColor1 || 'var(--bg-panel)';
+                : (rowCfg.bgColor || rowCfg.stripeColor1 || 'var(--bg-panel)');
               const rowBg = isHovered && rowCfg.hoverHighlight ? rowCfg.hoverColor : stripeBg;
 
               return (

@@ -441,9 +441,11 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
             const isHovered = hoveredRow === idx;
             const isGroup = row.type === 'group';
             const depth = row.depth;
+            // The pivot ignored the setting entirely and hardcoded the panel
+            // colour, so an unstriped pivot could not be recoloured at all.
             const stripeBg = rowCfg.striped
               ? (idx % 2 === 0 ? rowCfg.stripeColor1 : rowCfg.stripeColor2)
-              : 'var(--bg-panel)';
+              : (rowCfg.bgColor || rowCfg.stripeColor1 || 'var(--bg-panel)');
             const bg = isHovered && rowCfg.hoverHighlight ? rowCfg.hoverColor
               : isGroup ? 'var(--bg-subtle)' : stripeBg;
 
