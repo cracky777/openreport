@@ -46,14 +46,6 @@ const _hs23 = { fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', m
 const _hs24 = { display: 'flex', alignItems: 'center', gap: 6 };
 const _hs25 = { display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 };
 const _hs26 = { background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-disabled)', fontSize: 12, padding: 0 };
-const _hs27 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
-const _hs28 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
-const _hs29 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
-const _hs30 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
-const _hs31 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
-const _hs32 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
-const _hs33 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
-const _hs34 = { width: 32, height: 20, padding: 0, border: '1px solid var(--border-default)', borderRadius: 3 };
 const _hs35 = { flexShrink: 0 };
 const _hs36 = { flexShrink: 0 };
 const _hs37 = {
@@ -1779,9 +1771,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
           {(widget.config?.showItemBorder ?? true) && (
             <>
               <Field label="Border color">
-                <input type="color" value={widget.config?.itemBorderColor || '#ffffff'}
-                  onChange={(e) => updateConfig('itemBorderColor', e.target.value)}
-                  style={_hs27} />
+                <ColorInput value={widget.config?.itemBorderColor || '#ffffff'}
+              onChange={(v) => updateConfig('itemBorderColor', v)} allowTransparent={false} />
               </Field>
               <Field label="Border width" vertical>
                 <RangeInput min={0} max={8} value={widget.config?.itemBorderWidth ?? 1}
@@ -1827,14 +1818,12 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
             </Field>
           )}
           <Field label="Fill color">
-            <input type="color" value={widget.config?.gaugeColor || '#7c3aed'}
-              onChange={(e) => updateConfig('gaugeColor', e.target.value)}
-              style={_hs28} />
+            <ColorInput value={widget.config?.gaugeColor || '#7c3aed'}
+              onChange={(v) => updateConfig('gaugeColor', v)} allowTransparent={false} />
           </Field>
           <Field label="Track color">
-            <input type="color" value={widget.config?.gaugeTrackColor || '#e2e8f0'}
-              onChange={(e) => updateConfig('gaugeTrackColor', e.target.value)}
-              style={_hs29} />
+            <ColorInput value={widget.config?.gaugeTrackColor || '#e2e8f0'}
+              onChange={(v) => updateConfig('gaugeTrackColor', v)} allowTransparent={false} />
           </Field>
           {/* Color gradient (min→max) — overrides Fill color and threshold colour when enabled. */}
           {(() => {
@@ -1865,9 +1854,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
           </Field>
           {widget.config?.gaugeConditionalColor && (
             <Field label="Over-threshold color">
-              <input type="color" value={widget.config?.gaugeOverColor || '#dc2626'}
-                onChange={(e) => updateConfig('gaugeOverColor', e.target.value)}
-                style={_hs30} />
+              <ColorInput value={widget.config?.gaugeOverColor || '#dc2626'}
+              onChange={(v) => updateConfig('gaugeOverColor', v)} allowTransparent={false} />
             </Field>
           )}
           {!widget.dataBinding?.gaugeThresholdMeasure && (
@@ -1879,9 +1867,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
             </Field>
           )}
           <Field label="Threshold color">
-            <input type="color" value={widget.config?.gaugeThresholdColor || '#dc2626'}
-              onChange={(e) => updateConfig('gaugeThresholdColor', e.target.value)}
-              style={_hs31} />
+            <ColorInput value={widget.config?.gaugeThresholdColor || '#dc2626'}
+              onChange={(v) => updateConfig('gaugeThresholdColor', v)} allowTransparent={false} />
           </Field>
           <Field label="Show value">
             <input type="checkbox" checked={widget.config?.gaugeShowValue ?? true}
@@ -1901,9 +1888,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
                 onChange={(e) => updateConfig('gaugeValueSize', parseIntOrNull(e.target.value))} suffix="px" />
             </Field>
             <Field label="Color">
-              <input type="color" value={widget.config?.gaugeValueColor || '#0f172a'}
-                onChange={(e) => updateConfig('gaugeValueColor', e.target.value)}
-                style={_hs32} />
+              <ColorInput value={widget.config?.gaugeValueColor || '#0f172a'}
+              onChange={(v) => updateConfig('gaugeValueColor', v)} allowTransparent={false} />
             </Field>
             <Field label="Font family">
               <FontPicker value={widget.config?.gaugeValueFontFamily}
@@ -1916,9 +1902,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
                 onChange={(e) => updateConfig('gaugeLabelSize', parseIntOrNull(e.target.value))} suffix="px" />
             </Field>
             <Field label="Color">
-              <input type="color" value={widget.config?.gaugeLabelColor || '#64748b'}
-                onChange={(e) => updateConfig('gaugeLabelColor', e.target.value)}
-                style={_hs33} />
+              <ColorInput value={widget.config?.gaugeLabelColor || '#64748b'}
+              onChange={(v) => updateConfig('gaugeLabelColor', v)} allowTransparent={false} />
             </Field>
             <Field label="Font family">
               <FontPicker value={widget.config?.gaugeLabelFontFamily}
@@ -1932,9 +1917,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
                   onChange={(e) => updateConfig('gaugeAxisSize', parseIntOrNull(e.target.value))} suffix="px" />
               </Field>
               <Field label="Color">
-                <input type="color" value={widget.config?.gaugeAxisColor || '#94a3b8'}
-                  onChange={(e) => updateConfig('gaugeAxisColor', e.target.value)}
-                  style={_hs34} />
+                <ColorInput value={widget.config?.gaugeAxisColor || '#94a3b8'}
+              onChange={(v) => updateConfig('gaugeAxisColor', v)} allowTransparent={false} />
               </Field>
               {widget.config?.subType !== 'column' && (
                 <>

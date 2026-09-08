@@ -3,6 +3,7 @@ import { TbCheck, TbBug } from 'react-icons/tb';
 import { useTheme } from '../../hooks/useTheme';
 import { parseIntOrNull } from '../../utils/input';
 import { useBugReport } from '../BugReport/BugReportProvider';
+import { ColorInput } from '../PropertyPanel/controls';
 
 const _hs0 = { fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' };
 const _hs1 = { display: 'flex', flexDirection: 'column', gap: 4 };
@@ -242,10 +243,10 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
 
         <Section title="Background">
           <Field label="Color">
-            <input
-              type="color"
+            <ColorInput
               value={settings.backgroundColor || '#ffffff'}
-              onChange={(e) => update('backgroundColor', e.target.value)}
+              onChange={(v) => update('backgroundColor', v)}
+              allowTransparent={false}
             />
           </Field>
           <Field label="Transparent">

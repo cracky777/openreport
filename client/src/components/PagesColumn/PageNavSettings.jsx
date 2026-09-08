@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { RecentColorStrip } from '../PropertyPanel/controls';
+import { pushRecentColor } from '../../utils/recentColors';
 
 const _hs0 = { fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' };
 const _hs1 = { display: 'flex', alignItems: 'center', gap: 6, width: 160 };
@@ -383,14 +385,17 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
 function ColorField({ label, value, onChange, allowTransparent }) {
   const isTransparent = value === 'transparent';
   const isCustom = value != null && value !== '' && !isTransparent;
+  // Kept apart from ColorInput because this field has a third state — `null`
+  // means "auto", i.e. inherit the theme — which a plain colour has no room for.
+  const pick = (v) => { onChange(v); pushRecentColor(v); };
   return (
     <div style={_hs14}>
       <span style={_hs15}>{label}</span>
-      <div style={_hs16}>
+      <div style={{ ..._hs16, flexWrap: 'wrap' }}>
         <input
           type="color"
           value={isCustom ? value : '#888888'}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => pick(e.target.value)}
           disabled={isTransparent}
           style={{
             width: 24, height: 22, padding: 0, border: '1px solid var(--border-default)',
@@ -436,6 +441,7 @@ function ColorField({ label, value, onChange, allowTransparent }) {
             cursor: (isCustom || isTransparent) ? 'pointer' : 'default',
           }}
         >×</button>
+        <RecentColorStrip value={isCustom ? value : ''} onPick={pick} />
       </div>
     </div>
   );
