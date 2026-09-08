@@ -29,6 +29,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
   const legendPosition = config?.legendPosition || 'top';
   const showDataLabels = config?.showDataLabels ?? false;
   const dataLabelFontSize = config?.dataLabelFontSize ?? 10;
+  const dataLabelRotate = config?.dataLabelRotate ?? 0;
   const dataLabelColor = config?.dataLabelColor || '#475569';
   const {
     dataLabel: dataLabelFontFamily,
@@ -225,10 +226,13 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
           emphasis: { disabled: true },
           label: {
             show: showDataLabels, position: 'top', fontSize: dataLabelFontSize, fontFamily: dataLabelFontFamily, color: dataLabelColor,
+            rotate: dataLabelRotate,
+            align: dataLabelRotate > 0 ? 'left' : dataLabelRotate < 0 ? 'right' : 'center',
             formatter: (p) => {
               if (hideZeros && (p.value === 0 || p.value == null)) return '';
               if (isDurationCol(p.seriesName, data._durationColumns) && typeof p.value === 'number') return formatDuration(p.value);
-              return abbreviateNumber(p.value, valueAbbr) ?? formatNumber(p.value);
+              const fmt = data._measureFormats?.[p.seriesName];
+            return abbreviateNumber(p.value, valueAbbr, fmt) ?? formatNumber(p.value, fmt);
             },
           },
         });
@@ -265,10 +269,13 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
         emphasis: { disabled: true },
         label: {
           show: showDataLabels, position: 'top', fontSize: dataLabelFontSize, fontFamily: dataLabelFontFamily, color: dataLabelColor,
+          rotate: dataLabelRotate,
+          align: dataLabelRotate > 0 ? 'left' : dataLabelRotate < 0 ? 'right' : 'center',
           formatter: (p) => {
             if (hideZeros && (p.value === 0 || p.value == null)) return '';
             if (isDurationCol(p.seriesName, data._durationColumns) && typeof p.value === 'number') return formatDuration(p.value);
-            return abbreviateNumber(p.value, valueAbbr) ?? formatNumber(p.value);
+            const fmt = data._measureFormats?.[p.seriesName];
+            return abbreviateNumber(p.value, valueAbbr, fmt) ?? formatNumber(p.value, fmt);
           },
         },
       });
@@ -446,7 +453,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
     return { option: opt, legendItems, rawLabels };
   }, [data, hasData, isStacked, showXAxis, showYAxis, showDataLabels, dataLabelFontSize, dataLabelColor,
       valueAbbr, hideZeros, showLegend, legendPosition, gridLineStyle, gridLineWidth,
-      showSecondaryAxis, smoothLine, lineArea, lineSymbol, lineSymbolSize, sortOrder, axisSort, groupBySort, hiddenSeries, highlightValue,
+      showSecondaryAxis, smoothLine, lineArea, lineSymbol, lineSymbolSize, dataLabelRotate, sortOrder, axisSort, groupBySort, hiddenSeries, highlightValue,
       config?.legendColors, config?.barDirection, config?.yAxisInterval, config?.secondaryYAxisInterval,
       config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
       config?.secondaryYAxisLabelFontSize, config?.secondaryYAxisLabelColor,

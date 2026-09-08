@@ -73,7 +73,7 @@ export default memo(function TreeMapWidget({ data, config, onDataClick, highligh
     const buildLabel = (params) => {
       const val = isDur && typeof params.value === 'number'
         ? formatDuration(params.value)
-        : (abbreviateNumber(params.value, dataLabelAbbr) ?? formatNumber(params.value, fmt));
+        : (abbreviateNumber(params.value, dataLabelAbbr, fmt) ?? formatNumber(params.value, fmt));
       if (dataLabelContent === 'name') return params.name;
       if (dataLabelContent === 'value') return String(val);
       if (dataLabelContent === 'nameValue') return `${params.name}\n${val}`;
@@ -121,6 +121,7 @@ export default memo(function TreeMapWidget({ data, config, onDataClick, highligh
           lineHeight: Math.round(dataLabelSize * 1.5),
           formatter: buildLabel,
           overflow: 'truncate',
+          rotate: config?.dataLabelRotate ?? 0,
         },
         upperLabel: { show: false },
         left: 0, right: 0, top: 0, bottom: 0,
@@ -136,7 +137,7 @@ export default memo(function TreeMapWidget({ data, config, onDataClick, highligh
     };
 
     return { option: opt };
-  }, [data, hasData, sortOrder, axisSort, showDataLabels, dataLabelContent, dataLabelAbbr, dataLabelColor, dataLabelSize, showBorder, borderColor, borderWidth, highlightValue, config?.legendColors,
+  }, [data, hasData, sortOrder, axisSort, showDataLabels, dataLabelContent, dataLabelAbbr, dataLabelColor, dataLabelSize, config?.dataLabelRotate, showBorder, borderColor, borderWidth, highlightValue, config?.legendColors,
       topNEnabled, topN, othersLabel,
       config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 

@@ -32,11 +32,26 @@ export default function formatNumber(value, format) {
 
 /**
  * Abbreviate a number (K, M, B).
+ *
+ * `format` is the measure's own spec: its prefix and suffix are what make the
+ * number mean something ("€1.2M", "1.2M kWh"). Abbreviating used to drop them,
+ * so turning on "thousands" silently unlabelled every figure on the chart.
+ * Decimals and separators are the abbreviation's business, not the format's.
+ *
  * @param {number} value
  * @param {'none'|'auto'|'K'|'M'|'B'} mode
- * @returns {string}
+ * @param {{prefix?: string, suffix?: string}} [format]
+ * @returns {string|null} null when no abbreviation applies, so callers can fall
+ *   back to the full formatNumber.
  */
-export function abbreviateNumber(value, mode = 'none') {
+export function abbreviateNumber(value, mode = 'none', format = null) {
+  const abbreviated = abbreviateRaw(value, mode);
+  if (abbreviated == null) return null;
+  if (!format) return abbreviated;
+  return `${format.prefix ?? ''}${abbreviated}${format.suffix ?? ''}`;
+}
+
+function abbreviateRaw(value, mode) {
   if (value == null || isNaN(value) || mode === 'none') return null;
   const abs = Math.abs(value);
   if (mode === 'auto') {

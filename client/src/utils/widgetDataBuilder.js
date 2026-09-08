@@ -337,7 +337,16 @@ export function buildWidgetData({
   // carries that measure's atoms, from which the exact total is rebuildable.
   const ADDITIVE = new Set(['sum', 'count', 'min', 'max']);
   const nonAdditiveCols = [];
-  meass.forEach((mn) => {
+  // Combo and scatter keep their measures in their own zones, so walking
+  // `meass` alone left those widgets with no formats at all — a combo ignored
+  // the decimals, prefix and suffix its measures were given.
+  const usedMeasures = [...new Set([
+    ...meass,
+    ...(cbm || []),
+    ...(clm || []),
+    ...[sm?.x, sm?.y, sm?.size].filter(Boolean),
+  ])];
+  usedMeasures.forEach((mn) => {
     const md = (effectiveModel?.measures || []).find((x) => x.name === mn);
     if (!md) return;
     const colKey = md.label || md.name;

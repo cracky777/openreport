@@ -1187,7 +1187,9 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
             const t = widget.type;
             const canContent = t === 'bar' || t === 'line' || t === 'pie' || t === 'treemap';
             const canPosition = t === 'bar' || t === 'line' || t === 'pie';
-            const canAngle = t === 'bar' || t === 'line' || t === 'pie';
+            // Every widget that draws data labels can now turn them; the
+            // three that could not were simply never wired to the config.
+            const canAngle = true;
             const canColor = t !== 'scatter'; // scatter has fixed label color
             const canBg = t === 'bar' || t === 'line' || t === 'pie';
             return (

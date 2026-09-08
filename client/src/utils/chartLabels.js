@@ -17,7 +17,7 @@ export function buildDataLabel(params, content, abbrMode, fmt, { hideZeros = fal
   const numericValue = typeof params.value === 'number' ? params.value : Number(params.value);
   const val = isDuration && Number.isFinite(numericValue)
     ? formatDuration(numericValue)
-    : (abbreviateNumber(params.value, abbrMode) ?? formatNumber(params.value, fmt));
+    : (abbreviateNumber(params.value, abbrMode, fmt) ?? formatNumber(params.value, fmt));
   if (content === 'name') return params.name || params.seriesName || '';
   if (content === 'nameValue') return `${params.name || params.seriesName || ''}: ${val}`;
   if (content === 'percent') {

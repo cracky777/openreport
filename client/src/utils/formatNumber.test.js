@@ -39,4 +39,27 @@ describe('abbreviateNumber', () => {
   test('a forced unit is used whatever the magnitude', () => {
     expect(abbreviateNumber(1_500_000, 'K')).toBe('1500.0K');
   });
+
+  test('no abbreviation returns null so the caller can format in full', () => {
+    expect(abbreviateNumber(1500, 'none')).toBeNull();
+    expect(abbreviateNumber(null, 'auto')).toBeNull();
+    expect(abbreviateNumber(NaN, 'auto')).toBeNull();
+  });
+
+  // A measure's prefix and suffix are what the number means. Abbreviating used
+  // to drop them, so switching a chart to "thousands" unlabelled every figure.
+  test('the measure prefix and suffix survive the abbreviation', () => {
+    expect(abbreviateNumber(1500, 'auto', { prefix: '€' })).toBe('€1.5K');
+    expect(abbreviateNumber(2_500_000, 'auto', { suffix: ' kWh' })).toBe('2.5M kWh');
+    expect(abbreviateNumber(1500, 'auto', { prefix: '€', suffix: ' HT' })).toBe('€1.5K HT');
+  });
+
+  test('a format without prefix or suffix changes nothing', () => {
+    expect(abbreviateNumber(1500, 'auto', { decimals: 2 })).toBe('1.5K');
+    expect(abbreviateNumber(1500, 'auto', {})).toBe('1.5K');
+  });
+
+  test('a format cannot resurrect a value that should not be abbreviated', () => {
+    expect(abbreviateNumber(1500, 'none', { prefix: '€' })).toBeNull();
+  });
 });

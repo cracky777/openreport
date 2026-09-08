@@ -103,7 +103,7 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
           symbolSize: hasSize ? (val, params) => params.data?.symbolSize || symbolSize : symbolSize,
           itemStyle: { color: getColor(g.name) },
           emphasis: { disabled: true },
-          label: { show: showDataLabels, formatter: (p) => p.data._label || '', fontSize: config?.dataLabelFontSize ?? 10, fontFamily: dataLabelFontFamily, position: 'top', color: 'var(--text-secondary)' },
+          label: { show: showDataLabels, formatter: (p) => p.data._label || '', fontSize: config?.dataLabelFontSize ?? 10, fontFamily: dataLabelFontFamily, position: 'top', color: 'var(--text-secondary)', rotate: config?.dataLabelRotate ?? 0 },
         }));
     } else {
       seriesList = [{
@@ -112,7 +112,7 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
         symbolSize: (val, params) => params.data?.symbolSize ?? symbolSize,
         itemStyle: { color: config?.color || '#5470c6' },
         emphasis: { disabled: true },
-        label: { show: showDataLabels, formatter: (p) => p.data._label || '', fontSize: 10, fontFamily: dataLabelFontFamily, position: 'top', color: 'var(--text-secondary)' },
+        label: { show: showDataLabels, formatter: (p) => p.data._label || '', fontSize: 10, fontFamily: dataLabelFontFamily, position: 'top', color: 'var(--text-secondary)', rotate: config?.dataLabelRotate ?? 0 },
       }];
     }
 
@@ -174,7 +174,7 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
 
     return { option: opt, legendItems };
     } catch (e) { console.error('ScatterWidget error:', e); return { option: null, legendItems: [] }; }
-  }, [data, hasData, config?.color, showXAxis, showYAxis, symbolSize, showDataLabels, showLegend, legendPosition, hiddenSeries, highlightValue, config?.legendColors, config?.legendSymbols, config?.legendImages, config?.xAxisTitle, config?.yAxisTitle, config?.headerFontSize, config?.headerColor, config?.headerBold, config?.showXHeader, config?.showYHeader, config?.showXAxisTitle, config?.showYAxisTitle, config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
+  }, [data, hasData, config?.color, showXAxis, showYAxis, symbolSize, showDataLabels, config?.dataLabelRotate, config?.dataLabelFontSize, showLegend, legendPosition, hiddenSeries, highlightValue, config?.legendColors, config?.legendSymbols, config?.legendImages, config?.xAxisTitle, config?.yAxisTitle, config?.headerFontSize, config?.headerColor, config?.headerBold, config?.showXHeader, config?.showYHeader, config?.showXAxisTitle, config?.showYAxisTitle, config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
       config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 
   const option = memoResult?.option;

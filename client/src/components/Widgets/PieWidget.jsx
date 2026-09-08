@@ -56,7 +56,7 @@ export default memo(function PieWidget({ data, config, onDataClick, highlightVal
     const buildLabel = (params) => {
       const val = isDur && typeof params.value === 'number'
         ? formatDuration(params.value)
-        : (abbreviateNumber(params.value, dataLabelAbbr) ?? formatNumber(params.value, fmt));
+        : (abbreviateNumber(params.value, dataLabelAbbr, fmt) ?? formatNumber(params.value, fmt));
       if (dataLabelContent === 'name') return params.name;
       if (dataLabelContent === 'nameValue') return `${params.name}: ${val}`;
       if (dataLabelContent === 'percent') return `${params.percent}%`;
