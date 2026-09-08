@@ -1623,6 +1623,7 @@ export default function Editor() {
   useKeyboardShortcuts({
     selectedWidget, setSelectedWidget, handleDeleteWidget, history,
     widgets, layout, setLayoutAndWidgets, clipboard, setClipboard,
+    setLayout, setLayoutLive, settings,
   });
 
   const handleLoadMore = useCallback(async (widgetId) => {

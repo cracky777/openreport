@@ -1,12 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
 // Editor keyboard shortcuts: Delete/Backspace (remove selected widget),
 // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z (undo/redo), Ctrl+C / Ctrl+V (copy/paste
-// widget). Extracted verbatim from pages/Editor.jsx (LOT 6.3). Typing inside
-// an input/textarea/select is always left alone. Pure side-effect hook — owns
-// no state; every value it touches is passed in so the closure + dependency
-// array stay identical to the inline original.
+// widget), and the arrow keys (nudge the selected widget). Typing inside an
+// input/textarea/select is always left alone. Pure side-effect hook — owns no
+// state; every value it touches is passed in.
 export function useKeyboardShortcuts({
   selectedWidget,
   setSelectedWidget,
@@ -17,8 +16,21 @@ export function useKeyboardShortcuts({
   setLayoutAndWidgets,
   clipboard,
   setClipboard,
+  setLayout,
+  setLayoutLive,
+  settings,
 }) {
+  // A held arrow repeats ~30 times a second. Recording each one would bury the
+  // undo stack, so a burst moves silently and is committed once on key-up —
+  // the same "one gesture, one undo step" a drag already follows.
+  const nudgingRef = useRef(false);
+
   useEffect(() => {
+    // One grid cell per press, matching what a drag snaps to; 1px when the
+    // grid is off, which is the point of turning it off. Shift moves ten
+    // cells, the usual coarse step.
+    const step = (settings?.snapToGrid ?? true) ? (settings?.gridSize || 20) : 1;
+
     const handleKeyDown = (e) => {
       // Delete selected widget
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedWidget) {
@@ -28,6 +40,24 @@ export function useKeyboardShortcuts({
 
         e.preventDefault();
         handleDeleteWidget(selectedWidget);
+      }
+
+      // Arrow keys = nudge the selected widget. Committed through setLayout so
+      // one press is one undo step, like a completed drag.
+      if (ARROWS[e.key] && selectedWidget) {
+        const tag = e.target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+        // Ctrl/Cmd+arrow belongs to the browser (word jump, history); leaving
+        // it alone also keeps Ctrl+Z reachable from the same hand position.
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        e.preventDefault();
+        const [dx, dy] = ARROWS[e.key];
+        const amount = e.shiftKey ? step * 10 : step;
+        nudgingRef.current = true;
+        setLayoutLive?.((prev) => prev.map((item) => (item.i === selectedWidget
+          ? { ...item, x: Math.max(0, (item.x || 0) + dx * amount), y: Math.max(0, (item.y || 0) + dy * amount) }
+          : item)));
+        return;
       }
 
       // Ctrl+Z = undo
@@ -78,7 +108,26 @@ export function useKeyboardShortcuts({
       }
     };
 
+    const handleKeyUp = (e) => {
+      if (!ARROWS[e.key] || !nudgingRef.current) return;
+      nudgingRef.current = false;
+      // A fresh array so history.set sees a change and records it: the state
+      // is already at its final position, only the snapshot is missing.
+      setLayout?.((prev) => [...prev]);
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedWidget, history, clipboard, widgets, layout, setLayoutAndWidgets]); // eslint-disable-line react-hooks/exhaustive-deps
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [selectedWidget, history, clipboard, widgets, layout, setLayoutAndWidgets, setLayout, setLayoutLive, settings]); // eslint-disable-line react-hooks/exhaustive-deps
 }
+
+const ARROWS = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+};
