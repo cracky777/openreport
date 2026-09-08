@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { TbColorPicker } from 'react-icons/tb';
 import { createPortal } from 'react-dom';
 import { hexToHsv, hsvToHex, normalizeHex } from '../../utils/colorConvert';
 import { getRecentColors, pushRecentColor, subscribeRecentColors } from '../../utils/recentColors';
@@ -11,13 +12,19 @@ import { getRecentColors, pushRecentColor, subscribeRecentColors } from '../../u
  * otherwise. Owning the panel is the only way to put hex first, which is the
  * form a report's colours are written down and shared in.
  *
- * Layout, top to bottom: the hex field, the saturation square, the hue slider,
- * then the colours picked recently.
+ * Layout, top to bottom: the hex field and the eyedropper, the saturation
+ * square, the hue slider, then the colours picked recently.
  *
  * Rendered into <body>, not next to its swatch: the property panel scrolls, and
  * an absolutely-positioned child of a scroll box is clipped by it — the panel
  * showed the hex field and swallowed everything under it.
  */
+
+// The eyedropper the browser's own colour dialog used to provide. Exposed
+// separately as window.EyeDropper (Chromium only), so the button is offered
+// when the API is there and simply absent when it is not — Firefox and Safari
+// would otherwise show a control that does nothing.
+const HAS_EYEDROPPER = typeof window !== 'undefined' && typeof window.EyeDropper === 'function';
 
 const PRESETS = [
   '#0f172a', '#64748b', '#e2e8f0', '#ffffff',
@@ -112,6 +119,17 @@ export default function ColorPickerPopover({ value, onChange, onClose, allowTran
     }
   };
 
+  const sampleScreen = async () => {
+    try {
+      const { sRGBHex } = await new window.EyeDropper().open();
+      const normalized = normalizeHex(sRGBHex);
+      if (normalized) pick(normalized);
+    } catch {
+      // Cancelled with Escape, or refused by the browser — nothing to report,
+      // the colour simply stays as it was.
+    }
+  };
+
   const pick = (color) => {
     const next = hexToHsv(color);
     if (next) setHsv(next);
@@ -139,6 +157,16 @@ export default function ColorPickerPopover({ value, onChange, onClose, allowTran
           onBlur={() => { const n = normalizeHex(draft ?? hex); if (n) pushRecentColor(n); setDraft(null); }}
           style={hexInput}
         />
+        {HAS_EYEDROPPER && (
+          <button
+            onClick={sampleScreen}
+            title="Pick a colour from the screen"
+            aria-label="Pick a colour from the screen"
+            style={eyedropperBtn}
+          >
+            <TbColorPicker size={14} />
+          </button>
+        )}
         <span style={{ ...preview, background: isTransparent ? 'transparent' : hex }} />
       </div>
 
@@ -204,6 +232,11 @@ const hexInput = {
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   border: '1px solid var(--border-default)', borderRadius: 4,
   background: 'var(--bg-app)', color: 'var(--text-primary)', outline: 'none',
+};
+const eyedropperBtn = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  width: 24, height: 24, padding: 0, borderRadius: 4, cursor: 'pointer', flexShrink: 0,
+  border: '1px solid var(--border-default)', background: 'var(--bg-subtle)', color: 'var(--text-secondary)',
 };
 const preview = { width: 22, height: 22, borderRadius: 4, border: '1px solid var(--border-default)', flexShrink: 0 };
 const square = { position: 'relative', height: 110, borderRadius: 4, cursor: 'crosshair' };
