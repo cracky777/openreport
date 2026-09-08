@@ -5,7 +5,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { TbChevronDown } from 'react-icons/tb';
 import { parseIntOrNull } from '../../utils/input';
-import { getRecentColors, pushRecentColor, subscribeRecentColors } from '../../utils/recentColors';
+import { getRecentColors, subscribeRecentColors } from '../../utils/recentColors';
+import ColorPickerPopover from './ColorPickerPopover';
 
 const _hs41 = { marginBottom: 8 };
 const _hs42 = { fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' };
@@ -184,55 +185,46 @@ function useRecentColors() {
   return recents;
 }
 
-const HEX6 = /^#[0-9a-f]{6}$/i;
-
 /**
- * A colour swatch, its hex value, and the colours picked recently.
+ * A colour swatch that opens the app's own picker.
  *
- * Hex is the field one can read and type — the OS dialog behind the swatch
- * opens on whichever tab the browser last remembered, which a page cannot
- * choose, so the value the app itself shows is always hex.
+ * Not `<input type="color">`: that hands the choice to the operating system's
+ * dialog, which opens on whichever tab the browser last remembered and cannot
+ * be told to show hex. ColorPickerPopover puts hex first, which is the form a
+ * palette is written down and passed around in.
  *
- * `allowTransparent` is on by default; the controls that have no meaningful
- * "no colour" state (a gauge arc, say) turn it off rather than offer a button
- * that would blank them.
+ * `allowTransparent` is on by default; the controls with no meaningful "no
+ * colour" state (a gauge arc, say) turn it off rather than offer a button that
+ * would blank them.
  */
 function ColorInput({ value, onChange, allowTransparent = true }) {
   const isTransparent = value === 'transparent' || value === '';
-  // Typing a hex is a partial state ("#7c3" on the way to "#7c3aed"), so the
-  // field keeps its own draft and only commits once the value is complete.
-  const [draft, setDraft] = useState(null);
-  const shown = draft ?? (isTransparent ? '' : (value || ''));
-
-  const commit = (color) => {
-    onChange(color);
-    pushRecentColor(color);
-  };
-
-  const onHexChange = (raw) => {
-    const next = raw.startsWith('#') || raw === '' ? raw : '#' + raw;
-    setDraft(next);
-    if (HEX6.test(next)) onChange(next.toLowerCase());
-  };
+  // The swatch's box is captured when the panel opens: the popover positions
+  // itself from it without having to reach into a ref during render.
+  const [anchorRect, setAnchorRect] = useState(null);
+  const swatchRef = useRef(null);
+  const open = anchorRect !== null;
+  const toggle = () => setAnchorRect(open ? null : swatchRef.current.getBoundingClientRect());
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
       <div style={_hs56}>
-        <input type="color" value={isTransparent ? '#ffffff' : (value || '#000000')}
-          onChange={(e) => commit(e.target.value)}
-          style={{ opacity: isTransparent ? 0.3 : 1 }} />
-        <input
-          type="text"
-          value={shown}
-          placeholder={isTransparent ? 'transparent' : '#000000'}
-          spellCheck={false}
-          onChange={(e) => onHexChange(e.target.value)}
-          onBlur={() => { if (HEX6.test(shown)) pushRecentColor(shown); setDraft(null); }}
-          style={colorHexInput}
+        <button
+          ref={swatchRef}
+          onClick={toggle}
+          title={isTransparent ? 'transparent' : value}
+          aria-label="Pick a color"
+          style={{
+            width: 32, height: 22, padding: 0, borderRadius: 3, cursor: 'pointer',
+            border: '1px solid var(--border-default)',
+            background: isTransparent
+              ? 'repeating-conic-gradient(var(--border-default) 0% 25%, var(--bg-panel) 0% 50%) 50%/8px 8px'
+              : value,
+          }}
         />
         {allowTransparent && (
           <button
-            onClick={() => { setDraft(null); onChange(isTransparent ? '#ffffff' : 'transparent'); }}
+            onClick={() => onChange(isTransparent ? '#ffffff' : 'transparent')}
             title={isTransparent ? 'Set color' : 'Set transparent'}
             style={{
               width: 22, height: 22, border: '1px solid var(--border-default)', borderRadius: 3,
@@ -247,7 +239,19 @@ function ColorInput({ value, onChange, allowTransparent = true }) {
           </button>
         )}
       </div>
-      <RecentColorStrip value={value} onPick={(c) => { setDraft(null); commit(c); }} />
+      {/* The recents also live inside the popover; this row is the one-click
+          path, which is the whole point of remembering them. */}
+      <RecentColorStrip value={value} onPick={onChange} />
+      {open && (
+        <ColorPickerPopover
+          value={value}
+          onChange={onChange}
+          onClose={() => setAnchorRect(null)}
+          allowTransparent={allowTransparent}
+          anchorRect={anchorRect}
+          onAnchorHit={(target) => !!swatchRef.current && swatchRef.current.contains(target)}
+        />
+      )}
     </div>
   );
 }
@@ -272,14 +276,6 @@ function RecentColorStrip({ value, onPick }) {
   );
 }
 
-const colorHexInput = {
-  // Takes whatever the row has left rather than a fixed width: the property
-  // panel is narrow and resizable, and a clipped "#e11d4" helps nobody.
-  flex: '1 1 auto', width: 0, minWidth: 58, padding: '3px 4px', fontSize: 11,
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  border: '1px solid var(--border-default)', borderRadius: 3,
-  background: 'var(--bg-panel)', color: 'var(--text-primary)', outline: 'none',
-};
 const recentRow = { display: 'flex', gap: 2, flexWrap: 'wrap' };
 const recentSwatch = {
   width: 13, height: 13, borderRadius: 2, cursor: 'pointer', padding: 0,
