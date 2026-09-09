@@ -68,3 +68,13 @@ test('typing the N refetches with the panel collapsed', async ({ page }) => {
   await commit();
   await expect.poll(shown).toContain('N=9');
 });
+
+test('the click that deselects the widget still commits and refetches', async ({ page }) => {
+  const { nInput, shown } = await openTableEditor(page);
+  // The natural gesture: type the N, then click the report to see the result.
+  // That one click commits the field AND unmounts the panel that was about to
+  // fetch — the visual used to keep showing the previous answer.
+  await nInput.fill('7');
+  await page.mouse.click(700, 800);
+  await expect.poll(shown).toContain('N=7');
+});

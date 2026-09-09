@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import DimensionMultiSelect from '../PropertyPanel/DimensionMultiSelect';
 
 const _hs0 = { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 };
@@ -43,6 +43,39 @@ function opsForType(t, isMeasure) {
     numericOps.push({ v: 'bottom_n', l: 'Bottom N' });
   }
   return numericOps;
+}
+
+/**
+ * A text/number field that commits when the user LEAVES it, not on every
+ * keystroke.
+ *
+ * Each keystroke here is a binding write, and a binding write refetches the
+ * visual: typing "150" into a Top N fired three queries — N=1, N=15, N=150 —
+ * and left three undo steps behind, the first two answering a number the user
+ * never asked for. Enter commits too, so the field is finishable without the
+ * mouse.
+ *
+ * The draft is local while the field is being edited and `null` the rest of
+ * the time, so an external change (undo, another widget selected) shows
+ * through normally.
+ */
+function DeferredInput({ value, onCommit, ...rest }) {
+  const [draft, setDraft] = useState(null);
+  const commit = () => {
+    if (draft === null) return;
+    const next = draft;
+    setDraft(null);
+    if (next !== String(value ?? '')) onCommit(next);
+  };
+  return (
+    <input
+      {...rest}
+      value={draft ?? (value ?? '')}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
+    />
+  );
 }
 
 /**
@@ -133,13 +166,13 @@ export default function FilterRulesEditor({ model, modelId, rules, onChange, sty
               {ops.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
             </select>
             {!VALUELESS_OPS.has(f.op) && !LIST_OPS.has(f.op) && !isBetween && !isTopBottom && (
-              <input type={inputType} value={f.value ?? ''}
-                onChange={(e) => updateRule(i, { value: e.target.value })}
+              <DeferredInput type={inputType} value={f.value ?? ''}
+                onCommit={(v) => updateRule(i, { value: v })}
                 style={{ ...inputStyle, marginBottom: 0 }} placeholder="Value" />
             )}
             {isTopBottom && (
-              <input type="number" min={1} value={f.value ?? ''}
-                onChange={(e) => updateRule(i, { value: e.target.value })}
+              <DeferredInput type="number" min={1} value={f.value ?? ''}
+                onCommit={(v) => updateRule(i, { value: v })}
                 style={{ ...inputStyle, marginBottom: 0 }} placeholder="N (e.g. 10)" />
             )}
             {LIST_OPS.has(f.op) && (
@@ -185,11 +218,11 @@ export default function FilterRulesEditor({ model, modelId, rules, onChange, sty
             )}
             {isBetween && t !== 'date' && (
               <div style={_hs3}>
-                <input type={inputType} value={(f.values || [])[0] ?? ''}
-                  onChange={(e) => updateRule(i, { values: [e.target.value, (f.values || [])[1] ?? ''] })}
+                <DeferredInput type={inputType} value={(f.values || [])[0] ?? ''}
+                  onCommit={(v) => updateRule(i, (cur) => ({ values: [v, (cur?.values || [])[1] ?? ''] }))}
                   style={{ ...inputStyle, marginBottom: 0, flex: 1, minWidth: 0 }} placeholder="From" />
-                <input type={inputType} value={(f.values || [])[1] ?? ''}
-                  onChange={(e) => updateRule(i, { values: [(f.values || [])[0] ?? '', e.target.value] })}
+                <DeferredInput type={inputType} value={(f.values || [])[1] ?? ''}
+                  onCommit={(v) => updateRule(i, (cur) => ({ values: [(cur?.values || [])[0] ?? '', v] }))}
                   style={{ ...inputStyle, marginBottom: 0, flex: 1, minWidth: 0 }} placeholder="To" />
               </div>
             )}

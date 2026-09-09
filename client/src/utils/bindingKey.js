@@ -116,3 +116,35 @@ export function computeBindingKey({ widget, model, reportFilters, settings, cach
     timePeriodKey, overridesKey, limitKey, cacheKey,
   ].join(':');
 }
+
+// Config fields that take part in computeBindingKey — a change to any of them
+// changes the SQL, everything else on `config` is presentation.
+const QUERY_CONFIG_KEYS = ['topNEnabled', 'topN', 'dataLimit'];
+
+/**
+ * One string that moves when ANY widget's query-relevant binding moves, and
+ * stays put otherwise.
+ *
+ * The editor's fetch loop watches the report filters and the refresh counter;
+ * it had no way to notice that a widget's own binding had changed, so that job
+ * fell entirely to the data panel — and travelled with it when the panel was
+ * collapsed or the widget deselected. This is what wakes the loop instead.
+ *
+ * Deliberately NOT the full binding key: it must not move for a colour or a
+ * font, or every restyle would wake the loop and abort its in-flight queries.
+ */
+export function computeBindingsSignature(widgets) {
+  if (!widgets) return '';
+  return JSON.stringify(Object.keys(widgets).sort().map((id) => {
+    const w = widgets[id];
+    const cfg = w?.config || {};
+    return [
+      id,
+      w?.type || '',
+      w?.dataBinding || null,
+      QUERY_CONFIG_KEYS.map((k) => cfg[k] ?? null),
+      cfg.colorCondition?.enabled === true,
+      w?.drillPath || null,
+    ];
+  }));
+}

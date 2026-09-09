@@ -20,6 +20,7 @@ import { sanitizeWidgetFilters } from '../utils/widgetFilters';
 import { prepareGlobalRulesForWidget } from '../utils/reportFilterRules';
 import { parseFiltersFromUrl, syncFiltersToUrl } from '../utils/urlFilters';
 import { filterForTarget } from '../utils/crossFilter';
+import { computeBindingsSignature } from '../utils/bindingKey';
 import { convertData, buildSnapshot } from '../utils/editorHelpers';
 import { transformBinding } from '../utils/widgetZones';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
@@ -349,6 +350,13 @@ export default function Editor() {
   // Ref mirror so click handlers always read the freshest widget state (closures can be stale)
   const widgetsRef = useRef(widgets);
   widgetsRef.current = widgets;
+  // Wakes the fetch loop when a widget's own binding moves — see
+  // computeBindingsSignature. A ref for the selection so the loop can tell
+  // whether the data panel is there to handle the selected widget, without
+  // re-running every time the selection moves.
+  const bindingsSignature = useMemo(() => computeBindingsSignature(widgets), [widgets]);
+  const prevBindingsSignatureRef = useRef(null);
+  const prevPanelOwnedRef = useRef(null);
   // Same mirror for the history object. The cache-warming poll below only reads
   // it when a rebuild finishes, but depending on it re-ran the whole effect on
   // every layout mutation — one GET /warming per resize gesture, one per frame
@@ -1117,6 +1125,7 @@ export default function Editor() {
     prevFiltersJson, abortControllerRef, debounceTimerRef, drillingWidgetIdRef,
     interactionToggleTargetRef, widgetRefreshIdRef, prevSettingsFiltersRef,
     refreshSlicerRef, crossHighlightRef, pendingLoadingRef, activeQueryIdsRef,
+    bindingsSignature, prevBindingsSignatureRef, selectedWidget, prevPanelOwnedRef,
   });
 
   const [loading, setLoading] = useState(true);
