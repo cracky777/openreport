@@ -2077,13 +2077,27 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onS
     setTimeout(() => onResizeEnd?.(), PANEL_COLLAPSE_TRANSITION_MS + 30);
   };
 
+  // Mounted once, used by both branches. The panel owns the ONLY fetch loop
+  // that reacts to a widget's own binding: the editor's main loop watches the
+  // report filters and the refresh counter, never a binding. Unmounting the
+  // panel with the collapse therefore froze every edit made from the property
+  // panel next door — a Top N, a row limit, a measure filter changed the SQL
+  // and nothing refetched, so the visual kept showing the previous answer
+  // until an explicit refresh. Collapsed, it is hidden rather than removed.
+  const dataPanel = (
+    <DataPanel widgetId={widgetId} widget={widget} onUpdate={onUpdate} onUpdateSilent={onUpdateSilent} onSetWidgetLoading={onSetWidgetLoading} model={model} onModelUpdate={onModelUpdate} settings={settings} onSettingsChange={onSettingsChange} reportFilters={reportFilters} refreshNonce={refreshNonce} reportId={reportId} cacheBuiltAt={cacheBuiltAt} />
+  );
+
   if (collapsed) {
     return (
-      <div style={collapsedPanelStyle} onClick={() => toggleCollapsed(false)} title="Open data panel">
-        <span style={collapsedChevronStyle}><TbChevronsLeft size={14} /></span>
-        <TbDatabase size={14} color="var(--accent-cyan)" />
-        <span style={collapsedLabelStyle}>Data</span>
-      </div>
+      <>
+        <div style={collapsedPanelStyle} onClick={() => toggleCollapsed(false)} title="Open data panel">
+          <span style={collapsedChevronStyle}><TbChevronsLeft size={14} /></span>
+          <TbDatabase size={14} color="var(--accent-cyan)" />
+          <span style={collapsedLabelStyle}>Data</span>
+        </div>
+        <div style={hiddenPanelStyle}>{dataPanel}</div>
+      </>
     );
   }
 
@@ -2119,10 +2133,13 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onS
           onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
         ><TbChevronsRight size={14} /></button>
       </div>
-      <DataPanel widgetId={widgetId} widget={widget} onUpdate={onUpdate} onUpdateSilent={onUpdateSilent} onSetWidgetLoading={onSetWidgetLoading} model={model} onModelUpdate={onModelUpdate} settings={settings} onSettingsChange={onSettingsChange} reportFilters={reportFilters} refreshNonce={refreshNonce} reportId={reportId} cacheBuiltAt={cacheBuiltAt} />
+      {dataPanel}
     </div>
   );
 }
+
+// Takes no room and shows nothing — the collapsed panel still runs.
+const hiddenPanelStyle = { display: 'none' };
 
 const ruleCardStyle = {
   padding: '8px',

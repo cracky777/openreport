@@ -32,6 +32,22 @@ const LAYOUT = [
   { i: 'w-filter', x: 40, y: 280, w: 420, h: 220, z: 1 },
 ];
 
+// A table carrying a Top N rule with no N yet — the state right after the
+// measure is dropped into the widget's Filters. Typing the N is what the
+// collapsed-panel spec then does.
+const TABLE_WIDGETS = {
+  'w-table': {
+    type: 'table',
+    dataBinding: {
+      selectedDimensions: [F.DIM],
+      selectedMeasures: [F.MEASURE],
+      widgetFilters: [{ field: F.MEASURE, isMeasure: true, op: 'top_n', value: '', values: [] }],
+    },
+    config: {},
+  },
+};
+const TABLE_LAYOUT = [{ i: 'w-table', x: 40, y: 40, w: 600, h: 300, z: 1 }];
+
 setup('seed the fixture', async ({ request }) => {
   // First account on a virgin database becomes admin, and register logs it in.
   const reg = await request.post('/api/auth/register', { data: { ...F.USER, displayName: 'E2E' } });
@@ -75,12 +91,15 @@ setup('seed the fixture', async ({ request }) => {
   };
 
   const reportId = await mkReport('Rapport e2e', WIDGETS, LAYOUT);
+  // The collapsed-panel spec edits a widget filter, so it gets its own report
+  // rather than mutating the one every other spec reads.
+  const tableReportId = await mkReport('Rapport e2e tableau', TABLE_WIDGETS, TABLE_LAYOUT);
   // Exists only to own the title the conflict spec tries to steal.
   const otherReportId = await mkReport(F.TAKEN_TITLE, null, null);
   // The successful-save case renames what it opens, so it gets its own report
   // rather than borrowing — and restoring — the one every other spec reads.
   const renameReportId = await mkReport('Rapport e2e bis', WIDGETS, LAYOUT);
 
-  fs.writeFileSync(F.IDS_FILE, JSON.stringify({ datasourceId, modelId, reportId, otherReportId, renameReportId }, null, 1));
+  fs.writeFileSync(F.IDS_FILE, JSON.stringify({ datasourceId, modelId, reportId, tableReportId, otherReportId, renameReportId }, null, 1));
   await request.storageState({ path: F.AUTH_STATE });
 });
