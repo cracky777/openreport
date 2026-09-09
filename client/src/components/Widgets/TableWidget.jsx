@@ -17,6 +17,14 @@ const _hs3 = {
                           cursor: 'col-resize', zIndex: 5,
                         };
 const _hs4 = { padding: 12, textAlign: 'center', color: 'var(--text-disabled)', fontSize: 12 };
+// Column widths are resized from a cell's right edge. Normally that edge is
+// the header's; with the headers hidden the same grip lives on the body cells,
+// so the widths stay reachable without a strip of chrome stealing a row's
+// worth of height from every table.
+const cellGrip = {
+  position: 'absolute', right: 0, top: 0, bottom: 0, width: 7,
+  cursor: 'col-resize', zIndex: 4, borderRight: '2px solid transparent',
+};
 const _hs5 = { fontSize: 11, color: 'var(--text-muted)' };
 const _hs6 = { fontSize: 10, color: 'var(--text-disabled)', marginLeft: 8 };
 
@@ -72,6 +80,9 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
   const paginationMode = tc.pagination?.mode || 'infinite';
   const rowsPerPage = tc.pagination?.rowsPerPage || 50;
   const showHeaders = tc.header?.show ?? config?.showColumnNames ?? true;
+  // Editor only — onConfigUpdate is wired there and nowhere else — so a
+  // published report keeps the clean look the hidden headers were asked for.
+  const gripOnCells = !showHeaders && !!onConfigUpdate;
   const rowHeight = ROW_HEIGHTS[rowCfg.height] || ROW_HEIGHTS.normal;
 
   const [hoveredRow, setHoveredRow] = useState(null);
@@ -378,7 +389,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                           overflowWrap: cellWrap ? 'anywhere' : 'normal',
                           borderBottom: grid.horizontalLines ? `${grid.horizontalWidth}px solid ${grid.horizontalColor}` : 'none',
                           borderRight: grid.verticalLines && ci < columns.length - 1 ? `${grid.verticalWidth}px solid ${grid.verticalColor}` : 'none',
-                          position: isFrozenCol ? 'sticky' : 'static',
+                          position: isFrozenCol ? 'sticky' : (gripOnCells ? 'relative' : 'static'),
                           left: isFrozenCol ? 0 : undefined,
                           zIndex: isFrozenCol ? 1 : 'auto',
                           backgroundColor: isFrozenCol ? rowBg : undefined,
@@ -386,6 +397,15 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                           ...cf.style,
                         }}
                       >
+                        {gripOnCells && (
+                          <div
+                            onMouseDown={(e) => handleResizeStart(e, col)}
+                            title={`Resize « ${getColumnDisplayName(tc, col)} »`}
+                            style={cellGrip}
+                            onMouseEnter={(e) => { e.currentTarget.style.borderRightColor = 'var(--accent-primary)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.borderRightColor = 'transparent'; }}
+                          />
+                        )}
                         {cf.extraElements?.map((el, ei) => (
                           <span key={ei} style={{ color: el.color, marginRight: 4, fontSize: 12 }}>{el.icon}</span>
                         ))}
