@@ -1,4 +1,5 @@
 import { useRef, memo, useMemo } from 'react';
+import { isDurationFormat } from '../../utils/durationPattern';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
@@ -498,6 +499,9 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
           // them is an interval, format the whole axis as duration so the
           // ticks read consistently. Mixing 3600 with "1h" on the same
           // axis would be jarring.
+          // A measure carrying a duration pattern formats its own axis.
+          const durFmt = Object.values(data._measureFormats || {}).find(isDurationFormat);
+          if (durFmt) return formatNumber(val, durFmt);
           if (isDurationCol(data._measureLabel, data._durationColumns)
               || (Array.isArray(data._durationColumns) && data._durationColumns.length > 0)) {
             return formatDuration(val);

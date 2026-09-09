@@ -1,6 +1,18 @@
-// Format a number per its measure format: { decimals, thousandSep, prefix, suffix }.
+import { formatDurationPattern, isDurationFormat } from './durationPattern';
+
+// Format a number per its measure format: { decimals, thousandSep, prefix, suffix }
+// — or, when the format carries a `duration` pattern, through that pattern.
+//
+// The duration lands HERE rather than at each widget's call site because every
+// visual already routes its measure values through this one function: axis
+// ticks, data labels, tooltips, table cells. One place, and the author's format
+// follows the measure everywhere it is shown.
 export default function formatNumber(value, format) {
   if (value == null || isNaN(value)) return String(value ?? '');
+  if (isDurationFormat(format)) {
+    const body = formatDurationPattern(value, format.duration);
+    return `${format.prefix ?? ''}${body}${format.suffix ?? ''}`;
+  }
   if (!format) return value.toLocaleString();
 
   const decimals = format.decimals ?? 0;
@@ -45,6 +57,9 @@ export default function formatNumber(value, format) {
  *   back to the full formatNumber.
  */
 export function abbreviateNumber(value, mode = 'none', format = null) {
+  // A duration is already condensed by its own pattern; turning 590 400 into
+  // "590.4K" seconds would undo exactly what the author asked for.
+  if (isDurationFormat(format)) return null;
   const abbreviated = abbreviateRaw(value, mode);
   if (abbreviated == null) return null;
   if (!format) return abbreviated;
