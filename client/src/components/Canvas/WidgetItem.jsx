@@ -116,7 +116,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, scale = 1, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners, mergeSpan, stacked }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, scale = 1, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners, mergeSpan, stacked, dragBounds }) {
   const openBugReport = useBugReport();
   const nodeRef = useRef(null);
   const [showSql, setShowSql] = useState(false);
@@ -234,6 +234,13 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
       disabled={readOnly}
       cancel={dragCancel}
       grid={snapGrid}
+      // The page is the only drop zone — the backdrop around it is not part of
+      // the report and nothing renders a widget left there. react-draggable
+      // owns the limit rather than the canvas correcting the position after
+      // the fact: it keeps the slack between cursor and widget, so pushing
+      // against the edge and coming back picks the widget up where the
+      // pointer left it instead of teleporting it.
+      bounds={dragBounds}
       // The canvas is a fixed page scaled down to fit (`fitToWidth`, the
       // default), so a pointer that travels 100px on screen has travelled
       // 100/scale page pixels. Without this the widget was moved by the RAW

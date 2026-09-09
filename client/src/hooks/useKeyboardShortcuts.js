@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { clampPos } from '../utils/pageBounds';
 
 // Editor keyboard shortcuts: Delete/Backspace (remove selected widget),
 // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z (undo/redo), Ctrl+C / Ctrl+V (copy/paste
@@ -30,6 +31,8 @@ export function useKeyboardShortcuts({
     // grid is off, which is the point of turning it off. Shift moves ten
     // cells, the usual coarse step.
     const step = (settings?.snapToGrid ?? true) ? (settings?.gridSize || 20) : 1;
+    const pw = settings?.pageWidth || 1140;
+    const ph = settings?.pageHeight || 800;
 
     const handleKeyDown = (e) => {
       // Delete selected widget
@@ -55,7 +58,7 @@ export function useKeyboardShortcuts({
         const amount = e.shiftKey ? step * 10 : step;
         nudgingRef.current = true;
         setLayoutLive?.((prev) => prev.map((item) => (item.i === selectedWidget
-          ? { ...item, x: Math.max(0, (item.x || 0) + dx * amount), y: Math.max(0, (item.y || 0) + dy * amount) }
+          ? { ...item, ...clampPos((item.x || 0) + dx * amount, (item.y || 0) + dy * amount, item.w || 0, item.h || 0, pw, ph) }
           : item)));
         return;
       }

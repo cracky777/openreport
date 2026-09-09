@@ -4,6 +4,7 @@ import { WIDGET_TYPES } from '../Widgets';
 import { getMergeGroups, groupSeams, groupRect, mergeCorners, mergeSpan, edgeMidpoint } from '../../utils/mergeFrames';
 import WidgetItem from './WidgetItem';
 import { stackedOrder, stackedHeight, STACK_BREAKPOINT, STACK_GAP } from '../../utils/stackedLayout';
+import { clampPos, clampDelta, clampRect, dragBounds } from '../../utils/pageBounds';
 
 // Inner padding of the stacked (small-screen) column.
 const STACK_PAD = 12;
@@ -169,22 +170,28 @@ export default function ReportCanvas({
   // the recorded one fires once on drop = one undo step per gesture.
   const applyMove = useCallback((id, data, emit) => {
     const it = layout.find((l) => l.i === id);
-    const nx = Math.max(0, snap(data.x));
-    const ny = Math.max(0, snap(data.y));
+    if (!it) return;
+    // react-draggable already stopped the pointer at the page edge; the grid
+    // can still round the drop a few pixels past it, hence the clamp here too.
+    const nx = snap(data.x);
+    const ny = snap(data.y);
     const gid = mergedGidById[id];
-    if (gid && it) {
-      const dx = nx - (it.x || 0);
-      const dy = ny - (it.y || 0);
-      const memberIds = new Set((mergeGroups[gid] || []).map((m) => m.i));
+    if (gid) {
+      const members = mergeGroups[gid] || [];
+      const { dx, dy } = clampDelta(members, nx - (it.x || 0), ny - (it.y || 0), pageWidth, canvasHeight);
+      const memberIds = new Set(members.map((m) => m.i));
+      // No per-member clamp: the block moved as one, and correcting a member
+      // on its own here is exactly what would tear it apart at the edge.
       emit(layout.map((l) => memberIds.has(l.i)
-        ? { ...l, x: Math.max(0, (l.x || 0) + dx), y: Math.max(0, (l.y || 0) + dy) }
+        ? { ...l, x: (l.x || 0) + dx, y: (l.y || 0) + dy }
         : l));
       return;
     }
+    const p = clampPos(nx, ny, it.w || 0, it.h || 0, pageWidth, canvasHeight);
     emit(layout.map((item) =>
-      item.i === id ? { ...item, x: nx, y: ny } : item
+      item.i === id ? { ...item, x: p.x, y: p.y } : item
     ));
-  }, [layout, snap, mergedGidById, mergeGroups]);
+  }, [layout, snap, mergedGidById, mergeGroups, pageWidth, canvasHeight]);
 
   const emitLive = onLayoutChangeLive || onLayoutChange;
   const handleDrag = useCallback((id, data) => {
@@ -221,8 +228,16 @@ export default function ReportCanvas({
       if (dir.includes('n')) { updates.h = Math.max(40, snap(resizing.startH - dy)); updates.y = snap(resizing.startPosY + dy); if (updates.h <= 40) updates.y = resizing.startPosY + resizing.startH - 40; }
 
       resizedRef.current = true;
+      // A widget grown past the page edge would spill onto the backdrop, which
+      // no export renders — the edge under the cursor stops there.
+      const next = clampRect({
+        x: updates.x ?? resizing.startPosX,
+        y: updates.y ?? resizing.startPosY,
+        w: updates.w ?? resizing.startW,
+        h: updates.h ?? resizing.startH,
+      }, pageWidth, canvasHeight);
       emitLive(layout.map((item) =>
-        item.i === resizing.id ? { ...item, ...updates } : item
+        item.i === resizing.id ? { ...item, ...next } : item
       ));
     };
 
@@ -249,7 +264,7 @@ export default function ReportCanvas({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [resizing, layout, onLayoutChange, emitLive, scale, snap]);
+  }, [resizing, layout, onLayoutChange, emitLive, scale, snap, pageWidth, canvasHeight]);
 
   const startResize = useCallback((e, id, dir = 'se') => {
     e.stopPropagation();
@@ -417,6 +432,7 @@ export default function ReportCanvas({
               onDrillReset={onDrillReset}
               crossHighlight={crossHighlight}
               snapGrid={snapGrid}
+              dragBounds={dragBounds(item, mergeGroups[mergedGidById[item.i]] || [], pageWidth, canvasHeight)}
               scale={scale}
               reportFilters={reportFilters}
               editInteractionsActive={editInteractionsActive}
