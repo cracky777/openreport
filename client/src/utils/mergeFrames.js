@@ -183,6 +183,26 @@ export function edgeMidpoint(a, b, tol = 10) {
   return null;
 }
 
+/**
+ * The border a merged block draws, as CSS — or null when it draws none.
+ *
+ * The seam cover masks the two touching borders and caps the gap at each end,
+ * so the frame reads as continuous across the junction. That cap has to be the
+ * block's own border: painted in the default grey it punched a visible hole in
+ * a block bordered in any other colour, and on a block with no border at all
+ * it drew two short floating ticks continuing nothing.
+ *
+ * Read from one member: the border is container styling, so the group already
+ * agrees on it.
+ */
+export function groupBorderCss(widget) {
+  if (!widget) return null;
+  // Same default as the widget frame itself: an image is shown bare.
+  const on = widget.config?.borderEnabled ?? (widget.type !== 'image');
+  if (!on) return null;
+  return `1px solid ${widget.config?.borderColor || 'var(--border-default)'}`;
+}
+
 export function newMergeGroupId() {
   return 'mg_' + Math.random().toString(36).slice(2, 9);
 }

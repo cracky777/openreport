@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { mergeSpan } from './mergeFrames';
+import { mergeSpan, groupBorderCss } from './mergeFrames';
 
 // Three 100x60 cards in a row, then one stacked below the first.
 const A = { i: 'a', x: 100, y: 50, w: 100, h: 60 };
@@ -45,5 +45,30 @@ describe('mergeSpan', () => {
     // Each slice starts where the previous one ended.
     expect(spans.map((s) => s.dx)).toEqual([0, 100, 200]);
     expect(spans[2].dx + C.w).toBe(spans[0].w);
+  });
+});
+
+describe('groupBorderCss', () => {
+  // What the seam cover caps the masked junction with. Getting it wrong is
+  // visible as a gap in the frame, or as a short tick continuing nothing.
+  test('follows the block own border colour', () => {
+    expect(groupBorderCss({ type: 'bar', config: { borderColor: '#dc2626' } }))
+      .toBe('1px solid #dc2626');
+  });
+
+  test('falls back to the theme border', () => {
+    expect(groupBorderCss({ type: 'bar', config: {} })).toBe('1px solid var(--border-default)');
+  });
+
+  test('a block with no border caps nothing', () => {
+    expect(groupBorderCss({ type: 'bar', config: { borderEnabled: false } })).toBeNull();
+    // An image is shown bare by default, like its own frame.
+    expect(groupBorderCss({ type: 'image', config: {} })).toBeNull();
+    expect(groupBorderCss({ type: 'image', config: { borderEnabled: true } }))
+      .toBe('1px solid var(--border-default)');
+  });
+
+  test('no widget, no cap', () => {
+    expect(groupBorderCss(undefined)).toBeNull();
   });
 });

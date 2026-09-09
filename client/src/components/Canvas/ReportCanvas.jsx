@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import { TbMagnet, TbMagnetOff, TbMinus, TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp } from 'react-icons/tb';
 import { WIDGET_TYPES } from '../Widgets';
-import { getMergeGroups, groupSeams, groupRect, mergeCorners, mergeSpan, edgeMidpoint } from '../../utils/mergeFrames';
+import { getMergeGroups, groupSeams, groupRect, mergeCorners, mergeSpan, edgeMidpoint, groupBorderCss } from '../../utils/mergeFrames';
 import WidgetItem from './WidgetItem';
 import { stackedOrder, stackedHeight, STACK_BREAKPOINT, STACK_GAP } from '../../utils/stackedLayout';
 import { clampPos, clampDelta, clampRect, dragBounds } from '../../utils/pageBounds';
@@ -492,7 +492,11 @@ export default function ReportCanvas({
           return groupSeams(items).map((s, k) => {
             const inset = Math.max(6, Math.min(16, s.length * 0.12));
             const lineLen = Math.max(2, s.length - 2 * inset);
-            const capCss = '1px solid var(--border-default)';
+            // The cap continues the block's own frame across the masked
+            // junction — hardcoded to the default grey it left a gap in a
+            // block bordered otherwise, and two floating ticks on a block
+            // with no border to continue.
+            const capCss = groupBorderCss(widgets[items[0]?.i]);
             // At an end that is NOT an aligned outer corner (a concave
             // L-corner: one widget terminates there, the other goes on)
             // pull the cover back ~2px so the two widgets' own kept
@@ -598,8 +602,8 @@ export default function ReportCanvas({
                     position: 'absolute', left: s.x - COVER / 2, top: s.y + ti,
                     width: COVER, height: Math.max(1, s.length - ti - bi),
                     ...coverBg(s.x - COVER / 2, s.y + ti),
-                    borderTop: s.capStart ? capCss : 'none',
-                    borderBottom: s.capEnd ? capCss : 'none',
+                    borderTop: s.capStart && capCss ? capCss : 'none',
+                    borderBottom: s.capEnd && capCss ? capCss : 'none',
                     boxSizing: 'border-box',
                     zIndex: 50, pointerEvents: 'none',
                   }}>
@@ -621,8 +625,8 @@ export default function ReportCanvas({
                   position: 'absolute', left: s.x + li, top: s.y - COVER / 2,
                   width: Math.max(1, s.length - li - ri), height: COVER,
                   ...coverBg(s.x + li, s.y - COVER / 2),
-                  borderLeft: s.capStart ? capCss : 'none',
-                  borderRight: s.capEnd ? capCss : 'none',
+                  borderLeft: s.capStart && capCss ? capCss : 'none',
+                  borderRight: s.capEnd && capCss ? capCss : 'none',
                   boxSizing: 'border-box',
                   zIndex: 50, pointerEvents: 'none',
                 }}>
