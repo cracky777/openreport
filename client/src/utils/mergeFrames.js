@@ -92,6 +92,36 @@ export function groupSeams(items, tol = 10) {
 // so the two visuals read as ONE continuous frame at the seam, while
 // every corner that is NOT touched keeps its rounding. Returns
 // { tl, tr, br, bl } booleans.
+/**
+ * Where `item` sits inside the bounding box of its merge group.
+ *
+ * A gradient painted per widget restarts at every seam, so a merged block
+ * shows the same ramp two or three times over instead of one. Given the
+ * group's size and the member's offset within it, each member can paint its
+ * own slice of a single gradient — the ramp then runs across the whole block.
+ *
+ * Null when the group has fewer than two members: nothing to span.
+ */
+export function groupRect(members) {
+  if (!members || members.length === 0) return null;
+  const rects = members.map(rectOf);
+  const x = Math.min(...rects.map((r) => r.x));
+  const y = Math.min(...rects.map((r) => r.y));
+  return {
+    x,
+    y,
+    w: Math.max(...rects.map((r) => r.x + r.w)) - x,
+    h: Math.max(...rects.map((r) => r.y + r.h)) - y,
+  };
+}
+
+export function mergeSpan(item, members) {
+  if (!item || !members || members.length < 2) return null;
+  const g = groupRect(members);
+  const r = rectOf(item);
+  return { w: g.w, h: g.h, dx: r.x - g.x, dy: r.y - g.y };
+}
+
 export function mergeCorners(item, members, tol = 10) {
   const r = rectOf(item);
   const c = { tl: false, tr: false, br: false, bl: false };

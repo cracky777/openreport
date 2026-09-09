@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import { TbMagnet, TbMagnetOff, TbMinus, TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp } from 'react-icons/tb';
 import { WIDGET_TYPES } from '../Widgets';
-import { getMergeGroups, groupSeams, mergeCorners, edgeMidpoint } from '../../utils/mergeFrames';
+import { getMergeGroups, groupSeams, groupRect, mergeCorners, mergeSpan, edgeMidpoint } from '../../utils/mergeFrames';
 import WidgetItem from './WidgetItem';
 import { stackedOrder, stackedHeight, STACK_BREAKPOINT, STACK_GAP } from '../../utils/stackedLayout';
 
@@ -310,6 +310,7 @@ export default function ReportCanvas({
               crossHighlight={crossHighlight}
               reportFilters={reportFilters}
               mergeCorners={null}
+              mergeSpan={null}
             />
           );
         })}
@@ -424,6 +425,9 @@ export default function ReportCanvas({
               onCancelFetch={onCancelFetch}
               onRefreshWidget={onRefreshWidget}
               refreshKind={refreshKind}
+              mergeSpan={mergedGidById[item.i]
+                ? mergeSpan(item, mergeGroups[mergedGidById[item.i]] || [])
+                : null}
               mergeCorners={mergedGidById[item.i]
                 ? mergeCorners(item, mergeGroups[mergedGidById[item.i]] || [])
                 : null}
@@ -437,6 +441,31 @@ export default function ReportCanvas({
             line is drawn over the seam instead. */}
         {Object.values(mergeGroups).map((items, gi) => {
           const sep = items.some((it) => widgets[it.i]?.config?.mergeSeparator);
+          // The cover that hides the doubled border used to be painted in the
+          // panel colour — a flat band straight across a block with any
+          // background of its own, and glaring over a gradient. It takes the
+          // group's background instead, and for a gradient its own slice of
+          // it, so the ramp runs through the junction unbroken.
+          const gcfg = widgets[items[0]?.i]?.config || {};
+          const gGrad = gcfg.gradientBg?.enabled
+            ? `linear-gradient(${gcfg.gradientBg.angle ?? 180}deg, ${gcfg.gradientBg.color1 || '#ffffff'}, ${gcfg.gradientBg.color2 || '#e2e8f0'})`
+            : null;
+          const gBg = gcfg.transparentBg
+            ? 'transparent'
+            : (gGrad || gcfg.backgroundColor || 'var(--bg-panel)');
+          const gRect = groupRect(items);
+          // background-image, not the `background` shorthand — the shorthand
+          // resets size and position, and a later edit rewriting only it would
+          // drop the slice (see WidgetItem for the same trap).
+          const coverBg = (left, top) => (gGrad && gRect && !gcfg.transparentBg
+            ? {
+              backgroundImage: gGrad,
+              backgroundColor: 'transparent',
+              backgroundSize: `${gRect.w}px ${gRect.h}px`,
+              backgroundPosition: `-${left - gRect.x}px -${top - gRect.y}px`,
+              backgroundRepeat: 'no-repeat',
+            }
+            : { background: gBg });
           const inGroupSelected = !readOnly && selectedWidget && items.some((it) => it.i === selectedWidget);
           const COVER = 6; // masks 1px border on each side + radius nubs
           return groupSeams(items).map((s, k) => {
@@ -547,7 +576,7 @@ export default function ReportCanvas({
                   <div style={{
                     position: 'absolute', left: s.x - COVER / 2, top: s.y + ti,
                     width: COVER, height: Math.max(1, s.length - ti - bi),
-                    background: 'var(--bg-panel)',
+                    ...coverBg(s.x - COVER / 2, s.y + ti),
                     borderTop: s.capStart ? capCss : 'none',
                     borderBottom: s.capEnd ? capCss : 'none',
                     boxSizing: 'border-box',
@@ -570,7 +599,7 @@ export default function ReportCanvas({
                 <div style={{
                   position: 'absolute', left: s.x + li, top: s.y - COVER / 2,
                   width: Math.max(1, s.length - li - ri), height: COVER,
-                  background: 'var(--bg-panel)',
+                  ...coverBg(s.x + li, s.y - COVER / 2),
                   borderLeft: s.capStart ? capCss : 'none',
                   borderRight: s.capEnd ? capCss : 'none',
                   boxSizing: 'border-box',

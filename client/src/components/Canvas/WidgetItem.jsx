@@ -116,7 +116,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, scale = 1, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners, stacked }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, scale = 1, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners, mergeSpan, stacked }) {
   const openBugReport = useBugReport();
   const nodeRef = useRef(null);
   const [showSql, setShowSql] = useState(false);
@@ -177,8 +177,29 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
   // in ReportCanvas) masks the doubled border on the touching segment.
   const _r = (squared) => (squared ? 0 : _baseRadius);
   const mc = mergeCorners || null;
+  // A gradient is the one background that has to know about its neighbours:
+  // painted per widget it restarts at every seam, so a merged block repeats
+  // the same ramp instead of running one across it. Sizing the image to the
+  // group and shifting it by the member's offset makes each frame show its
+  // own slice. Flat colours need none of this.
+  //
+  // Written as `background-image`, never the `background` shorthand: the
+  // shorthand resets size and position, so an edit that changed only the
+  // colours (React then rewrites that one property and leaves the untouched
+  // longhands alone) silently dropped the slice and every member went back to
+  // painting the whole ramp.
+  const _gradient = !widget.config?.transparentBg && buildGradientCSS(widget.config?.gradientBg);
+  const _bgStyle = _gradient && _bgValue === _gradient
+    ? {
+      backgroundImage: _gradient,
+      backgroundColor: 'transparent',
+      backgroundSize: mergeSpan ? `${mergeSpan.w}px ${mergeSpan.h}px` : 'auto',
+      backgroundPosition: mergeSpan ? `-${mergeSpan.dx}px -${mergeSpan.dy}px` : '0% 0%',
+      backgroundRepeat: 'no-repeat',
+    }
+    : { background: _bgValue };
   const frameChrome = {
-    background: _bgValue,
+    ..._bgStyle,
     borderTopLeftRadius: mc ? _r(mc.tl) : _baseRadius,
     borderTopRightRadius: mc ? _r(mc.tr) : _baseRadius,
     borderBottomRightRadius: mc ? _r(mc.br) : _baseRadius,
