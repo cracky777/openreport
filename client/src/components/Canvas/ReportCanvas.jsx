@@ -342,7 +342,7 @@ export default function ReportCanvas({
       }}
       style={{
         flex: 1,
-        backgroundColor: printMode ? 'transparent' : 'var(--bg-app)',
+        backgroundColor: printMode ? 'transparent' : (settings.surroundColor || 'var(--bg-app)'),
         overflowX: 'hidden',
         overflowY: (viewMode === 'fitToPage' && !stacked) || printMode ? 'hidden' : 'auto',
         padding: printMode ? 0 : (stacked ? STACK_PAD : 20),

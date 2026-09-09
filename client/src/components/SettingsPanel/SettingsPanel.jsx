@@ -36,7 +36,7 @@ const _hs16 = { fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowra
 const _hs17 = { flexShrink: 1, minWidth: 0, overflow: 'hidden' };
 
 export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
-  const { themes: availableThemes } = useTheme();
+  const { themes: availableThemes, getThemeVars } = useTheme();
   const openBugReport = useBugReport();
   const update = (key, value) => {
     onSettingsChange({ ...settings, [key]: value });
@@ -46,6 +46,13 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
     if (!t) return;
     onSettingsChange({ ...settings, theme: { key: themeKey, ...t } });
   };
+
+  // What the backdrop around the page shows when the report doesn't override
+  // it: the report theme's own app background, so the swatch opens on the
+  // colour actually on screen rather than on black.
+  const themeSurround = settings.theme?.vars?.['--bg-app']
+    || getThemeVars('light')['--bg-app']
+    || '#f1f5f9';
 
   const handleImageUpload = (e) => {
     const file = e.target.files?.[0];
@@ -298,6 +305,24 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
                 </div>
               )}
             </>
+          )}
+        </Section>
+
+        <Section title="Around the report">
+          <Field label="Color">
+            <ColorInput
+              value={settings.surroundColor || themeSurround}
+              onChange={(v) => update('surroundColor', v)}
+              allowTransparent={false}
+            />
+          </Field>
+          {settings.surroundColor && (
+            <button
+              onClick={() => update('surroundColor', null)}
+              style={{ ...presetBtn, marginTop: 2 }}
+            >
+              Follow the theme
+            </button>
           )}
         </Section>
 
