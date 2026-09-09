@@ -4,6 +4,7 @@ import { TbBug } from 'react-icons/tb';
 import { useParams, useNavigate, useNavigationType } from 'react-router-dom';
 import Step1Schema from './Step1Schema';
 import api from '../utils/api';
+import { autoFlagColumns } from '../utils/autoFlagColumns';
 import { toast } from '../components/Toast/toast';
 import { headerShellStyle, BackButton, PrimaryButton, SecondaryButton, headerBadgeStyle } from '../components/PageHeader/PageHeader';
 import { useTheme } from '../hooks/useTheme';
@@ -272,6 +273,16 @@ export default function ModelEditor() {
     for (const t of toLoad) {
       const res = await api.get(`/datasources/${model.datasource_id}/tables/${t}/columns`);
       setTableColumns((prev) => ({ ...prev, [t]: res.data.columns }));
+      // A table arrives fully flagged. Leaving it blank made the user click
+      // every column before anything could be built, on data they had just
+      // chosen to import. Only columns this table has never contributed are
+      // added, so re-entering the step never resurrects what was unticked.
+      // No effectiveType override here: a table being loaded for the first
+      // time has no per-column type overrides yet, and reaching for the
+      // memoised resolver (declared below) would be a TDZ in the dep array.
+      const auto = autoFlagColumns(t, res.data.columns);
+      setDimensions((prev) => (prev.some((d) => d.table === t) ? prev : [...prev, ...auto.dimensions]));
+      setMeasures((prev) => (prev.some((m) => m.table === t) ? prev : [...prev, ...auto.measures]));
     }
     // Assign default positions for tables without one, skipping any grid
     // cell already covered by an existing card — on a saved model the tables
