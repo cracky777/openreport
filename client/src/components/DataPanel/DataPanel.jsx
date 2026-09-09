@@ -751,7 +751,6 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                       thousandSep: m.format?.thousandSep ?? ' ',
                       prefix: m.format?.prefix ?? '',
                       suffix: m.format?.suffix ?? '',
-                      duration: m.format?.duration ?? '',
                     });
                   }
                 }}
@@ -952,16 +951,6 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 onChange={(e) => setEditForm({ ...editForm, suffix: e.target.value })}
                 style={{ ...editInput, width: 50 }} />
             </div>
-            {/* A duration is a number of seconds that reads as a duration. The
-                pattern is the author's: the measure keeps its value — so it
-                still positions on an axis, sorts and totals — and every visual
-                renders it in this shape. */}
-            <div style={editRow}>
-              <span style={editLabel} title={'Tokens: D H M S (double to pad), [H] for hours that never roll over. Quote literal text.'}>Duration</span>
-              <input type="text" value={editForm.duration ?? ''} placeholder='e.g. DDj HH:MM:SS'
-                onChange={(e) => setEditForm({ ...editForm, duration: e.target.value })}
-                style={{ ...editInput, width: 110 }} />
-            </div>
 
             <div style={_hs20}>
               {m._source === 'report' && (
@@ -1040,9 +1029,6 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                           thousandSep: editForm.thousandSep,
                           prefix: editForm.prefix,
                           suffix: editForm.suffix,
-                          // Absent unless written: an empty pattern must not
-                          // turn every measure into a duration.
-                          ...(editForm.duration ? { duration: editForm.duration } : {}),
                         },
                       };
                     } else {
@@ -1071,9 +1057,6 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                           thousandSep: editForm.thousandSep,
                           prefix: editForm.prefix,
                           suffix: editForm.suffix,
-                          // Absent unless written: an empty pattern must not
-                          // turn every measure into a duration.
-                          ...(editForm.duration ? { duration: editForm.duration } : {}),
                         },
                       };
                     }
@@ -1088,7 +1071,6 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                         thousandSep: editForm.thousandSep,
                         prefix: editForm.prefix,
                         suffix: editForm.suffix,
-                        ...(editForm.duration ? { duration: editForm.duration } : {}),
                       },
                     };
                   }

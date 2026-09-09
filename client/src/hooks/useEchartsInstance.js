@@ -71,10 +71,6 @@ export function useEchartsInstance({ option, onInit, recreateDeps = [] }) {
 
       if (!instanceRef.current) {
         instanceRef.current = echarts.init(el, null, { width: cw, height: ch });
-        // Test hook: ECharts paints to a canvas, so an axis tick has no text
-        // in the DOM. This is the only way a browser test can read what the
-        // axis actually prints.
-        if (typeof window !== 'undefined') window.__orEcharts = (node) => echarts.getInstanceByDom(node);
         if (onInitRef.current) onInitRef.current(instanceRef.current);
       } else if (prevSizeRef.current.w !== cw || prevSizeRef.current.h !== ch) {
         instanceRef.current.resize({ width: cw, height: ch });

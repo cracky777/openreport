@@ -1,5 +1,4 @@
 import { useRef, memo, useMemo } from 'react';
-import { isDurationFormat } from '../../utils/durationPattern';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
@@ -339,17 +338,12 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
     const lineLabelsArr = (data._lineMeasureLabel || '').split(',').map((s) => s.trim()).filter(Boolean);
     const isBarAxisDur = barLabelsArr.some((l) => isDurationCol(l, data._durationColumns));
     const isLineAxisDur = lineLabelsArr.some((l) => isDurationCol(l, data._durationColumns));
-    // A measure carrying a duration pattern formats its own axis: the ticks
-    // read in the shape the author wrote, not as raw seconds.
-    const axisFmt = (labels) => labels.map((l) => data._measureFormats?.[l]).find(isDurationFormat) || null;
-    const barAxisFmt = axisFmt(barLabelsArr);
-    const lineAxisFmt = axisFmt(lineLabelsArr);
     const yAxes = [{
       type: 'value', show: showYAxis,
       max: leftMax,
       interval: yAxisInterval || undefined,
       ...yNameCfg,
-      axisLabel: { fontSize: yAxisFontSize, color: yAxisColor, fontFamily: yAxisFontFamily, formatter: (v) => (barAxisFmt ? formatNumber(v, barAxisFmt) : (isBarAxisDur ? formatDuration(v) : (abbreviateNumber(v, valueAbbr) ?? formatNumber(v)))) },
+      axisLabel: { fontSize: yAxisFontSize, color: yAxisColor, fontFamily: yAxisFontFamily, formatter: (v) => isBarAxisDur ? formatDuration(v) : (abbreviateNumber(v, valueAbbr) ?? formatNumber(v)) },
       splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth } },
     }];
     if (showSecondaryAxis) {
@@ -358,7 +352,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
         max: rightMax,
         interval: secondaryYAxisInterval || undefined,
         ...secYNameCfg,
-        axisLabel: { fontSize: secYAxisFontSize, color: secYAxisColor, fontFamily: secYAxisFontFamily, formatter: (v) => (lineAxisFmt ? formatNumber(v, lineAxisFmt) : (isLineAxisDur ? formatDuration(v) : (abbreviateNumber(v, valueAbbr) ?? formatNumber(v)))) },
+        axisLabel: { fontSize: secYAxisFontSize, color: secYAxisColor, fontFamily: secYAxisFontFamily, formatter: (v) => isLineAxisDur ? formatDuration(v) : (abbreviateNumber(v, valueAbbr) ?? formatNumber(v)) },
         splitLine: { show: false },
       });
     }
@@ -375,13 +369,9 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
           items.forEach((p) => {
             const val = Array.isArray(p.value) ? p.value[1] : p.value;
             if (hideZeros && (val === 0 || val == null)) return;
-            // The measure's format, by series — this tooltip used to call
-            // formatNumber bare, so it ignored not just a duration pattern but
-            // the decimals, prefix and suffix the author had set.
-            const fmt = data._measureFormats?.[p.seriesName];
-            const v = isDurationCol(p.seriesName, data._durationColumns) && typeof val === 'number' && !isDurationFormat(fmt)
+            const v = isDurationCol(p.seriesName, data._durationColumns) && typeof val === 'number'
               ? formatDuration(val)
-              : formatNumber(val, fmt);
+              : formatNumber(val);
             result += `${p.marker} ${p.seriesName}: <b>${v}</b><br/>`;
           });
           return result;

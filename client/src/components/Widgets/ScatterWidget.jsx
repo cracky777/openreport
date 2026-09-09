@@ -1,5 +1,4 @@
 import { useRef, memo, useMemo } from 'react';
-import { isDurationFormat } from '../../utils/durationPattern';
 import formatNumber from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
@@ -128,14 +127,6 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
       });
     }
 
-    // Ticks follow the measure bound to THAT axis: on a scatter the two axes
-    // are two different measures, so one can be a duration and the other not.
-    const axisTick = (v, axisLabel) => {
-      const fmt = data._measureFormats?.[axisLabel];
-      if (isDurationCol(axisLabel, data._durationColumns) && typeof v === 'number' && !isDurationFormat(fmt)) return formatDuration(v);
-      return fmt ? formatNumber(v, fmt) : formatNumber(v);
-    };
-
     const opt = {
       tooltip: {
         trigger: 'item',
@@ -145,15 +136,9 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
           const xLabel = data._xLabel || 'X';
           const yLabel = data._yLabel || 'Y';
           // Scatter has 3 axes (x, y, size) — each could be an interval.
-          // Each of the three axes carries its own measure, so each gets its
-          // own format — this used to call formatNumber bare and printed raw
-          // values whatever the author had set.
-          const fmtAxis = (v, axisLabel) => {
-            const fmt = data._measureFormats?.[axisLabel];
-            return isDurationCol(axisLabel, data._durationColumns) && typeof v === 'number' && !isDurationFormat(fmt)
-              ? formatDuration(v)
-              : formatNumber(v, fmt);
-          };
+          const fmtAxis = (v, axisLabel) => isDurationCol(axisLabel, data._durationColumns) && typeof v === 'number'
+            ? formatDuration(v)
+            : formatNumber(v);
           let result = label ? `<b>${label}</b><br/>` : '';
           if (params.seriesName) result += `${params.marker} ${params.seriesName}<br/>`;
           result += `${xLabel}: <b>${fmtAxis(params.value[0], xLabel)}</b><br/>`;
@@ -169,14 +154,14 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
         type: 'value', show: showXAxis,
         name: (config?.showXAxisTitle ?? config?.showXHeader ?? true) ? (config?.xAxisTitle ?? data._xLabel ?? '') : '', nameLocation: 'center', nameGap: 25,
         nameTextStyle: { fontSize: config?.headerFontSize ?? 12, color: config?.headerColor || '#475569', fontWeight: config?.headerBold ? 'bold' : 'normal', fontFamily: headerFontFamily },
-        axisLabel: { show: true, fontSize: config?.xAxisLabelFontSize ?? 11, color: config?.xAxisLabelColor || '#64748b', fontFamily: xAxisFontFamily, formatter: (v) => axisTick(v, data._xLabel) },
+        axisLabel: { show: true, fontSize: config?.xAxisLabelFontSize ?? 11, color: config?.xAxisLabelColor || '#64748b', fontFamily: xAxisFontFamily },
         splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } },
       },
       yAxis: {
         type: 'value', show: showYAxis,
         name: (config?.showYAxisTitle ?? config?.showYHeader ?? true) ? (config?.yAxisTitle ?? data._yLabel ?? '') : '', nameLocation: 'center', nameGap: 35,
         nameTextStyle: { fontSize: config?.headerFontSize ?? 12, color: config?.headerColor || '#475569', fontWeight: config?.headerBold ? 'bold' : 'normal', fontFamily: headerFontFamily },
-        axisLabel: { show: true, fontSize: config?.yAxisLabelFontSize ?? 11, color: config?.yAxisLabelColor || '#64748b', fontFamily: yAxisFontFamily, formatter: (v) => axisTick(v, data._yLabel) },
+        axisLabel: { show: true, fontSize: config?.yAxisLabelFontSize ?? 11, color: config?.yAxisLabelColor || '#64748b', fontFamily: yAxisFontFamily },
         splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } },
       },
       series: seriesList,

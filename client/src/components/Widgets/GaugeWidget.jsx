@@ -64,19 +64,11 @@ export default memo(function GaugeWidget({ data, config, chartWidth, chartHeight
     ?? (useOverColor ? (config?.gaugeOverColor || '#dc2626') : baseColor);
 
   const isDur = isDurationCol(data?._measureLabel, data?._durationColumns);
-  // One rule for every number this gauge prints — the needle's value and the
-  // two ends of its scale. The bounds used to be printed raw, so a duration
-  // measure showed its pattern in the middle and a bare second count at the
-  // ends of the same arc.
-  const fmtBound = (v) => {
-    if (isNaN(v)) return String(v ?? '');
-    if (isDur) return formatDuration(v);
-    return fmt ? formatNumber(v, fmt) : v.toLocaleString();
-  };
-  const displayValue = useMemo(() => (hasData ? fmtBound(value) : ''),
-    [value, fmt, hasData, isDur]); // eslint-disable-line react-hooks/exhaustive-deps
-  const minLabel = fmtBound(min);
-  const maxLabel = fmtBound(max);
+  const displayValue = useMemo(() => {
+    if (!hasData) return '';
+    if (isDur && !isNaN(value)) return formatDuration(value);
+    return fmt && !isNaN(value) ? formatNumber(value, fmt) : value.toLocaleString();
+  }, [value, fmt, hasData, isDur]);
 
   // Clamp progress to [0, 1]
   const progress = useMemo(() => {
@@ -100,8 +92,7 @@ export default memo(function GaugeWidget({ data, config, chartWidth, chartHeight
 
   if (subType === 'arc') {
     return <ArcGauge
-      value={value} displayValue={displayValue} min={min} max={max}
-      minLabel={minLabel} maxLabel={maxLabel} label={label}
+      value={value} displayValue={displayValue} min={min} max={max} label={label}
       color={gaugeColor} trackColor={trackColor}
       threshold={threshold} thresholdColor={thresholdColor}
       showValue={showValue} showLabel={showLabel} showMinMax={showMinMax}
@@ -113,8 +104,7 @@ export default memo(function GaugeWidget({ data, config, chartWidth, chartHeight
   const direction = config?.gaugeDirection || 'up'; // 'up' | 'down' | 'right' | 'left'
   return <ColumnGauge
     progress={progress} thresholdProgress={thresholdProgress} thresholdColor={thresholdColor}
-    displayValue={displayValue} label={label}
-    minLabel={minLabel} maxLabel={maxLabel}
+    displayValue={displayValue} label={label} min={min} max={max}
     color={gaugeColor} trackColor={trackColor}
     showValue={showValue} showLabel={showLabel} showMinMax={showMinMax}
     direction={direction} config={config}
@@ -122,7 +112,7 @@ export default memo(function GaugeWidget({ data, config, chartWidth, chartHeight
 });
 
 // ─── Arc gauge (ECharts) ───
-const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, minLabel, maxLabel, label, color, trackColor, threshold, thresholdColor, showValue, showLabel, showMinMax, width, height, config }) {
+const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, label, color, trackColor, threshold, thresholdColor, showValue, showLabel, showMinMax, width, height, config }) {
   const chartRef = useRef(null);
   const instanceRef = useRef(null);
 
@@ -270,13 +260,13 @@ const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, minLabe
             transform: 'translate(-50%, -50%)',
             fontSize: axisFontSize, color: axisColor, lineHeight: 1,
             whiteSpace: 'nowrap', pointerEvents: 'none',
-          }}>{minLabel}</span>
+          }}>{min}</span>
           <span style={{
             position: 'absolute', left: xMaxPx, top: yMaxPx,
             transform: 'translate(-50%, -50%)',
             fontSize: axisFontSize, color: axisColor, lineHeight: 1,
             whiteSpace: 'nowrap', pointerEvents: 'none',
-          }}>{maxLabel}</span>
+          }}>{max}</span>
         </>
       )}
     </div>
@@ -284,7 +274,7 @@ const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, minLabe
 });
 
 // ─── Column gauge (CSS) ───
-const ColumnGauge = memo(function ColumnGauge({ progress, thresholdProgress, thresholdColor, displayValue, label, minLabel, maxLabel, color, trackColor, showValue, showLabel, showMinMax, direction, config }) {
+const ColumnGauge = memo(function ColumnGauge({ progress, thresholdProgress, thresholdColor, displayValue, label, min, max, color, trackColor, showValue, showLabel, showMinMax, direction, config }) {
   const labelStyle = { fontSize: config?.gaugeLabelSize || 12, color: config?.gaugeLabelColor || '#64748b', fontWeight: 500 };
   const valueStyle = { fontSize: config?.gaugeValueSize || 20, fontWeight: 700, color: config?.gaugeValueColor || '#0f172a' };
   const axisStyle = { fontSize: config?.gaugeAxisSize || 10, color: config?.gaugeAxisColor || '#94a3b8' };
@@ -333,8 +323,8 @@ const ColumnGauge = memo(function ColumnGauge({ progress, thresholdProgress, thr
       }}>
         {showMinMax && isVertical && (
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%', ...axisStyle }}>
-            <span>{maxLabel}</span>
-            <span>{minLabel}</span>
+            <span>{max}</span>
+            <span>{min}</span>
           </div>
         )}
         <div style={trackStyle}>
@@ -345,8 +335,8 @@ const ColumnGauge = memo(function ColumnGauge({ progress, thresholdProgress, thr
         </div>
         {showMinMax && !isVertical && (
           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', ...axisStyle }}>
-            <span>{direction === 'right' ? minLabel : maxLabel}</span>
-            <span>{direction === 'right' ? maxLabel : minLabel}</span>
+            <span>{direction === 'right' ? min : max}</span>
+            <span>{direction === 'right' ? max : min}</span>
           </div>
         )}
       </div>

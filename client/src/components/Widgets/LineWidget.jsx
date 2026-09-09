@@ -1,5 +1,4 @@
 import { useRef, memo, useMemo } from 'react';
-import { isDurationFormat } from '../../utils/durationPattern';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
@@ -214,9 +213,6 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
           color: config?.yAxisLabelColor || '#64748b',
           fontFamily: yAxisFontFamily,
           formatter: (val) => {
-            // A measure carrying a duration pattern formats its own axis.
-            const durFmt = Object.values(data._measureFormats || {}).find(isDurationFormat);
-            if (durFmt) return formatNumber(val, durFmt);
             if (isDurationCol(data._measureLabel, data._durationColumns)
                 || (Array.isArray(data._durationColumns) && data._durationColumns.length > 0)) {
               return formatDuration(val);

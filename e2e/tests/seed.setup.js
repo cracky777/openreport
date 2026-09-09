@@ -58,28 +58,6 @@ const TABLE_WIDGETS = {
 };
 const TABLE_LAYOUT = [{ i: 'w-table', x: 40, y: 40, w: 600, h: 300, z: 1 }];
 
-// A measure of seconds carrying the author's own duration pattern, shown by
-// EVERY visual that can show a measure, with every value-printing option on:
-// axes, data labels, tooltips, cells, totals, gauge bounds. The point of the
-// fixture is that one measure has to read the same way in all of them.
-const DUR_TYPES = ['bar', 'line', 'combo', 'pie', 'treemap', 'scatter', 'gauge', 'table', 'pivotTable', 'scorecard'];
-const DURATION_WIDGETS = {};
-const DURATION_LAYOUT = [];
-DUR_TYPES.forEach((t, i) => {
-  const id = 'w-' + t;
-  const b = { selectedDimensions: [F.DIM], selectedMeasures: [F.MEASURE] };
-  if (t === 'scorecard' || t === 'gauge') b.selectedDimensions = [];
-  if (t === 'combo') { b.comboBarMeasures = [F.MEASURE]; b.comboLineMeasures = [F.MEASURE]; }
-  if (t === 'scatter') b.scatterMeasures = { x: F.MEASURE, y: F.MEASURE };
-  DURATION_WIDGETS[id] = {
-    type: t,
-    dataBinding: b,
-    config: { showDataLabels: true, showLegend: true, showTotals: true, dataLabelContent: 'value', gaugeShowMinMax: true, showValue: true },
-  };
-  DURATION_LAYOUT.push({ i: id, x: 20 + (i % 2) * 620, y: 20 + Math.floor(i / 2) * 340, w: 600, h: 320, z: 1 });
-});
-const DURATION_SETTINGS = { measureOverrides: { [F.MEASURE]: { format: { duration: 'DDj HH:MM:SS' } } } };
-
 setup('seed the fixture', async ({ request }) => {
   // First account on a virgin database becomes admin, and register logs it in.
   const reg = await request.post('/api/auth/register', { data: { ...F.USER, displayName: 'E2E' } });
@@ -109,13 +87,13 @@ setup('seed the fixture', async ({ request }) => {
   });
   expect(upd.ok(), await upd.text()).toBeTruthy();
 
-  const mkReport = async (title, widgets, layout, settings) => {
+  const mkReport = async (title, widgets, layout) => {
     const res = await request.post('/api/reports', { data: { title, modelId } });
     expect(res.ok(), await res.text()).toBeTruthy();
     const id = (await res.json()).report.id;
     if (widgets) {
       const put = await request.put(`/api/reports/${id}`, {
-        data: { title, settings: settings || {}, layout, widgets, pages: [{ id: 'page-1', name: 'Page 1', layout, widgets }] },
+        data: { title, settings: {}, layout, widgets, pages: [{ id: 'page-1', name: 'Page 1', layout, widgets }] },
       });
       expect(put.ok(), await put.text()).toBeTruthy();
     }
@@ -126,13 +104,12 @@ setup('seed the fixture', async ({ request }) => {
   // The collapsed-panel spec edits a widget filter, so it gets its own report
   // rather than mutating the one every other spec reads.
   const tableReportId = await mkReport('Rapport e2e tableau', TABLE_WIDGETS, TABLE_LAYOUT);
-  const durationReportId = await mkReport('Rapport e2e duree', DURATION_WIDGETS, DURATION_LAYOUT, DURATION_SETTINGS);
   // Exists only to own the title the conflict spec tries to steal.
   const otherReportId = await mkReport(F.TAKEN_TITLE, null, null);
   // The successful-save case renames what it opens, so it gets its own report
   // rather than borrowing — and restoring — the one every other spec reads.
   const renameReportId = await mkReport('Rapport e2e bis', WIDGETS, LAYOUT);
 
-  fs.writeFileSync(F.IDS_FILE, JSON.stringify({ datasourceId, modelId, reportId, tableReportId, durationReportId, otherReportId, renameReportId }, null, 1));
+  fs.writeFileSync(F.IDS_FILE, JSON.stringify({ datasourceId, modelId, reportId, tableReportId, otherReportId, renameReportId }, null, 1));
   await request.storageState({ path: F.AUTH_STATE });
 });
