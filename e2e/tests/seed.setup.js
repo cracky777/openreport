@@ -43,6 +43,16 @@ const TABLE_WIDGETS = {
       selectedMeasures: [F.MEASURE],
       widgetFilters: [{ field: F.MEASURE, isMeasure: true, op: 'top_n', value: '', values: [] }],
     },
+    // Saved data, like any report that has been opened and saved once. Its
+    // `_fetchedBinding` is deliberately stale: the widget renders without a
+    // query, which is the state a real report opens in — and the state the
+    // first version of this fixture was missing.
+    data: {
+      _fetchedBinding: 'stale',
+      _rowDims: [F.DIM],
+      _measures: [F.MEASURE_LABEL],
+      rows: [{ [F.DIM_LABEL]: 'N=saved', [F.MEASURE_LABEL]: 1 }],
+    },
     config: {},
   },
 };
