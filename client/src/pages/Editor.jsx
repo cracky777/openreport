@@ -1358,14 +1358,14 @@ export default function Editor() {
       if (!gid) return prev;
       const next = { ...prev };
       // Drop the selected widget from the group.
-      const { mergeGroup, mergeSeparator, ...restCfg } = sel.config || {};
+      const { mergeGroup, mergeSeparator, mergeSeparatorColor, ...restCfg } = sel.config || {};
       next[selectedWidget] = { ...sel, config: restCfg };
       // If only one member is left, clear it too (a lone member is not a
       // merge — keeps the data clean).
       const remaining = Object.entries(next).filter(([, w]) => w?.config?.mergeGroup === gid);
       if (remaining.length === 1) {
         const [wid, w] = remaining[0];
-        const { mergeGroup: _g, mergeSeparator: _s, ...rc } = w.config || {};
+        const { mergeGroup: _g, mergeSeparator: _s, mergeSeparatorColor: _sc, ...rc } = w.config || {};
         next[wid] = { ...w, config: rc };
       }
       return next;

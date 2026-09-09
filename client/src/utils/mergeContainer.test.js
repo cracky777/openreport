@@ -68,8 +68,8 @@ describe('containerSource', () => {
 
 describe('applyContainerToGroup', () => {
   const base = {
-    a: w({ mergeGroup: 'g1', backgroundColor: '#aaa', borderEnabled: true, title: 'A' }),
-    b: w({ mergeGroup: 'g1', backgroundColor: '#bbb', title: 'B' }),
+    a: w({ mergeGroup: 'g1', mergeSeparator: true, backgroundColor: '#aaa', borderEnabled: true, title: 'A' }),
+    b: w({ mergeGroup: 'g1', mergeSeparator: true, backgroundColor: '#bbb', title: 'B' }),
     outsider: w({ backgroundColor: '#ccc' }),
   };
 
@@ -107,5 +107,15 @@ describe('applyContainerToGroup', () => {
     expect(CONTAINER_KEYS).not.toContain('rotation');
     expect(CONTAINER_KEYS).toContain('shadow');
     expect(CONTAINER_KEYS).toContain('gradientBg');
+  });
+
+  test('the seam colour reaches the whole block, its on/off flag is left alone', () => {
+    // Painted on one member from the panel: the seam is one line across the
+    // block, so both sides have to agree on its colour. The flag is toggled
+    // group-wide from the canvas and must not be touched here.
+    const next = applyContainerToGroup(base, 'g1', { mergeSeparatorColor: '#dc2626' });
+    expect(next.a.config.mergeSeparatorColor).toBe('#dc2626');
+    expect(next.b.config.mergeSeparatorColor).toBe('#dc2626');
+    expect(next.a.config.mergeSeparator).toBe(true);
   });
 });

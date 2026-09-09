@@ -19,6 +19,11 @@ export const CONTAINER_KEYS = [
   'borderColor',
   'borderRadius',
   'shadow',
+  // The seam line's colour. Part of the container look rather than of the
+  // separator flag: the flag is a group-wide on/off toggled at the seam, the
+  // colour is edited on one member and has to reach the others like a border
+  // colour does.
+  'mergeSeparatorColor',
 ];
 
 /** The container half of a widget config, with absent keys left absent. */

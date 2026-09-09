@@ -457,6 +457,11 @@ export default function ReportCanvas({
             line is drawn over the seam instead. */}
         {Object.values(mergeGroups).map((items, gi) => {
           const sep = items.some((it) => widgets[it.i]?.config?.mergeSeparator);
+          // Group-wide, like the flag itself: whichever member carries a
+          // colour speaks for the block, so a member added later and still
+          // unpainted doesn't draw its half of the seam in the default grey.
+          const sepColor = items.map((it) => widgets[it.i]?.config?.mergeSeparatorColor).find(Boolean)
+            || 'var(--border-default)';
           // The cover that hides the doubled border used to be painted in the
           // panel colour — a flat band straight across a block with any
           // background of its own, and glaring over a gradient. It takes the
@@ -600,7 +605,7 @@ export default function ReportCanvas({
                   }}>
                     {sep && <div style={{
                       position: 'absolute', left: COVER / 2 - 0.5, top: inset,
-                      width: 1, height: lineLen, background: 'var(--border-default)',
+                      width: 1, height: lineLen, background: sepColor,
                     }} />}
                   </div>
                   {trigger}
@@ -623,7 +628,7 @@ export default function ReportCanvas({
                 }}>
                   {sep && <div style={{
                     position: 'absolute', top: COVER / 2 - 0.5, left: inset,
-                    height: 1, width: lineLen, background: 'var(--border-default)',
+                    height: 1, width: lineLen, background: sepColor,
                   }} />}
                 </div>
                 {trigger}

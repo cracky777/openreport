@@ -1019,6 +1019,15 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
             </Field>
           </SubSection>
         )}
+        {/* The line drawn on a merged block's seam. Offered only when the
+            block shows one — the on/off toggle lives on the canvas, at the
+            seam itself, where the line is. */}
+        {widget.config?.mergeGroup && widget.config?.mergeSeparator && (
+          <Field label="Separator color">
+            <ColorInput value={widget.config?.mergeSeparatorColor || '#e2e8f0'}
+              onChange={(v) => updateConfig('mergeSeparatorColor', v)} />
+          </Field>
+        )}
         <Field label="Rotation" vertical>
           <RangeInput min={0} max={360} value={widget.config?.rotation ?? 0} suffix="°"
             onChange={(e) => updateConfig('rotation', parseIntOrNull(e.target.value))} />
