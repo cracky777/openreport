@@ -8,6 +8,7 @@ import ExportMenu from '../components/ExportMenu/ExportMenu';
 import { WidgetConfigPanel, DataModelPanel } from '../components/PropertyPanel/PropertyPanel';
 import { WIDGET_TYPES } from '../components/Widgets';
 import { rectOf, newMergeGroupId } from '../utils/mergeFrames';
+import { CONTAINER_KEYS, pickContainer, containerSource, applyContainerToGroup } from '../utils/mergeContainer';
 import SettingsPanel from '../components/SettingsPanel/SettingsPanel';
 import ReportFilterBar from '../components/ReportFilterBar/ReportFilterBar';
 import PagesColumn, { PAGES_COLUMN_TRANSITION_MS } from '../components/PagesColumn/PagesColumn';
@@ -1324,8 +1325,13 @@ export default function Editor() {
         const selGid = sel.config?.mergeGroup || null;
         const tgtGid = tgt.config?.mergeGroup || null;
         const gid = selGid || tgtGid || newMergeGroupId();
-        // Preserve an existing group's separator preference; default off.
-        const sepSource = selGid ? sel : (tgtGid ? tgt : null);
+        // One block means one container look. The side that already is a group
+        // sets it — dropping a third visual onto a pair must not repaint the
+        // pair in the newcomer's colours — and containerSource arbitrates when
+        // both sides are groups.
+        const srcId = containerSource(prevWidgets, selectedWidget, targetId, selectedWidget);
+        const container = pickContainer(prevWidgets[srcId]?.config);
+        const sepSource = prevWidgets[srcId];
         const sep = !!sepSource?.config?.mergeSeparator;
         const next = { ...prevWidgets };
         // Rehome any pre-existing group(s) of the two sides into `gid` so
@@ -1334,7 +1340,9 @@ export default function Editor() {
           const wg = w?.config?.mergeGroup;
           const isSide = wid === selectedWidget || wid === targetId;
           if (isSide || (wg && (wg === selGid || wg === tgtGid))) {
-            next[wid] = { ...w, config: { ...(w.config || {}), mergeGroup: gid, mergeSeparator: sep } };
+            const config = { ...(w.config || {}) };
+            for (const k of CONTAINER_KEYS) delete config[k];
+            next[wid] = { ...w, config: { ...config, ...container, mergeGroup: gid, mergeSeparator: sep } };
           }
         }
         return next;
@@ -1545,10 +1553,14 @@ export default function Editor() {
   }, [selectedWidget, widgets, setWidgets, setLayoutAndWidgets]);
 
   const handleUpdateWidget = useCallback((widgetId, updatedWidget) => {
-    setWidgets((prev) => ({
-      ...prev,
-      [widgetId]: updatedWidget,
-    }));
+    setWidgets((prev) => {
+      const next = { ...prev, [widgetId]: updatedWidget };
+      // Restyling one half of a merged block would split it back into two
+      // cards, so the container half of the edit follows the whole group.
+      const gid = updatedWidget?.config?.mergeGroup;
+      if (!gid) return next;
+      return applyContainerToGroup(next, gid, pickContainer(updatedWidget.config));
+    });
   }, [setWidgets]);
 
   // Silent version — for fetch-related updates (loading/data) that should NOT pollute undo history
