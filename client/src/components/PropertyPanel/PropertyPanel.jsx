@@ -19,6 +19,8 @@ import { Section, SubSection, AlignButtonGroup, Field, DecimalInput, RangeInput,
 import PivotOptionsSection from './PivotOptionsSection';
 import { getWidgetDisplayInfo } from '../../utils/widgetDisplay';
 import { TIME_PRESETS, parseTimeVariant, makeTimeVariant, variantDateDim } from '../../utils/timeIntelligence';
+import { AGG_OPTIONS } from '../../utils/aggregations';
+import { baseMeasureName, makeAggVariant, nextAggVariant, parseAggVariant } from '../../utils/aggVariant';
 
 const _hs1 = { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4, fontSize: 11, color: 'var(--text-secondary)' };
 const _hs2 = { display: 'flex', flexDirection: 'column', gap: 2 };
@@ -111,10 +113,32 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
       // Get aggregation (from widget override or model default)
       const aggOverrides = binding.measureAggOverrides || {};
       measureInfos[m.name] = { aggregation: aggOverrides[m.name] || m.aggregation || 'sum' };
+      // Each variant of this measure knows its own aggregation, and carries
+      // the base's table/column so a chip can still say where it comes from.
+      for (const opt of AGG_OPTIONS) {
+        const vName = makeAggVariant(m.name, opt.value);
+        fieldInfos[vName] = { table: m.table, column: m.column, label: `${m.label || m.name} (${opt.label})` };
+        measureInfos[vName] = { aggregation: opt.value };
+      }
     }
   }
 
   const handleAggChange = (fieldName, newAgg) => {
+    // A variant IS its aggregation — changing it renames the entry rather than
+    // recording an override, otherwise two variants of one measure would fight
+    // over the single slot a name-keyed map has for them.
+    const variant = parseAggVariant(fieldName);
+    if (variant) {
+      const renamed = makeAggVariant(variant.base, newAgg);
+      const swap = (arr) => (Array.isArray(arr) ? arr.map((n) => (n === fieldName ? renamed : n)) : arr);
+      const updates = {};
+      if (Array.isArray(binding.selectedMeasures)) updates.selectedMeasures = swap(binding.selectedMeasures);
+      if (Array.isArray(binding.comboBarMeasures)) updates.comboBarMeasures = swap(binding.comboBarMeasures);
+      if (Array.isArray(binding.comboLineMeasures)) updates.comboLineMeasures = swap(binding.comboLineMeasures);
+      if (Array.isArray(binding.columnOrder)) updates.columnOrder = swap(binding.columnOrder);
+      updateBinding(updates);
+      return;
+    }
     const current = binding.measureAggOverrides || {};
     updateBinding({ measureAggOverrides: { ...current, [fieldName]: newAgg } });
   };
@@ -216,7 +240,16 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
     return copy;
   };
 
-  const handleDrop = (zone) => (fieldName, fieldType, sourceZone, dropIndex, replace) => {
+  const handleDrop = (zone) => (fieldName, fieldType, sourceZone, dropIndex, replace, duplicate) => {
+    // Second drop of a measure already in this zone: it becomes a variant
+    // carrying its own aggregation, so the visual can show the sum AND the
+    // average of one column. The name is what tells the two apart, all the
+    // way to the SQL — see utils/aggVariant.
+    if (duplicate && fieldType === 'measure') {
+      const base = baseMeasureName(fieldName);
+      const modelAgg = (model?.measures || []).find((m) => m.name === base)?.aggregation;
+      fieldName = nextAggVariant(base, selectedMeass, binding.measureAggOverrides?.[base] || modelAgg);
+    }
     // Remove from source zone if cross-zone move
     const removeUpdates = sourceZone && sourceZone !== zone ? removeFromZone(sourceZone, fieldName) : {};
 

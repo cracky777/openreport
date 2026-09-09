@@ -24,6 +24,7 @@
 //     and the field stays absent on the widget).
 import { variantDefsFor } from './timeIntelligence';
 import { toNumber } from './numericValue';
+import { parseAggVariant } from './aggVariant';
 
 export function buildWidgetData({
   widget,
@@ -109,7 +110,19 @@ export function buildWidgetData({
     if (v !== null && v !== '' && Number.isFinite(n)) return n;
     return Number(row[SORT_PREFIX + key]) || 0;
   };
-  const gl = (name, list) => { const d = (list || []).find((x) => x.name === name); return d?.label || d?.name || name; };
+  // The label a column comes back under. An aggregation variant is not in the
+  // model — the server synthesises it and aliases it "<base label> (<fn>)", so
+  // the same rule has to be applied here or the column would never be found.
+  const gl = (name, list) => {
+    const d = (list || []).find((x) => x.name === name);
+    if (d) return d.label || d.name || name;
+    const v = parseAggVariant(name);
+    if (v) {
+      const base = (list || []).find((x) => x.name === v.base);
+      if (base) return `${base.label || base.name} (${v.agg})`;
+    }
+    return name;
+  };
 
   if (w.type === 'filter') {
     // Filter widget — returns distinct values + label for the slicer to

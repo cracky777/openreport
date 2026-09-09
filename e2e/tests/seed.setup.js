@@ -58,6 +58,17 @@ const TABLE_WIDGETS = {
 };
 const TABLE_LAYOUT = [{ i: 'w-table', x: 40, y: 40, w: 600, h: 300, z: 1 }];
 
+// The same measure twice in one visual, summed and averaged. The second entry
+// is a variant whose name carries its aggregation.
+const TWICE_WIDGETS = {
+  'w-t': {
+    type: 'table',
+    dataBinding: { selectedDimensions: [F.DIM], selectedMeasures: [F.MEASURE, F.MEASURE + '@@agg:avg'] },
+    config: {},
+  },
+};
+const TWICE_LAYOUT = [{ i: 'w-t', x: 40, y: 40, w: 700, h: 300, z: 1 }];
+
 // EVERY visual that can show a measure, with every value-printing option on.
 // The measure it is bound to comes back as TEXT in the specs — a duration the
 // author formatted in SQL — and the point of the fixture is that one such
@@ -125,12 +136,13 @@ setup('seed the fixture', async ({ request }) => {
   // rather than mutating the one every other spec reads.
   const tableReportId = await mkReport('Rapport e2e tableau', TABLE_WIDGETS, TABLE_LAYOUT);
   const textReportId = await mkReport('Rapport e2e mesure texte', TEXT_WIDGETS, TEXT_LAYOUT);
+  const twiceReportId = await mkReport('Rapport e2e mesure en double', TWICE_WIDGETS, TWICE_LAYOUT);
   // Exists only to own the title the conflict spec tries to steal.
   const otherReportId = await mkReport(F.TAKEN_TITLE, null, null);
   // The successful-save case renames what it opens, so it gets its own report
   // rather than borrowing — and restoring — the one every other spec reads.
   const renameReportId = await mkReport('Rapport e2e bis', WIDGETS, LAYOUT);
 
-  fs.writeFileSync(F.IDS_FILE, JSON.stringify({ datasourceId, modelId, reportId, tableReportId, textReportId, otherReportId, renameReportId }, null, 1));
+  fs.writeFileSync(F.IDS_FILE, JSON.stringify({ datasourceId, modelId, reportId, tableReportId, textReportId, twiceReportId, otherReportId, renameReportId }, null, 1));
   await request.storageState({ path: F.AUTH_STATE });
 });

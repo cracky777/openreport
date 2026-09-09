@@ -92,12 +92,18 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
     }
 
     // External / cross-zone drop
-    if (fields.includes(fieldName)) return;
+    // A measure dropped a second time into a zone that takes several is not a
+    // mistake: the same column is often wanted twice, summed and averaged. The
+    // parent turns it into a variant carrying its own aggregation. Dimensions
+    // and single-field zones still refuse a duplicate — there is nothing to
+    // tell two copies apart there.
+    const duplicate = fields.includes(fieldName);
+    if (duplicate && !(multiple && fieldType === 'measure')) return;
     if (accepts && !accepts.includes(fieldType)) return;
     // Single-field zone with an existing field: signal "replace" so the parent does an atomic swap
     // (calling onRemove + onDrop separately would race because both updates read stale React state).
     const replace = !multiple && fields.length > 0;
-    onDrop(fieldName, fieldType, sourceZone || null, idx, replace);
+    onDrop(fieldName, fieldType, sourceZone || null, idx, replace, duplicate);
   };
 
 // Touch drops arrive as DOM events rather than React's synthetic drag props:

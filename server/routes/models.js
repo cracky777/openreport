@@ -955,6 +955,37 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       });
     }
   }
+  // Per-measure aggregation variants: "<base>@@agg:<fn>" entries let one
+  // visual carry the SAME measure several times, each with its own
+  // aggregation — the sum and the average of a column side by side. The
+  // function travels in the name because it is what tells two entries apart;
+  // a map keyed by measure name could only ever hold one value for both.
+  // Whitelisted through normalizeAggregation, so nothing from the request
+  // reaches the SQL as a function name.
+  if (Array.isArray(measureNames)) {
+    let aggBudget = 24; // a widget never carries more
+    for (const vName of measureNames) {
+      if (typeof vName !== 'string') continue;
+      const sep = vName.indexOf('@@agg:');
+      if (sep <= 0 || allMeasures.find((x) => x.name === vName)) continue;
+      const fn = vName.slice(sep + 6);
+      // normalizeAggregation is the whitelist; 'custom' is in it but is not
+      // an aggregation one can ask for by name.
+      if (normalizeAggregation(fn, null) !== fn || fn === 'custom') continue;
+      const base = allMeasures.find((x) => x.name === vName.slice(0, sep));
+      // A custom expression carries its own aggregation inside its SQL —
+      // there is nothing to override, and pretending otherwise would emit
+      // AVG() around an expression that already aggregates.
+      if (!base || base.aggregation === 'custom' || aggBudget-- <= 0) continue;
+      allMeasures.push({
+        ...base,
+        name: vName,
+        aggregation: fn,
+        label: `${base.label || base.name} (${fn})`,
+      });
+    }
+  }
+
   const allJoins = model.joins;
   const rls = model.rls;
   // Per-column overrides (type + optional format). Used by castToDate to
