@@ -199,6 +199,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   // different historical nonce — clicking from a refreshed widget (nonce=1)
   // to an untouched one (nonce=0) would otherwise look like a refresh
   // request and trigger a fetch we don't want.
+  // The run currently in flight, if any. Held across renders so a new run can
+  // decide whether the old one is superseded — and so that leaving the widget,
+  // which unmounts this panel, does not cut a fetch the user asked for.
+  const inFlightRef = useRef(null);
   const prevWidgetIdRef = useRef(null);
   const prevBindingKeyRef = useRef(null);
   const prevRefreshNoncesByWidgetRef = useRef({});
@@ -260,13 +264,36 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
       return;
     }
 
-    let cancelled = false;
-    let stampedLoadingFor = null; // widgetId we set _loading on, so we can revert on abort
+    // A run in flight is cut only by ANOTHER run asking for the SAME widget —
+    // its answer has been superseded. Leaving the widget does not cut it: a
+    // refresh the user started has to reach its end even if they click
+    // elsewhere while it runs, and the user has a Cancel button for the rest.
+    const previous = inFlightRef.current;
+    if (previous && previous.widgetId === capturedWidgetId) previous.stop('supersede');
+
+    const run = { widgetId: capturedWidgetId, cancelled: false, stampedLoadingFor: null };
     const abortController = new AbortController();
+    run.stop = () => {
+      run.cancelled = true;
+      clearTimeout(run.timer);
+      abortController.abort();
+      // Aborting the AbortController only cuts the HTTP response — the SQL
+      // keeps running on the database, hence the explicit cancel.
+      for (const qid of run.queryIds) {
+        api.post('/models/cancel-query', { queryId: qid }).catch(() => { /* best effort */ });
+      }
+      run.queryIds.clear();
+      if (run.stampedLoadingFor && typeof onSetWidgetLoading === 'function') {
+        onSetWidgetLoading(run.stampedLoadingFor, false);
+      }
+      if (inFlightRef.current === run) inFlightRef.current = null;
+    };
+    inFlightRef.current = run;
     // Per-fetch queryIds — registered server-side via inFlightQueries.
     // On abort/supersede we POST /cancel-query for each so the SQL is
     // killed at the DB level (HTTP abort alone leaves it running).
     const activeQueryIds = new Set();
+    run.queryIds = activeQueryIds;
     const newQueryId = () => {
       const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
         ? crypto.randomUUID()
@@ -275,7 +302,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
       return id;
     };
 
-    const timer = setTimeout(async () => {
+    run.timer = setTimeout(async () => {
       setLoading(true);
       setStatus(null);
 
@@ -283,7 +310,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
       const lw = widgetRef.current;
       if (lw && widgetIdRef.current === capturedWidgetId) {
         onUpdateSilentRef.current(capturedWidgetId, { ...lw, _loading: true });
-        stampedLoadingFor = capturedWidgetId;
+        run.stampedLoadingFor = capturedWidgetId;
       }
 
       try {
@@ -329,7 +356,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         const [res, colorRes, totalRes, n1Res, comboLineRes] = await Promise.all([
           mainPromise, colorPromise, totalPromise, n1Promise, comboLinePromise,
         ]);
-        if (cancelled) return;
+        if (run.cancelled) return;
 
         const mainSql = res.data?.sql || null;
         const lineSql = comboLineRes?.data?.sql || null;
@@ -382,14 +409,14 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           }
         }
 
-        if (cancelled) return;
+        if (run.cancelled) return;
         const latestWidget = widgetRef.current;
         if (latestWidget && widgetIdRef.current === capturedWidgetId) {
           onUpdateSilentRef.current(capturedWidgetId, { ...latestWidget, data: newData, _loading: false });
         }
         setStatus({ type: 'ok' });
       } catch (err) {
-        if (cancelled) return;
+        if (run.cancelled) return;
         const ew = widgetRef.current;
         const msg = err?.response?.data?.error || err?.message || 'Query failed';
         const code = err?.response?.data?.code || null;
@@ -404,29 +431,12 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
     }, 150);
 
     return () => {
-      cancelled = true;
-      clearTimeout(timer);
-      abortController.abort();
-      // Aborting the AbortController only cuts the HTTP response — the
-      // SQL keeps running on the database. Fire /cancel-query for each
-      // still-registered queryId so the server invokes the dialect's
-      // native cancel (pg_cancel_backend / KILL QUERY / request.cancel
-      // / jobs.cancel / interrupt) and frees the connection.
-      if (activeQueryIds.size > 0) {
-        for (const qid of activeQueryIds) {
-          api.post('/models/cancel-query', { queryId: qid }).catch(() => { /* best effort */ });
-        }
-        activeQueryIds.clear();
-      }
-      // If we already stamped `_loading: true` on a widget for this run
-      // and the fetch is being aborted (user clicked another widget,
-      // edited binding again, etc.), clear the flag so the spinner
-      // doesn't stay stuck on that widget. The catch path returns
-      // silently on `cancelled`, so this is the only place the cleanup
-      // can happen.
-      if (stampedLoadingFor && typeof onSetWidgetLoading === 'function') {
-        onSetWidgetLoading(stampedLoadingFor, false);
-      }
+      // Deliberately empty of cancellation. The panel unmounts when the user
+      // deselects the widget or collapses it, and a fetch already on its way
+      // must survive that — it was asked for, its answer still lands on the
+      // widget it was asked for. What supersedes it is handled at the top of
+      // the next run.
+      run.settled = true;
     };
   }, [selectionKey, bindingKey, model?.id, refreshNonce]);
 
