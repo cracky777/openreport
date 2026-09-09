@@ -154,7 +154,13 @@ export default function ColorPickerPopover({ value, onChange, onClose, allowTran
           value={draft ?? (isTransparent ? '' : hex)}
           placeholder={isTransparent ? 'transparent' : '#000000'}
           onChange={(e) => onHexInput(e.target.value)}
-          onBlur={() => { const n = normalizeHex(draft ?? hex); if (n) pushRecentColor(n); setDraft(null); }}
+          // Only a hex actually TYPED counts as a choice. The field is
+          // autofocused, so clicking a swatch blurs it first: filing the
+          // colour the picker opened on would push it to the head of the
+          // recents, and the list reorders under the cursor between the
+          // mousedown and the click — the click then lands on nothing and
+          // the swatch the user aimed at is never applied.
+          onBlur={() => { if (draft !== null) { const n = normalizeHex(draft); if (n) pushRecentColor(n); } setDraft(null); }}
           style={hexInput}
         />
         {HAS_EYEDROPPER && (
