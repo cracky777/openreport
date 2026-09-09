@@ -1,10 +1,12 @@
 import { useRef, useState } from 'react';
 import DimensionMultiSelect from '../PropertyPanel/DimensionMultiSelect';
+import { AGG_OPTIONS } from '../../utils/aggregations';
 
 const _hs0 = { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 };
 const _hs1 = { background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 4px', color: 'var(--text-disabled)', fontSize: 14, lineHeight: 1 };
 const _hs2 = { display: 'flex', flexDirection: 'column', gap: 4 };
 const _hs3 = { display: 'flex', gap: 4 };
+const _hs4 = { display: 'flex', gap: 4, marginBottom: 4 };
 
 const VALUELESS_OPS = new Set(['is_empty', 'is_not_empty']);
 const LIST_OPS = new Set(['in', 'not_in']);
@@ -83,7 +85,14 @@ function DeferredInput({ value, onCommit, ...rest }) {
  * section and the Settings report-level filters section. Behaviour is
  * identical — only the storage location differs.
  */
-export default function FilterRulesEditor({ model, modelId, rules, onChange, styles }) {
+/**
+ * `measureInfos` + `onAggChange` are optional: given both, a measure rule gets
+ * the same aggregation picker its chip has in a field well. They come from the
+ * per-widget Filters section only — the aggregation is stored on the widget's
+ * binding (`measureAggOverrides`), which report-level rules have no equivalent
+ * of.
+ */
+export default function FilterRulesEditor({ model, modelId, rules, onChange, styles, measureInfos, onAggChange }) {
   const wf = Array.isArray(rules) ? rules : [];
   // Ref mirror of the latest rules array. Lets updateRule read the CURRENT
   // rule slot at call time rather than the snapshot the inline handler closed
@@ -161,10 +170,29 @@ export default function FilterRulesEditor({ model, modelId, rules, onChange, sty
                 ×
               </button>
             </div>
-            <select value={f.op} onChange={(e) => updateRule(i, { op: e.target.value })}
-              style={{ ...inputStyle, marginBottom: 4, padding: '4px 6px' }}>
-              {ops.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
-            </select>
+            <div style={_hs4}>
+              {/* One aggregation per measure, not one per rule: the server
+                  filters on the very expression the visual displays, so a
+                  measure shown as an average has to be filtered as one. Two
+                  rules on the same measure therefore share this. Custom
+                  measures carry their own SQL and ignore the override, so
+                  they get no picker. */}
+              {f.isMeasure && typeof onAggChange === 'function'
+                && def && def.aggregation !== 'custom' && measureInfos?.[f.field] && (
+                <select
+                  value={measureInfos[f.field].aggregation}
+                  onChange={(e) => onAggChange(f.field, e.target.value)}
+                  title="Aggregation this filter compares against"
+                  style={{ ...inputStyle, marginBottom: 0, padding: '4px 6px', width: 'auto', flexShrink: 0 }}
+                >
+                  {AGG_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              )}
+              <select value={f.op} onChange={(e) => updateRule(i, { op: e.target.value })}
+                style={{ ...inputStyle, marginBottom: 0, padding: '4px 6px', flex: 1, minWidth: 0 }}>
+                {ops.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+              </select>
+            </div>
             {!VALUELESS_OPS.has(f.op) && !LIST_OPS.has(f.op) && !isBetween && !isTopBottom && (
               <DeferredInput type={inputType} value={f.value ?? ''}
                 onCommit={(v) => updateRule(i, { value: v })}

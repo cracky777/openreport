@@ -3,6 +3,7 @@ import { TbArrowsSort, TbSortAscending, TbSortDescending, TbClock } from 'react-
 import { TIME_PRESETS, TP_SHORT, parseTimeVariant } from '../../utils/timeIntelligence';
 import { armTouchDrag, isTouchDragging } from '../../utils/touchDrag';
 import { useIsCompact } from '../../hooks/useMediaQuery';
+import { AGG_OPTIONS } from '../../utils/aggregations';
 
 const _hs0 = { marginBottom: 10 };
 const _hs1 = { fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 };
@@ -40,14 +41,6 @@ const _tpAdd = {
   display: 'inline-flex', alignItems: 'center', color: 'var(--text-disabled)',
   cursor: 'pointer', marginRight: 2, flexShrink: 0,
 };
-
-const AGG_OPTIONS = [
-  { value: 'sum', label: 'Sum' },
-  { value: 'avg', label: 'Avg' },
-  { value: 'count', label: 'Count' },
-  { value: 'min', label: 'Min' },
-  { value: 'max', label: 'Max' },
-];
 
 const SORT_OPTIONS = [
   { value: 'none', icon: TbArrowsSort, title: 'No sort' },

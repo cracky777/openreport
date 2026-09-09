@@ -831,6 +831,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
               modelId={model?.id}
               rules={wf}
               onChange={setWF}
+              measureInfos={measureInfos}
+              onAggChange={handleAggChange}
               styles={{ inputStyle, cardStyle: ruleCardStyle, labelStyle: ruleLabelStyle }}
             />
           </Section>
