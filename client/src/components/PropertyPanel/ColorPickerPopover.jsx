@@ -45,6 +45,18 @@ export default function ColorPickerPopover({ value, onChange, onClose, allowTran
   const ref = useRef(null);
   const hex = hsvToHex(hsv);
 
+  // Closing on an outside click unmounts the popover on MOUSEDOWN, so the hex
+  // field's blur never dispatches and a hand-typed colour was applied to the
+  // widget but never remembered. It is committed on the way out instead. A ref
+  // rather than the state itself, so the close listeners below aren't
+  // resubscribed on every keystroke.
+  const draftRef = useRef(null);
+  useEffect(() => { draftRef.current = draft; }, [draft]);
+  const commitDraft = () => {
+    const n = draftRef.current !== null ? normalizeHex(draftRef.current) : null;
+    if (n) pushRecentColor(n);
+  };
+
   // Placed against the swatch, flipped above it when the window's bottom edge
   // is nearer than the panel is tall. MAX_HEIGHT is an upper bound rather than
   // a measurement: measuring would mean rendering, reading, then moving, and
@@ -65,9 +77,10 @@ export default function ColorPickerPopover({ value, onChange, onClose, allowTran
       // The swatch itself toggles; letting the outside-click handler fire
       // there would close and immediately reopen the panel.
       if (onAnchorHit && onAnchorHit(e.target)) return;
+      commitDraft();
       onClose();
     };
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') { commitDraft(); onClose(); } };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
     return () => {
@@ -160,7 +173,7 @@ export default function ColorPickerPopover({ value, onChange, onClose, allowTran
           // recents, and the list reorders under the cursor between the
           // mousedown and the click — the click then lands on nothing and
           // the swatch the user aimed at is never applied.
-          onBlur={() => { if (draft !== null) { const n = normalizeHex(draft); if (n) pushRecentColor(n); } setDraft(null); }}
+          onBlur={() => { commitDraft(); setDraft(null); }}
           style={hexInput}
         />
         {HAS_EYEDROPPER && (

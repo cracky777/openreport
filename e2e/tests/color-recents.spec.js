@@ -50,3 +50,13 @@ test('clicking a recent colour applies it and files nothing else', async ({ page
   // Moved to the head, and the white the picker opened on is nowhere in it.
   expect(await recents(page)).toEqual(['#444444', '#111111', '#222222', '#333333']);
 });
+
+test('a hex typed by hand is remembered when the picker is closed', async ({ page }) => {
+  await openPicker(page);
+  await page.locator('input[value^="#"]').first().fill('#0f9d58');
+  // Clicking away unmounts the popover on mousedown, so the field's blur never
+  // dispatches — the draft has to be committed on the way out.
+  await page.mouse.click(700, 500);
+
+  expect((await recents(page))[0]).toBe('#0f9d58');
+});
