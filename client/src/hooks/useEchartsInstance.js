@@ -71,6 +71,10 @@ export function useEchartsInstance({ option, onInit, recreateDeps = [] }) {
 
       if (!instanceRef.current) {
         instanceRef.current = echarts.init(el, null, { width: cw, height: ch });
+        // ECharts paints to a canvas, so what a tick, a label or a tooltip
+        // prints has no text in the DOM. This is the only way a browser test
+        // can read it back.
+        if (typeof window !== 'undefined') window.__orEcharts = (node) => echarts.getInstanceByDom(node);
         if (onInitRef.current) onInitRef.current(instanceRef.current);
       } else if (prevSizeRef.current.w !== cw || prevSizeRef.current.h !== ch) {
         instanceRef.current.resize({ width: cw, height: ch });

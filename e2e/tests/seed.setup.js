@@ -58,6 +58,26 @@ const TABLE_WIDGETS = {
 };
 const TABLE_LAYOUT = [{ i: 'w-table', x: 40, y: 40, w: 600, h: 300, z: 1 }];
 
+// EVERY visual that can show a measure, with every value-printing option on.
+// The measure it is bound to comes back as TEXT in the specs — a duration the
+// author formatted in SQL — and the point of the fixture is that one such
+// measure has to read the same way in all of them.
+const TEXT_TYPES = ['bar', 'line', 'combo', 'pie', 'treemap', 'gauge', 'table', 'pivotTable', 'scorecard'];
+const TEXT_WIDGETS = {};
+const TEXT_LAYOUT = [];
+TEXT_TYPES.forEach((t, i) => {
+  const id = 'w-' + t;
+  const b = { selectedDimensions: [F.DIM], selectedMeasures: [F.MEASURE] };
+  if (t === 'scorecard' || t === 'gauge') b.selectedDimensions = [];
+  if (t === 'combo') { b.comboBarMeasures = [F.MEASURE]; b.comboLineMeasures = [F.MEASURE]; }
+  TEXT_WIDGETS[id] = {
+    type: t,
+    dataBinding: b,
+    config: { showDataLabels: true, showLegend: true, showTotals: true, dataLabelContent: 'value', gaugeShowMinMax: true, showValue: true },
+  };
+  TEXT_LAYOUT.push({ i: id, x: 20 + (i % 2) * 620, y: 20 + Math.floor(i / 2) * 340, w: 600, h: 320, z: 1 });
+});
+
 setup('seed the fixture', async ({ request }) => {
   // First account on a virgin database becomes admin, and register logs it in.
   const reg = await request.post('/api/auth/register', { data: { ...F.USER, displayName: 'E2E' } });
@@ -104,12 +124,13 @@ setup('seed the fixture', async ({ request }) => {
   // The collapsed-panel spec edits a widget filter, so it gets its own report
   // rather than mutating the one every other spec reads.
   const tableReportId = await mkReport('Rapport e2e tableau', TABLE_WIDGETS, TABLE_LAYOUT);
+  const textReportId = await mkReport('Rapport e2e mesure texte', TEXT_WIDGETS, TEXT_LAYOUT);
   // Exists only to own the title the conflict spec tries to steal.
   const otherReportId = await mkReport(F.TAKEN_TITLE, null, null);
   // The successful-save case renames what it opens, so it gets its own report
   // rather than borrowing — and restoring — the one every other spec reads.
   const renameReportId = await mkReport('Rapport e2e bis', WIDGETS, LAYOUT);
 
-  fs.writeFileSync(F.IDS_FILE, JSON.stringify({ datasourceId, modelId, reportId, tableReportId, otherReportId, renameReportId }, null, 1));
+  fs.writeFileSync(F.IDS_FILE, JSON.stringify({ datasourceId, modelId, reportId, tableReportId, textReportId, otherReportId, renameReportId }, null, 1));
   await request.storageState({ path: F.AUTH_STATE });
 });

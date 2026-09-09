@@ -1,4 +1,5 @@
 import { useRef, memo, useMemo } from 'react';
+import { rawTextFor } from '../../utils/rawText';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
@@ -232,7 +233,8 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
               if (hideZeros && (p.value === 0 || p.value == null)) return '';
               if (isDurationCol(p.seriesName, data._durationColumns) && typeof p.value === 'number') return formatDuration(p.value);
               const fmt = data._measureFormats?.[p.seriesName];
-            return abbreviateNumber(p.value, valueAbbr, fmt) ?? formatNumber(p.value, fmt);
+            return rawTextFor(data, p.seriesName, p.name)
+              ?? (abbreviateNumber(p.value, valueAbbr, fmt) ?? formatNumber(p.value, fmt));
             },
           },
         });
@@ -275,7 +277,8 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
             if (hideZeros && (p.value === 0 || p.value == null)) return '';
             if (isDurationCol(p.seriesName, data._durationColumns) && typeof p.value === 'number') return formatDuration(p.value);
             const fmt = data._measureFormats?.[p.seriesName];
-            return abbreviateNumber(p.value, valueAbbr, fmt) ?? formatNumber(p.value, fmt);
+            return rawTextFor(data, p.seriesName, p.name)
+              ?? (abbreviateNumber(p.value, valueAbbr, fmt) ?? formatNumber(p.value, fmt));
           },
         },
       });
@@ -369,9 +372,14 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
           items.forEach((p) => {
             const val = Array.isArray(p.value) ? p.value[1] : p.value;
             if (hideZeros && (val === 0 || val == null)) return;
-            const v = isDurationCol(p.seriesName, data._durationColumns) && typeof val === 'number'
-              ? formatDuration(val)
-              : formatNumber(val);
+            // The author's own string when their measure built one, and the
+            // measure's format otherwise — this called formatNumber bare, so
+            // it ignored the decimals, prefix and suffix too.
+            const fmt = data._measureFormats?.[p.seriesName];
+            const v = rawTextFor(data, p.seriesName, p.name ?? p.axisValue)
+              ?? (isDurationCol(p.seriesName, data._durationColumns) && typeof val === 'number'
+                ? formatDuration(val)
+                : formatNumber(val, fmt));
             result += `${p.marker} ${p.seriesName}: <b>${v}</b><br/>`;
           });
           return result;

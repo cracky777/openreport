@@ -11,6 +11,7 @@
 // caller can emit a single 400 — never touches res. Covered by
 // tests/sqlSnapshot*, tests/queryErrors.
 const { measurePrimaryTable, sameComponent } = require('./joinGraph');
+const { firstAggregate, looksTextual, sortValueAlias } = require('./measureSortValue');
 const { preWrapIntervalRefs } = require('../columnTypeResolver');
 const {
   transformAggregates, dialectNumericCast, applyNumericCast, buildMeasureAggExpr,
@@ -182,6 +183,16 @@ function emitMeasureSelects(ctx) {
       // break the matcher.
       const numericExpr = applyNumericCast(inlined, dbType);
       selectParts.push(`(${numericExpr}) AS ${quoteIdent(m.label || m.name, dbType)}`);
+      // A custom expression may well return TEXT — a duration formatted in
+      // SQL, a label. The number is still inside it, since the expression is
+      // aggregated, so the first aggregate rides along under a reserved alias:
+      // the visuals position, sort and total with it while showing the
+      // author's own string. Emitted for every custom measure; when the value
+      // is already a number the client simply never looks at it.
+      const sortAgg = looksTextual(inlined) ? firstAggregate(inlined) : null;
+      if (sortAgg) {
+        selectParts.push(`(${applyNumericCast(sortAgg, dbType)}) AS ${quoteIdent(sortValueAlias(m.label || m.name), dbType)}`);
+      }
       // Extract table references from the INLINED expression for joins
       for (const field of allFieldsForLookup) {
         if (inlined.includes(field.column) || inlined.includes(field.table)) {

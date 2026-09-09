@@ -12,12 +12,16 @@ import { formatDuration } from './formatHuman';
 // `abbrMode` ∈ {'auto', 'thousands', 'millions', null} — feeds
 // abbreviateNumber; falls back to formatNumber(value, fmt) when null.
 // `fmt` is the user's number format spec (e.g. '0,0.00').
-export function buildDataLabel(params, content, abbrMode, fmt, { hideZeros = false, isDuration = false } = {}) {
+//  is the author's own string, when their custom measure built one in
+// SQL. The point is positioned by the number that expression aggregates, and
+// printed with this — no formatting of ours applies to it, it IS the format.
+export function buildDataLabel(params, content, abbrMode, fmt, { hideZeros = false, isDuration = false, text = null } = {}) {
   if (hideZeros && (params.value === 0 || params.value == null)) return '';
   const numericValue = typeof params.value === 'number' ? params.value : Number(params.value);
-  const val = isDuration && Number.isFinite(numericValue)
-    ? formatDuration(numericValue)
-    : (abbreviateNumber(params.value, abbrMode, fmt) ?? formatNumber(params.value, fmt));
+  const val = text != null ? text
+    : (isDuration && Number.isFinite(numericValue)
+      ? formatDuration(numericValue)
+      : (abbreviateNumber(params.value, abbrMode, fmt) ?? formatNumber(params.value, fmt)));
   if (content === 'name') return params.name || params.seriesName || '';
   if (content === 'nameValue') return `${params.name || params.seriesName || ''}: ${val}`;
   if (content === 'percent') {

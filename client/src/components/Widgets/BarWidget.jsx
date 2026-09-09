@@ -1,4 +1,5 @@
 import { useRef, memo, useMemo } from 'react';
+import { rawTextFor } from '../../utils/rawText';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
@@ -428,7 +429,7 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
               verticalAlign: Math.abs(dataLabelRotate) === 90 ? 'middle' : dataLabelPosition === 'top' ? 'bottom' : 'middle',
               backgroundColor: dataLabelBgOpacity > 0 ? hexToRgba(dataLabelBgColor, dataLabelBgOpacity) : 'transparent',
               padding: dataLabelBgOpacity > 0 ? [2, 4] : 0, borderRadius: 2,
-              formatter: (p) => buildDataLabel(p, dataLabelContent, dataLabelAbbr, data._measureFormats?.[p.seriesName], { hideZeros, isDuration: isDurationCol(p.seriesName, data._durationColumns) || isDurationCol(data._measureLabel, data._durationColumns) }) },
+              formatter: (p) => buildDataLabel(p, dataLabelContent, dataLabelAbbr, data._measureFormats?.[p.seriesName], { hideZeros, isDuration: isDurationCol(p.seriesName, data._durationColumns) || isDurationCol(data._measureLabel, data._durationColumns), text: rawTextFor(data, p.seriesName, p.name) }) },
           });
         }
       }
@@ -446,7 +447,7 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
           verticalAlign: dataLabelPosition === 'top' ? 'bottom' : 'middle',
           backgroundColor: dataLabelBgOpacity > 0 ? hexToRgba(dataLabelBgColor, dataLabelBgOpacity) : 'transparent',
           padding: dataLabelBgOpacity > 0 ? [2, 4] : 0, borderRadius: 2,
-          formatter: (p) => buildDataLabel(p, dataLabelContent, dataLabelAbbr, Object.values(data._measureFormats || {})[0], { hideZeros, isDuration: isDurationCol(data._measureLabel, data._durationColumns) }) },
+          formatter: (p) => buildDataLabel(p, dataLabelContent, dataLabelAbbr, Object.values(data._measureFormats || {})[0], { hideZeros, isDuration: isDurationCol(data._measureLabel, data._durationColumns), text: rawTextFor(data, p.seriesName, p.name) }) },
       });
     }
 
@@ -459,14 +460,17 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
           // For custom series, params.value is [categoryIndex, value] — extract the actual value
           const val = Array.isArray(params.value) ? params.value[1] : params.value;
           const isDur = isDurationCol(params.seriesName, data._durationColumns) || isDurationCol(data._measureLabel, data._durationColumns);
-          const fmtVal = (v) => isDur && typeof v === 'number' ? formatDuration(v) : formatNumber(v, fmt);
+          // The author's own string when their measure built one; the number
+          // only positions the bar.
+          const fmtVal = (v, p) => rawTextFor(data, p?.seriesName, p?.name)
+            ?? (isDur && typeof v === 'number' ? formatDuration(v) : formatNumber(v, fmt));
           let result = `<b>${params.name}</b><br/>`;
-          result += `${params.marker} ${params.seriesName}: <b>${fmtVal(val)}</b>`;
+          result += `${params.marker} ${params.seriesName}: <b>${fmtVal(val, params)}</b>`;
           if (isStacked && hasSeries) {
             let total = 0;
             for (const sr of seriesData) total += sr.values[sortedIndices[params.dataIndex]] || 0;
             const pct = total > 0 ? Math.round((params.value / total) * 10000) / 100 : 0;
-            result += ` (${pct}%)<br/>Total: <b>${fmtVal(total)}</b>`;
+            result += ` (${pct}%)<br/>Total: <b>${fmtVal(total, null)}</b>`;
           }
           return result;
         },

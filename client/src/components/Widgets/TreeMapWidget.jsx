@@ -1,4 +1,5 @@
 import { useRef, memo, useMemo } from 'react';
+import { rawTextFor } from '../../utils/rawText';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
@@ -73,7 +74,8 @@ export default memo(function TreeMapWidget({ data, config, onDataClick, highligh
     const buildLabel = (params) => {
       const val = isDur && typeof params.value === 'number'
         ? formatDuration(params.value)
-        : (abbreviateNumber(params.value, dataLabelAbbr, fmt) ?? formatNumber(params.value, fmt));
+        : (rawTextFor(data, params.seriesName, params.name)
+          ?? abbreviateNumber(params.value, dataLabelAbbr, fmt) ?? formatNumber(params.value, fmt));
       if (dataLabelContent === 'name') return params.name;
       if (dataLabelContent === 'value') return String(val);
       if (dataLabelContent === 'nameValue') return `${params.name}\n${val}`;
@@ -103,7 +105,8 @@ export default memo(function TreeMapWidget({ data, config, onDataClick, highligh
         trigger: 'item',
         appendToBody: true,
         formatter: (params) => {
-          const v = isDur && typeof params.value === 'number' ? formatDuration(params.value) : formatNumber(params.value, fmt);
+          const v = rawTextFor(data, params.seriesName, params.name)
+            ?? (isDur && typeof params.value === 'number' ? formatDuration(params.value) : formatNumber(params.value, fmt));
           const pct = ((params.value / total) * 100).toFixed(1);
           return `${params.marker} ${params.name}: <b>${v}</b> (${pct}%)`;
         },

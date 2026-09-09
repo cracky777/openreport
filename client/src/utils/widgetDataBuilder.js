@@ -92,7 +92,23 @@ export function buildWidgetData({
   }
 
   let newData = {};
-  const keys = Object.keys(rows[0]);
+  // A custom measure that builds a STRING — a duration formatted in SQL, a
+  // label — comes back with the number its expression aggregates, under this
+  // reserved alias (see server/utils/sqlBuilder/measureSortValue). It is what
+  // gives a bar its height and a sort its order while the author's own text is
+  // what gets printed. It is never a column of its own, hence the strip.
+  const SORT_PREFIX = '__orsort__';
+  const keys = Object.keys(rows[0]).filter((k) => !k.startsWith(SORT_PREFIX));
+  // The number to draw with: the value itself when it is one, the companion
+  // when the author's expression returned text.
+  const numOf = (row, key) => {
+    if (!row) return 0;
+    const v = row[key];
+    if (typeof v === 'number') return v;
+    const n = Number(v);
+    if (v !== null && v !== '' && Number.isFinite(n)) return n;
+    return Number(row[SORT_PREFIX + key]) || 0;
+  };
   const gl = (name, list) => { const d = (list || []).find((x) => x.name === name); return d?.label || d?.name || name; };
 
   if (w.type === 'filter') {
@@ -167,7 +183,7 @@ export function buildWidgetData({
               name: cbm.length === 1 ? gv : `${gv} - ${ml}`,
               values: labels.map((l) => {
                 const row = byAxisGroup.get(`${l}\u0000${gv}`);
-                return row ? Number(row[mk]) || 0 : 0;
+                return numOf(row, mk);
               }),
             });
           });
@@ -183,7 +199,7 @@ export function buildWidgetData({
             name: ml,
             values: labels.map((l) => {
               const row = byAxis.get(l);
-              return row ? Number(row[mk]) || 0 : 0;
+              return numOf(row, mk);
             }),
           });
         });
@@ -205,7 +221,7 @@ export function buildWidgetData({
             name: ml,
             values: labels.map((l) => {
               const row = lineByAxis.get(l);
-              return row ? Number(row[mk]) || 0 : 0;
+              return numOf(row, mk);
             }),
           };
         }).filter(Boolean);
@@ -218,7 +234,7 @@ export function buildWidgetData({
           if (!mk) return null;
           return {
             name: ml,
-            values: labels.map((l) => (rowsByAxis.get(l) || []).reduce((s, r) => s + (Number(r[mk]) || 0), 0)),
+            values: labels.map((l) => (rowsByAxis.get(l) || []).reduce((s, r) => s + numOf(r, mk), 0)),
           };
         }).filter(Boolean);
       }
@@ -227,7 +243,18 @@ export function buildWidgetData({
       newData._lineMeasureLabel = clm.map((mn) => gl(mn, effectiveModel?.measures)).join(', ');
     }
   } else if (w.type === 'table') {
-    newData = { columns: keys, rows: rows.map((r) => Object.values(r).map((v) => v != null ? String(v) : '')) };
+    // Object.values would have included the companion column — the number the
+    // author's text is positioned by is not a column of the table.
+    newData = {
+      columns: keys,
+      rows: rows.map((r) => keys.map((k) => (r[k] != null ? String(r[k]) : ''))),
+      // Per column, the number to sort by when its cells are text.
+      _sortValues: keys.reduce((acc, k) => {
+        const per = rows.map((r) => r[SORT_PREFIX + k]).filter((v) => v != null);
+        if (per.length > 0) acc[k] = rows.map((r) => Number(r[SORT_PREFIX + k]));
+        return acc;
+      }, {}),
+    };
   } else if (w.type === 'customVisual') {
     // Normalised tabular form for custom visuals — rows are kept as-is
     // and `fields` describes the role of each column so the iframe can
@@ -245,7 +272,7 @@ export function buildWidgetData({
     // `?? ''` like every other label path in this file: String(null) renders the
     // word "null" as a slice name, which reads as a category rather than as a
     // missing one.
-    newData = { items: rows.map((r) => ({ name: String(r[keys[0]] ?? ''), value: Number(r[keys[keys.length - 1]]) || 0 })) };
+    newData = { items: rows.map((r) => ({ name: String(r[keys[0]] ?? ''), value: numOf(r, keys[keys.length - 1]) })) };
   } else if (w.type === 'scorecard' || w.type === 'gauge') {
     const firstRow = rows[0];
     if (firstRow) {
@@ -257,6 +284,16 @@ export function buildWidgetData({
         value: measureVal,
         label: valueMeasDef?.label || valueMeasName || '',
       };
+      // When the author's measure returned text, the number its expression
+      // aggregates comes alongside: the gauge needs it to place its needle,
+      // and the N-1 comparison to have something to compare. What is PRINTED
+      // stays the text above.
+      const companion = valueKey != null ? firstRow[SORT_PREFIX + valueKey] : undefined;
+      if (companion != null && isNaN(toNumber(measureVal))) newData._numValue = Number(companion);
+      if (w.type === 'scorecard' && n1Res?.data?.rows?.[0] && newData._numValue !== undefined) {
+        const n1c = n1Res.data.rows[0][SORT_PREFIX + valueKey];
+        if (n1c != null) newData._n1Value = Number(n1c);
+      }
       // N-1 comparison (scorecard only) — same SELECT shape, only WHERE shifted.
       if (w.type === 'scorecard' && n1Res?.data?.rows?.[0]) {
         const n1Row = n1Res.data.rows[0];
@@ -293,7 +330,7 @@ export function buildWidgetData({
         name: gv,
         values: ul.map((l) => {
           const row = byAxisGroup.get(`${l}\u0000${gv}`);
-          return row ? Number(row[valueKey]) || 0 : 0;
+          return numOf(row, valueKey);
         }),
       })),
     };
@@ -310,11 +347,11 @@ export function buildWidgetData({
         labels,
         series: measureKeys.map((mk) => ({
           name: mk,
-          values: rows.map((r) => Number(r[mk]) || 0),
+          values: rows.map((r) => numOf(r, mk)),
         })),
       };
     } else {
-      newData = { labels, values: rows.map((r) => Number(r[keys[keys.length - 1]]) || 0) };
+      newData = { labels, values: rows.map((r) => numOf(r, keys[keys.length - 1])) };
     }
   }
 
@@ -351,6 +388,26 @@ export function buildWidgetData({
     if (ADDITIVE.has(String(md.aggregation || '').toLowerCase())) return;
     if (!totalComponents?.[colKey]) nonAdditiveCols.push(colKey);
   });
+  // The author's own string, per measure and per axis value. The number above
+  // gives a bar its height; THIS is what a label, a tooltip or a legend prints.
+  // Only filled for a measure that actually came back as text — a numeric one
+  // has nothing to remember.
+  const axisKeyForText = dims.length > 0 ? gl(dims[0], effectiveModel?.dimensions) : null;
+  const rawText = {};
+  usedMeasures.forEach((mn) => {
+    const md = (effectiveModel?.measures || []).find((x) => x.name === mn);
+    if (!md) return;
+    const colKey = md.label || md.name;
+    const per = {};
+    for (const r of rows) {
+      const v = r[colKey];
+      if (v == null || v === '' || typeof v === 'number') continue;
+      if (Number.isFinite(Number(v))) continue;
+      per[axisKeyForText ? String(r[axisKeyForText] ?? '') : ''] = String(v);
+    }
+    if (Object.keys(per).length > 0) rawText[colKey] = per;
+  });
+  if (Object.keys(rawText).length > 0) newData._rawText = rawText;
   newData._measureFormats = mf;
   if (nonAdditiveCols.length > 0) newData._nonAdditiveMeasures = nonAdditiveCols;
   if (totalComponents && Object.keys(totalComponents).length > 0) {

@@ -1,4 +1,5 @@
 import { useRef, memo, useMemo } from 'react';
+import { rawTextFor } from '../../utils/rawText';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
@@ -148,7 +149,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
           stack: isStacked ? 'total' : undefined,
           label: { ...labelOpts, formatter: (p) => {
             if (hideZeros && (p.value == null || p.value === 0)) return '';
-            return buildDataLabel(p, dataLabelContent, dataLabelAbbr, data._measureFormats?.[p.seriesName], { isDuration: isDurationCol(p.seriesName, data._durationColumns) || isDurationCol(data._measureLabel, data._durationColumns) });
+            return buildDataLabel(p, dataLabelContent, dataLabelAbbr, data._measureFormats?.[p.seriesName], { isDuration: isDurationCol(p.seriesName, data._durationColumns) || isDurationCol(data._measureLabel, data._durationColumns), text: rawTextFor(data, p.seriesName, p.name) });
           }},
         });
       });
@@ -163,7 +164,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
         areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15 } : undefined,
         label: { ...labelOpts, formatter: (p) => {
           if (hideZeros && (p.value == null || p.value === 0)) return '';
-          return buildDataLabel(p, dataLabelContent, dataLabelAbbr, Object.values(data._measureFormats || {})[0], { isDuration: isDurationCol(data._measureLabel, data._durationColumns) });
+          return buildDataLabel(p, dataLabelContent, dataLabelAbbr, Object.values(data._measureFormats || {})[0], { isDuration: isDurationCol(data._measureLabel, data._durationColumns), text: rawTextFor(data, p.seriesName, p.name) });
         }},
       });
     }
@@ -187,7 +188,8 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
             if (hideZeros && (p.value === 0 || p.value == null)) return;
             const fmt = data._measureFormats?.[p.seriesName] || null;
             const isDur = isDurationCol(p.seriesName, data._durationColumns) || isDurationCol(data._measureLabel, data._durationColumns);
-            const v = isDur && typeof p.value === 'number' ? formatDuration(p.value) : formatNumber(p.value, fmt);
+            const v = rawTextFor(data, p.seriesName, p.name)
+              ?? (isDur && typeof p.value === 'number' ? formatDuration(p.value) : formatNumber(p.value, fmt));
             result += `${p.marker} ${p.seriesName}: <b>${v}</b><br/>`;
           });
           return result;

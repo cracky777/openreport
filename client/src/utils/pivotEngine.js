@@ -11,7 +11,11 @@ export function resolveCell(acc, fn) {
   // Nothing landed in this group — every value was NULL or unparseable. That is
   // an empty cell, not a zero: `sum` returning its 0 seed and `avg` its 0
   // fallback both claimed a measured value where there was none.
-  if (!acc.count) return null;
+  // A measure can return TEXT — a duration the author formatted in SQL. Two
+  // strings cannot be added, but a cell that gathered one row can still say
+  // what that row said; a cell that gathered several different ones has
+  // nothing honest to show and stays empty.
+  if (!acc.count) return acc.text || null;
   switch (fn) {
     case 'sum': return acc.sum;
     case 'avg': return acc.sum / acc.count;
@@ -28,7 +32,13 @@ function accumulate(target, measures, row) {
     const raw = row[m];
     if (raw === null || raw === undefined || raw === '') continue;
     const v = Number(raw);
-    if (!Number.isFinite(v)) continue;
+    if (!Number.isFinite(v)) {
+      const t = String(raw);
+      const cell = target[m];
+      if (cell.text === undefined) cell.text = t;
+      else if (cell.text !== t) cell.text = null;
+      continue;
+    }
     const a = target[m];
     a.sum += v; a.count += 1;
     a.min = Math.min(a.min, v);

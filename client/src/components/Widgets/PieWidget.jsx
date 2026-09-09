@@ -1,4 +1,5 @@
 import { useRef, memo, useMemo } from 'react';
+import { rawTextFor } from '../../utils/rawText';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
@@ -56,7 +57,8 @@ export default memo(function PieWidget({ data, config, onDataClick, highlightVal
     const buildLabel = (params) => {
       const val = isDur && typeof params.value === 'number'
         ? formatDuration(params.value)
-        : (abbreviateNumber(params.value, dataLabelAbbr, fmt) ?? formatNumber(params.value, fmt));
+        : (rawTextFor(data, params.seriesName, params.name)
+          ?? abbreviateNumber(params.value, dataLabelAbbr, fmt) ?? formatNumber(params.value, fmt));
       if (dataLabelContent === 'name') return params.name;
       if (dataLabelContent === 'nameValue') return `${params.name}: ${val}`;
       if (dataLabelContent === 'percent') return `${params.percent}%`;
@@ -96,7 +98,8 @@ export default memo(function PieWidget({ data, config, onDataClick, highlightVal
         trigger: 'item',
         appendToBody: true,
         formatter: (params) => {
-          const v = isDur && typeof params.value === 'number' ? formatDuration(params.value) : formatNumber(params.value, fmt);
+          const v = rawTextFor(data, params.seriesName, params.name)
+            ?? (isDur && typeof params.value === 'number' ? formatDuration(params.value) : formatNumber(params.value, fmt));
           return `${params.marker} ${params.name}: <b>${v}</b> (${params.percent}%)`;
         },
       },

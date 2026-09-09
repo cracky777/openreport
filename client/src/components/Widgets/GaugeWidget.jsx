@@ -16,6 +16,10 @@ const _hs2 = {
 // Extract numeric value from scorecard-shaped data (handles legacy string values from old saves)
 const extractValue = (data) => {
   if (data?.value === undefined || data?.value === null || data?.value === '') return null;
+  // The author's measure returned text; the number its expression aggregates
+  // came alongside, and it is what places the needle. The text is still what
+  // the gauge prints.
+  if (typeof data._numValue === 'number' && !isNaN(data._numValue)) return data._numValue;
   // The separator rules this used to carry now live in toNumber, which every
   // widget reads a value through. What it drops is the digit extraction that
   // came after them: a text measure turned into the number its digits spell.
@@ -66,9 +70,12 @@ export default memo(function GaugeWidget({ data, config, chartWidth, chartHeight
   const isDur = isDurationCol(data?._measureLabel, data?._durationColumns);
   const displayValue = useMemo(() => {
     if (!hasData) return '';
+    // A text measure prints what the author wrote, never the number that
+    // placed the needle.
+    if (typeof data?._numValue === 'number' && data?.value != null) return String(data.value);
     if (isDur && !isNaN(value)) return formatDuration(value);
     return fmt && !isNaN(value) ? formatNumber(value, fmt) : value.toLocaleString();
-  }, [value, fmt, hasData, isDur]);
+  }, [value, fmt, hasData, isDur, data]);
 
   // Clamp progress to [0, 1]
   const progress = useMemo(() => {
