@@ -23,6 +23,7 @@
 //     state is unchanged. Viewer doesn't use the mechanism (passes null
 //     and the field stays absent on the widget).
 import { variantDefsFor } from './timeIntelligence';
+import { toNumber } from './numericValue';
 
 export function buildWidgetData({
   widget,
@@ -260,7 +261,7 @@ export function buildWidgetData({
       if (w.type === 'scorecard' && n1Res?.data?.rows?.[0]) {
         const n1Row = n1Res.data.rows[0];
         const n1Raw = valueKey && n1Row[valueKey] !== undefined ? n1Row[valueKey] : Object.values(n1Row)[0];
-        const n1Num = typeof n1Raw === 'number' ? n1Raw : parseFloat(String(n1Raw));
+        const n1Num = toNumber(n1Raw);
         if (!isNaN(n1Num)) newData._n1Value = n1Num;
       }
       if (w.type === 'gauge') {
@@ -268,13 +269,8 @@ export function buildWidgetData({
           if (!measName) return undefined;
           const def = (effectiveModel?.measures || []).find((m) => m.name === measName);
           const key = def?.label || def?.name || measName;
-          const raw = firstRow[key];
-          if (typeof raw === 'number') return raw;
-          if (raw != null) {
-            const parsed = parseFloat(String(raw));
-            if (!isNaN(parsed)) return parsed;
-          }
-          return undefined;
+          const parsed = toNumber(firstRow[key]);
+          return isNaN(parsed) ? undefined : parsed;
         };
         const th = extractMeas(w.dataBinding?.gaugeThresholdMeasure);
         if (th !== undefined) newData.threshold = th;

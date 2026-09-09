@@ -63,3 +63,14 @@ describe('abbreviateNumber', () => {
     expect(abbreviateNumber(1500, 'none', { prefix: '€' })).toBeNull();
   });
 });
+
+describe('a text value', () => {
+  // The pivot table hands whatever a measure returned straight to formatNumber
+  // when the measure carries a format. A measure is free to return text — a
+  // formatted duration, a label — and it has to come back out untouched rather
+  // than be run through the decimal machinery.
+  test('comes back as it went in, format or not', () => {
+    expect(formatNumber('164j 08:02:17', { decimals: 2, prefix: '€' })).toBe('164j 08:02:17');
+    expect(formatNumber('N/A', { decimals: 0 })).toBe('N/A');
+  });
+});

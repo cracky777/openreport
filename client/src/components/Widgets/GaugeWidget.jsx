@@ -4,6 +4,7 @@ import formatNumber from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import { lerpColor } from '../../utils/tableConfigHelpers';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
+import { toNumber } from '../../utils/numericValue';
 
 const _hs0 = { width: '100%', height: '100%', position: 'relative', overflow: 'hidden' };
 const _hs1 = { width: '100%', height: '100%' };
@@ -15,14 +16,10 @@ const _hs2 = {
 // Extract numeric value from scorecard-shaped data (handles legacy string values from old saves)
 const extractValue = (data) => {
   if (data?.value === undefined || data?.value === null || data?.value === '') return null;
-  if (typeof data.value === 'number') return data.value;
-  const str = String(data.value);
-  const hasDot = str.includes('.');
-  const hasComma = str.includes(',');
-  let cleaned = str;
-  if (hasComma && !hasDot) cleaned = str.replace(',', '.'); // FR-style decimal
-  else if (hasComma && hasDot) cleaned = str.replace(/,/g, ''); // EN-style thousand sep
-  const parsed = parseFloat(cleaned.replace(/[^\d.-]/g, ''));
+  // The separator rules this used to carry now live in toNumber, which every
+  // widget reads a value through. What it drops is the digit extraction that
+  // came after them: a text measure turned into the number its digits spell.
+  const parsed = toNumber(data.value);
   return isNaN(parsed) ? null : parsed;
 };
 

@@ -2,6 +2,7 @@ import { useRef, useCallback, useMemo, useState, memo } from 'react';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration } from '../../utils/formatHuman';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
+import { toNumber } from '../../utils/numericValue';
 import {
   getColumnHeaderStyle, getColumnValueStyle, getColumnDisplayName,
   getColumnWidth, getColumnTotalFn, getGridConfig, getRowConfig,
@@ -96,7 +97,9 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
     if (colIdx == null || colIdx === -1) return rows;
     return [...rows].sort((a, b) => {
       const va = a[colIdx], vb = b[colIdx];
-      const na = parseFloat(va), nb = parseFloat(vb);
+      // A measure can return text — a formatted duration, a label. parseFloat
+      // read the digits it starts with, so "164j 08:02:17" sorted as 164.
+      const na = toNumber(va), nb = toNumber(vb);
       const isNum = !isNaN(na) && !isNaN(nb);
       const cmp = isNum ? na - nb : String(va || '').localeCompare(String(vb || ''));
       return sortDir === 'desc' ? -cmp : cmp;
@@ -339,8 +342,11 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                   {row.map((cell, ci) => {
                     const col = columns[ci];
                     const vs = getColumnValueStyle(tc, col);
-                    const numVal = parseFloat(cell);
-                    const isNum = !isNaN(numVal) && cell !== '' && cell != null;
+                    // Same trap as the sort above: a formatted duration
+                    // starts with digits, and parseFloat took them for the
+                    // whole value — the cell showed 164 and was right-aligned.
+                    const numVal = toNumber(cell);
+                    const isNum = !isNaN(numVal);
                     const align = vs.alignment === 'auto' || !vs.alignment ? (isNum ? 'right' : 'left') : vs.alignment;
                     const isFrozenCol = freeze.freezeFirstColumn && ci === 0;
                     // Same rule as the header: wrap unless turned off.

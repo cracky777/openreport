@@ -1,6 +1,7 @@
 /**
  * Table config helpers — resolves per-column vs global settings.
  */
+import { toNumber } from './numericValue';
 
 export function getColumnHeaderStyle(tc, colName) {
   const g = tc?.header || {};
@@ -79,7 +80,10 @@ export function setNestedValue(obj, path, value) {
  * Compute totals for a column.
  */
 export function computeTotal(rows, colIdx, fn) {
-  const nums = rows.map((r) => parseFloat(r[colIdx])).filter((n) => !isNaN(n));
+  // toNumber, not parseFloat: a column of formatted durations would otherwise
+  // total the digits each value STARTS with — 164 + 12 + ... under a column
+  // whose values are not numbers at all. Nothing numeric left means no total.
+  const nums = rows.map((r) => toNumber(r[colIdx])).filter((n) => !isNaN(n));
   if (nums.length === 0) return '';
   switch (fn) {
     case 'sum': return nums.reduce((a, b) => a + b, 0);
@@ -96,11 +100,14 @@ export function computeTotal(rows, colIdx, fn) {
  */
 export function getConditionalStyle(rules, value, colValues) {
   if (!rules || rules.length === 0) return {};
-  const num = parseFloat(value);
+  // Same reason as computeTotal: a value that merely starts with digits is not
+  // a number, and colouring a cell by them would be colouring by noise. Every
+  // rule below is already guarded on isNaN, so text simply gets no rule.
+  const num = toNumber(value);
   const style = {};
   const extraElements = [];
 
-  const nums = !isNaN(num) ? colValues.map((v) => parseFloat(v)).filter((n) => !isNaN(n)) : [];
+  const nums = !isNaN(num) ? colValues.map((v) => toNumber(v)).filter((n) => !isNaN(n)) : [];
 
   for (const rule of rules) {
     if (rule.type === 'colorScale' && !isNaN(num)) {

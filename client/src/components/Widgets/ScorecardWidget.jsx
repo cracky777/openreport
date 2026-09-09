@@ -1,6 +1,7 @@
 import formatNumber from '../../utils/formatNumber';
 import { formatDuration } from '../../utils/formatHuman';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
+import { toNumber } from '../../utils/numericValue';
 
 const _hs0 = {
         height: '100%',
@@ -35,9 +36,7 @@ export default function ScorecardWidget({ data, config }) {
   // The Editor/Viewer flags this via `_durationColumns` (non-empty list ↔
   // the scorecard's measure is an interval).
   const isDuration = Array.isArray(data?._durationColumns) && data._durationColumns.length > 0;
-  const rawValue = typeof data.value === 'number'
-    ? data.value
-    : parseFloat(String(data.value).replace(',', '.').replace(/[^\d.-]/g, ''));
+  const rawValue = toNumber(data.value);
   const fmtNum = (v) => (isDuration ? formatDuration(v) : (fmt ? formatNumber(v, fmt) : v.toLocaleString()));
 
   const displayValue = !isNaN(rawValue)
