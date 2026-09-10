@@ -1589,6 +1589,22 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
         continue;
       }
       inlined = preWrapIntervalRefs(inlined, columnTypes, dbType);
+      // The measure's OWN rules, exactly as the SELECT applies them. Without
+      // this the ORDER BY of a Top N ranked by the unfiltered expression while
+      // the column displayed the filtered one — a measure defined as "the same
+      // count, restricted to lost calls" was ranked on ALL calls, and the
+      // widget silently showed the wrong five rows.
+      const ownRules = Array.isArray(measDef.filterRules) && !measDef.overrideFilters
+        ? measDef.filterRules.map(buildRuleClause).filter(Boolean)
+        : [];
+      if (ownRules.length > 0) {
+        const whenSql = ownRules.join(' AND ');
+        inlined = transformAggregates(
+          inlined,
+          ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT'],
+          (fn, arg) => `${fn}(CASE WHEN ${whenSql} THEN ${arg} END)`,
+        );
+      }
       aggExpr = `(${applyNumericCast(inlined, dbType)})`;
       // Pull tables referenced by the inlined expression into the JOIN
       // graph — same logic the SELECT path uses at line 1477. Without
@@ -1623,12 +1639,19 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       // column is bound on the measure (non-'*' sentinel), otherwise the
       // classic COUNT(*). HAVING must use the same expression the visual
       // displays, so this matches the COUNT branch in the SELECT loop above.
+      // The measure's own rules, same as the SELECT applies them — a measure
+      // that means "this count, restricted to X" must be RANKED on X too.
+      const ownRulesH = Array.isArray(measDef.filterRules) && !measDef.overrideFilters
+        ? measDef.filterRules.map(buildRuleClause).filter(Boolean)
+        : [];
+      const whenH = ownRulesH.length > 0 ? ownRulesH.join(' AND ') : null;
+      const wrapH = (inner) => (whenH ? `CASE WHEN ${whenH} THEN ${inner} END` : inner);
       const baseAggExpr = effAggH === 'count'
         ? ((measDef.table && measDef.column && measDef.column !== '*')
-            ? `COUNT(${quoteCol(measDef.table, measDef.column, dbType)})`
-            : 'COUNT(*)')
+            ? `COUNT(${wrapH(quoteCol(measDef.table, measDef.column, dbType))})`
+            : `COUNT(${whenH ? wrapH('1') : '*'})`)
         : (colExprH
-            ? `${normalizeAggregation(effAggH).toUpperCase()}(${colExprH})`
+            ? `${normalizeAggregation(effAggH).toUpperCase()}(${wrapH(colExprH)})`
             : null);
       if (!baseAggExpr) continue;
       // Mirror the SELECT path: `interval` aggregates need EXTRACT(EPOCH …)
