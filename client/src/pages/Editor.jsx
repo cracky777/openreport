@@ -1966,6 +1966,7 @@ export default function Editor() {
           onUpdate={handleUpdateWidget}
           onDelete={handleDeleteWidget}
           model={effectiveModel}
+          onRefreshWidget={handleRefreshWidget}
           onResizeStart={pinCanvas}
           onResizeEnd={unpinCanvas}
         />

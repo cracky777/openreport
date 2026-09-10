@@ -83,7 +83,7 @@ const useSectionState = () => {
 };
 
 // Left column: widget configuration (always present, collapsible)
-export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model, onResizeStart, onResizeEnd }) {
+export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model, onResizeStart, onResizeEnd, onRefreshWidget }) {
   const sections = useSectionState();
   const { width, handleProps } = useResizableWidth({ storageKey: 'openreport.configPanelWidth', defaultWidth: 210, min: 180, max: 480, onDragStart: onResizeStart, onDragEnd: onResizeEnd });
   const compact = useIsCompact();
@@ -844,7 +844,15 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
       {/* ── Per-widget filters (in/not in/comparisons/between/top-N) ── */}
       {widget.type !== 'filter' && widget.type !== 'text' && widget.type !== 'shape' && widget.type !== 'image' && (() => {
         const wf = Array.isArray(binding.widgetFilters) ? binding.widgetFilters : [];
-        const setWF = (next) => updateBinding({ widgetFilters: next });
+        // Editing a rule goes through the SAME path as the widget's Refresh
+        // button — same scope, and the server's result cache bypassed the same
+        // way. Two paths that are supposed to bring the same rows had no
+        // reason to differ, and the one taken here was the one that could
+        // leave the visual on values from the rule before.
+        const setWF = (next) => {
+          updateBinding({ widgetFilters: next });
+          onRefreshWidget?.(widgetId);
+        };
         const addFilter = (fieldName, isMeasure) => {
           setWF([...wf, buildDefaultFilterRule(model, fieldName, isMeasure)]);
         };
