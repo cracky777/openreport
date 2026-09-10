@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import { armTouchDrag, isTouchDragging } from '../../utils/touchDrag';
+import { setFieldDrag, clearFieldDrag } from '../../utils/fieldDrag';
 import { useIsCompact } from '../../hooks/useMediaQuery';
 
 // Pressing a field must not raise the selection loupe over its label. The list
@@ -191,6 +192,9 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
     e.dataTransfer.setData('application/field-name', fieldName);
     e.dataTransfer.setData('application/field-type', fieldType); // 'dimension' or 'measure'
     e.dataTransfer.effectAllowed = 'copyMove';
+    // A visual under the cursor needs the field to tell which of its wells the
+    // drop would fill; the DataTransfer won't say before the drop.
+    setFieldDrag({ fieldName, fieldType });
   };
 
   // Track previous (widgetId, bindingKey) plus a per-widget refresh nonce
@@ -727,6 +731,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 data-drag-field=""
                 draggable={!compact}
                 onDragStart={(e) => handleDragStart(e, m.name, 'measure')}
+                onDragEnd={clearFieldDrag}
                 onPointerDown={(e) => armTouchDrag(e, { fieldName: m.name, fieldType: 'measure' }, m.label || m.column || m.name, compact)}
                 style={touchDragRow}
                 onClick={(e) => {
@@ -1181,6 +1186,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 data-drag-field=""
                 draggable={!compact}
                 onDragStart={(e) => handleDragStart(e, dateCol.name, 'dimension')}
+                onDragEnd={clearFieldDrag}
                 onPointerDown={(e) => armTouchDrag(e, { fieldName: dateCol.name, fieldType: 'dimension' }, dateCol.label || dateCol.column || dateCol.name, compact)}
                 title={`${dateCol.table}.${dateCol.column}`}
                 style={{
@@ -1218,6 +1224,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                   data-drag-field=""
                   draggable={!compact}
                   onDragStart={(e) => handleDragStart(e, dp.name, 'dimension')}
+                onDragEnd={clearFieldDrag}
                 onPointerDown={(e) => armTouchDrag(e, { fieldName: dp.name, fieldType: 'dimension' }, dp.datePart || dp.label || dp.name, compact)}
                   title={dp.datePart}
                   style={{
@@ -1258,6 +1265,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                       data-drag-field=""
                       draggable={!compact}
                       onDragStart={(e) => handleDragStart(e, d.name, 'dimension')}
+                onDragEnd={clearFieldDrag}
                 onPointerDown={(e) => armTouchDrag(e, { fieldName: d.name, fieldType: 'dimension' }, d.label || d.column || d.name, compact)}
                       onClick={(e) => {
                         if (isTouchDragging()) return;

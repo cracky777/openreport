@@ -22,6 +22,10 @@ export default function ReportCanvas({
   settings = {},
   onLoadMore,
   onWidgetUpdate,
+  // The semantic model — the canvas itself has no use for it, a visual under a
+  // dragged field does: which well a dimension or a measure would fill depends
+  // on what the model says the field is.
+  model,
   reportFilters,
   onSlicerFilter,
   onSlicerSearch,
@@ -134,6 +138,17 @@ export default function ReportCanvas({
   // members). Used to render the single shared frame + drive solid-block
   // dragging + neutralise each member's own chrome.
   const mergeGroups = useMemo(() => getMergeGroups(layout, widgets), [layout, widgets]);
+  // The last member of each group in document order: its seams are drawn right
+  // after it, so they stay inside the block's place in the stack.
+  const lastMemberOfGroup = useMemo(() => {
+    const out = {};
+    for (const [gid, items] of Object.entries(getMergeGroups(layout, widgets))) {
+      const ids = new Set(items.map((it) => it.i));
+      const last = [...layout].reverse().find((it) => ids.has(it.i));
+      if (last) out[gid] = last.i;
+    }
+    return out;
+  }, [layout, widgets]);
   const mergedGidById = useMemo(() => {
     const m = {};
     for (const [gid, items] of Object.entries(mergeGroups)) {
@@ -333,129 +348,19 @@ export default function ReportCanvas({
     );
   })() : null;
 
-  return (
-    <div
-      ref={containerRef}
-      onClick={() => {
-        if (justResizedRef.current) return; // the click that ends a resize
-        onSelectWidget?.(null);
-      }}
-      style={{
-        flex: 1,
-        backgroundColor: printMode ? 'transparent' : (settings.surroundColor || 'var(--bg-app)'),
-        overflowX: 'hidden',
-        overflowY: (viewMode === 'fitToPage' && !stacked) || printMode ? 'hidden' : 'auto',
-        padding: printMode ? 0 : (stacked ? STACK_PAD : 20),
-        minWidth: 0, minHeight: 0,
-      }}
-    >
-      {stacked ? stackedColumn : (
-      <div style={{
-        width: scale < 1 ? pageWidth * scale : pageWidth,
-        minHeight: scale < 1 ? canvasHeight * scale : canvasHeight,
-        margin: printMode ? 0 : '0 auto',
-        overflow: 'visible',
-      }}>
-        <div
-          ref={reportRef}
-          style={{
-            width: pageWidth,
-            minWidth: pageWidth,
-            minHeight: canvasHeight,
-            transform: scale < 1 ? `scale(${scale})` : undefined,
-            transformOrigin: 'top left',
-            backgroundColor: settings.transparentBg ? 'transparent' : (settings.backgroundColor || 'var(--bg-canvas)'),
-            backgroundImage: !settings.transparentBg && settings.backgroundImage ? `url(${settings.backgroundImage})` : 'none',
-            backgroundSize: settings.backgroundSize || 'cover',
-            backgroundPosition: 'center',
-            backgroundRepeat: settings.backgroundSize === 'repeat' ? 'repeat' : 'no-repeat',
-            borderRadius: settings.borderRadius ?? 8,
-            boxShadow: (settings.showShadow ?? true) ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-            border: (settings.showBorder ?? true) ? undefined : 'none',
-            position: 'relative',
-          }}
-        >
-        {/* Grid overlay */}
-        {settings.showGrid && !readOnly && (
-          <div style={{
-            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-            backgroundImage: `linear-gradient(rgba(0,0,0,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.05) 1px, transparent 1px)`,
-            backgroundSize: `${settings.gridSize || 20}px ${settings.gridSize || 20}px`,
-            pointerEvents: 'none', zIndex: 0, borderRadius: settings.borderRadius ?? 8,
-          }} />
-        )}
-        {/* Seam-merge model: NO bounding-box backdrop — each merged
-            member keeps its own size/frame; the shared border between
-            two members is dropped (per-edge, in WidgetItem). */}
-        {layout.map((item) => {
-          const widget = widgets[item.i];
-          if (!widget) return null;
-          if (!WIDGET_TYPES[widget.type]) return null;
+  // Seam covers: each merged member keeps its FULL frame; we only mask the
+  // exact touching segment (doubled border + rounded-corner nubs) so the parts
+  // that don't touch keep their border and rounding. When the group's
+  // separator is on, a single thin line is drawn over the seam instead.
+  //
+  // Emitted from INSIDE the widget list, right after the last member of the
+  // group. The seam is part of its block and has to sit exactly where the
+  // block sits — and a layer is not the z-index alone: widgets share z 1 until
+  // someone reorders them, and at a tie document order decides. Rendered in a
+  // pass of its own, after every widget, the seam won every one of those ties,
+  // so a widget dropped over a merged pair had the separator drawn across it.
+  const renderGroupSeams = (gid, items) => {
 
-          // Show the Edit Interactions overlay on every widget except the
-          // currently-selected source. The overlay reads the source's
-          // exclusions to render its filter / off state. Source can be either
-          // the selected widget (cross-filter / slicer) or a global filter
-          // rule (settings.reportFilters[idx]) — the latter wins when set.
-          const ruleSource = editInteractions && interactionsRule ? interactionsRule : null;
-          const editInteractionsActive = ruleSource
-            ? true
-            : (editInteractions && selectedWidget && selectedWidget !== item.i);
-          let isExcludedFromSource = false;
-          if (ruleSource) {
-            const excl = Array.isArray(ruleSource.exclusions) ? ruleSource.exclusions : [];
-            isExcludedFromSource = excl.includes(item.i);
-          } else {
-            const sourceWidget = selectedWidget ? widgets[selectedWidget] : null;
-            const sourceExclusions = sourceWidget?.config?.crossFilterExclusions || [];
-            isExcludedFromSource = sourceExclusions.includes(item.i);
-          }
-
-          return (
-            <WidgetItem
-              key={item.i}
-              item={item}
-              widget={widget}
-              isSelected={selectedWidget === item.i}
-              readOnly={readOnly}
-              onSelect={onSelectWidget}
-              onDrag={handleDrag}
-              onDragStop={handleDragStop}
-              onStartResize={startResize}
-              onAutoHeight={handleAutoHeight}
-              onLoadMore={onLoadMore}
-              onWidgetUpdate={onWidgetUpdate}
-              onSlicerFilter={onSlicerFilter}
-              onSlicerSearch={onSlicerSearch}
-              onCrossFilter={onCrossFilter}
-              onDrillUp={onDrillUp}
-              onDrillReset={onDrillReset}
-              crossHighlight={crossHighlight}
-              snapGrid={snapGrid}
-              dragBounds={dragBounds(item, mergeGroups[mergedGidById[item.i]] || [], pageWidth, canvasHeight)}
-              scale={scale}
-              reportFilters={reportFilters}
-              editInteractionsActive={editInteractionsActive}
-              isExcludedFromSource={isExcludedFromSource}
-              onToggleCrossFilter={onToggleCrossFilter}
-              onCancelFetch={onCancelFetch}
-              onRefreshWidget={onRefreshWidget}
-              refreshKind={refreshKind}
-              mergeSpan={mergedGidById[item.i]
-                ? mergeSpan(item, mergeGroups[mergedGidById[item.i]] || [])
-                : null}
-              mergeCorners={mergedGidById[item.i]
-                ? mergeCorners(item, mergeGroups[mergedGidById[item.i]] || [])
-                : null}
-            />
-          );
-        })}
-        {/* Seam covers: each merged member keeps its FULL frame; we only
-            mask the exact touching segment (doubled border + rounded-
-            corner nubs) so the parts that don't touch keep their border
-            and rounding. When the group's separator is on, a single thin
-            line is drawn over the seam instead. */}
-        {Object.values(mergeGroups).map((items, gi) => {
           const sep = items.some((it) => widgets[it.i]?.config?.mergeSeparator);
           // Group-wide, like the flag itself: whichever member carries a
           // colour speaks for the block, so a member added later and still
@@ -487,6 +392,13 @@ export default function ReportCanvas({
               backgroundRepeat: 'no-repeat',
             }
             : { background: gBg });
+          // The seam belongs to the block, at the block's own storey. Painted
+          // at a fixed z it sat above the whole canvas, so a widget laid over a
+          // merged pair had the separator drawn across it — the one thing the
+          // widget on top is supposed to hide. Equal z with its own members is
+          // enough to keep masking them: the seams are rendered after every
+          // widget, and at a tie the later element wins.
+          const groupZ = Math.max(1, ...items.map((it) => it.z || 1));
           const inGroupSelected = !readOnly && selectedWidget && items.some((it) => it.i === selectedWidget);
           const COVER = 6; // masks 1px border on each side + radius nubs
           return groupSeams(items).map((s, k) => {
@@ -523,7 +435,7 @@ export default function ReportCanvas({
             const clusterStyle = s.vertical
               ? { left: midX - 13, top: midY - 28, width: 26, height: 56, flexDirection: 'column', padding: '2px 0' }
               : { left: midX - 28, top: midY - 13, width: 56, height: 26, flexDirection: 'row', padding: '0 2px' };
-            const seamKey = `seam-${gi}-${k}`;
+            const seamKey = `seam-${gid}-${k}`;
             const isSeamHovered = hoveredSeamKey === seamKey;
             const onSeamEnter = () => setHoveredSeamKey(seamKey);
             const onSeamLeave = () => setHoveredSeamKey((cur) => (cur === seamKey ? null : cur));
@@ -605,7 +517,7 @@ export default function ReportCanvas({
                     borderTop: s.capStart && capCss ? capCss : 'none',
                     borderBottom: s.capEnd && capCss ? capCss : 'none',
                     boxSizing: 'border-box',
-                    zIndex: 50, pointerEvents: 'none',
+                    zIndex: groupZ, pointerEvents: 'none',
                   }}>
                     {sep && <div style={{
                       position: 'absolute', left: COVER / 2 - 0.5, top: inset,
@@ -628,7 +540,7 @@ export default function ReportCanvas({
                   borderLeft: s.capStart && capCss ? capCss : 'none',
                   borderRight: s.capEnd && capCss ? capCss : 'none',
                   boxSizing: 'border-box',
-                  zIndex: 50, pointerEvents: 'none',
+                  zIndex: groupZ, pointerEvents: 'none',
                 }}>
                   {sep && <div style={{
                     position: 'absolute', top: COVER / 2 - 0.5, left: inset,
@@ -640,6 +552,132 @@ export default function ReportCanvas({
               </Fragment>
             );
           });
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      onClick={() => {
+        if (justResizedRef.current) return; // the click that ends a resize
+        onSelectWidget?.(null);
+      }}
+      style={{
+        flex: 1,
+        backgroundColor: printMode ? 'transparent' : (settings.surroundColor || 'var(--bg-app)'),
+        overflowX: 'hidden',
+        overflowY: (viewMode === 'fitToPage' && !stacked) || printMode ? 'hidden' : 'auto',
+        padding: printMode ? 0 : (stacked ? STACK_PAD : 20),
+        minWidth: 0, minHeight: 0,
+      }}
+    >
+      {stacked ? stackedColumn : (
+      <div style={{
+        width: scale < 1 ? pageWidth * scale : pageWidth,
+        minHeight: scale < 1 ? canvasHeight * scale : canvasHeight,
+        margin: printMode ? 0 : '0 auto',
+        overflow: 'visible',
+      }}>
+        <div
+          ref={reportRef}
+          style={{
+            width: pageWidth,
+            minWidth: pageWidth,
+            minHeight: canvasHeight,
+            transform: scale < 1 ? `scale(${scale})` : undefined,
+            transformOrigin: 'top left',
+            backgroundColor: settings.transparentBg ? 'transparent' : (settings.backgroundColor || 'var(--bg-canvas)'),
+            backgroundImage: !settings.transparentBg && settings.backgroundImage ? `url(${settings.backgroundImage})` : 'none',
+            backgroundSize: settings.backgroundSize || 'cover',
+            backgroundPosition: 'center',
+            backgroundRepeat: settings.backgroundSize === 'repeat' ? 'repeat' : 'no-repeat',
+            borderRadius: settings.borderRadius ?? 8,
+            boxShadow: (settings.showShadow ?? true) ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+            border: (settings.showBorder ?? true) ? undefined : 'none',
+            position: 'relative',
+          }}
+        >
+        {/* Grid overlay */}
+        {settings.showGrid && !readOnly && (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundImage: `linear-gradient(rgba(0,0,0,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.05) 1px, transparent 1px)`,
+            backgroundSize: `${settings.gridSize || 20}px ${settings.gridSize || 20}px`,
+            pointerEvents: 'none', zIndex: 0, borderRadius: settings.borderRadius ?? 8,
+          }} />
+        )}
+        {/* Seam-merge model: NO bounding-box backdrop — each merged
+            member keeps its own size/frame; the shared border between
+            two members is dropped (per-edge, in WidgetItem). */}
+        {layout.map((item) => {
+          const widget = widgets[item.i];
+          if (!widget) return null;
+          if (!WIDGET_TYPES[widget.type]) return null;
+
+          // Show the Edit Interactions overlay on every widget except the
+          // currently-selected source. The overlay reads the source's
+          // exclusions to render its filter / off state. Source can be either
+          // the selected widget (cross-filter / slicer) or a global filter
+          // rule (settings.reportFilters[idx]) — the latter wins when set.
+          const ruleSource = editInteractions && interactionsRule ? interactionsRule : null;
+          const editInteractionsActive = ruleSource
+            ? true
+            : (editInteractions && selectedWidget && selectedWidget !== item.i);
+          let isExcludedFromSource = false;
+          if (ruleSource) {
+            const excl = Array.isArray(ruleSource.exclusions) ? ruleSource.exclusions : [];
+            isExcludedFromSource = excl.includes(item.i);
+          } else {
+            const sourceWidget = selectedWidget ? widgets[selectedWidget] : null;
+            const sourceExclusions = sourceWidget?.config?.crossFilterExclusions || [];
+            isExcludedFromSource = sourceExclusions.includes(item.i);
+          }
+
+          const gidHere = mergedGidById[item.i];
+          const seams = gidHere && lastMemberOfGroup[gidHere] === item.i
+            ? renderGroupSeams(gidHere, mergeGroups[gidHere] || [])
+            : null;
+
+          return (
+            <Fragment key={item.i}>
+            <WidgetItem
+              item={item}
+              widget={widget}
+              isSelected={selectedWidget === item.i}
+              readOnly={readOnly}
+              onSelect={onSelectWidget}
+              onDrag={handleDrag}
+              onDragStop={handleDragStop}
+              onStartResize={startResize}
+              onAutoHeight={handleAutoHeight}
+              onLoadMore={onLoadMore}
+              onWidgetUpdate={onWidgetUpdate}
+              model={model}
+              onSlicerFilter={onSlicerFilter}
+              onSlicerSearch={onSlicerSearch}
+              onCrossFilter={onCrossFilter}
+              onDrillUp={onDrillUp}
+              onDrillReset={onDrillReset}
+              crossHighlight={crossHighlight}
+              snapGrid={snapGrid}
+              dragBounds={dragBounds(item, mergeGroups[mergedGidById[item.i]] || [], pageWidth, canvasHeight)}
+              scale={scale}
+              reportFilters={reportFilters}
+              editInteractionsActive={editInteractionsActive}
+              isExcludedFromSource={isExcludedFromSource}
+              onToggleCrossFilter={onToggleCrossFilter}
+              onCancelFetch={onCancelFetch}
+              onRefreshWidget={onRefreshWidget}
+              refreshKind={refreshKind}
+              mergeSpan={mergedGidById[item.i]
+                ? mergeSpan(item, mergeGroups[mergedGidById[item.i]] || [])
+                : null}
+              mergeCorners={mergedGidById[item.i]
+                ? mergeCorners(item, mergeGroups[mergedGidById[item.i]] || [])
+                : null}
+            />
+            {seams}
+            </Fragment>
+          );
         })}
         {/* Magnet affordances at the junctions of the selected widget
             with its mergeable neighbours (edit mode only). The magnet

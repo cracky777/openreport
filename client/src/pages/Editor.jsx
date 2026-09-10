@@ -1912,6 +1912,7 @@ export default function Editor() {
               settings={settings}
               onLoadMore={handleLoadMore}
               onWidgetUpdate={handleUpdateWidget}
+              model={model}
               reportFilters={slicerSelections}
               onSlicerFilter={handleSlicerFilter}
               onCrossFilter={handleCrossFilter}

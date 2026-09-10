@@ -147,6 +147,22 @@ export function useWidgetFetch({
       }
     }
 
+    // The loop below never queries a slicer: its values are a DISTINCT on one
+    // column, not the aggregate the loop knows how to ask for. So a slicer
+    // whose binding just changed has to be sent down the slicer path by hand,
+    // or it would show the name of a column and the values of another. This
+    // only became reachable when a field could be dropped straight onto a
+    // visual — the panel edits the selected widget, and a selected slicer
+    // reloads on its own.
+    if (movedIds) {
+      for (const wId of movedIds) {
+        const w = currentWidgets[wId];
+        if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0]) {
+          refreshSlicerRef.current?.(wId);
+        }
+      }
+    }
+
     // A binding edit refetches THAT widget, not the whole report. Anything else
     // — a report filter, a refresh, a cross-filter click — keeps its own scope.
     const bindingOnly = bindingsChanged && !refreshRequested && sourceId === null

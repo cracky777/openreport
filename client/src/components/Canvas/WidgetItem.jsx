@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Draggable from 'react-draggable';
 import { TbCode, TbCopy, TbRefresh, TbX, TbBug } from 'react-icons/tb';
@@ -7,6 +7,8 @@ import { fontStack } from '../../utils/googleFonts';
 import MaxRowsWarning from '../Widgets/MaxRowsWarning';
 import { evaluateColorCondition } from '../../utils/conditionalFormat';
 import { useBugReport } from '../BugReport/BugReportProvider';
+import { planFieldDrop } from '../../utils/widgetFieldDrop';
+import { currentFieldDrag } from '../../utils/fieldDrag';
 
 // A single positioned/draggable widget on the report canvas: chrome (border,
 // gradient, shadow), the widget body, loading spinner, drill controls, the SQL
@@ -32,6 +34,22 @@ const DRAG_CANCEL = {
   customVisual: '.widget-content, .resize-handle',
 };
 const DEFAULT_DRAG_CANCEL = '.resize-handle';
+
+// Shown over the visual while a field is dragged across it, naming the well
+// the field would fill. Refused drops say so instead of staying silent.
+const _dropOverlay = (ok) => ({
+  position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  background: ok ? 'rgba(124,58,237,0.12)' : 'rgba(100,100,100,0.12)',
+  border: `2px dashed ${ok ? 'var(--accent-primary)' : 'var(--border-default)'}`,
+  borderRadius: 'inherit',
+});
+const _dropPill = (ok) => ({
+  padding: '4px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+  background: ok ? 'var(--accent-primary)' : 'var(--bg-panel)',
+  color: ok ? '#fff' : 'var(--text-secondary)',
+  boxShadow: '0 1px 4px rgba(0,0,0,0.18)', whiteSpace: 'nowrap',
+});
 
 const _hs0 = { position: 'absolute', bottom: 0, left: 0, right: 0, height: 8, cursor: 'move', zIndex: 2 };
 const _hs1 = { position: 'absolute', top: 0, left: 0, bottom: 0, width: 8, cursor: 'move', zIndex: 2 };
@@ -116,7 +134,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, scale = 1, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners, mergeSpan, stacked, dragBounds }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, model, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, scale = 1, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners, mergeSpan, stacked, dragBounds }) {
   const openBugReport = useBugReport();
   const nodeRef = useRef(null);
   const [showSql, setShowSql] = useState(false);
@@ -129,6 +147,30 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
   // guard below. Declared with the other hooks, above the unknown-type guard.
   const dragOriginRef = useRef(null);
   const movedRef = useRef(false);
+  // Dropping a field onto the visual: what the overlay currently announces,
+  // and how deep into the visual's own children the cursor is (dragenter and
+  // dragleave both fire on every crossing, so entries are counted).
+  const [dropPlan, setDropPlan] = useState(null); // { zone } | { refused: true }
+  const dragDepth = useRef(0);
+  // A finger reports through DOM events on this node instead of bubbling — it
+  // is located by hit-testing, not by the tree (utils/touchDrag). The handlers
+  // are read off a ref so the listeners are registered once.
+  const dropRef = useRef(null);
+  useEffect(() => {
+    const el = nodeRef.current;
+    if (!el) return undefined;
+    const enter = () => { if (dropRef.current.canDrop) setDropPlan(dropRef.current.previewDrop()); };
+    const leave = () => setDropPlan(null);
+    const drop = (e) => { if (dropRef.current.canDrop) dropRef.current.applyFieldDrop(e.detail || {}); };
+    el.addEventListener('or:dragenter', enter);
+    el.addEventListener('or:dragleave', leave);
+    el.addEventListener('or:drop', drop);
+    return () => {
+      el.removeEventListener('or:dragenter', enter);
+      el.removeEventListener('or:dragleave', leave);
+      el.removeEventListener('or:drop', drop);
+    };
+  }, []);
   const WidgetType = WIDGET_TYPES[widget.type];
   if (!WidgetType) return null;
 
@@ -216,6 +258,68 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
     ].filter(Boolean).join(', ') || 'none',
   };
 
+  // ── Dropping a field straight onto the visual ──────────────────────────
+  // Aiming at the right well in the config panel is a step the user does not
+  // owe us: the visual knows what a dimension and a measure are for. Where it
+  // would land is announced while the field is still in the air, because a
+  // drop that silently fills the wrong slot is worse than no shortcut at all.
+  const canDrop = !readOnly && !!onWidgetUpdate && !!model;
+  // A finger finds its target by hit-testing `data-touch-drop` below. The
+  // value tells a visual apart from a well of the config panel — the same kind
+  // of target, for a very different reason.
+
+  const previewDrop = () => {
+    const payload = currentFieldDrag();
+    if (!payload) return null;
+    const plan = planFieldDrop({ widget, model, ...payload });
+    return plan ? { zone: plan.zone } : { refused: true };
+  };
+
+  const applyFieldDrop = ({ fieldName, fieldType }) => {
+    dragDepth.current = 0;
+    setDropPlan(null);
+    const plan = planFieldDrop({ widget, fieldName, fieldType, model });
+    if (!plan) return;
+    const next = { ...widget, dataBinding: { ...(widget.dataBinding || {}), ...plan.binding } };
+    if (plan.config) next.config = plan.config;
+    onWidgetUpdate(item.i, next);
+    // The field landed somewhere the user cannot see from the canvas; select
+    // the visual so the panel shows which well took it, ready to be changed.
+    onSelect?.(item.i);
+  };
+
+  // dragenter/dragleave also fire when the cursor crosses the visual's own
+  // children, so entries are counted rather than trusted one for one.
+  const dropHandlers = canDrop ? {
+    onDragEnter: (e) => {
+      if (!currentFieldDrag()) return;
+      e.preventDefault();
+      dragDepth.current += 1;
+      if (dragDepth.current === 1) setDropPlan(previewDrop());
+    },
+    onDragOver: (e) => {
+      if (!currentFieldDrag()) return;
+      // Without this the browser refuses the drop and plays the "no" cursor.
+      e.preventDefault();
+      e.dataTransfer.dropEffect = dropPlan?.refused ? 'none' : 'copy';
+    },
+    onDragLeave: () => {
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (dragDepth.current === 0) setDropPlan(null);
+    },
+    onDrop: (e) => {
+      if (!currentFieldDrag()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      applyFieldDrop({
+        fieldName: e.dataTransfer.getData('application/field-name'),
+        fieldType: e.dataTransfer.getData('application/field-type'),
+      });
+    },
+  } : {};
+
+  dropRef.current = { canDrop, previewDrop, applyFieldDrop };
+
   return (
     <Draggable
       nodeRef={nodeRef}
@@ -252,6 +356,8 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
     >
       <div
         ref={nodeRef}
+        data-touch-drop={canDrop ? 'visual' : undefined}
+        {...dropHandlers}
         onClick={(e) => {
           e.stopPropagation();
           onSelect?.(item.i);
@@ -275,6 +381,13 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           ...frameChrome,
           overflow: widget.config?.shadow?.enabled ? 'visible' : 'hidden',
         }}>
+        {dropPlan && (
+          <div style={_dropOverlay(!dropPlan.refused)}>
+            <span style={_dropPill(!dropPlan.refused)}>
+              {dropPlan.refused ? 'No slot for this field' : dropPlan.zone}
+            </span>
+          </div>
+        )}
         {widget.config?.title && (
           <div style={{
             padding: '8px 12px 0', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)',

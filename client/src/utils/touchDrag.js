@@ -33,6 +33,8 @@ const LONG_PRESS_MS = 260;
 // Beyond this the finger is scrolling, not pressing — and the mouse is dragging.
 const MOVE_TOLERANCE = 10;
 
+import { setFieldDrag, clearFieldDrag } from './fieldDrag';
+
 let armed = null; // { timer, x, y, payload, label, pointerId }
 let dragging = null; // { ghost, zone, payload, pointerId }
 // A drag released over its own row would fire a click on it — opening the field
@@ -115,6 +117,7 @@ function teardown() {
   dragging.ghost.remove();
   document.body.style.removeProperty('user-select');
   dragging = null;
+  clearFieldDrag();
   clickDeadUntil = Date.now() + 400;
   window.dispatchEvent(new CustomEvent('or:dragend'));
 }
@@ -201,6 +204,9 @@ function begin() {
   armed = null;
   dragging = { ghost: makeGhost(label || payload.fieldName), zone: null, index: undefined, payload, pointerId };
   moveGhost(x, y);
+  // Same payload a native drag leaves behind, so a visual can preview the
+  // drop under the finger exactly as it does under the cursor.
+  setFieldDrag(payload);
   // Stops the text-selection loupe from fighting the drag.
   document.body.style.userSelect = 'none';
 

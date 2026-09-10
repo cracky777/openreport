@@ -31,10 +31,13 @@ const journeyWidth = (page) => page.evaluate(
 
 const NO_ZONE = '(no visible zone)';
 // The zone the sheet is showing, if it is showing one at all.
-const visibleZone = (page) => page.evaluate((none) => {
-  const z = [...document.querySelectorAll('[data-touch-drop]')].find((d) => d.getBoundingClientRect().height > 0);
+// A visual on the canvas takes a dropped field too, and says so with the same
+// attribute; only the config panel's wells are zones in the sense meant here.
+const WELL = '[data-touch-drop]:not([data-touch-drop="visual"])';
+const visibleZone = (page) => page.evaluate(([none, sel]) => {
+  const z = [...document.querySelectorAll(sel)].find((d) => d.getBoundingClientRect().height > 0);
   return z ? z.innerText.replace(/\s+/g, ' ').trim() : none;
-}, NO_ZONE);
+}, [NO_ZONE, WELL]);
 
 test('on a phone the active stage fills the screen', async ({ page }) => {
   await page.setViewportSize(PHONE);
@@ -243,10 +246,10 @@ test('on a phone a field can be dragged into a zone with one finger', async ({ p
   await page.locator('.widget-content').nth(1).click({ position: { x: 10, y: 10 } });
   await expect(page.getByRole('button', { name: 'Data', exact: true })).toBeVisible();
 
-  const zoneBefore = await page.evaluate(() => {
-    const z = [...document.querySelectorAll('[data-touch-drop]')].find((d) => d.getBoundingClientRect().height > 0);
+  const zoneBefore = await page.evaluate((sel) => {
+    const z = [...document.querySelectorAll(sel)].find((d) => d.getBoundingClientRect().height > 0);
     return z ? z.innerText : '';
-  });
+  }, WELL);
   expect(zoneBefore).not.toContain(F.SPARE_DIM_LABEL);
 
   await page.getByRole('button', { name: 'Data', exact: true }).click();
@@ -263,11 +266,11 @@ test('on a phone a field can be dragged into a zone with one finger', async ({ p
   await finger(cdp, 'touchStart', fromX, fromY);
   await expect.poll(() => activeSheetTab(page)).toBe('Settings');
 
-  const zone = await page.evaluate(() => {
-    const z = [...document.querySelectorAll('[data-touch-drop]')].find((d) => d.getBoundingClientRect().height > 0);
+  const zone = await page.evaluate((sel) => {
+    const z = [...document.querySelectorAll(sel)].find((d) => d.getBoundingClientRect().height > 0);
     const r = z.getBoundingClientRect();
     return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
-  });
+  }, WELL);
   // Travel in steps, the way a finger does — one jump would not give the
   // browser the chance to mistake the drag for a pan.
   for (let i = 1; i <= 5; i += 1) {
@@ -280,10 +283,10 @@ test('on a phone a field can be dragged into a zone with one finger', async ({ p
   await finger(cdp, 'touchEnd', zone.x, zone.y);
 
   // The field landed, and the ghost that followed the finger is gone.
-  await expect.poll(async () => page.evaluate(() => {
-    const z = [...document.querySelectorAll('[data-touch-drop]')].find((d) => d.getBoundingClientRect().height > 0);
+  await expect.poll(async () => page.evaluate((sel) => {
+    const z = [...document.querySelectorAll(sel)].find((d) => d.getBoundingClientRect().height > 0);
     return z ? z.innerText : '';
-  })).toContain(F.SPARE_DIM_LABEL);
+  }, WELL)).toContain(F.SPARE_DIM_LABEL);
   expect(await page.evaluate(() => [...document.body.children].some((c) => c.style && c.style.zIndex === '10000'))).toBe(false);
 });
 
@@ -317,11 +320,11 @@ test('zoomed in on a desktop a field can still be dragged into a zone', async ({
 
   // The zones came forward: without that the drag has no destination at all.
   await expect.poll(() => visibleZone(page)).not.toBe(NO_ZONE);
-  const zone = await page.evaluate(() => {
-    const z = [...document.querySelectorAll('[data-touch-drop]')].find((d) => d.getBoundingClientRect().height > 0);
+  const zone = await page.evaluate((sel) => {
+    const z = [...document.querySelectorAll(sel)].find((d) => d.getBoundingClientRect().height > 0);
     const r = z.getBoundingClientRect();
     return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
-  });
+  }, WELL);
   await page.mouse.move(zone.x, zone.y, { steps: 8 });
   await page.mouse.up();
 

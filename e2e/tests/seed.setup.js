@@ -89,6 +89,36 @@ TEXT_TYPES.forEach((t, i) => {
   TEXT_LAYOUT.push({ i: id, x: 20 + (i % 2) * 620, y: 20 + Math.floor(i / 2) * 340, w: 600, h: 320, z: 1 });
 });
 
+// Two frames merged into one block, showing the separator line at their seam,
+// with a third widget laid ON TOP of that seam at a higher layer. The colours
+// are what the spec reads back: it has to tell the separator from the widget
+// covering it.
+const MERGE_WIDGETS = {
+  'w-left': {
+    type: 'text',
+    dataBinding: {},
+    config: { mergeGroup: 'g1', mergeSeparator: true, mergeSeparatorColor: '#dc2626', text: 'left' },
+  },
+  'w-right': {
+    type: 'text',
+    dataBinding: {},
+    config: { mergeGroup: 'g1', mergeSeparator: true, mergeSeparatorColor: '#dc2626', text: 'right' },
+  },
+  'w-over': {
+    type: 'shape',
+    dataBinding: {},
+    config: { backgroundColor: '#16a34a', shape: 'rectangle' },
+  },
+};
+const MERGE_LAYOUT = [
+  { i: 'w-left', x: 40, y: 40, w: 300, h: 200, z: 1 },
+  { i: 'w-right', x: 340, y: 40, w: 300, h: 200, z: 1 },
+  // Straddles the seam at x=340. NO z of its own — which is what a widget
+  // added to a report actually gets: the same layer as everything else, on top
+  // by virtue of coming last. That is the case the separator used to ignore.
+  { i: 'w-over', x: 290, y: 60, w: 100, h: 160 },
+];
+
 setup('seed the fixture', async ({ request }) => {
   // First account on a virgin database becomes admin, and register logs it in.
   const reg = await request.post('/api/auth/register', { data: { ...F.USER, displayName: 'E2E' } });
@@ -142,7 +172,8 @@ setup('seed the fixture', async ({ request }) => {
   // The successful-save case renames what it opens, so it gets its own report
   // rather than borrowing — and restoring — the one every other spec reads.
   const renameReportId = await mkReport('Rapport e2e bis', WIDGETS, LAYOUT);
+  const mergeReportId = await mkReport('Rapport e2e fusion', MERGE_WIDGETS, MERGE_LAYOUT);
 
-  fs.writeFileSync(F.IDS_FILE, JSON.stringify({ datasourceId, modelId, reportId, tableReportId, textReportId, twiceReportId, otherReportId, renameReportId }, null, 1));
+  fs.writeFileSync(F.IDS_FILE, JSON.stringify({ datasourceId, modelId, reportId, tableReportId, textReportId, twiceReportId, otherReportId, renameReportId, mergeReportId }, null, 1));
   await request.storageState({ path: F.AUTH_STATE });
 });

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { setFieldDrag, clearFieldDrag } from '../../utils/fieldDrag';
 import { TbArrowsSort, TbSortAscending, TbSortDescending, TbClock } from 'react-icons/tb';
 import { TIME_PRESETS, TP_SHORT, parseTimeVariant } from '../../utils/timeIntelligence';
 import { armTouchDrag, isTouchDragging } from '../../utils/touchDrag';
@@ -150,9 +151,11 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
     e.dataTransfer.setData('application/field-name', field);
     e.dataTransfer.setData('application/field-type', isDim ? 'dimension' : 'measure');
     if (zoneName) e.dataTransfer.setData('application/source-zone', zoneName);
+    setFieldDrag({ fieldName: field, fieldType: isDim ? 'dimension' : 'measure', sourceZone: zoneName || null });
   };
 
   const endItemDrag = () => {
+    clearFieldDrag();
     setDragIdx(null);
     setDrop(null);
   };
