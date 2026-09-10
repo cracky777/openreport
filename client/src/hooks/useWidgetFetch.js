@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import api from '../utils/api';
 import { buildWidgetQueryPayload } from '../utils/widgetQueryPayload';
 import { buildWidgetData } from '../utils/widgetDataBuilder';
-import { computeBindingKey } from '../utils/bindingKey';
+import { computeBindingKey, computeBindingSignatures } from '../utils/bindingKey';
 import { filterForTarget } from '../utils/crossFilter';
 import { prepareGlobalRulesForWidget } from '../utils/reportFilterRules';
 
@@ -15,7 +15,7 @@ import { prepareGlobalRulesForWidget } from '../utils/reportFilterRules';
 // dependency array stay identical to the inline original.
 export function useWidgetFetch({
   reportFilters, settings, refreshCounter, model, report, id, effectiveModel, setRefreshing, history, crossFilterSourceRef, prevRefreshCounter: prevRefreshCounterRef, refreshIsManualRef, skipNextRefetch: skipNextRefetchRef, prevFiltersJson: prevFiltersJsonRef, abortControllerRef, debounceTimerRef, drillingWidgetIdRef, interactionToggleTargetRef, widgetRefreshIdRef, prevSettingsFiltersRef, refreshSlicerRef, crossHighlightRef, pendingLoadingRef, activeQueryIdsRef,
-  bindingsSignature, prevBindingsSignatureRef,
+  bindingsSignature, prevBindingsSignatureRef, prevBindingSignaturesRef,
 }) {
   useEffect(() => {
     // Compare against report-level filters (from Settings) too — changing the
@@ -24,6 +24,7 @@ export function useWidgetFetch({
       r: reportFilters || {},
       s: Array.isArray(settings?.reportFilters) ? settings.reportFilters : [],
     });
+    const prevJsonForScope = prevFiltersJsonRef.current;
     const sourceId = crossFilterSourceRef.current;
     const refreshRequested = refreshCounter !== prevRefreshCounterRef.current;
     // A widget's own binding moved — a filter rule, a row cap, a dropped
@@ -35,6 +36,15 @@ export function useWidgetFetch({
     const bindingsChanged = prevBindingsSignatureRef.current !== null
       && prevBindingsSignatureRef.current !== bindingsSignature;
     prevBindingsSignatureRef.current = bindingsSignature;
+    // WHICH bindings moved. Waking on one and refetching every widget that
+    // happened to be stale is what repainted the visual next door on a filter
+    // edit — a neighbour is usually stale for reasons of its own.
+    const perWidget = computeBindingSignatures(history.state.widgets);
+    const prevPer = prevBindingSignaturesRef.current;
+    const movedIds = prevPer
+      ? new Set(Object.keys(perWidget).filter((id) => prevPer[id] !== perWidget[id]))
+      : null;
+    prevBindingSignaturesRef.current = perWidget;
 
     // This loop refetches EVERY widget whose binding moved, the selected one
     // included. Skipping it — on the grounds that the panel owns the selection
@@ -137,9 +147,14 @@ export function useWidgetFetch({
       }
     }
 
+    // A binding edit refetches THAT widget, not the whole report. Anything else
+    // — a report filter, a refresh, a cross-filter click — keeps its own scope.
+    const bindingOnly = bindingsChanged && !refreshRequested && sourceId === null
+      && json === prevJsonForScope;
     const toFetch = Object.entries(currentWidgets).filter(([wId, w]) => {
       if (!w) return false;
       if (scopedToId && wId !== scopedToId) return false;
+      if (bindingOnly && movedIds && !movedIds.has(wId)) return false;
 
       // On explicit refresh, refetch ALL (including cross-filter source)
       if (!refreshRequested && wId === sourceId) return false;

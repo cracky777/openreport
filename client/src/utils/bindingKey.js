@@ -134,17 +134,29 @@ const QUERY_CONFIG_KEYS = ['topNEnabled', 'topN', 'dataLimit'];
  * font, or every restyle would wake the loop and abort its in-flight queries.
  */
 export function computeBindingsSignature(widgets) {
-  if (!widgets) return '';
-  return JSON.stringify(Object.keys(widgets).sort().map((id) => {
+  const per = computeBindingSignatures(widgets);
+  return JSON.stringify(Object.keys(per).sort().map((id) => [id, per[id]]));
+}
+
+/**
+ * The same thing, kept per widget, so a wake-up can tell WHICH binding moved.
+ *
+ * Refetching every stale widget because one of them changed is what made a
+ * filter edit repaint the visual next door — and the neighbours are usually
+ * stale for reasons of their own, so it was not a rare case.
+ */
+export function computeBindingSignatures(widgets) {
+  const out = {};
+  for (const id of Object.keys(widgets || {})) {
     const w = widgets[id];
     const cfg = w?.config || {};
-    return [
-      id,
+    out[id] = JSON.stringify([
       w?.type || '',
       w?.dataBinding || null,
       QUERY_CONFIG_KEYS.map((k) => cfg[k] ?? null),
       cfg.colorCondition?.enabled === true,
       w?.drillPath || null,
-    ];
-  }));
+    ]);
+  }
+  return out;
 }
