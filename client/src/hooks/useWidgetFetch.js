@@ -15,7 +15,7 @@ import { prepareGlobalRulesForWidget } from '../utils/reportFilterRules';
 // dependency array stay identical to the inline original.
 export function useWidgetFetch({
   reportFilters, settings, refreshCounter, model, report, id, effectiveModel, setRefreshing, history, crossFilterSourceRef, prevRefreshCounter: prevRefreshCounterRef, refreshIsManualRef, skipNextRefetch: skipNextRefetchRef, prevFiltersJson: prevFiltersJsonRef, abortControllerRef, debounceTimerRef, drillingWidgetIdRef, interactionToggleTargetRef, widgetRefreshIdRef, prevSettingsFiltersRef, refreshSlicerRef, crossHighlightRef, pendingLoadingRef, activeQueryIdsRef,
-  bindingsSignature, prevBindingsSignatureRef, selectedWidget, prevPanelOwnedRef,
+  bindingsSignature, prevBindingsSignatureRef,
 }) {
   useEffect(() => {
     // Compare against report-level filters (from Settings) too — changing the
@@ -36,38 +36,19 @@ export function useWidgetFetch({
       && prevBindingsSignatureRef.current !== bindingsSignature;
     prevBindingsSignatureRef.current = bindingsSignature;
 
-    // Who refetches the widget whose binding just moved: the data panel owns
-    // the SELECTED one — it drives its own status line and previews from the
-    // same response — and this loop owns the rest. One owner each way, so one
-    // query per edit.
-    const panelOwned = selectedWidget || null;
-    const releasedId = prevPanelOwnedRef.current;
-    prevPanelOwnedRef.current = panelOwned;
-    // The panel can drop the ball on the way out: the click that commits a
-    // field by leaving it is often the same click that deselects the widget,
-    // and the panel unmounts with its fetch still on the debounce timer — the
-    // cleanup cancels it. So when the panel stops owning a widget, check that
-    // widget is actually up to date, and pick it up here if it is not. The
-    // check is what keeps an ordinary selection change from waking the loop.
-    //
-    // When the panel's request DID get out before the unmount, this fires a
-    // second identical one — deliberately. Reading `_loading` to tell the two
-    // apart would skip exactly the case this exists for, since a request in
-    // flight is aborted by that same unmount and its answer never lands. One
-    // duplicate on one gesture, against a visual that shows the previous
-    // answer: the server's result cache absorbs the former.
-    const releasedStale = !!releasedId && releasedId !== panelOwned && (() => {
-      const w = history.state.widgets?.[releasedId];
-      if (!w) return false;
-      const base = { ...(reportFilters || {}) };
-      const target = filterForTarget(releasedId, base, history.state.widgets, crossHighlightRef.current);
-      const key = computeBindingKey({ widget: w, model, reportFilters: target, settings, cacheBuiltAt: report?.cache_built_at });
-      // Same test as the per-widget skip below, so the two agree on what
-      // "up to date" means. A widget with no data at all counts as stale —
-      // it is the one that most needs the query, and an early version of
-      // this excluded it and reproduced the very bug it was added for.
-      return !(w.data && w.data._fetchedBinding === key && Object.keys(w.data).length > 1);
-    })();
+    // This loop refetches EVERY widget whose binding moved, the selected one
+    // included. Skipping it — on the grounds that the panel owns the selection
+    // and will do it — costs one duplicate query less, and cost far more than
+    // that: the click that commits a field is often the same click that
+    // deselects, the panel goes away before its own fetch is scheduled, and the
+    // edit was left showing the previous answer. The server's result cache
+    // absorbs a duplicate; a visual stuck on stale data is not absorbed by
+    // anything.
+    // Plus de rattrapage ici : le panneau ne tue plus sa requete en se
+    // demontant, donc rien n'est lache. Le reveiller a la deselection
+    // relançait cette boucle, dont le nettoyage eteint l'indicateur de
+    // chargement et annule l'attente de 150 ms — le rafraichissement mourait
+    // au clic a cote.
     // `bypassCache` is for the Refresh button (force-fresh data), not
     // for drill-triggered refetches — those should still hit the pre-
     // agg cache. The drill flow bumps `refreshCounter` to nudge the
@@ -83,7 +64,7 @@ export function useWidgetFetch({
     }
     // Skip only if NOTHING changed: filters identical AND no fresh cross-filter click AND no refresh request
     if (json === prevFiltersJsonRef.current && sourceId === null && !refreshRequested
-        && !bindingsChanged && !releasedStale) return;
+        && !bindingsChanged) return;
     if (!model) return;
     prevFiltersJsonRef.current = json;
 
@@ -159,7 +140,7 @@ export function useWidgetFetch({
     const toFetch = Object.entries(currentWidgets).filter(([wId, w]) => {
       if (!w) return false;
       if (scopedToId && wId !== scopedToId) return false;
-      if (bindingsChanged && !refreshRequested && sourceId === null && wId === panelOwned) return false;
+
       // On explicit refresh, refetch ALL (including cross-filter source)
       if (!refreshRequested && wId === sourceId) return false;
       const b = w.dataBinding || {};
@@ -378,5 +359,5 @@ export function useWidgetFetch({
     // (charts AND slicers). The internal `json`/`prevFiltersJsonRef` guard
     // already keys on `s: settings.reportFilters`, so adding the dep does
     // NOT double-fire — it dedupes when nothing actually changed.
-  }, [reportFilters, settings?.reportFilters, model, refreshCounter, bindingsSignature, selectedWidget]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reportFilters, settings?.reportFilters, model, refreshCounter, bindingsSignature]); // eslint-disable-line react-hooks/exhaustive-deps
 }

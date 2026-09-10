@@ -356,7 +356,7 @@ export default function Editor() {
   // re-running every time the selection moves.
   const bindingsSignature = useMemo(() => computeBindingsSignature(widgets), [widgets]);
   const prevBindingsSignatureRef = useRef(null);
-  const prevPanelOwnedRef = useRef(null);
+
   // Same mirror for the history object. The cache-warming poll below only reads
   // it when a rebuild finishes, but depending on it re-ran the whole effect on
   // every layout mutation — one GET /warming per resize gesture, one per frame
@@ -1125,7 +1125,7 @@ export default function Editor() {
     prevFiltersJson, abortControllerRef, debounceTimerRef, drillingWidgetIdRef,
     interactionToggleTargetRef, widgetRefreshIdRef, prevSettingsFiltersRef,
     refreshSlicerRef, crossHighlightRef, pendingLoadingRef, activeQueryIdsRef,
-    bindingsSignature, prevBindingsSignatureRef, selectedWidget, prevPanelOwnedRef,
+    bindingsSignature, prevBindingsSignatureRef,
   });
 
   const [loading, setLoading] = useState(true);
