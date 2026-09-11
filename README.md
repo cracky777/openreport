@@ -55,28 +55,21 @@ An open source, self-hosted reporting and data visualization platform, easy to r
 ### Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/cracky777/openreport.git open-report
 cd open-report
-
-# Install server dependencies
-cd server
-npm install
-
-# Install client dependencies
-cd ../client
-npm install
+./install.sh
 ```
+
+`install.sh` settles the Node version first — it installs Node 22 through nvm,
+under your own home directory and without sudo, when the one on your PATH is
+missing or too old — then installs every dependency. Set `OPENREPORT_SKIP_NODE=1`
+to manage Node yourself.
+
+On Windows, or to do it by hand: install Node 22, then `npm run install:all`.
 
 ### Running
 
 ```bash
-# Terminal 1: Start the server
-cd server
-node index.js
-
-# Terminal 2: Start the client
-cd client
 npm run dev
 ```
 
