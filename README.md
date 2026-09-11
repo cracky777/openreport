@@ -48,7 +48,8 @@ An open source, self-hosted reporting and data visualization platform, easy to r
 
 ### Prerequisites
 
-- Node.js >= 22
+- Node.js >= 22 - an older one is refused with an `EBADENGINE` error, because DuckDB
+  cannot be built on it (the failure used to surface as an unrelated `SyntaxError`)
 - npm >= 9
 
 ### Installation
