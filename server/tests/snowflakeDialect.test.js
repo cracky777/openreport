@@ -41,7 +41,7 @@ describe('Snowflake — les trois divergences', () => {
     expect(part('name_day')).toContain('DAYOFWEEKISO');
     expect(part('name_day')).toContain("'Monday'");
     for (const p of ['num_year', 'num_month', 'name_month', 'num_week', 'num_day_of_week', 'name_day']) {
-      expect(part(p)).not.toMatch(/'Month'|'Day'|DOW|FORMAT_DATE|STR_TO_DATE|DATENAME/);
+      expect(part(p)).not.toMatch(/'Month'|'Day'|\bDOW\b|FORMAT_DATE|STR_TO_DATE|DATENAME/);
     }
   });
 

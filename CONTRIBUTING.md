@@ -31,7 +31,8 @@ Please run these before opening a pull request.
 ```bash
 cd server && npm test        # Jest: routes, authorization, RLS, SQL snapshots
 cd client && npm test        # Vitest: the pure utilities
-cd client && npm run lint    # ESLint (the server is not linted yet)
+cd client && npm run lint    # ESLint
+cd server && npm run lint    # ESLint
 npm run test:e2e             # Playwright, from the repository root
 ```
 

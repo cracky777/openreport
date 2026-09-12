@@ -130,7 +130,8 @@ through its own path.
 ```bash
 cd server && npm test        # Jest — 67 suites: routes, authorization, RLS, SQL snapshots
 cd client && npm test        # Vitest — the pure utilities
-cd client && npm run lint    # ESLint (the server is not linted yet — patches welcome)
+cd client && npm run lint    # ESLint
+cd server && npm run lint    # ESLint
 npm run test:e2e             # Playwright, from the repository root
 ```
 
@@ -161,6 +162,7 @@ and ideally behind existing tests — is welcome.
 ## Conventions
 
 - JavaScript only. Server is CommonJS, client is ESM. Functional components.
+- Both packages are linted, and the CI fails on a lint error. Run them before pushing.
 - Comments explain **why**, not what. No banners, no `[INFO]` logging, no "Step
   N" narration.
 - `catch { /* the reason */ }` — never an uncommented empty catch.
