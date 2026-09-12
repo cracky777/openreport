@@ -1,0 +1,92 @@
+name: Bug report
+description: Something does not work the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Most of Open Report is SQL generation, and
+        every database dialect differs — so a report without the database type
+        usually cannot be answered at all. The fields below are the ones that
+        turn out to matter.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+      placeholder: |
+        The table widget shows 3 rows. With the same filter in the SQL client it returns 12.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered, from a state someone else can reach.
+      placeholder: |
+        1. Create a table widget bound to a text dimension and a SUM measure
+        2. Add a Top N filter on the measure, N = 5
+        3. Change N to 3 and press Enter
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How do you run Open Report?
+      options:
+        - Self-hosted, from source (npm run dev)
+        - Self-hosted, Docker
+        - Cloud (app.openreport.io)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: database
+    attributes:
+      label: Which database is the model connected to?
+      description: The one the failing report reads. Pick every one involved.
+      multiple: true
+      options:
+        - PostgreSQL
+        - MySQL / MariaDB
+        - Microsoft SQL Server / Azure SQL
+        - Google BigQuery
+        - DuckDB (imported CSV / Excel / Parquet)
+        - Not relevant — the problem is not about data
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The commit you are on (`git rev-parse --short HEAD`), or the date if you use the Cloud.
+      placeholder: 456d364
+    validations:
+      required: true
+
+  - type: textarea
+    id: sql
+    attributes:
+      label: Generated SQL
+      description: >
+        If the problem is about wrong values or wrong rows, this is the single most
+        useful thing you can paste. Select the widget and click the code icon
+        ("View the SQL query").
+      render: sql
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server output and browser console
+      description: Anything printed by the server, and anything red in the browser console.
+      render: shell
+
+  - type: input
+    id: environment
+    attributes:
+      label: Browser and operating system
+      placeholder: Firefox 141 on Ubuntu 24.04

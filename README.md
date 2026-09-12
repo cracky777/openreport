@@ -111,7 +111,17 @@ open-report/
 
 ## Contributing
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a pull request.
+Contributions are welcome.
+
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — how a widget becomes SQL, and which file
+  to open for which change. Read this first; it saves more time than it takes.
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — setup, tests, and what a good pull request looks like.
+- **[SECURITY.md](SECURITY.md)** — how to report a vulnerability. Please do not open an issue for one.
+- **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)**
+
+Questions and ideas go to [Discussions](https://github.com/cracky777/openreport/discussions);
+confirmed bugs go to [Issues](https://github.com/cracky777/openreport/issues/new/choose).
+
 
 ## License
 

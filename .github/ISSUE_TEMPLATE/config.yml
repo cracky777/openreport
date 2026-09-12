@@ -1,0 +1,10 @@
+# A blank issue is almost always a question, and a question is better served in
+# Discussions — where it stays findable for the next person who asks it.
+blank_issues_enabled: false
+contact_links:
+  - name: Question, idea, or "is this a bug?"
+    url: https://github.com/cracky777/openreport/discussions
+    about: Ask in Discussions. No form to fill in, and nothing to close.
+  - name: Security vulnerability
+    url: https://github.com/cracky777/openreport/security/advisories/new
+    about: Report it privately. Please do not open a public issue.

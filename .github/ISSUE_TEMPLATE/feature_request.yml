@@ -1,0 +1,44 @@
+name: Feature request
+description: Something Open Report should be able to do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If you are not yet sure the idea fits, a
+        [Discussion](https://github.com/cracky777/openreport/discussions) is a better
+        place to start — it costs nothing to abandon, and an issue does.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: >
+        The situation, not the solution. What you are trying to produce, and what
+        stops you today. This is the part that decides whether the feature gets
+        built, and whether it gets built the way you need.
+      placeholder: |
+        I send a weekly report to 40 shop managers. Each has to see only their own shop,
+        so today I duplicate the report 40 times.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would it look like?
+      description: How you picture it working, if you have a picture.
+
+  - type: input
+    id: prior-art
+    attributes:
+      label: Does another tool do this?
+      description: Naming it, and saying what you like or dislike about how they did it, helps a lot.
+      placeholder: Power BI does this with a role per user on the dataset
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Would you like to build it?
+      options:
+        - label: I would be willing to open a pull request for this
