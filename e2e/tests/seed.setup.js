@@ -169,11 +169,8 @@ setup('seed the fixture', async ({ request }) => {
   const twiceReportId = await mkReport('Rapport e2e mesure en double', TWICE_WIDGETS, TWICE_LAYOUT);
   // Exists only to own the title the conflict spec tries to steal.
   const otherReportId = await mkReport(F.TAKEN_TITLE, null, null);
-  // The successful-save case renames what it opens, so it gets its own report
-  // rather than borrowing — and restoring — the one every other spec reads.
-  const renameReportId = await mkReport('Rapport e2e bis', WIDGETS, LAYOUT);
   const mergeReportId = await mkReport('Rapport e2e fusion', MERGE_WIDGETS, MERGE_LAYOUT);
 
-  fs.writeFileSync(F.IDS_FILE, JSON.stringify({ datasourceId, modelId, reportId, tableReportId, textReportId, twiceReportId, otherReportId, renameReportId, mergeReportId }, null, 1));
+  fs.writeFileSync(F.IDS_FILE, JSON.stringify({ datasourceId, modelId, reportId, tableReportId, textReportId, twiceReportId, otherReportId, mergeReportId }, null, 1));
   await request.storageState({ path: F.AUTH_STATE });
 });
