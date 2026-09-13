@@ -10,6 +10,28 @@ An open source, self-hosted reporting and data visualization platform, easy to r
 
 **Think Power BI / Looker Studio, but open source and self-hosted.**
 
+## Screenshots
+
+A sales dashboard built on the public `thelook_ecommerce` BigQuery dataset: scorecards with year-over-year comparison, a slicer, line, donut, bar, treemap and table visuals.
+
+![Report viewer, light theme](docs/screenshots/viewer-light.png)
+
+Every report has its own theme. The same dashboard in dark mode:
+
+![Report viewer, dark theme](docs/screenshots/viewer-dark.png)
+
+Reports can have several pages. Page two mixes a combo chart with a secondary axis, a gauge with a target, a stacked bar and a top-N table:
+
+![Report viewer, second page](docs/screenshots/viewer-light-page2.png)
+
+The editor: drag fields from the semantic model onto the canvas, then tune each visual in the property panel. Undo/redo, snap-to-grid, cross-filtering.
+
+![Report editor](docs/screenshots/editor.png)
+
+The semantic model: pick tables, draw joins with their cardinality, flag dimensions and measures once and every report reuses them. The fact table is highlighted, and the model is where Row-Level Security is defined.
+
+![Model editor](docs/screenshots/model-editor.png)
+
 ## Features
 
 - 10+ visualization types, and you can write your own
@@ -103,6 +125,7 @@ open-report/
 │   ├── db/                 # SQLite schema & connection
 │   ├── utils/              # Database connectors
 │   └── middleware/         # Auth middleware
+├── docs/                   # Architecture, authorization, screenshots
 ├── API.md                  # Public API (v1) reference
 ├── LICENSE                 # GNU AGPL-3.0
 ├── CONTRIBUTING.md
