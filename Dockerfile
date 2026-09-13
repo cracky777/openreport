@@ -1,5 +1,8 @@
 # Stage 1: build the React frontend
-FROM node:22-slim AS frontend-build
+# The frontend bundle is platform-independent: build it on the host architecture
+# even in a multi-arch (amd64 + arm64) build, instead of running Vite under
+# QEMU emulation, which is an order of magnitude slower for no gain.
+FROM --platform=$BUILDPLATFORM node:22-slim AS frontend-build
 WORKDIR /app/client
 COPY client/package*.json ./
 RUN npm ci

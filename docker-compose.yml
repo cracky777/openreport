@@ -1,3 +1,7 @@
+# Full stack for a public host: the app, nginx on :80/:443 and a Let's Encrypt
+# certificate that renews itself. Needs a domain name pointing at this machine.
+# For a LAN box, a NAS or a reverse proxy you already run, use the
+# single-container docker-compose.simple.yml instead.
 services:
   app:
     build: .

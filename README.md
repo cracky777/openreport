@@ -68,36 +68,57 @@ The semantic model: pick tables, draw joins with their cardinality, flag dimensi
 
 ## Quick Start
 
-### Prerequisites
+### Docker
 
-- Node.js >= 22 - an older one is refused with an `EBADENGINE` error, because DuckDB
-  cannot be built on it (the failure used to surface as an unrelated `SyntaxError`)
-- npm >= 9
+One container, plain HTTP on port 3001. Works on a home server, a NAS or a
+Raspberry Pi; the image is built for amd64 and arm64.
 
-### Installation
+```bash
+mkdir openreport && cd openreport
+curl -fsSL https://raw.githubusercontent.com/cracky777/openreport/master/docker-compose.simple.yml -o docker-compose.yml
+printf 'SESSION_SECRET=%s\nINTERNAL_TOKEN_SECRET=%s\nDATASOURCE_ENC_KEY=%s\n' \
+  $(openssl rand -hex 32) $(openssl rand -hex 32) $(openssl rand -hex 32) > .env
+docker compose up -d
+```
+
+Open http://localhost:3001 and sign up: the first account becomes the admin.
+Everything lives in the `openreport-data` volume (SQLite metadata, uploads,
+caches); the three secrets in `.env` are mandatory, and `DATASOURCE_ENC_KEY`
+encrypts your database passwords, so back it up with the volume. Upgrade with
+`docker compose pull && docker compose up -d`.
+
+- **Behind your own reverse proxy** (Caddy, Traefik, Nginx Proxy Manager):
+  point it at port 3001 and forward `X-Forwarded-Proto`. The session cookie
+  gets its `Secure` flag from that header, so plain HTTP on the LAN and HTTPS
+  through the proxy both work with the same image.
+- **Public host with TLS built in**: the [`docker-compose.yml`](docker-compose.yml)
+  at the root of the repository bundles nginx and a Let's Encrypt certificate.
+  Clone the repository, fill in `.env` and follow the comments in the file.
+- **Without Docker** — a Node 22 host, systemd, or hacking on the code — see below.
+
+### From source
+
+Prerequisites: Node.js >= 22 (an older one is refused with an `EBADENGINE` error,
+because DuckDB cannot be built on it) and npm >= 9.
 
 ```bash
 git clone https://github.com/cracky777/openreport.git open-report
 cd open-report
 ./install.sh
+npm run dev
 ```
 
 `install.sh` settles the Node version first — it installs Node 22 through nvm,
 under your own home directory and without sudo, when the one on your PATH is
 missing or too old — then installs every dependency. Set `OPENREPORT_SKIP_NODE=1`
-to manage Node yourself.
+to manage Node yourself. On Windows, or to do it by hand: install Node 22, then
+`npm run install:all`.
 
-On Windows, or to do it by hand: install Node 22, then `npm run install:all`.
-
-### Running
-
-```bash
-npm run dev
-```
-
-The app will be available at:
-- **Frontend**: http://localhost:5173
-- **API**: http://localhost:3001
+`npm run dev` serves the frontend on http://localhost:5173 and the API on
+http://localhost:3001. For a production process without Docker, build the
+client with `npm run build` and run `npm start`: the server then serves the
+built frontend itself on port 3001, with the same environment variables as the
+Docker image (see [`.env.example`](.env.example)).
 
 ### First admin
 
