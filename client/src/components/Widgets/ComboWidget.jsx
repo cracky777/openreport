@@ -11,6 +11,7 @@ import { CHART_COLORS as COLORS } from '../../utils/chartPalette';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
+import { useChartTheme } from '../../hooks/useChartTheme';
 import WidgetEmptyState from './WidgetEmptyState';
 import { resolveZoneSorts } from '../../utils/chartSorts';
 import { buildValueGradient } from '../../utils/chartGradient';
@@ -60,6 +61,9 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
     return names;
   }, [data?.barSeries, data?.lineSeries]);
   const { getStableIdx } = useStableColorOrder(allComboNames.join('|'), allComboNames);
+
+  // Goes on the widget's root: the report theme's colours are read back from it.
+  const [chartTheme, rootRef] = useChartTheme();
 
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
@@ -347,7 +351,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
       interval: yAxisInterval || undefined,
       ...yNameCfg,
       axisLabel: { fontSize: yAxisFontSize, color: yAxisColor, fontFamily: yAxisFontFamily, formatter: (v) => isBarAxisDur ? formatDuration(v) : (abbreviateNumber(v, valueAbbr) ?? formatNumber(v)) },
-      splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth } },
+      splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth, color: chartTheme.grid } },
     }];
     if (showSecondaryAxis) {
       yAxes.push({
@@ -467,7 +471,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
       config?.secondaryYAxisLabelFontSize, config?.secondaryYAxisLabelColor,
       config?.xAxisTitle, config?.yAxisTitle, config?.secondaryYAxisTitle,
       config?.showXAxisTitle, config?.showYAxisTitle, config?.showSecondaryYAxisTitle,
-      config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
+      config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor, chartTheme.grid]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
@@ -498,7 +502,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
   const isLR = legendPosition === 'left' || legendPosition === 'right';
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: isLR ? 'row' : 'column' }}>
+    <div ref={rootRef} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: isLR ? 'row' : 'column' }}>
       {showLegend && legendItems.length > 0 && (legendPosition === 'top' || legendPosition === 'left') && (
         <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} />
       )}

@@ -8,6 +8,7 @@ import { CHART_COLORS as COLORS } from '../../utils/chartPalette';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
+import { useChartTheme } from '../../hooks/useChartTheme';
 import WidgetEmptyState from './WidgetEmptyState';
 
 const _hs0 = { flex: 1, minHeight: 0, minWidth: 0 };
@@ -31,6 +32,9 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
 
   const allGroupNames = useMemo(() => (data?.seriesGroups || []).map((g) => g?.name).filter((n) => n != null), [data?.seriesGroups]);
   const { getStableIdx } = useStableColorOrder(allGroupNames.join('|'), allGroupNames);
+
+  // Goes on the widget's root: the report theme's colours are read back from it.
+  const [chartTheme, rootRef] = useChartTheme();
 
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
@@ -155,14 +159,14 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
         name: (config?.showXAxisTitle ?? config?.showXHeader ?? true) ? (config?.xAxisTitle ?? data._xLabel ?? '') : '', nameLocation: 'center', nameGap: 25,
         nameTextStyle: { fontSize: config?.headerFontSize ?? 12, color: config?.headerColor || '#475569', fontWeight: config?.headerBold ? 'bold' : 'normal', fontFamily: headerFontFamily },
         axisLabel: { show: true, fontSize: config?.xAxisLabelFontSize ?? 11, color: config?.xAxisLabelColor || '#64748b', fontFamily: xAxisFontFamily },
-        splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } },
+        splitLine: { lineStyle: { type: 'dashed', color: chartTheme.grid } },
       },
       yAxis: {
         type: 'value', show: showYAxis,
         name: (config?.showYAxisTitle ?? config?.showYHeader ?? true) ? (config?.yAxisTitle ?? data._yLabel ?? '') : '', nameLocation: 'center', nameGap: 35,
         nameTextStyle: { fontSize: config?.headerFontSize ?? 12, color: config?.headerColor || '#475569', fontWeight: config?.headerBold ? 'bold' : 'normal', fontFamily: headerFontFamily },
         axisLabel: { show: true, fontSize: config?.yAxisLabelFontSize ?? 11, color: config?.yAxisLabelColor || '#64748b', fontFamily: yAxisFontFamily },
-        splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } },
+        splitLine: { lineStyle: { type: 'dashed', color: chartTheme.grid } },
       },
       series: seriesList,
       grid: { top: 20, right: 20, bottom: showXAxis ? 40 : 15, left: showYAxis ? 50 : 15 },
@@ -175,7 +179,7 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
     return { option: opt, legendItems };
     } catch (e) { console.error('ScatterWidget error:', e); return { option: null, legendItems: [] }; }
   }, [data, hasData, config?.color, showXAxis, showYAxis, symbolSize, showDataLabels, config?.dataLabelRotate, config?.dataLabelFontSize, showLegend, legendPosition, hiddenSeries, highlightValue, config?.legendColors, config?.legendSymbols, config?.legendImages, config?.xAxisTitle, config?.yAxisTitle, config?.headerFontSize, config?.headerColor, config?.headerBold, config?.showXHeader, config?.showYHeader, config?.showXAxisTitle, config?.showYAxisTitle, config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
-      config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
+      config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor, chartTheme.grid]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
@@ -205,7 +209,7 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
   const isLR = legendPosition === 'left' || legendPosition === 'right';
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: isLR ? 'row' : 'column' }}>
+    <div ref={rootRef} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: isLR ? 'row' : 'column' }}>
       {showLegend && legendItems.length > 0 && (legendPosition === 'top' || legendPosition === 'left') && (
         <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} />
       )}

@@ -12,6 +12,7 @@ import { buildDataLabel } from '../../utils/chartLabels';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
+import { useChartTheme } from '../../hooks/useChartTheme';
 import WidgetEmptyState from './WidgetEmptyState';
 import { resolveZoneSorts } from '../../utils/chartSorts';
 import { buildValueGradient } from '../../utils/chartGradient';
@@ -126,6 +127,9 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
   const { getStableIdx } = useStableColorOrder(allSeriesNames.join('|'), allSeriesNames);
 
   // Memoize the ECharts option to avoid recalculating on every render
+  // Goes on the widget's root: the report theme's colours are read back from it.
+  const [chartTheme, rootRef] = useChartTheme();
+
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
 
@@ -514,7 +518,7 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
       },
       max: subType === 'stacked100' ? 100 : customYMax ? Math.ceil(customYMax * 1.1) : undefined,
       interval: yAxisInterval || undefined,
-      splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth } },
+      splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth, color: chartTheme.grid } },
       inverse: barDir === 'verticalInverse' || barDir === 'horizontalInverse',
       position: barDir === 'horizontalInverse' ? 'right' : undefined,
     };
@@ -571,7 +575,7 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
       config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
       config?.xAxisTitle, config?.yAxisTitle, config?.showXAxisTitle, config?.showYAxisTitle,
       topNEnabled, topN, othersLabel,
-      config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
+      config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor, chartTheme.grid]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
@@ -620,7 +624,7 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
   const flexDir = legendPosition === 'left' ? 'row' : legendPosition === 'right' ? 'row' : legendPosition === 'top' ? 'column' : 'column';
 
   return (
-    <div style={{ display: 'flex', flexDirection: flexDir, width: '100%', height: '100%' }}>
+    <div ref={rootRef} style={{ display: 'flex', flexDirection: flexDir, width: '100%', height: '100%' }}>
       {showHtmlLegend && (legendPosition === 'top' || legendPosition === 'left') && (
         <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
       )}

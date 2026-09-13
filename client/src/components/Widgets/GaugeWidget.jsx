@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, memo, useMemo } from 'react';
 import * as echarts from 'echarts';
+import { useChartTheme } from '../../hooks/useChartTheme';
 import formatNumber from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import { lerpColor } from '../../utils/tableConfigHelpers';
@@ -122,6 +123,7 @@ export default memo(function GaugeWidget({ data, config, chartWidth, chartHeight
 const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, label, color, trackColor, threshold, thresholdColor, showValue, showLabel, showMinMax, width, height, config }) {
   const chartRef = useRef(null);
   const instanceRef = useRef(null);
+  const [chartTheme, themeRootRef] = useChartTheme();
 
   const arcWidth = config?.gaugeArcWidth ?? 18;
   // Arc has no rounded caps by default (user preference)
@@ -153,7 +155,7 @@ const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, label, 
           offsetCenter: [0, '0%'],
           fontSize: config?.gaugeValueSize || 24,
           fontWeight: 700,
-          color: config?.gaugeValueColor || '#0f172a',
+          color: config?.gaugeValueColor || chartTheme.text,
           fontFamily: config?.gaugeValueFontFamily ? fontStack(config.gaugeValueFontFamily) : undefined,
           formatter: () => displayValue,
         };
@@ -197,7 +199,7 @@ const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, label, 
       });
     }
     return { series };
-  }, [value, min, max, label, color, trackColor, threshold, thresholdColor, showValue, showLabel, showMinMax, displayValue, config?.gaugeValueSize, config?.gaugeValueColor, config?.gaugeLabelSize, config?.gaugeLabelColor, config?.gaugeAxisSize, config?.gaugeAxisColor, arcWidth, startAngle, endAngle]);
+  }, [value, min, max, label, color, trackColor, threshold, thresholdColor, showValue, showLabel, showMinMax, displayValue, config?.gaugeValueSize, config?.gaugeValueColor, config?.gaugeLabelSize, config?.gaugeLabelColor, config?.gaugeAxisSize, config?.gaugeAxisColor, arcWidth, startAngle, endAngle, chartTheme.text]);
 
   useEffect(() => {
     const el = chartRef.current;
@@ -258,7 +260,7 @@ const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, label, 
   else xMaxPx = Math.max(xMaxPx - centerPull, centerXpx);
 
   return (
-    <div ref={containerRef} style={_hs0}>
+    <div ref={(el) => { containerRef.current = el; themeRootRef(el); }} style={_hs0}>
       <div ref={chartRef} style={_hs1} />
       {showMinMax && (
         <>
@@ -283,7 +285,7 @@ const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, label, 
 // ─── Column gauge (CSS) ───
 const ColumnGauge = memo(function ColumnGauge({ progress, thresholdProgress, thresholdColor, displayValue, label, min, max, color, trackColor, showValue, showLabel, showMinMax, direction, config }) {
   const labelStyle = { fontSize: config?.gaugeLabelSize || 12, color: config?.gaugeLabelColor || '#64748b', fontWeight: 500 };
-  const valueStyle = { fontSize: config?.gaugeValueSize || 20, fontWeight: 700, color: config?.gaugeValueColor || '#0f172a' };
+  const valueStyle = { fontSize: config?.gaugeValueSize || 20, fontWeight: 700, color: config?.gaugeValueColor || 'var(--text-primary)' };
   const axisStyle = { fontSize: config?.gaugeAxisSize || 10, color: config?.gaugeAxisColor || '#94a3b8' };
   const isVertical = direction === 'up' || direction === 'down';
   const pct = `${progress * 100}%`;

@@ -12,6 +12,7 @@ import { buildDataLabel } from '../../utils/chartLabels';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
+import { useChartTheme } from '../../hooks/useChartTheme';
 import WidgetEmptyState from './WidgetEmptyState';
 import { resolveZoneSorts } from '../../utils/chartSorts';
 
@@ -56,6 +57,9 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
     return names;
   }, [data?.series]);
   const { getStableIdx } = useStableColorOrder(allSeriesNames.join('|'), allSeriesNames);
+
+  // Goes on the widget's root: the report theme's colours are read back from it.
+  const [chartTheme, rootRef] = useChartTheme();
 
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
@@ -227,7 +231,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
         },
         max: subType === 'stackedArea100' ? 100 : undefined,
         interval: yAxisInterval || undefined,
-        splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth } },
+        splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth, color: chartTheme.grid } },
       },
       series,
       grid: {
@@ -257,7 +261,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
       dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors,
       config?.lineSymbol, config?.lineSymbolSize,
       config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
-      config?.xAxisTitle, config?.yAxisTitle, config?.showXAxisTitle, config?.showYAxisTitle]);
+      config?.xAxisTitle, config?.yAxisTitle, config?.showXAxisTitle, config?.showYAxisTitle, chartTheme.grid]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
@@ -291,7 +295,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
   const flexDir = legendPosition === 'left' || legendPosition === 'right' ? 'row' : 'column';
 
   return (
-    <div style={{ display: 'flex', flexDirection: flexDir, width: '100%', height: '100%' }}>
+    <div ref={rootRef} style={{ display: 'flex', flexDirection: flexDir, width: '100%', height: '100%' }}>
       {showHtmlLegend && (legendPosition === 'top' || legendPosition === 'left') && (
         <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
       )}
