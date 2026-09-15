@@ -37,6 +37,7 @@ const { buildMultiFactBody } = require('../utils/sqlBuilder/multiFact');
 const { buildFromClause } = require('../utils/sqlBuilder/fromClause');
 const { buildTopNOrderLimit } = require('../utils/sqlBuilder/orderLimit');
 const { dimensionTables, dimensionAggregate, fanOutTables } = require('../utils/sqlBuilder/dimensionTables');
+const { normalizeRows } = require('../utils/rowNormalize');
 const { computeRealFacts, computeJoinedTables, computeConnectedComponents } = require('../utils/sqlBuilder/joinGraph');
 const { buildOverrideSubquery } = require('../utils/sqlBuilder/overrideSubquery');
 const { rejectIfNameTaken } = require('../utils/nameUniqueness');
@@ -2171,51 +2172,11 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     } else {
       rawRows = await conn.query(sql);
     }
-    // Normalize Date objects to ISO date strings for all DB types, and
-    // flatten PostgreSQL `interval` values (delivered by node-postgres as
-    // a `{ years, months, days, hours, minutes, seconds, milliseconds }`
-    // object) to total seconds — otherwise they'd JSON-serialize as an
-    // object and widgets would render `[object Object]`. Acts as a
-    // backstop for measures that pre-date the per-measure `dataType`
-    // tagging in the model editor.
-    // Keys that drivers ever put on an interval object. Used to detect
-    // interval-shaped values to flatten — see comment block below.
-    const INTERVAL_KEYS = ['years', 'months', 'days', 'hours', 'minutes', 'seconds', 'milliseconds', 'micros', 'fractionalSeconds'];
-    const rows = rawRows.map((r) => {
-      const obj = {};
-      for (const [k, v] of Object.entries(r)) {
-        if (v instanceof Date) { obj[k] = v.toISOString().split('T')[0]; continue; }
-        if (v == null || typeof v !== 'object' || Array.isArray(v)) { obj[k] = v; continue; }
-        // Interval flatten — driver-specific shapes:
-        //   - pg                    : { years, months, days, hours, minutes, seconds, milliseconds }
-        //   - duckdb-async          : { months, days, micros }
-        //   - @google-cloud/bigquery: { years, months, days, hours, minutes, seconds, fractionalSeconds }
-        // For non-zero intervals at least one of those keys is present, so the
-        // shape check below catches them. The trickier case is INTERVAL '0' /
-        // INTERVAL 'P0D' / etc. — pg can deliver those as an empty `{}` with
-        // none of the expected keys, which used to fall through to the
-        // catch-all and render as `[object Object]`. We treat any empty
-        // plain object the same way (= zero seconds) so zero durations show
-        // up as `0s` instead of the broken object string.
-        const keys = Object.keys(v);
-        const isInterval = keys.length === 0 || keys.some((kk) => INTERVAL_KEYS.includes(kk));
-        if (isInterval) {
-          // Years / months are approximate (no fixed length) but consistent
-          // with EXTRACT(EPOCH …)'s output for PG/DuckDB.
-          obj[k] = (Number(v.years) || 0) * 31557600
-            + (Number(v.months) || 0) * 2629800
-            + (Number(v.days) || 0) * 86400
-            + (Number(v.hours) || 0) * 3600
-            + (Number(v.minutes) || 0) * 60
-            + (Number(v.seconds) || 0)
-            + (Number(v.milliseconds) || 0) / 1000
-            + (Number(v.micros) || 0) / 1_000_000
-            + (Number(v.fractionalSeconds) || 0);
-        } else {
-          obj[k] = v;
-        }
-      }
-      return obj;
+    // Same shape whatever the driver returned — and whatever the rollup cache
+    // returns for the same widget (see utils/rowNormalize.js).
+    const rows = normalizeRows(rawRows, {
+      dimensionKeys: new Set(selectedDimensions.map((d) => d.label || d.name)),
+      coerceNumbers: !isRollupBuilderRequest,
     });
     // Store in cache so the next identical request hits warm. We skip
     // empty / very-large payloads in stats but still cache them — an

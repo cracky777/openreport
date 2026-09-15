@@ -41,6 +41,7 @@ const db = require('../db');
 const rollupBuilder = require('./rollupBuilder');
 const rollupDuckDB = require('./rollupDuckDB');
 const { recomposeMeasure, factsForMeasure, effectiveMeasureName } = require('./measureType');
+const { tidyNumber } = require('./rowNormalize');
 
 function qIdent(name) {
   return `"${String(name).replace(/"/g, '""')}"`;
@@ -551,7 +552,9 @@ async function tryServeFromRollup(opts) {
       return Number.isFinite(n) ? n : null;
     };
     for (const { o, respKey } of reqOutputs) {
-      out[respKey] = recomposeMeasure(o.spec, o.name, getAtom);
+      // Atoms are DOUBLE sums recomposed in JS: strip the floating-point
+      // tail so a cached figure prints like the live NUMERIC one.
+      out[respKey] = tidyNumber(recomposeMeasure(o.spec, o.name, getAtom));
     }
     return out;
   });
