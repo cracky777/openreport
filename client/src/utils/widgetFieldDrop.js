@@ -14,7 +14,8 @@ import { baseMeasureName, nextAggVariant } from './aggVariant';
 // the drop is refused rather than guessed.
 
 const effType = (model, d) => {
-  const ov = model?.column_types && model.column_types[`${d.table}.${d.column}`];
+  // A calculated dimension has no column to override; its declared type stands.
+  const ov = d.table && d.column && model?.column_types && model.column_types[`${d.table}.${d.column}`];
   return !ov ? d.type : (typeof ov === 'string' ? ov : ov.type);
 };
 

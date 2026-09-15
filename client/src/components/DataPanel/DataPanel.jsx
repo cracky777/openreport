@@ -104,6 +104,8 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   // under the active row, so it visually belongs to the clicked field.
   const [measurePanelMount, setMeasurePanelMount] = useState(null);
   const [dimPanelMount, setDimPanelMount] = useState(null);
+  // "+ Dimension" form: { label, type, expression } while open, null otherwise.
+  const [dimForm, setDimForm] = useState(null);
   const [, setLoading] = useState(false);
   // Date Table is collapsed by default — only the main date column is shown,
   // the per-period extension dims (year, month, weekday, …) appear when opened.
@@ -460,13 +462,15 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   // Helper to get short table name
   const shortTable = (t) => t.includes('.') ? t.split('.').pop() : t;
 
-  // Wizard / edit form open → give Measures room regardless of the split.
-  const effSplit = (showCalcForm || editingField) ? Math.max(splitRatio, 0.6) : splitRatio;
+  // Wizard / edit form open → give that section room regardless of the split.
+  const effSplit = (showCalcForm || editingField) ? Math.max(splitRatio, 0.6)
+    : (dimForm || editingDim) ? Math.min(splitRatio, 0.4)
+    : splitRatio;
 
-  // Search matches label, column, technical name, display folder and (short)
-  // table name.
+  // Search matches label, column, technical name, display folder, (short)
+  // table name and the SQL of a calculated field.
   const q = fieldSearch.trim().toLowerCase();
-  const fieldMatches = (f) => !q || [f.label, f.column, f.name, f.folder, f.table && shortTable(f.table)]
+  const fieldMatches = (f) => !q || [f.label, f.column, f.name, f.folder, f.expression, f.table && shortTable(f.table)]
     .some((v) => v && String(v).toLowerCase().includes(q));
   const visibleMeasures = (model.measures || []).filter(fieldMatches);
   // Display folders (user-defined, presentation-only): loose measures first —
@@ -487,18 +491,45 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   })();
   const measureFolders = [...new Set((model.measures || []).map((m) => m.folder).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b));
-  // Dimension groups (by table), minus the fields shown in the Date Table
-  // block — computed once so the list render and the header count agree.
+  // Dimension groups (by table — a calculated dimension sits under the table
+  // it is attached to), minus the fields shown in the Date Table block —
+  // computed once so the list render and the header count agree.
   const dimGroups = {};
   for (const d of model.dimensions || []) {
     if (d.name === model.dateColumn || d.datePartOf) continue;
     if (!fieldMatches(d)) continue;
-    const table = shortTable(d.table);
+    const table = d.table ? shortTable(d.table) : 'Calculated';
     (dimGroups[table] ||= []).push(d);
   }
+  // Tables a calculated dimension can be attached to.
+  const modelTables = [...new Set([
+    ...(Array.isArray(model.selected_tables) ? model.selected_tables : []),
+    ...(model.dimensions || []).map((d) => d.table),
+    ...(model.measures || []).map((m) => m.table),
+  ].filter(Boolean))];
   const visibleDimCount = Object.values(dimGroups).reduce((n, arr) => n + arr.length, 0);
   const measuresCollapsed = sectionCollapsed.measures && !q && !showCalcForm && !editingField;
-  const dimsCollapsed = sectionCollapsed.dimensions && !q && !editingDim;
+  const dimsCollapsed = sectionCollapsed.dimensions && !q && !editingDim && !dimForm;
+
+  // Shared by the Add button and the SQL editor overlay's Save.
+  const saveNewCalcDimension = () => {
+    if (!dimForm) return;
+    const label = String(dimForm.label || '').trim();
+    if (!label) { toast('Give the dimension a label before adding it.'); return; }
+    if (!dimForm.table) { toast('Pick the table the dimension belongs to.'); return; }
+    if (!String(dimForm.expression || '').trim()) { toast('Write the SQL expression before adding the dimension.'); return; }
+    const name = `_calcdim.${label.replace(/\s+/g, '_').toLowerCase()}`;
+    if ((model.dimensions || []).some((d) => d.name === name)) {
+      toast(`A dimension named "${label}" already exists.`);
+      return;
+    }
+    // Like a Power BI calculated column: attached to one table (where bare
+    // column names resolve and where it is listed), no physical column,
+    // `expression` is what the server compiles.
+    const newDim = { name, label, type: dimForm.type || 'string', table: dimForm.table, column: '', expression: dimForm.expression };
+    if (!updateSettings({ extraDimensions: [...((settings && settings.extraDimensions) || []), newDim] })) return;
+    setDimForm(null);
+  };
 
   // Shared by the Add button and the SQL editor overlay's Save.
   const saveNewCalcMeasure = async () => {
@@ -1259,7 +1290,48 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           count={visibleDimCount}
           collapsed={dimsCollapsed}
           onToggle={() => setSectionCollapsed((s) => ({ ...s, dimensions: !s.dimensions }))}
+          actions={
+            <button
+              onClick={(e) => { e.stopPropagation(); setDimForm(dimForm ? null : { label: '', table: modelTables[0] || '', type: 'string', expression: '' }); }}
+              style={addCalcBtnSmall}>+ Dimension</button>
+          }
           style={dimsCollapsed || compact ? { flex: '0 0 auto' } : { flex: `${(1 - effSplit) * 100} 1 0%`, maxHeight: 'max-content' }}>
+          {/* Calculated dimension: a row-level SQL expression (the counterpart
+              of a custom measure). Persists to settings.extraDimensions under
+              `_calcdim.<label>`. */}
+          {dimForm && (
+            <div style={_hs4}>
+              <input type="text" placeholder="Label" value={dimForm.label}
+                onChange={(e) => setDimForm({ ...dimForm, label: e.target.value })}
+                style={{ ...calcInputStyle, marginBottom: 4 }} />
+              <select value={dimForm.table} title="Table the dimension belongs to — its columns can be written without a prefix"
+                onChange={(e) => setDimForm({ ...dimForm, table: e.target.value })}
+                style={{ ...calcInputStyle, marginBottom: 4 }}>
+                <option value="">— table —</option>
+                {modelTables.map((t) => <option key={t} value={t}>{shortTable(t)}</option>)}
+              </select>
+              <select value={dimForm.type}
+                onChange={(e) => setDimForm({ ...dimForm, type: e.target.value })}
+                style={{ ...calcInputStyle, marginBottom: 4 }}>
+                <option value="string">Text</option>
+                <option value="integer">Integer</option>
+                <option value="decimal">Decimal</option>
+                <option value="date">Date</option>
+                <option value="boolean">Boolean</option>
+              </select>
+              <div style={_hs9}>
+                <span style={_hs10}>SQL Expression</span>
+                <SqlExpressionInput value={dimForm.expression} kind="dimension" dimensionTable={dimForm.table}
+                  onChange={(v) => setDimForm({ ...dimForm, expression: v })}
+                  onSubmit={saveNewCalcDimension}
+                  model={model} />
+              </div>
+              <div style={_hs11}>
+                <button onClick={() => setDimForm(null)} style={btnGhost}>Cancel</button>
+                <button onClick={saveNewCalcDimension} style={btnPrimary}>Add</button>
+              </div>
+            </div>
+          )}
           <div style={compact ? listBoxFlowing : listBoxLarge}>
             {q && visibleDimCount === 0 && (
               <div style={noMatchStyle}>No matching dimensions</div>
@@ -1282,11 +1354,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                           setEditingDim(null);
                         } else {
                           setEditingDim(d.name);
-                          setDimEditForm({ label: d.label || d.column, type: d.type || 'string' });
+                          setDimEditForm({ label: d.label || d.column, type: d.type || 'string', expression: d.expression, table: d.table });
                           setEditingField(null); // close measure edit if open
                         }
                       }}
-                      title={`${d.table}.${d.column}`}
+                      title={d.expression || `${d.table}.${d.column}`}
                       style={{
                         ...touchDragRow,
                         ...dragItem,
@@ -1296,7 +1368,8 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                       }}
                     >
                       <span style={dragHandle}>⠿</span>
-                      <span style={truncatedLabel} title={d.label || d.column}>{d.label || d.column}</span>
+                      <span style={truncatedLabel} title={d.label || d.column || d.name}>{d.label || d.column || d.name}</span>
+                      {d.expression && <span style={customTag} title={d.expression}>fx</span>}
                       {d.typeWarning && (
                         <span
                           style={{ fontSize: 11, cursor: 'help', marginLeft: 2, flexShrink: 0 }}
@@ -1330,6 +1403,74 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
       {editingDim && (() => {
         const d = (model.dimensions || []).find((x) => x.name === editingDim);
         if (!d || !dimPanelMount) return null;
+        // Shared by the Save button and the SQL editor overlay's Save.
+        const saveDimensionEdit = async () => {
+          if (!String(dimEditForm.label || '').trim()) {
+            toast('The dimension needs a label.');
+            return;
+          }
+          try {
+            // All edits stay scoped to the report — never mutate the
+            // underlying model. Label/type changes on a model dim
+            // become a `dimensionOverrides[d.name]` entry; on a report
+            // dim they mutate the matching `extraDimensions` entry.
+            // Date-table flag and generated date parts go to settings.
+            const labelTypePatch = {
+              label: dimEditForm.label,
+              type: dimEditForm.type,
+              ...(d.expression ? { expression: dimEditForm.expression, table: dimEditForm.table || '' } : {}),
+            };
+            let nextSettings = { ...(settings || {}) };
+
+            // Apply the label/type change at the right scope
+            if (d._source === 'report') {
+              nextSettings.extraDimensions = (nextSettings.extraDimensions || []).map((x) =>
+                x.name === d.name ? { ...x, ...labelTypePatch } : x);
+            } else {
+              const ov = nextSettings.dimensionOverrides || {};
+              nextSettings.dimensionOverrides = {
+                ...ov,
+                [d.name]: { ...(ov[d.name] || {}), ...labelTypePatch },
+              };
+            }
+
+            // Generate date parts → push them as report-scoped
+            // extras (filtered to drop any previous parts of any
+            // date column to keep the section clean).
+            if (dimEditForm.generateParts) {
+              const filteredExtras = (nextSettings.extraDimensions || []).filter((x) => !String(x.name || '').startsWith('_date.'));
+              const dateParts = [
+                { suffix: 'year', label: 'Year', expr: 'num_year' },
+                { suffix: 'month_num', label: 'Month Number', expr: 'num_month' },
+                { suffix: 'month_name', label: 'Month Name', expr: 'name_month' },
+                { suffix: 'week', label: 'Week', expr: 'num_week' },
+                { suffix: 'day_of_week', label: 'Day of Week', expr: 'num_day_of_week' },
+                { suffix: 'day_name', label: 'Day Name', expr: 'name_day' },
+              ];
+              const generated = dateParts.map((p) => ({
+                name: `_date.${p.suffix}`,
+                table: d.table,
+                column: d.column,
+                type: p.expr.startsWith('name') ? 'string' : 'integer',
+                label: p.label,
+                datePartOf: d.name,
+                datePart: p.expr,
+              }));
+              nextSettings.extraDimensions = [...filteredExtras, ...generated];
+            }
+
+            if (dimEditForm.setAsDateTable) {
+              nextSettings.dateColumn = d.name;
+            }
+
+            if (typeof onSettingsChange !== 'function') {
+              console.error('[DataPanel] onSettingsChange prop is missing — refusing to mutate the model. Action ignored.');
+              return;
+            }
+            onSettingsChange(nextSettings);
+            setEditingDim(null);
+          } catch (err) { console.error(err); }
+        };
         return createPortal((
           <div style={{ ...editPanelStyle, flexShrink: 0 }}>
             <div style={editRow}>
@@ -1350,7 +1491,28 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 <option value="boolean">Boolean</option>
               </select>
             </div>
-            {dimEditForm.type === 'date' && !model.dateColumn && (
+            {d.expression && (
+              <>
+                <div style={editRow}>
+                  <span style={editLabel}>Table</span>
+                  <select value={dimEditForm.table || ''}
+                    onChange={(e) => setDimEditForm({ ...dimEditForm, table: e.target.value })}
+                    style={{ ...editInput, width: 110 }}>
+                    <option value="">— table —</option>
+                    {modelTables.map((t) => <option key={t} value={t}>{shortTable(t)}</option>)}
+                  </select>
+                </div>
+                <div style={_hs18}>
+                  <span style={editLabel}>SQL Expression</span>
+                  <SqlExpressionInput value={dimEditForm.expression || ''} kind="dimension" dimensionTable={dimEditForm.table || ''}
+                    onChange={(v) => setDimEditForm({ ...dimEditForm, expression: v })}
+                    onSubmit={saveDimensionEdit} model={model} />
+                </div>
+              </>
+            )}
+            {/* Date-table and date-part generation read a physical column,
+                which a calculated dimension does not have. */}
+            {!d.expression && dimEditForm.type === 'date' && !model.dateColumn && (
               <>
                 <div style={editRow}>
                   <span style={editLabel}>Date table</span>
@@ -1366,7 +1528,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 )}
               </>
             )}
-            {dimEditForm.type === 'date' && model.dateColumn === d.name && !model.dimensions?.some((x) => x.name.startsWith('_date.')) && (
+            {!d.expression && dimEditForm.type === 'date' && model.dateColumn === d.name && !model.dimensions?.some((x) => x.name.startsWith('_date.')) && (
               <div style={editRow}>
                 <span style={editLabel}>Date parts</span>
                 <input type="checkbox" checked={dimEditForm.generateParts ?? false}
@@ -1374,6 +1536,19 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
               </div>
             )}
             <div style={_hs30}>
+              {d._source === 'report' && (
+                <ConfirmDeleteButton
+                  variant="icon"
+                  size={ICON_SIZE.chip}
+                  label="Delete this report-scoped dimension"
+                  style={iconBtn('var(--state-danger)')}
+                  onConfirm={() => {
+                    const remaining = ((settings && settings.extraDimensions) || []).filter((x) => x.name !== d.name);
+                    if (!updateSettings({ extraDimensions: remaining })) return;
+                    setEditingDim(null);
+                  }}
+                />
+              )}
               {d._source === 'report' && (
                 <button
                   onClick={async () => {
@@ -1407,69 +1582,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 </button>
               )}
               <button onClick={() => setEditingDim(null)} style={editCancelBtn}>Close</button>
-              <button onClick={async () => {
-                if (!String(dimEditForm.label || '').trim()) {
-                  toast('The dimension needs a label.');
-                  return;
-                }
-                try {
-                  // All edits stay scoped to the report — never mutate the
-                  // underlying model. Label/type changes on a model dim
-                  // become a `dimensionOverrides[d.name]` entry; on a report
-                  // dim they mutate the matching `extraDimensions` entry.
-                  // Date-table flag and generated date parts go to settings.
-                  const labelTypePatch = { label: dimEditForm.label, type: dimEditForm.type };
-                  let nextSettings = { ...(settings || {}) };
-
-                  // Apply the label/type change at the right scope
-                  if (d._source === 'report') {
-                    nextSettings.extraDimensions = (nextSettings.extraDimensions || []).map((x) =>
-                      x.name === d.name ? { ...x, ...labelTypePatch } : x);
-                  } else {
-                    const ov = nextSettings.dimensionOverrides || {};
-                    nextSettings.dimensionOverrides = {
-                      ...ov,
-                      [d.name]: { ...(ov[d.name] || {}), ...labelTypePatch },
-                    };
-                  }
-
-                  // Generate date parts → push them as report-scoped
-                  // extras (filtered to drop any previous parts of any
-                  // date column to keep the section clean).
-                  if (dimEditForm.generateParts) {
-                    const filteredExtras = (nextSettings.extraDimensions || []).filter((x) => !String(x.name || '').startsWith('_date.'));
-                    const dateParts = [
-                      { suffix: 'year', label: 'Year', expr: 'num_year' },
-                      { suffix: 'month_num', label: 'Month Number', expr: 'num_month' },
-                      { suffix: 'month_name', label: 'Month Name', expr: 'name_month' },
-                      { suffix: 'week', label: 'Week', expr: 'num_week' },
-                      { suffix: 'day_of_week', label: 'Day of Week', expr: 'num_day_of_week' },
-                      { suffix: 'day_name', label: 'Day Name', expr: 'name_day' },
-                    ];
-                    const generated = dateParts.map((p) => ({
-                      name: `_date.${p.suffix}`,
-                      table: d.table,
-                      column: d.column,
-                      type: p.expr.startsWith('name') ? 'string' : 'integer',
-                      label: p.label,
-                      datePartOf: d.name,
-                      datePart: p.expr,
-                    }));
-                    nextSettings.extraDimensions = [...filteredExtras, ...generated];
-                  }
-
-                  if (dimEditForm.setAsDateTable) {
-                    nextSettings.dateColumn = d.name;
-                  }
-
-                  if (typeof onSettingsChange !== 'function') {
-                    console.error('[DataPanel] onSettingsChange prop is missing — refusing to mutate the model. Action ignored.');
-                    return;
-                  }
-                  onSettingsChange(nextSettings);
-                  setEditingDim(null);
-                } catch (err) { console.error(err); }
-              }} style={{ ...editSaveBtn, background: 'var(--accent-primary)' }}>Save</button>
+              <button onClick={saveDimensionEdit} style={{ ...editSaveBtn, background: 'var(--accent-primary)' }}>Save</button>
             </div>
           </div>
         ), dimPanelMount);

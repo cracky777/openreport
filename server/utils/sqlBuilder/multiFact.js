@@ -72,7 +72,7 @@ function buildMultiFactBody({
     .filter((w) => w.field)
     .map((w) => { const d = allDimensions.find((x) => x.name === w.field); return d ? d.table : null; })
     .filter(Boolean);
-  const neededDimTables = [...new Set([...selectedDimensions.map((d) => d.table), ...filterDimTables])];
+  const neededDimTables = [...new Set([...selectedDimensions.map((d) => d.table).filter(Boolean), ...filterDimTables])];
   // FROM <fact> JOIN <needed dims…>, rooted at the fact (mirrors the main
   // traversal). Returns null if a needed table can't be connected to this
   // fact → the fact isn't conformed to that dim → fall back entirely.

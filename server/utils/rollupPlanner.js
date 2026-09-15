@@ -181,6 +181,19 @@ function loadReportFilters(reportId) {
   } catch { return []; }
 }
 
+// Dimension fields named by a widgetFilters array (measure filters excluded).
+function filterFields(widgetFilters) {
+  return (Array.isArray(widgetFilters) ? widgetFilters : [])
+    .map((f) => f && !f.isMeasure && f.field)
+    .filter(Boolean);
+}
+
+// True when any of `names` resolves to a calculated (expression) dimension.
+function usesExpressionDim(allDimensions, names) {
+  const byName = new Map((allDimensions || []).filter((d) => d && d.name).map((d) => [d.name, d]));
+  return names.some((n) => { const d = byName.get(n); return !!(d && d.expression); });
+}
+
 /**
  * @returns {{hit:true, rows:Array, tableName:string, match:string, sql:string}}
  *          | {hit:false, reason:string}
@@ -202,6 +215,11 @@ async function tryServeFromRollup(opts) {
   } = opts;
 
   if (rlsApplies) return { hit: false, reason: 'rls-restricted' };
+  // Calculated dimensions are never materialised (the builder leaves them out
+  // of every grain), so a query that groups or filters on one is live.
+  if (usesExpressionDim(allDimensions, [...dimensionNames, ...Object.keys(filters || {}), ...filterFields(widgetFilters)])) {
+    return { hit: false, reason: 'expression-dim' };
+  }
   // Paging was never implemented here: the rollup path ignored `offset` and
   // returned the first page every time, so "load more" looped on the same rows.
   // Live handles it correctly — hand it over rather than half-page.
@@ -646,6 +664,9 @@ async function tryServeSlicerDistinct(opts) {
   if (rlsApplies) return { hit: false, reason: 'rls-restricted' };
   if (!modelId) return { hit: false, reason: 'no-model' };
   if (!dimensionName) return { hit: false, reason: 'no-dim' };
+  if (usesExpressionDim(allDimensions, [dimensionName, ...Object.keys(filters || {}), ...filterFields(widgetFilters)])) {
+    return { hit: false, reason: 'expression-dim' };
+  }
 
   // Same global/runtime split as the main planner — keeps the
   // baked-filter hash semantics consistent.

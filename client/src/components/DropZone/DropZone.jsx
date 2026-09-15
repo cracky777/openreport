@@ -184,8 +184,9 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
     const info = infoFor(f);
     if (!info) return f;
     // Show both the human label (when present) and the underlying
-    // qualified column so the user can distinguish siblings even on hover.
-    const qualified = `${info.table}.${info.column}`;
+    // qualified column (or the SQL of a calculated field) so the user can
+    // distinguish siblings even on hover.
+    const qualified = info.expression || `${info.table}.${info.column}`;
     return info.label && info.label !== qualified ? `${info.label} — ${qualified}` : qualified;
   };
 

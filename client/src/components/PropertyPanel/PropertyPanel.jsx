@@ -107,7 +107,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
   const dimensionNames = new Set();
   const measureInfos = {};
   if (model) {
-    for (const d of (model.dimensions || [])) { fieldInfos[d.name] = { table: d.table, column: d.column, label: d.label }; dimensionNames.add(d.name); }
+    for (const d of (model.dimensions || [])) { fieldInfos[d.name] = { table: d.table, column: d.column, label: d.label, expression: d.expression }; dimensionNames.add(d.name); }
     for (const m of (model.measures || [])) {
       fieldInfos[m.name] = { table: m.table, column: m.column, label: m.label };
       // Get aggregation (from widget override or model default)
@@ -2058,7 +2058,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
           when the model actually has a date-typed dimension. ── */}
       {widget.type !== 'filter' && widget.type !== 'text' && widget.type !== 'shape' && widget.type !== 'image' && (() => {
         const effType = (d) => {
-          const ov = model?.column_types && model.column_types[`${d.table}.${d.column}`];
+          const ov = d.table && d.column && model?.column_types && model.column_types[`${d.table}.${d.column}`];
           return !ov ? d.type : (typeof ov === 'string' ? ov : ov.type);
         };
         const dateDims = (model?.dimensions || []).filter((d) => effType(d) === 'date');

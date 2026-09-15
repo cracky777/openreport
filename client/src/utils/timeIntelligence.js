@@ -158,7 +158,7 @@ export function variantLabel(baseLabel, preset) {
 export function variantDateDim(model) {
   if (!model) return null;
   const effType = (d) => {
-    const ov = model.column_types && model.column_types[`${d.table}.${d.column}`];
+    const ov = d.table && d.column && model.column_types && model.column_types[`${d.table}.${d.column}`];
     return !ov ? d.type : (typeof ov === 'string' ? ov : ov.type);
   };
   const dims = (model.dimensions || []).filter((d) => d && effType(d) === 'date');

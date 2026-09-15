@@ -325,7 +325,12 @@ function planRollupsForModel(modelId) {
       if (!w || !w.dataBinding) continue;
       if (w.type === 'text' || w.type === 'shape') continue;
       const baseFilters = onlyRules(prepareGlobalRulesForWidget(reportFilters, wId));
-      const grains = grainsForWidget(w, wId, group);
+      // Calculated (expression) dimensions stay out of every grain: their SQL
+      // is arbitrary and dialect-specific, so a widget grouping on one is
+      // served live (the planner misses on them) while the other dims of the
+      // same report still get their rollup.
+      const grains = grainsForWidget(w, wId, group)
+        .map((grain) => grain.filter((dn) => { const d = dimsByName.get(dn); return !(d && d.expression); }));
       const slot = slotFor(baseFilters);
       for (const grain of grains) for (const d of grain) slot.dims.add(d);
       // Bake the N-1 (year shifted -1) slice too, if this widget's baked

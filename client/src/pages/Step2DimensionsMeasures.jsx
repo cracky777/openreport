@@ -91,6 +91,9 @@ export default function Step2DimensionsMeasures({
   columnTypes, validatingColumn, validationResults,
   showCalcMeasure, setShowCalcMeasure,
   calcMeasure, setCalcMeasure,
+  showCalcDimension, setShowCalcDimension,
+  calcDimension, setCalcDimension,
+  addCalculatedDimension, selectedTables,
   brokenRefByKey,
   setColumnType, validateColumnType, removeDimension, addCalculatedMeasure, removeMeasure,
 }) {
@@ -108,12 +111,59 @@ export default function Step2DimensionsMeasures({
 
         {/* Dimensions */}
         <div style={cardStyle}>
-          <h3 style={cardTitle}>Dimensions ({dimensions.length})</h3>
-          {dimensions.length === 0 ? (
+          <div style={_hs49}>
+            <h3 style={{ ...cardTitle, marginBottom: 0 }}>Dimensions ({dimensions.length})</h3>
+            <button className="btn-hover btn-hover-accent" onClick={() => setShowCalcDimension(true)} style={addCalcBtn}>+ Dimension</button>
+          </div>
+
+          {showCalcDimension && (
+            <div style={_hs50}>
+              <div style={_hs51}>New calculated dimension</div>
+              <input
+                type="text" placeholder="Label (e.g. Age group)"
+                value={calcDimension.label} onChange={(e) => setCalcDimension({ ...calcDimension, label: e.target.value })}
+                style={calcInput}
+              />
+              <select
+                value={calcDimension.table}
+                onChange={(e) => setCalcDimension({ ...calcDimension, table: e.target.value })}
+                title="Table the dimension belongs to — its columns can be written without a prefix"
+                style={calcInput}
+              >
+                <option value="">— table —</option>
+                {(selectedTables || []).map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <select
+                value={calcDimension.type}
+                onChange={(e) => setCalcDimension({ ...calcDimension, type: e.target.value })}
+                style={calcInput}
+              >
+                <option value="string">string</option>
+                <option value="integer">integer</option>
+                <option value="decimal">decimal</option>
+                <option value="date">date</option>
+                <option value="boolean">boolean</option>
+              </select>
+              <SqlExpressionInput
+                value={calcDimension.expression}
+                kind="dimension"
+                dimensionTable={calcDimension.table}
+                onChange={(v) => setCalcDimension({ ...calcDimension, expression: v })}
+                onSubmit={addCalculatedDimension}
+                model={{ dimensions, measures, joins }}
+              />
+              <div style={_hs52}>
+                <button className="btn-hover" onClick={() => { setShowCalcDimension(false); setCalcDimension({ label: '', table: '', type: 'string', expression: '' }); }} style={calcCancelBtn}>Cancel</button>
+                <button className="btn-hover btn-hover-primary" onClick={addCalculatedDimension} disabled={!calcDimension.label || !calcDimension.table || !calcDimension.expression} style={calcSaveBtn}>Add</button>
+              </div>
+            </div>
+          )}
+
+          {dimensions.length === 0 && !showCalcDimension ? (
             <p style={_hs46}>
-              No dimensions yet. Go to "Schema & Joins" and click D next to columns.
+              No dimensions yet. Go to "Schema & Joins" and click D next to columns, or add a SQL dimension above.
             </p>
-          ) : (
+          ) : dimensions.length === 0 ? null : (
             <table style={tableStyleCSS}>
               <thead>
                 <tr>
@@ -129,10 +179,31 @@ export default function Step2DimensionsMeasures({
                   const broken = brokenRefByKey.get(`dimension\u0000${d.name}`);
                   return (
                   <tr key={d.name} style={broken ? { background: 'var(--state-warning-soft)' } : undefined} title={broken ? (broken.issue === 'missing_table' ? `Table "${broken.table}" not found` : broken.issue === 'missing_column' ? `Column "${broken.column}" missing in "${broken.table}"` : broken.issue) : undefined}>
-                    <td style={tdStyle}>{broken && <span style={_hs47}>⚠️</span>}{d.table}</td>
-                    <td style={tdStyle}>{d.column}</td>
+                    <td style={tdStyle}>{broken && <span style={_hs47}>⚠️</span>}{d.table}{d.expression && <> <span style={_hs55}>SQL</span></>}</td>
+                    <td style={tdStyle} title={d.expression || ''}>
+                      {d.expression ? (
+                        <span style={_hs56}>
+                          {d.expression.length > 30 ? d.expression.substring(0, 30) + '...' : d.expression}
+                        </span>
+                      ) : d.column}
+                    </td>
                     <td style={tdStyle}>
-                      {(() => {
+                      {d.expression ? (
+                        // A calculated dimension declares its own type; there is
+                        // no column to sample or to override.
+                        <select
+                          value={normalizeStoredType(d.type)}
+                          onChange={(e) => setDimensions((prev) => prev.map((x) => x.name === d.name ? { ...x, type: e.target.value } : x))}
+                          style={{ ...editableSelectStyle, background: `var(--bg-panel) ${chevronSvg('var(--text-muted)')}` }}
+                          title="Declared type of the expression's result"
+                        >
+                          <option value="string">string</option>
+                          <option value="integer">integer</option>
+                          <option value="decimal">decimal</option>
+                          <option value="date">date</option>
+                          <option value="boolean">boolean</option>
+                        </select>
+                      ) : (() => {
                         const key = `${d.table}.${d.column}`;
                         const isOverridden = !!columnTypes[key];
                         const isValidating = validatingColumn === key;
@@ -257,7 +328,7 @@ export default function Step2DimensionsMeasures({
                 value={calcMeasure.expression}
                 onChange={(v) => setCalcMeasure({ ...calcMeasure, expression: v })}
                 onSubmit={addCalculatedMeasure}
-                model={{ dimensions, measures }}
+                model={{ dimensions, measures, joins }}
               />
               <div style={_hs52}>
                 <button className="btn-hover" onClick={() => { setShowCalcMeasure(false); setCalcMeasure({ label: '', expression: '' }); }} style={calcCancelBtn}>Cancel</button>

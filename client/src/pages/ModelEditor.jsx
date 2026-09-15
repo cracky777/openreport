@@ -117,6 +117,8 @@ export default function ModelEditor() {
   const [saving, setSaving] = useState(false);
   const [showCalcMeasure, setShowCalcMeasure] = useState(false);
   const [calcMeasure, setCalcMeasure] = useState({ label: '', expression: '' });
+  const [showCalcDimension, setShowCalcDimension] = useState(false);
+  const [calcDimension, setCalcDimension] = useState({ label: '', table: '', type: 'string', expression: '' });
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -420,6 +422,20 @@ export default function ModelEditor() {
     setShowCalcMeasure(false);
   };
 
+  // Calculated dimension: a row-level SQL expression attached to one table,
+  // like a Power BI calculated column. No physical column; `expression` is
+  // what the server compiles, `table` is where bare column names resolve.
+  const addCalculatedDimension = () => {
+    if (!calcDimension.label || !calcDimension.table || !calcDimension.expression) return;
+    const dimName = `_calcdim.${calcDimension.label.replace(/\s+/g, '_').toLowerCase()}`;
+    if (dimensions.find((d) => d.name === dimName)) return;
+    setDimensions((prev) => [...prev, {
+      name: dimName, table: calcDimension.table, column: '', type: calcDimension.type || 'string',
+      expression: calcDimension.expression, label: calcDimension.label,
+    }]);
+    setCalcDimension({ label: '', table: '', type: 'string', expression: '' });
+    setShowCalcDimension(false);
+  };
 
   const removeDimension = (dimName) => setDimensions((prev) => prev.filter((d) => d.name !== dimName));
   const removeMeasure = (measName) => setMeasures((prev) => prev.filter((m) => m.name !== measName));
@@ -788,6 +804,9 @@ export default function ModelEditor() {
           columnTypes={columnTypes} validatingColumn={validatingColumn} validationResults={validationResults}
           showCalcMeasure={showCalcMeasure} setShowCalcMeasure={setShowCalcMeasure}
           calcMeasure={calcMeasure} setCalcMeasure={setCalcMeasure}
+          showCalcDimension={showCalcDimension} setShowCalcDimension={setShowCalcDimension}
+          calcDimension={calcDimension} setCalcDimension={setCalcDimension}
+          addCalculatedDimension={addCalculatedDimension} selectedTables={selectedTables}
           brokenRefByKey={brokenRefByKey}
           setColumnType={setColumnType} validateColumnType={validateColumnType}
           removeDimension={removeDimension} addCalculatedMeasure={addCalculatedMeasure} removeMeasure={removeMeasure}

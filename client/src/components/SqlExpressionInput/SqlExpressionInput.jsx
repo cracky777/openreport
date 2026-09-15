@@ -4,6 +4,7 @@ import { TbArrowsMaximize, TbArrowsMinimize } from 'react-icons/tb';
 import api from '../../utils/api';
 import { tokenizeSql } from '../../utils/sqlHighlight';
 import { btnAccentSoft, btnPrimary } from '../formTokens';
+import { readableTables } from '../../utils/readableTables';
 
 const _hs0 = { position: 'relative' };
 const _hs1 = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 3, marginBottom: 4 };
@@ -11,7 +12,19 @@ const _hs2 = { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis
 const _hs3 = { fontSize: 9, color: 'var(--text-disabled)', whiteSpace: 'nowrap', marginLeft: 8, flex: '0 0 auto', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '50%' };
 const _hs4 = { fontSize: 9, color: 'var(--text-disabled)', padding: '3px 8px', borderTop: '1px solid var(--border-default)' };
 
-const SQL_FUNCTIONS = ['SUM', 'AVG', 'COUNT', 'MIN', 'MAX', 'NULLIF', 'COALESCE', 'CASE WHEN', 'DISTINCT', 'ROUND'];
+// Function chips per expression kind. A measure aggregates; a calculated
+// dimension is a row-level value, so it gets the text-shaping and
+// conditional functions instead. `caret` places the cursor inside a
+// snippet that has a hole to fill; absent, the cursor lands at its end.
+const fn = (name) => ({ label: name, insert: `${name}(` });
+const CASE_WHEN = { label: 'CASE WHEN', insert: 'CASE WHEN  THEN  ELSE  END', caret: 10 };
+const FUNCTION_CHIPS = {
+  measure: [fn('SUM'), fn('AVG'), fn('COUNT'), fn('MIN'), fn('MAX'), fn('NULLIF'), fn('COALESCE'), CASE_WHEN, { label: 'DISTINCT', insert: 'DISTINCT ' }, fn('ROUND')],
+  dimension: [
+    fn('CONCAT'), { label: '||', insert: ' || ' }, fn('UPPER'), fn('LOWER'), fn('TRIM'), fn('SUBSTRING'), fn('REPLACE'),
+    fn('COALESCE'), CASE_WHEN, { label: 'CAST', insert: 'CAST( AS )', caret: 5 }, fn('ROUND'), fn('EXTRACT'),
+  ],
+};
 
 // Highlight palette — keyed by tokenizeSql token types. Monospace bold keeps
 // the same advance width, so styled spans never desync the overlay from the
@@ -35,7 +48,11 @@ const renderTokens = (text) => tokenizeSql(text).map((t, i) => (
 // `onSubmit` (optional) is the enclosing form's save action: the large editor
 // then offers a Save button so a measure can be tested, saved and closed
 // without leaving the overlay. Validation of the form stays with the caller.
-export default function SqlExpressionInput({ value, onChange, onSubmit, model, style }) {
+// `kind` says what the expression will become — a measure (aggregated) or a
+// calculated dimension (row-level) — which only changes how Test runs it;
+// `dimensionTable` is the table a calculated dimension is attached to, so the
+// probe resolves bare column names the way the saved dimension will.
+export default function SqlExpressionInput({ value, onChange, onSubmit, model, style, kind = 'measure', dimensionTable = '' }) {
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -49,6 +66,8 @@ export default function SqlExpressionInput({ value, onChange, onSubmit, model, s
   const [anchorRect, setAnchorRect] = useState(null);
   // Large-editor overlay for long expressions.
   const [expanded, setExpanded] = useState(false);
+  // Filter of the overlay's field list.
+  const [fieldSearch, setFieldSearch] = useState('');
   // Last "Test" run: { status: 'running'|'ok'|'error', value?, message?,
   // checked } — `checked` is the expression that was tested, so the result
   // can be greyed out (not hidden) once the user edits further.
@@ -135,10 +154,26 @@ export default function SqlExpressionInput({ value, onChange, onSubmit, model, s
   //   - dim/meas: insert the raw "table"."column"
   //   - calc: insert `${name}` so the server's inliner expands it to the
   //     referenced measure's expression at query time
+  //
+  // A calculated dimension may only read its home table and the tables that
+  // table reaches on the one side of a join (the server refuses the rest, see
+  // readableTables), and never an aggregate — so in dimension mode the list
+  // is cut down to exactly what the expression can use.
   const allFields = useMemo(() => {
     const fields = [];
+    const forDimension = kind === 'dimension';
+    const readable = forDimension && dimensionTable ? readableTables(dimensionTable, model?.joins) : null;
+    const usable = (table) => !readable || readable.has(table);
     if (model) {
       for (const d of (model.dimensions || [])) {
+        if (d.expression) {
+          if (d.table && !usable(d.table)) continue;
+          // A calculated dimension has no column: its SQL is inlined where it
+          // is used, parenthesised so it composes with the surrounding text.
+          fields.push({ label: d.label || d.name, insert: `(${d.expression})`, source: d.name, type: 'calc' });
+          continue;
+        }
+        if (!d.table || !d.column || !usable(d.table)) continue;
         const table = d.table.includes('.') ? `"${d.table.split('.').join('"."')}"` : `"${d.table}"`;
         fields.push({
           label: d.label || d.column,
@@ -147,7 +182,7 @@ export default function SqlExpressionInput({ value, onChange, onSubmit, model, s
           type: 'dim',
         });
       }
-      for (const m of (model.measures || [])) {
+      for (const m of forDimension ? [] : (model.measures || [])) {
         if (m.aggregation === 'custom') {
           fields.push({
             label: m.label || m.name,
@@ -167,7 +202,22 @@ export default function SqlExpressionInput({ value, onChange, onSubmit, model, s
       }
     }
     return fields;
-  }, [model]);
+  }, [model, kind, dimensionTable]);
+
+  // Insert a field where the caret is (the overlay's field list; the
+  // autocomplete has its own word-replacing variant below).
+  const insertField = (field) => {
+    const el = textareaRef.current;
+    const start = el ? el.selectionStart : value.length;
+    const end = el ? el.selectionEnd : value.length;
+    const newVal = value.substring(0, start) + field.insert + value.substring(end);
+    onChange(newVal);
+    setTimeout(() => {
+      if (!el) return;
+      el.focus();
+      el.selectionStart = el.selectionEnd = start + field.insert.length;
+    }, 0);
+  };
 
   // Extract the word being typed at cursor position
   const getWordAtCursor = (text, pos) => {
@@ -224,17 +274,17 @@ export default function SqlExpressionInput({ value, onChange, onSubmit, model, s
     }, 0);
   };
 
-  const insertFunction = (fn) => {
+  const insertFunction = (chip) => {
     const el = textareaRef.current;
-    if (!el) { onChange(value + `${fn}(`); return; }
+    const text = chip.insert;
+    if (!el) { onChange(value + text); return; }
     const start = el.selectionStart;
     const end = el.selectionEnd;
-    const text = `${fn}(`;
     const newVal = value.substring(0, start) + text + value.substring(end);
     onChange(newVal);
     setTimeout(() => {
       el.focus();
-      el.selectionStart = el.selectionEnd = start + text.length;
+      el.selectionStart = el.selectionEnd = start + (chip.caret ?? text.length);
     }, 0);
   };
 
@@ -277,17 +327,33 @@ export default function SqlExpressionInput({ value, onChange, onSubmit, model, s
   // ride along as extras so references to them resolve too.
   const runValidation = async () => {
     if (!model?.id || !value.trim()) return;
-    const checkName = '_calc.__sql_check';
+    const checkName = kind === 'dimension' ? '_calcdim.__sql_check' : '_calc.__sql_check';
     setValidation({ status: 'running', checked: value });
     try {
-      const reportExtras = (model.measures || [])
+      const reportMeasures = (model.measures || [])
         .filter((m) => m._source === 'report' && m.name !== checkName);
-      const res = await api.post(`/models/${model.id}/query`, {
-        dimensionNames: [],
-        measureNames: [checkName],
-        extraMeasures: [...reportExtras, { name: checkName, label: 'SQL check', aggregation: 'custom', expression: value }],
-        limit: 1,
-      });
+      const reportDims = (model.dimensions || [])
+        .filter((d) => d._source === 'report' && d.name !== checkName);
+      // A dimension expression is a row-level value: it is probed on the
+      // first row the database hands out (`sample` — no DISTINCT, no ORDER
+      // BY, so a big table is not sorted for one value), and an aggregate
+      // inside it fails here the same way it would on a widget.
+      const res = await api.post(`/models/${model.id}/query`, kind === 'dimension'
+        ? {
+          dimensionNames: [checkName],
+          measureNames: [],
+          extraDimensions: [...reportDims, { name: checkName, label: 'SQL check', type: 'string', table: dimensionTable || '', column: '', expression: value }],
+          extraMeasures: reportMeasures,
+          sample: true,
+          limit: 1,
+        }
+        : {
+          dimensionNames: [],
+          measureNames: [checkName],
+          extraDimensions: reportDims,
+          extraMeasures: [...reportMeasures, { name: checkName, label: 'SQL check', aggregation: 'custom', expression: value }],
+          limit: 1,
+        });
       const row = (res.data.rows || [])[0];
       const sample = row ? row[Object.keys(row)[0]] : null;
       setValidation({ status: 'ok', value: sample, checked: value });
@@ -323,8 +389,8 @@ export default function SqlExpressionInput({ value, onChange, onSubmit, model, s
     <div style={_hs0}>
       {/* Functions bar + actions */}
       <div style={_hs1}>
-        {SQL_FUNCTIONS.map((fn) => (
-          <button key={fn} onClick={() => insertFunction(fn)} style={fnChip}>{fn}</button>
+        {(FUNCTION_CHIPS[kind] || FUNCTION_CHIPS.measure).map((chip) => (
+          <button key={chip.label} onClick={() => insertFunction(chip)} style={fnChip}>{chip.label}</button>
         ))}
         <span style={{ flex: 1 }} />
         <button
@@ -396,8 +462,48 @@ export default function SqlExpressionInput({ value, onChange, onSubmit, model, s
           onMouseDown={(e) => { if (e.target === e.currentTarget) setExpanded(false); }}
         >
           <div style={overlayBox}>
-            <div style={overlayTitle}>SQL expression</div>
-            {editorUI(true)}
+            <div style={overlayEditor}>
+              <div style={overlayTitle}>SQL expression</div>
+              {editorUI(true)}
+            </div>
+            {/* Fields the expression may use, one click away — the way a
+                custom column dialog lists its available columns. */}
+            <div style={fieldsPanel}>
+              <div style={overlayTitle}>
+                {kind === 'dimension' ? (dimensionTable ? `Available fields (from ${dimensionTable})` : 'Available fields') : 'Available fields'}
+              </div>
+              <input
+                type="text"
+                value={fieldSearch}
+                onChange={(e) => setFieldSearch(e.target.value)}
+                placeholder="Search…"
+                style={fieldsSearch}
+              />
+              <div style={fieldsList}>
+                {allFields
+                  .filter((f) => !fieldSearch || f.label.toLowerCase().includes(fieldSearch.toLowerCase()) || f.source.toLowerCase().includes(fieldSearch.toLowerCase()))
+                  .map((f) => (
+                    <div
+                      key={`${f.type}:${f.source}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => insertField(f)}
+                      title={`Insert ${f.insert}`}
+                      style={fieldsItem}
+                    >
+                      <span style={fieldBadge(f.type)}>{f.type === 'dim' ? 'DIM' : (f.type === 'calc' ? 'ƒ' : 'MES')}</span>
+                      <span style={_hs2}>{f.label}</span>
+                      {f.type !== 'calc' && (
+                        <span style={_hs3}>{f.source.includes('.') ? f.source.split('.').slice(-2).join('.') : f.source}</span>
+                      )}
+                    </div>
+                  ))}
+                {allFields.length === 0 && (
+                  <div style={fieldsEmpty}>
+                    {kind === 'dimension' && !dimensionTable ? 'Pick the table the dimension belongs to.' : 'No field available.'}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>,
         document.body,
@@ -425,12 +531,7 @@ export default function SqlExpressionInput({ value, onChange, onSubmit, model, s
                 color: 'var(--text-primary)',
               }}
             >
-              <span style={{
-                fontSize: 9, fontWeight: 700, marginRight: 6, padding: '0 3px',
-                borderRadius: 2, flex: '0 0 auto',
-                backgroundColor: s.type === 'dim' ? 'var(--accent-primary-soft)' : (s.type === 'calc' ? 'var(--state-warning-soft)' : 'var(--state-success-soft)'),
-                color: s.type === 'dim' ? 'var(--accent-primary)' : (s.type === 'calc' ? 'var(--state-warning)' : 'var(--state-success)'),
-              }}>
+              <span style={fieldBadge(s.type)}>
                 {s.type === 'dim' ? 'DIM' : (s.type === 'calc' ? 'ƒ' : 'MES')}
               </span>
               <span style={_hs2}>{s.label}</span>
@@ -501,13 +602,36 @@ const overlayBackdrop = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
 const overlayBox = {
-  width: 'min(860px, 92vw)', maxHeight: '82vh', overflow: 'auto',
+  width: 'min(1080px, 94vw)', maxHeight: '82vh',
   background: 'var(--bg-panel)', borderRadius: 8, padding: 14,
   boxShadow: '0 12px 40px rgba(0,0,0,0.3)',
+  display: 'flex', gap: 14,
 };
+const overlayEditor = { flex: 1, minWidth: 0, overflow: 'auto' };
 const overlayTitle = {
   fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8,
 };
+const fieldsPanel = {
+  flex: '0 0 240px', minWidth: 0, display: 'flex', flexDirection: 'column',
+  borderLeft: '1px solid var(--border-default)', paddingLeft: 14,
+};
+const fieldsSearch = {
+  fontSize: 11, padding: '4px 6px', marginBottom: 6,
+  border: '1px solid var(--border-default)', borderRadius: 4,
+  background: 'var(--bg-input)', color: 'var(--text-primary)',
+};
+const fieldsList = { flex: 1, minHeight: 0, overflowY: 'auto' };
+const fieldsItem = {
+  display: 'flex', alignItems: 'center', padding: '4px 6px', borderRadius: 4,
+  fontSize: 11, cursor: 'pointer', color: 'var(--text-primary)',
+};
+const fieldsEmpty = { fontSize: 11, color: 'var(--text-muted)', padding: '4px 6px' };
+const fieldBadge = (type) => ({
+  fontSize: 9, fontWeight: 700, marginRight: 6, padding: '0 3px',
+  borderRadius: 2, flex: '0 0 auto',
+  backgroundColor: type === 'dim' ? 'var(--accent-primary-soft)' : (type === 'calc' ? 'var(--state-warning-soft)' : 'var(--state-success-soft)'),
+  color: type === 'dim' ? 'var(--accent-primary)' : (type === 'calc' ? 'var(--state-warning)' : 'var(--state-success)'),
+});
 
 const dropdownStyle = {
   position: 'fixed', zIndex: 2000,

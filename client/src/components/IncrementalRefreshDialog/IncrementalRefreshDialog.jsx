@@ -36,7 +36,9 @@ export default function IncrementalRefreshDialog({ modelId, onClose }) {
     const ov = model?.column_types && model.column_types[`${d.table}.${d.column}`];
     return !ov ? d.type : (typeof ov === 'string' ? ov : ov.type);
   };
-  const dateDims = (model?.dimensions || []).filter((d) => effectiveType(d) === 'date');
+  // Incremental refresh partitions on a physical column; a calculated date
+  // dimension has none to partition on.
+  const dateDims = (model?.dimensions || []).filter((d) => d.table && d.column && effectiveType(d) === 'date');
 
   // Explicit affordance instead of a silent success: with no date column the
   // only effective action is turning incremental OFF — if it already is off,

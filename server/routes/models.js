@@ -36,6 +36,7 @@ const { buildScalarClause } = require('../utils/sqlBuilder/filterClause');
 const { buildMultiFactBody } = require('../utils/sqlBuilder/multiFact');
 const { buildFromClause } = require('../utils/sqlBuilder/fromClause');
 const { buildTopNOrderLimit } = require('../utils/sqlBuilder/orderLimit');
+const { dimensionTables, dimensionAggregate, fanOutTables } = require('../utils/sqlBuilder/dimensionTables');
 const { computeRealFacts, computeJoinedTables, computeConnectedComponents } = require('../utils/sqlBuilder/joinGraph');
 const { buildOverrideSubquery } = require('../utils/sqlBuilder/overrideSubquery');
 const { rejectIfNameTaken } = require('../utils/nameUniqueness');
@@ -369,8 +370,8 @@ router.get('/:id/validate', authFor('write'), async (req, res) => {
 
     // Check dimensions
     for (const d of dimensions) {
-      // Computed dimensions with sqlExpression don't need table/column checks
-      if (d.sqlExpression) continue;
+      // Calculated dimensions are free SQL over the model, not a table/column reference
+      if (d.expression) continue;
       // Date-part synthetic dimensions (name starts with "_date.") depend on the parent date column
       if (d.datePartOf) continue;
       if (!d.table) { issues.push({ kind: 'dimension', name: d.name, issue: 'no_table', label: d.label }); continue; }
@@ -801,6 +802,10 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   let {
     dimensionNames, measureNames, limit, offset, filters, widgetFilters,
     distinct, measureAggOverrides, sqlOnly, timeVariants,
+    // First row as the database hands it out: no DISTINCT, no ORDER BY. The
+    // SQL editor's Test uses it to show one sample value of a calculated
+    // dimension without sorting or de-duplicating the whole table.
+    sample,
     // X-grain HAVING — when the client visual has a legend (groupBy) and
     // applies a measure filter, the user expects "filter X values whose
     // TOTAL (across all legend slices) passes the test", not "filter
@@ -1118,7 +1123,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
         for (const r of target.filterRules) {
           if (!r || r.isMeasure || !r.field) continue;
           const dimDef = allDimensions.find((d) => d.name === r.field);
-          if (dimDef) tablesUsed.add(dimDef.table);
+          if (dimDef) registerDimTables(dimDef);
         }
         if (target.table) tablesUsed.add(target.table);
         const refIdx = overrideRefInfos.length;
@@ -1318,6 +1323,55 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   const selectedDimensions = dimensionNames
     ? dimensionNames.map((name) => allDimensions.find((d) => d.name === name)).filter(Boolean)
     : [];
+  // Fields that name a table — what a calculated expression is scanned against.
+  const fieldsWithTable = [...allDimensions, ...allMeasures].filter((x) => x && x.table);
+  // Calculated dimensions are checked where they are used rather than at save
+  // time, so a broken one only fails the widgets that reference it.
+  {
+    const usedDimNames = new Set([
+      ...selectedDimensions.map((d) => d.name),
+      ...Object.keys(filters && typeof filters === 'object' ? filters : {}),
+      ...(Array.isArray(widgetFilters) ? widgetFilters : []).map((f) => f && !f.isMeasure && f.field).filter(Boolean),
+    ]);
+    for (const name of usedDimNames) {
+      const dim = allDimensions.find((d) => d.name === name);
+      const agg = dimensionAggregate(dim);
+      if (agg) {
+        return res.status(400).json({
+          error: `Dimension "${(dim && dim.label) || name}" uses an aggregate (${agg}). A calculated dimension is a row-level value; put aggregates in a measure instead.`,
+        });
+      }
+      // Without a home table or a qualified reference the query has no table
+      // to read from; the FROM clause would otherwise name "undefined" and the
+      // database error would say nothing about the cause.
+      if (dim && dim.expression && dimensionTables(dim, fieldsWithTable).length === 0) {
+        return res.status(400).json({
+          error: `Dimension "${dim.label || name}": attach it to a table, or reference columns as "table"."column", so the query knows which table to read.`,
+        });
+      }
+      // Reading a table on the many side of the home table (or one it is
+      // not joined to) would repeat every home row per child row and inflate
+      // any measure grouped by the dimension — refused up front rather than
+      // served as a silently wrong number.
+      const { unjoined, noCardinality, manySide } = fanOutTables(dim, fieldsWithTable, allJoins);
+      const quoteList = (ts, sep = ', ') => ts.map((t) => `"${t}"`).join(sep);
+      if (unjoined.length > 0) {
+        return res.status(400).json({
+          error: `Dimension "${dim.label || name}" reads ${quoteList(unjoined)}, which is not joined to "${dim.table}". Add a join in the model, or read only columns of "${dim.table}" and the tables joined to it.`,
+        });
+      }
+      if (noCardinality.length > 0) {
+        return res.status(400).json({
+          error: `Dimension "${dim.label || name}" reads ${quoteList(noCardinality)}, but the join between it and "${dim.table}" has no cardinality (1 or *) set. Set it on both ends in the model's schema so the query knows which side can be read without repeating rows.`,
+        });
+      }
+      if (manySide.length > 0) {
+        return res.status(400).json({
+          error: `Dimension "${dim.label || name}" reads ${quoteList(manySide)}, which sits on the many side of "${dim.table}": that would repeat every "${dim.table}" row and fan the numbers out. Attach the dimension to ${quoteList(manySide, ' or ')} instead, or read only tables on the one side.`,
+        });
+      }
+    }
+  }
   const selectedMeasures = measureNames
     ? measureNames.map((name) => {
         const m = allMeasures.find((mm) => mm.name === name);
@@ -1372,6 +1426,12 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   const selectParts = [];
   const groupByParts = [];
   const tablesUsed = new Set();
+  // Every dimension site registers its tables through this, so a calculated
+  // dimension's referenced tables reach the FROM clause and the RLS
+  // reachability check exactly like a column dimension's own table.
+  const registerDimTables = (dim) => {
+    for (const t of dimensionTables(dim, fieldsWithTable)) tablesUsed.add(t);
+  };
 
   // Pre-register filter tables so they get JOINed.
   // whereParts is an array of `{ field, sql }` objects so that override-mode
@@ -1391,8 +1451,8 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       if (!isRange && (!Array.isArray(values) || values.length === 0)) continue;
       const dimDef = allDimensions.find((d) => d.name === dimName);
       if (!dimDef) continue;
-      tablesUsed.add(dimDef.table);
-      const col = quoteCol(dimDef.table, dimDef.column, dbType);
+      registerDimTables(dimDef);
+      const col = buildDimensionExpr(dimDef, dbType, columnTypes);
       if (isRange) {
         const [startVal, endVal] = raw.value;
         if (dimDef.type === 'date') {
@@ -1452,7 +1512,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       if (f.isMeasure) { measureFiltersDeferred.push(f); continue; }
       const dimDef = allDimensions.find((d) => d.name === f.field);
       if (!dimDef) continue;
-      tablesUsed.add(dimDef.table);
+      registerDimTables(dimDef);
       // For date-part dims, the comparison must be against the same
       // EXTRACT/YEAR(...) expression used in SELECT — otherwise filtering
       // by year on a "_date.num_year" dim would never match the raw
@@ -1476,7 +1536,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     const expr = buildDimensionExpr(d, dbType, columnTypes);
     selectParts.push(`${expr} AS ${quoteIdent(d.label || d.name, dbType)}`);
     groupByParts.push(expr);
-    tablesUsed.add(d.table);
+    registerDimTables(d);
   });
 
   // Helper used by filtered measures to convert a single FilterRule into a
@@ -1488,7 +1548,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     if (!rule || rule.isMeasure || !rule.field || !rule.op) return null;
     const dimDef = allDimensions.find((d) => d.name === rule.field);
     if (!dimDef) return null;
-    tablesUsed.add(dimDef.table);
+    registerDimTables(dimDef);
     const col = buildDimensionExpr(dimDef, dbType, columnTypes);
     return buildScalarClause(
       col, rule.op, rule.value, rule.values,
@@ -1535,13 +1595,13 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   // lets emitMeasureSelects spot a measure whose table is unrelated to every
   // grouping dim and route it to a scalar-subquery total instead of a cross join.
   const components = computeConnectedComponents(allJoins);
-  const dimTables = new Set(selectedDimensions.map((d) => d && d.table).filter(Boolean));
+  const dimTables = new Set(selectedDimensions.flatMap((d) => dimensionTables(d, fieldsWithTable)));
   const dimOnlyMeasureInfos = [];
 
   // Field list used by every "which tables does this inlined expression touch?"
   // scan below. Depends only on the model shape, so build it once instead of
   // rebuilding the spread+filter inside each custom/filtered-measure branch.
-  const allFieldsForLookup = [...allDimensions, ...allMeasures.filter((x) => x.table)];
+  const allFieldsForLookup = fieldsWithTable;
 
   // Emit the SELECT entry for each measure (dim-only / override / intersection /
   // custom / count / plain agg). Mutates the shared accumulators; returns an
@@ -1865,10 +1925,10 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   if (useXGrainHaving && (xGrainHavingParts.length > 0 || xGrainTopN)) {
     const grainDimDefs = havingGrainDims
       .map((n) => allDimensions.find((d) => d.name === n))
-      .filter((d) => d && d.table && d.column);
+      .filter((d) => d && (d.expression || (d.table && d.column)));
     if (grainDimDefs.length === havingGrainDims.length && grainDimDefs.length > 0) {
-      for (const d of grainDimDefs) tablesUsed.add(d.table);
-      const dimColExprs = grainDimDefs.map((d) => quoteCol(d.table, d.column, dbType));
+      for (const d of grainDimDefs) registerDimTables(d);
+      const dimColExprs = grainDimDefs.map((d) => buildDimensionExpr(d, dbType, columnTypes));
       const capturedWhere = whereParts.length > 0
         ? ` WHERE ${whereParts.map((w) => w.sql).join(' AND ')}`
         : '';
@@ -1885,7 +1945,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   }
 
   __mark('SQL parts assembled (selectParts, whereParts, joins, etc.)');
-  const useDistinct = distinct || (selectedDimensions.length > 0 && selectedMeasures.length === 0);
+  const useDistinct = !sample && (distinct || (selectedDimensions.length > 0 && selectedMeasures.length === 0));
   // Dim-only short-circuit. When EVERY selected measure was emitted as a
   // dim-only scalar subquery AND there are no grain dims to GROUP BY, the
   // outer FROM/JOIN/WHERE is just CPU waste: it forces a cartesian over
@@ -1927,7 +1987,11 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   let builderCapLimit = MAX_ROWS;
   // Top/Bottom N filter (set above) replaces both the default ORDER BY (which
   // is by the first dimension for stability) and the configured LIMIT.
-  if (topNOverride) {
+  if (sample) {
+    // TOP for the dialect whose OFFSET…FETCH would demand an ORDER BY.
+    if (capabilities(dbType).pagination === 'fetch') sql = sql.replace(/^SELECT /, 'SELECT TOP 1 ');
+    else sql += ' LIMIT 1';
+  } else if (topNOverride) {
     // Top/Bottom N replaces both the default ORDER BY and the configured LIMIT
     // with a dialect-aware ORDER BY <aggExpr> <dir> [NULLS handling] + limit.
     sql += buildTopNOrderLimit(topNOverride, dbType);
