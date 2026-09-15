@@ -105,6 +105,11 @@ const _hs10 = {
 const CASCADE_STEP = 24;
 const CASCADE_MAX = 20;
 
+// Chart types whose renderer draws a legend. A new one starts with it shown;
+// the flag is written explicitly so reports saved before this default keep
+// their look, and the widgets themselves still fall back to hidden.
+const LEGEND_CHART_TYPES = new Set(['bar', 'line', 'pie', 'scatter', 'combo']);
+
 // New widgets all land on the same centred slot, so a second one hides the
 // first completely and the user thinks the add did nothing. Nudge each
 // collision down-right until the slot is free, clamped inside the page.
@@ -1518,6 +1523,9 @@ export default function Editor() {
           config: {
             ...existing.config,
             subType: subType || undefined,
+            // A choice already made on the legend survives the switch; only a
+            // widget that never had one gets the chart default.
+            ...(LEGEND_CHART_TYPES.has(type) && existing.config?.showLegend == null ? { showLegend: true } : {}),
           },
         },
       }));
@@ -1553,6 +1561,7 @@ export default function Editor() {
             ...(subType ? { subType } : {}),
             // Filter widgets: no border by default, tighter padding
             ...(type === 'filter' ? { borderEnabled: false } : {}),
+            ...(LEGEND_CHART_TYPES.has(type) ? { showLegend: true } : {}),
             ...extraConfig,
           },
         },
