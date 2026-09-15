@@ -256,6 +256,7 @@ export default function Step2DimensionsMeasures({
               <SqlExpressionInput
                 value={calcMeasure.expression}
                 onChange={(v) => setCalcMeasure({ ...calcMeasure, expression: v })}
+                onSubmit={addCalculatedMeasure}
                 model={{ dimensions, measures }}
               />
               <div style={_hs52}>

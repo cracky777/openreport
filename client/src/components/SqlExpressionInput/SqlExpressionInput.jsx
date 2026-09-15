@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { TbArrowsMaximize, TbArrowsMinimize } from 'react-icons/tb';
 import api from '../../utils/api';
 import { tokenizeSql } from '../../utils/sqlHighlight';
-import { btnAccentSoft } from '../formTokens';
+import { btnAccentSoft, btnPrimary } from '../formTokens';
 
 const _hs0 = { position: 'relative' };
 const _hs1 = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 3, marginBottom: 4 };
@@ -32,7 +32,10 @@ const renderTokens = (text) => tokenizeSql(text).map((t, i) => (
   TOKEN_COLORS[t.type] ? <span key={i} style={TOKEN_COLORS[t.type]}>{t.text}</span> : t.text
 ));
 
-export default function SqlExpressionInput({ value, onChange, model, style }) {
+// `onSubmit` (optional) is the enclosing form's save action: the large editor
+// then offers a Save button so a measure can be tested, saved and closed
+// without leaving the overlay. Validation of the form stays with the caller.
+export default function SqlExpressionInput({ value, onChange, onSubmit, model, style }) {
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -106,16 +109,27 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
     };
   }, [showSuggestions]);
 
-  // Escape closes the overlay (only when the autocomplete isn't the one
-  // consuming the key).
+  const submit = () => {
+    setExpanded(false);
+    onSubmit?.();
+  };
+
+  // Escape closes the overlay and Ctrl/Cmd+Enter saves (only when the
+  // autocomplete isn't the one consuming the key).
   useEffect(() => {
     if (!expanded) return;
     const onKey = (e) => {
-      if (e.key === 'Escape' && !showSuggestions) setExpanded(false);
+      if (showSuggestions) return;
+      if (e.key === 'Escape') setExpanded(false);
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && onSubmit) {
+        e.preventDefault();
+        setExpanded(false);
+        onSubmit();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [expanded, showSuggestions]);
+  }, [expanded, showSuggestions, onSubmit]);
 
   // Build all available fields. Three "kinds":
   //   - dim/meas: insert the raw "table"."column"
@@ -321,6 +335,15 @@ export default function SqlExpressionInput({ value, onChange, model, style }) {
         >
           {validation?.status === 'running' ? 'Testing…' : '▶ Test'}
         </button>
+        {big && onSubmit && (
+          <button
+            onClick={submit}
+            title="Save the measure and close the editor (Ctrl+Enter)"
+            style={saveBtn}
+          >
+            ✓ Save
+          </button>
+        )}
         <button
           onClick={() => setExpanded(!big)}
           title={big ? 'Close large editor (Esc)' : 'Open large editor'}
@@ -464,6 +487,7 @@ const fnChip = {
 };
 
 const testBtn = btnAccentSoft;
+const saveBtn = btnPrimary;
 
 const iconBtn = {
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
