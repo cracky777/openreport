@@ -88,7 +88,19 @@ export default function PagesColumn({
   const c = config || {};
   // Single-page edit: don't show the accordion at all — just expose the "+ add page" affordance.
   const isSinglePageEdit = editMode && pages.length <= 1;
-  const isCollapsed = editMode && collapsed && !isSinglePageEdit;
+  // A collapsed column only shows page numbers, so a rename would have nowhere
+  // to type and nothing to show. It opens for the duration of the edit and
+  // folds back once the name is committed or the edit cancelled; the user's
+  // collapsed preference itself is untouched.
+  const isCollapsed = editMode && collapsed && !isSinglePageEdit && editingIdx === null;
+  const beginRename = (idx) => {
+    if (collapsed) onAnimationStart?.();
+    setEditingIdx(idx);
+  };
+  const endRename = () => {
+    if (collapsed) onAnimationStart?.();
+    setEditingIdx(null);
+  };
 
   // Block-level (column container) styling
   const containerBg = c.bgColor || 'var(--bg-panel)';
@@ -265,7 +277,7 @@ export default function PagesColumn({
               <div
                 key={page.id}
                 onClick={() => { if (!isEditing) onSwitch(idx); }}
-                onDoubleClick={() => editMode && setEditingIdx(idx)}
+                onDoubleClick={() => editMode && beginRename(idx)}
                 onContextMenu={(e) => {
                   if (!editMode) return;
                   e.preventDefault();
@@ -310,10 +322,10 @@ export default function PagesColumn({
                   <input
                     autoFocus
                     defaultValue={page.name}
-                    onBlur={(e) => { onRename(idx, e.target.value || page.name); setEditingIdx(null); }}
+                    onBlur={(e) => { onRename(idx, e.target.value || page.name); endRename(); }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') { onRename(idx, e.target.value || page.name); setEditingIdx(null); }
-                      if (e.key === 'Escape') setEditingIdx(null);
+                      if (e.key === 'Enter') { onRename(idx, e.target.value || page.name); endRename(); }
+                      if (e.key === 'Escape') endRename();
                     }}
                     onClick={(e) => e.stopPropagation()}
                     style={_hs4}
@@ -392,7 +404,7 @@ export default function PagesColumn({
             minWidth: 140,
           }}>
             <button
-              onClick={() => { setEditingIdx(contextMenu.idx); setContextMenu(null); }}
+              onClick={() => { beginRename(contextMenu.idx); setContextMenu(null); }}
               style={ctxItem}
             >Rename</button>
             <button
