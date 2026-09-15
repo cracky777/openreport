@@ -161,7 +161,7 @@ Monté sur le préfixe `/api/workspaces` **avant** le router workspaces.
 
 | Méthode | Path | Auth | Permission | Description |
 |---|---|:--:|---|---|
-| `POST` | `/api/upload` | ✅ | soi-même | Upload CSV/XLSX/Parquet/JSON/TSV → crée une datasource DuckDB. Réutilise la datasource existante si le **même fichier source** a déjà été importé ; sinon `409` si le **nom** est déjà pris. Taille max **500 Mo**. |
+| `POST` | `/api/upload` | ✅ | soi-même | Upload CSV/XLSX/Parquet/JSON/TSV/SQLite (.db)/DuckDB (.duckdb) → crée une datasource DuckDB. Réutilise la datasource existante si le **même fichier source** a déjà été importé ; sinon `409` si le **nom** est déjà pris. Taille max **500 Mo**. |
 | `GET` | `/api/upload` | ✅ | soi-même | Liste les datasources issues de fichiers. |
 
 **Options de parsing CSV/TSV** (champs multipart optionnels ; omis → auto-détection DuckDB du

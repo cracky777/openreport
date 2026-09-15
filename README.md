@@ -43,7 +43,7 @@ The semantic model: pick tables, draw joins with their cardinality, flag dimensi
 - Workspace and user management, public share links
 - Export to PDF, PNG, Excel
 - Connects to PostgreSQL, Amazon Redshift, Snowflake, Databricks, ClickHouse, MySQL, Oracle, SQL Server, Azure SQL, BigQuery, DuckDB
-- Imports CSV, Excel (.xlsx), Parquet, JSON, TSV
+- Imports CSV, Excel (.xlsx), Parquet, JSON, TSV, SQLite (.db), DuckDB (.duckdb)
 - [REST API](API.md) for scripted refreshes, with scoped tokens
 
 ## What it doesn't do (yet)

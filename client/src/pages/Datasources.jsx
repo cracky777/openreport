@@ -233,7 +233,7 @@ export default function Datasources() {
             )}
           </div>
           <div style={actionGroup}>
-            <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv"
+            <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv,.db,.sqlite,.sqlite3,.duckdb,.ddb"
               style={_hs2} onChange={handleFileSelected} />
             {/* Clears the refresh target: the OS dialog can be dismissed, which
                 would otherwise leave the next pick aimed at a source. */}

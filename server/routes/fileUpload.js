@@ -47,7 +47,16 @@ const uploadsDir = path.join(__dirname, '..', 'data', 'uploads');
 const duckdbDir = path.join(__dirname, '..', 'data', 'duckdb');
 [uploadsDir, duckdbDir].forEach((d) => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
 
-// Multer config — accept CSV, Excel, Parquet, JSON
+// Database files: whole databases whose tables are copied in through an ATTACH.
+// SQLite travels under several extensions and `.db` is also a generic suffix,
+// so the magic header is checked at import time rather than trusting the name.
+// DuckDB files carry "DUCK" after an 8-byte checksum.
+const SQLITE_EXTS = ['.db', '.sqlite', '.sqlite3'];
+const DUCKDB_EXTS = ['.duckdb', '.ddb'];
+const SQLITE_MAGIC = { offset: 0, bytes: 'SQLite format 3\0' };
+const DUCKDB_MAGIC = { offset: 8, bytes: 'DUCK' };
+
+// Multer config — accept CSV, Excel, Parquet, JSON, SQLite, DuckDB
 const storage = multer.diskStorage({
   destination: uploadsDir,
   filename: (req, file, cb) => cb(null, `${uuidv4()}${path.extname(file.originalname)}`),
@@ -57,12 +66,66 @@ const upload = multer({
   storage,
   limits: { fileSize: 500 * 1024 * 1024 }, // 500MB max
   fileFilter: (req, file, cb) => {
-    const allowed = ['.csv', '.xlsx', '.xls', '.parquet', '.json', '.tsv'];
+    const allowed = ['.csv', '.xlsx', '.xls', '.parquet', '.json', '.tsv', ...SQLITE_EXTS, ...DUCKDB_EXTS];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowed.includes(ext)) cb(null, true);
     else cb(new Error(`Unsupported file type: ${ext}. Allowed: ${allowed.join(', ')}`));
   },
 });
+
+function hasMagic(filePath, { offset, bytes }) {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const head = Buffer.alloc(bytes.length);
+    const n = fs.readSync(fd, head, 0, head.length, offset);
+    return n === head.length && head.toString('latin1') === bytes;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+// Copy every user table of a database file into the instance's own tables, one
+// DuckDB table per source table. Views are left out: they may reference
+// functions DuckDB lacks (SQLite) or other attached databases, and the model
+// layer is where derived tables belong anyway. Tables outside `main` keep
+// their schema as a prefix so two same-named tables cannot collide.
+async function copyAttachedTables({ dbInstance, filePath, attachOptions, uniqueTableName, describeTable }) {
+  const q = (ident) => `"${ident.replace(/"/g, '""')}"`;
+  await dbInstance.run(`ATTACH '${filePath}' AS src (${attachOptions})`);
+  try {
+    const rows = await dbInstance.all(
+      "SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name = 'src' AND NOT internal ORDER BY schema_name, table_name"
+    );
+    const found = rows.filter((r) => !r.table_name.startsWith('sqlite_'));
+    if (!found.length) throw new Error('The database file contains no tables');
+    const tables = [];
+    for (const { schema_name: schema, table_name: table } of found) {
+      const t = uniqueTableName(schema === 'main' ? table : `${schema}_${table}`);
+      await dbInstance.run(`CREATE TABLE "${t}" AS SELECT * FROM src.${q(schema)}.${q(table)}`);
+      tables.push(await describeTable(t));
+    }
+    return tables;
+  } finally {
+    // The imported file is deleted right after; a lingering ATTACH would keep
+    // it open on Windows and the datasource must not depend on it.
+    try { await dbInstance.run('DETACH src'); } catch { /* the import error, if any, is the one to report */ }
+  }
+}
+
+// The sqlite extension is a core DuckDB extension but is not bundled with the
+// binary: LOAD succeeds once it sits in the extension directory, and the first
+// import on a fresh install needs one INSTALL — which needs network. When both
+// fail the error names the cause, since DuckDB's own message only says the
+// extension could not be found.
+async function loadSqliteExtension(dbInstance) {
+  try { await dbInstance.run('LOAD sqlite'); return; } catch { /* not installed yet — try INSTALL */ }
+  try {
+    await dbInstance.run('INSTALL sqlite');
+    await dbInstance.run('LOAD sqlite');
+  } catch (err) {
+    throw new Error(`SQLite import needs the DuckDB "sqlite" extension, which could not be installed (network required on first use): ${err.message}`);
+  }
+}
 
 // Import an uploaded file into the tables of an already-open DuckDB instance.
 //
@@ -164,6 +227,16 @@ async function importTables({ dbInstance, file, ext, body, tableNamer }) {
       const t = uniqueTableName(path.basename(file.originalname, ext));
       await dbInstance.run(`CREATE TABLE "${t}" AS SELECT * FROM read_json_auto('${filePath}')`);
       tables.push(await describeTable(t));
+    } else if (SQLITE_EXTS.includes(ext)) {
+      // Copied through the sqlite extension so declared column types survive.
+      if (!hasMagic(file.path, SQLITE_MAGIC)) throw new Error(`${file.originalname} is not a SQLite database`);
+      await loadSqliteExtension(dbInstance);
+      tables.push(...await copyAttachedTables({ dbInstance, filePath, attachOptions: 'TYPE SQLITE, READ_ONLY', uniqueTableName, describeTable }));
+    } else if (DUCKDB_EXTS.includes(ext)) {
+      // Copied rather than adopted as-is: the datasource file must be one this
+      // process created and holds open, with external access switched off.
+      if (!hasMagic(file.path, DUCKDB_MAGIC)) throw new Error(`${file.originalname} is not a DuckDB database`);
+      tables.push(...await copyAttachedTables({ dbInstance, filePath, attachOptions: 'READ_ONLY', uniqueTableName, describeTable }));
     } else {
       throw new Error(`Unsupported file type: ${ext}`);
     }

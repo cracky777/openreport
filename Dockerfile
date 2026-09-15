@@ -44,6 +44,13 @@ RUN mkdir -p /app/server/data/uploads /app/server/data/duckdb \
     && chown -R node:node /app/server/data
 USER node
 
+# DuckDB's sqlite extension (used to import .db files) is fetched from the
+# extension repository on first use. Baking it into the image, in the `node`
+# user's extension directory, keeps SQLite imports working on hosts without
+# outbound network. A fetch hiccup only costs that convenience, not the build.
+RUN cd server && node -e "require('duckdb-async').Database.create(':memory:').then((db) => db.run('INSTALL sqlite'))" \
+    || echo "warning: DuckDB sqlite extension not preinstalled — the first .db import will fetch it"
+
 EXPOSE 3001
 VOLUME ["/app/server/data"]
 

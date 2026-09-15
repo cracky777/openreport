@@ -1005,7 +1005,7 @@ export default function Dashboard() {
               {/* Step 2b: Upload file */}
               {createMode === 'file' && (
                 <div>
-                  <input ref={createFileRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv" style={_hs59}
+                  <input ref={createFileRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv,.db,.sqlite,.sqlite3,.duckdb,.ddb" style={_hs59}
                     onChange={handleFileSelected} />
                   {!selectedFile ? (
                     // No file yet → the drop zone.
