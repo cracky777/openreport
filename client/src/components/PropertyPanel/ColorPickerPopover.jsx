@@ -154,6 +154,7 @@ export default function ColorPickerPopover({ value, onChange, onClose, allowTran
   return createPortal(
     <div
       ref={ref}
+      data-floating-ui=""
       style={{ ...popover, top: pos.top, left: pos.left }}
       onMouseDown={(e) => e.stopPropagation()}
     >

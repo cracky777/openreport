@@ -115,6 +115,7 @@ export default function FontPicker({ value, onChange, style }) {
       {open && pos && createPortal(
         <div
           ref={popRef}
+          data-floating-ui=""
           style={{
             ...popoverStyle,
             top: pos.top,

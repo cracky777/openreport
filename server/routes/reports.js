@@ -435,7 +435,8 @@ router.post('/import', authFor('read'), (req, res) => {
       if (w && typeof w === 'object') {
         const { data: _d, ...rest } = w;
         if (w.type === 'text' && _d && typeof _d.text === 'string') {
-          out[wId] = { ...rest, data: { text: _d.text } };
+          // `runs` is the text's formatting; the client validates it on read.
+          out[wId] = { ...rest, data: Array.isArray(_d.runs) ? { text: _d.text, runs: _d.runs } : { text: _d.text } };
         } else {
           out[wId] = rest;
         }

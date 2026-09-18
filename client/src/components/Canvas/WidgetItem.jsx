@@ -27,7 +27,7 @@ import { currentFieldDrag } from '../../utils/fieldDrag';
 // A slicer and a custom visual are controls edge to edge; they keep the 8px
 // frame as their handle, because there is no inert area to grab. A text
 // widget is inert until double-clicked, so it is grabbed anywhere like a
-// chart; its editing textarea stops the mousedown itself, so a drag never
+// chart; its editing surface stops the mousedown itself, so a drag never
 // starts on the text being typed.
 const DRAG_CANCEL = {
   table: '.widget-content table, .resize-handle',
@@ -445,7 +445,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             // by TextWidget's inline editor so the typed text round-trips
             // into history (and so the same component renders read-only in
             // the Viewer, which doesn't wire this prop).
-            onDataUpdate={onWidgetUpdate ? (key, val) => onWidgetUpdate(item.i, { ...widget, data: { ...widget.data, [key]: val } }) : undefined}
+            onDataUpdate={onWidgetUpdate ? (patch) => onWidgetUpdate(item.i, { ...widget, data: { ...widget.data, ...patch } }) : undefined}
             onFilterChange={widget.type === 'filter' && onSlicerFilter ? (vals) => {
               const dimName = widget.dataBinding?.selectedDimensions?.[0];
               if (dimName) onSlicerFilter(item.i, dimName, vals);

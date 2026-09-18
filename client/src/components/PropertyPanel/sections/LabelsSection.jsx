@@ -236,22 +236,9 @@ export default function LabelsSection({ ctx }) {
         </SubSection>
       </>
     );
-  } else if (type === 'text') {
-    body = (
-      <>
-        <FontFields inputStyle={inputStyle}
-          size={{ value: cfg.fontSize, min: 10, max: 72, placeholder: '16', onChange: (v) => updateConfig('fontSize', v) }}
-          color={{ value: cfg.color, fallback: '#334155', onChange: (v) => updateConfig('color', v) }}
-          family={{ value: cfg.fontFamily, onChange: (v) => updateConfig('fontFamily', v) }} />
-        <Field label="Bold">
-          <input type="checkbox" checked={!!cfg.bold} onChange={(e) => updateConfig('bold', e.target.checked)} />
-        </Field>
-        <Field label="Italic">
-          <input type="checkbox" checked={!!cfg.italic} onChange={(e) => updateConfig('italic', e.target.checked)} />
-        </Field>
-      </>
-    );
   } else if (type === 'filter') {
+    // No Labels for the Text visual: its font, size, colour and emphasis are
+    // set on the canvas, on the selection, by the editor's own toolbar.
     body = (
       <FontFields inputStyle={inputStyle}
         size={{ value: cfg.slicerFontSize, min: 8, max: 24, placeholder: '12', onChange: (v) => updateConfig('slicerFontSize', v) }}

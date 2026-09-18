@@ -403,7 +403,7 @@ export default function ExportMenu({
       if (w && typeof w === 'object') {
         const { data: _d, ...rest } = w;
         if (w.type === 'text' && _d && typeof _d.text === 'string') {
-          out[id] = { ...rest, data: { text: _d.text } };
+          out[id] = { ...rest, data: Array.isArray(_d.runs) ? { text: _d.text, runs: _d.runs } : { text: _d.text } };
         } else {
           out[id] = rest;
         }

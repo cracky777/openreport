@@ -1,84 +1,42 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
+import { runsFromData, runsToText, normalizeRuns, runStyle } from '../../utils/textRuns';
+import RichTextEditor from './RichTextEditor';
 
 const _hs0 = { opacity: 0.4, fontStyle: 'italic' };
 
 // Per-axis alignment values are stored using flex keywords so a single style
 // object can drive both the display container (`alignItems`/`justifyContent`)
-// and a CSS textAlign mapping for the edit-mode textarea. Centralised here so
-// the PropertyPanel selects, the display path and the edit path stay in sync.
+// and the CSS textAlign of the lines inside it. Centralised here so the
+// PropertyPanel selects, the display path and the edit path stay in sync.
 // `left`/`right` are legacy values still present in older reports.
 const H_TO_TEXT_ALIGN = { 'flex-start': 'left', left: 'left', center: 'center', 'flex-end': 'right', right: 'right' };
 
-// Edit mode keeps the display container (flex alignment, padding, font) and
-// drops a content-sized textarea inside it: the textarea inherits the font,
-// carries no padding of its own and grows with its text, so the flex
-// container places it exactly where the rendered text sits. A textarea
-// rather than contentEditable so the value stays a plain controlled string
-// that undo/redo can replace safely.
-const EDIT_TEXTAREA_STYLE = {
-  display: 'block',
-  width: '100%',
-  maxHeight: '100%',
-  padding: 0,
-  margin: 0,
-  border: 'none',
-  outline: 'none',
-  resize: 'none',
-  background: 'transparent',
-  font: 'inherit',
-  color: 'inherit',
-  lineHeight: 'inherit',
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-word',
-  overflow: 'auto',
-  boxSizing: 'border-box',
-};
+// The text block fills the container's width so `textAlign` places each
+// line; the container's flex alignment places the block vertically.
+const BLOCK_STYLE = { width: '100%', whiteSpace: 'pre-wrap', wordBreak: 'break-word' };
 
-// Grow the textarea to its content so the surrounding flex container can
-// align it vertically the same way it aligns the rendered text block.
-function fitToContent(el) {
-  el.style.height = 'auto';
-  el.style.height = `${el.scrollHeight}px`;
-}
-
-// Text widget — displays a string from data.text; double-click to edit inline.
+// Text widget — shows `data.text`, formatted by `data.runs` when present;
+// double-click to edit inline. Edit mode keeps the display container (flex
+// alignment, padding, font) and swaps the text block for the editor, so
+// the typing surface sits exactly where the rendered text does.
 export default function TextWidget({ data, config, onDataUpdate }) {
   if (config?.fontFamily) loadGoogleFont(config.fontFamily);
+  const runs = useMemo(() => runsFromData(data), [data]);
+  useEffect(() => {
+    for (const r of runs) if (r.fontFamily) loadGoogleFont(r.fontFamily);
+  }, [runs]);
   const [isEditing, setIsEditing] = useState(false);
-  const [draft, setDraft] = useState(data?.text || '');
-  const textareaRef = useRef(null);
-  // Keep draft in sync when external text changes outside an edit session
-  // (e.g. undo/redo replaces widget.data.text from history).
-  useEffect(() => {
-    if (!isEditing) setDraft(data?.text || '');
-  }, [data?.text, isEditing]);
-  useEffect(() => {
-    if (isEditing && textareaRef.current) {
-      textareaRef.current.focus();
-      // Place caret at end rather than selecting all — selecting all and
-      // then typing wipes the user's previous text on the first keystroke,
-      // a common foot-gun when they just wanted to append a word.
-      const len = textareaRef.current.value.length;
-      textareaRef.current.setSelectionRange(len, len);
-    }
-  }, [isEditing]);
-  useEffect(() => {
-    if (isEditing && textareaRef.current) fitToContent(textareaRef.current);
-  }, [isEditing, draft]);
+  const wrapperRef = useRef(null);
 
-  const commit = () => {
-    if (onDataUpdate && draft !== (data?.text || '')) {
-      onDataUpdate('text', draft);
+  const commit = (edited) => {
+    const next = normalizeRuns(edited);
+    if (onDataUpdate && JSON.stringify(next) !== JSON.stringify(runs)) {
+      onDataUpdate({ text: runsToText(next), runs: next });
     }
     setIsEditing(false);
   };
-  const cancel = () => {
-    setDraft(data?.text || '');
-    setIsEditing(false);
-  };
 
-  const text = data?.text || '';
   const hAlign = config?.textAlign || 'center';
   const baseStyle = {
     height: '100%',
@@ -89,11 +47,6 @@ export default function TextWidget({ data, config, onDataUpdate }) {
     // contentPadding is 0 for text widgets in ReportCanvas, so the flex
     // alignment here reaches the actual outer edges.
     alignItems: config?.verticalAlign || 'center',
-    // `justifyContent` centres the BLOCK of text inside the flex container,
-    // but each line inside that block still aligns per `text-align` (default
-    // left) — so a centred multi-line block had each line flush-left within
-    // the centred box. Apply the matching CSS textAlign so the lines
-    // themselves also align as the user expects.
     justifyContent: hAlign,
     textAlign: H_TO_TEXT_ALIGN[hAlign] || 'center',
     // Configurable inner padding — small default so text doesn't hug
@@ -113,6 +66,7 @@ export default function TextWidget({ data, config, onDataUpdate }) {
   if (isEditing) {
     return (
       <div
+        ref={wrapperRef}
         // Stop click bubbling so clicking inside the editing surface doesn't
         // re-trigger canvas selection / drag-start handlers.
         onClick={(e) => e.stopPropagation()}
@@ -121,21 +75,13 @@ export default function TextWidget({ data, config, onDataUpdate }) {
         // by 1px and shift the text relative to display mode.
         style={{ ...baseStyle, outline: '1px dashed var(--accent-primary)', outlineOffset: -1 }}
       >
-        <textarea
-          ref={textareaRef}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            // Esc cancels. Stop propagation so the canvas's global Esc handler
-            // (deselect / close panel) doesn't ALSO fire on the same key.
-            if (e.key === 'Escape') { e.stopPropagation(); cancel(); }
-            // Ctrl/Cmd+Enter commits; plain Enter inserts a newline so users
-            // can compose multi-line content without forcing them through the
-            // property panel.
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); }
-          }}
-          style={{ ...EDIT_TEXTAREA_STYLE, textAlign: baseStyle.textAlign }}
+        <RichTextEditor
+          runs={runs}
+          textAlign={baseStyle.textAlign}
+          defaults={{ fontSize: baseStyle.fontSize, color: baseStyle.color }}
+          anchorRef={wrapperRef}
+          onCommit={commit}
+          onCancel={() => setIsEditing(false)}
         />
       </div>
     );
@@ -154,7 +100,11 @@ export default function TextWidget({ data, config, onDataUpdate }) {
       title={onDataUpdate ? 'Double-click to edit' : undefined}
       style={baseStyle}
     >
-      {text || (
+      {runs.length > 0 ? (
+        <div style={BLOCK_STYLE}>
+          {runs.map((run, i) => <span key={i} style={runStyle(run)}>{run.text}</span>)}
+        </div>
+      ) : (
         <span style={_hs0}>
           {onDataUpdate ? 'Double-click to edit' : ''}
         </span>
