@@ -47,13 +47,29 @@ function tidyNumber(v) {
   return Number(v.toPrecision(12));
 }
 
+// The BigQuery client wraps its scalars: DATE / DATETIME / TIMESTAMP / TIME
+// come as `{ value: '…' }` and NUMERIC / BIGNUMERIC as Big.js instances.
+// Left alone they reach the client as objects (a timestamp dimension prints
+// as "[object Object]") and the rollup builder types them as text. Unwrapped
+// here, they follow the same rules as every other driver's values; a
+// wrapped timestamp is cut to its date like a Date object is.
+function unwrap(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v) || v instanceof Date) return v;
+  if (typeof v.value === 'string' || typeof v.value === 'number') {
+    return typeof v.value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v.value) ? v.value.split('T')[0] : v.value;
+  }
+  if (Array.isArray(v.c) && 'e' in v && 's' in v) return String(v);
+  return v;
+}
+
 // `dimensionKeys`: response keys that are dimensions (left untouched apart
 // from Date → ISO date). `coerceNumbers`: off for the rollup builder, whose
 // rows are typed by the builder itself and must stay exactly as fetched.
 function normalizeRows(rawRows, { dimensionKeys = new Set(), coerceNumbers = true } = {}) {
   return rawRows.map((r) => {
     const obj = {};
-    for (const [k, v] of Object.entries(r)) {
+    for (const [k, raw] of Object.entries(r)) {
+      const v = unwrap(raw);
       if (v instanceof Date) { obj[k] = v.toISOString().split('T')[0]; continue; }
       const measure = coerceNumbers && !dimensionKeys.has(k);
       if (typeof v === 'number') { obj[k] = measure ? tidyNumber(v) : v; continue; }

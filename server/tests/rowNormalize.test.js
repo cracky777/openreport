@@ -42,6 +42,19 @@ describe('normalizeRows', () => {
     expect(row.small).toBe(0.000123456789);
   });
 
+  test('BigQuery wrappers are unwrapped: date-like values to a date, NUMERIC to a number', () => {
+    const big = { c: [1, 2, 3, 4, 5], e: 2, s: 1, toString() { return '123.45'; } };
+    const [row] = normalizeRows([{
+      day: { value: '2020-01-02T00:19:00.000Z' }, when: { value: '2024-03-05' }, total: big, n: { value: 7 },
+    }], { dimensionKeys: dims });
+    expect(row).toEqual({ day: '2020-01-02', when: '2024-03-05', total: 123.45, n: 7 });
+  });
+
+  test('the rollup builder still receives unwrapped values, only the numeric coercion is off', () => {
+    const [row] = normalizeRows([{ day: { value: '2020-01-02T00:19:00.000Z' }, total: '12.5' }], { coerceNumbers: false });
+    expect(row).toEqual({ day: '2020-01-02', total: '12.5' });
+  });
+
   test('tidyNumber is what the rollup planner applies to recomposed measures', () => {
     expect(tidyNumber(0.1 + 0.2)).toBe(0.3);
     expect(tidyNumber(7)).toBe(7);
