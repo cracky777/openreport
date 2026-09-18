@@ -24,13 +24,15 @@ import { currentFieldDrag } from '../../utils/fieldDrag';
 // scrollbars — but nothing else, so the empty space around and below the rows
 // moves the widget like any chart.
 //
-// A slicer, a text widget and a custom visual are controls edge to edge; they
-// keep the 8px frame as their handle, because there is no inert area to grab.
+// A slicer and a custom visual are controls edge to edge; they keep the 8px
+// frame as their handle, because there is no inert area to grab. A text
+// widget is inert until double-clicked, so it is grabbed anywhere like a
+// chart; its editing textarea stops the mousedown itself, so a drag never
+// starts on the text being typed.
 const DRAG_CANCEL = {
   table: '.widget-content table, .resize-handle',
   pivotTable: '.widget-content table, .resize-handle',
   filter: '.widget-content, .resize-handle',
-  text: '.widget-content, .resize-handle',
   customVisual: '.widget-content, .resize-handle',
 };
 const DEFAULT_DRAG_CANCEL = '.resize-handle';

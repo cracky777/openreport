@@ -7,16 +7,42 @@ const _hs0 = { opacity: 0.4, fontStyle: 'italic' };
 // object can drive both the display container (`alignItems`/`justifyContent`)
 // and a CSS textAlign mapping for the edit-mode textarea. Centralised here so
 // the PropertyPanel selects, the display path and the edit path stay in sync.
-const H_TO_TEXT_ALIGN = { 'flex-start': 'left', 'center': 'center', 'flex-end': 'right' };
+// `left`/`right` are legacy values still present in older reports.
+const H_TO_TEXT_ALIGN = { 'flex-start': 'left', left: 'left', center: 'center', 'flex-end': 'right', right: 'right' };
 
-// Text widget — displays a string from data.text; double-click to edit
-// inline. Editor is an absolute-positioned textarea overlaying the same
-// padding/font so the typing surface matches the rendered surface. Vertical
-// centring inside the textarea isn't a native CSS thing, so edit mode
-// always lays out top-down — once the user blurs, the display mode honours
-// the V-align config again. Worth the inconsistency: the alternative
-// (rendering a contentEditable on the existing div) is much harder to keep
-// in sync with React state across undo/redo.
+// Edit mode keeps the display container (flex alignment, padding, font) and
+// drops a content-sized textarea inside it: the textarea inherits the font,
+// carries no padding of its own and grows with its text, so the flex
+// container places it exactly where the rendered text sits. A textarea
+// rather than contentEditable so the value stays a plain controlled string
+// that undo/redo can replace safely.
+const EDIT_TEXTAREA_STYLE = {
+  display: 'block',
+  width: '100%',
+  maxHeight: '100%',
+  padding: 0,
+  margin: 0,
+  border: 'none',
+  outline: 'none',
+  resize: 'none',
+  background: 'transparent',
+  font: 'inherit',
+  color: 'inherit',
+  lineHeight: 'inherit',
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+  overflow: 'auto',
+  boxSizing: 'border-box',
+};
+
+// Grow the textarea to its content so the surrounding flex container can
+// align it vertically the same way it aligns the rendered text block.
+function fitToContent(el) {
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
+}
+
+// Text widget — displays a string from data.text; double-click to edit inline.
 export default function TextWidget({ data, config, onDataUpdate }) {
   if (config?.fontFamily) loadGoogleFont(config.fontFamily);
   const [isEditing, setIsEditing] = useState(false);
@@ -37,6 +63,9 @@ export default function TextWidget({ data, config, onDataUpdate }) {
       textareaRef.current.setSelectionRange(len, len);
     }
   }, [isEditing]);
+  useEffect(() => {
+    if (isEditing && textareaRef.current) fitToContent(textareaRef.current);
+  }, [isEditing, draft]);
 
   const commit = () => {
     if (onDataUpdate && draft !== (data?.text || '')) {
@@ -83,37 +112,32 @@ export default function TextWidget({ data, config, onDataUpdate }) {
 
   if (isEditing) {
     return (
-      <textarea
-        ref={textareaRef}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          // Esc cancels. Stop propagation so the canvas's global Esc handler
-          // (deselect / close panel) doesn't ALSO fire on the same key.
-          if (e.key === 'Escape') { e.stopPropagation(); cancel(); }
-          // Ctrl/Cmd+Enter commits; plain Enter inserts a newline so users
-          // can compose multi-line content without forcing them through the
-          // property panel.
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); }
-        }}
+      <div
         // Stop click bubbling so clicking inside the editing surface doesn't
         // re-trigger canvas selection / drag-start handlers.
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
-        style={{
-          ...baseStyle,
-          // Textarea doesn't honour flex alignItems/justifyContent on its
-          // OWN content; map the H-align to the CSS textAlign equivalent
-          // and drop the V-align for the duration of the edit.
-          display: 'block',
-          textAlign: H_TO_TEXT_ALIGN[config?.textAlign || 'center'] || 'center',
-          background: 'transparent',
-          border: '1px dashed var(--accent-primary)',
-          outline: 'none',
-          resize: 'none',
-        }}
-      />
+        // Outline instead of border: a border would shrink the content box
+        // by 1px and shift the text relative to display mode.
+        style={{ ...baseStyle, outline: '1px dashed var(--accent-primary)', outlineOffset: -1 }}
+      >
+        <textarea
+          ref={textareaRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            // Esc cancels. Stop propagation so the canvas's global Esc handler
+            // (deselect / close panel) doesn't ALSO fire on the same key.
+            if (e.key === 'Escape') { e.stopPropagation(); cancel(); }
+            // Ctrl/Cmd+Enter commits; plain Enter inserts a newline so users
+            // can compose multi-line content without forcing them through the
+            // property panel.
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); }
+          }}
+          style={{ ...EDIT_TEXTAREA_STYLE, textAlign: baseStyle.textAlign }}
+        />
+      </div>
     );
   }
 
