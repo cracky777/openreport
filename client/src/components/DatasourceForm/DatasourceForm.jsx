@@ -109,6 +109,12 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [saving, setSaving] = useState(false);
+  // DuckDB is a file, not a server: the form takes the file itself (DuckDB or
+  // SQLite) and hands it to the import pipeline, which copies every table into
+  // a managed DuckDB database. A path typed by hand would name a file on the
+  // server, which is exactly what the server refuses.
+  const [dbFile, setDbFile] = useState(null);
+  const isFileSource = form.dbType === 'duckdb';
 
   useEffect(() => {
     let alive = true;
@@ -161,10 +167,26 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
   };
 
   const handleSave = async () => {
-    if (!form.name || !form.dbName) return;
+    if (!form.name) return;
+    if (isFileSource && !dbFile && !editingId) {
+      setTestResult({ success: false, message: 'Pick a database file (.duckdb, .db, .sqlite).' });
+      return;
+    }
+    if (!isFileSource && !form.dbName) return;
     setSaving(true);
     try {
-      if (editingId) {
+      if (isFileSource && dbFile) {
+        // Same endpoints as "Import file": a new source, or the same source
+        // refreshed in place so the models built on it survive.
+        const formData = new FormData();
+        formData.append('file', dbFile);
+        formData.append('name', form.name);
+        const headers = { 'Content-Type': 'multipart/form-data' };
+        const res = editingId
+          ? await api.put(`/upload/${editingId}`, formData, { headers })
+          : await api.post('/upload', formData, { headers });
+        onSaved?.({ datasource: res.data?.datasource, isNew: !editingId });
+      } else if (editingId) {
         const res = await api.put(`/datasources/${editingId}`, form);
         onSaved?.({ datasource: res.data?.datasource || { id: editingId, ...form }, isNew: false });
       } else {
@@ -412,10 +434,20 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
         </Field>
       )}
 
-      {/* DuckDB fields */}
-      {form.dbType === 'duckdb' && (
-        <Field label="Database file path">
-          <input style={inputStyle} value={form.dbName} onChange={(e) => updateForm('dbName', e.target.value)} placeholder="/path/to/data.duckdb or :memory:" />
+      {/* DuckDB: a database file, imported rather than opened in place. */}
+      {isFileSource && (
+        <Field label="Database file">
+          <input
+            type="file"
+            accept=".duckdb,.ddb,.db,.sqlite,.sqlite3"
+            onChange={(e) => { setDbFile(e.target.files?.[0] || null); setTestResult(null); }}
+            style={fileInputStyle}
+          />
+          <div style={fileHintStyle}>
+            {editingId
+              ? 'A DuckDB (.duckdb) or SQLite (.db, .sqlite) file. Leave empty to keep the current data.'
+              : 'A DuckDB (.duckdb) or SQLite (.db, .sqlite) file. Every table it contains becomes a table of this source.'}
+          </div>
         </Field>
       )}
 
@@ -432,11 +464,13 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
 
       <div style={_hs7}>
         <button className="btn-hover" onClick={onCancel} style={secondaryBtn}>Cancel</button>
-        <button className="btn-hover btn-hover-accent" onClick={handleTest} disabled={testing} style={{ ...secondaryBtn, color: 'var(--accent-primary)', borderColor: 'var(--accent-primary)' }}>
-          {testing ? 'Testing...' : 'Test Connection'}
-        </button>
+        {!isFileSource && (
+          <button className="btn-hover btn-hover-accent" onClick={handleTest} disabled={testing} style={{ ...secondaryBtn, color: 'var(--accent-primary)', borderColor: 'var(--accent-primary)' }}>
+            {testing ? 'Testing...' : 'Test Connection'}
+          </button>
+        )}
         <button className="btn-hover btn-hover-primary" onClick={handleSave} disabled={saving} style={primaryBtn}>
-          {saving ? 'Saving...' : (editingId ? 'Update' : 'Save')}
+          {saving ? (isFileSource && dbFile ? 'Importing...' : 'Saving...') : (editingId ? 'Update' : (isFileSource ? 'Import' : 'Save'))}
         </button>
       </div>
     </div>
@@ -497,3 +531,5 @@ const inputStyle = {
   width: '100%', padding: '8px 10px', border: '1px solid var(--border-default)',
   borderRadius: 6, fontSize: 14, outline: 'none', boxSizing: 'border-box',
 };
+const fileInputStyle = { ...inputStyle, padding: '6px 10px', fontSize: 13 };
+const fileHintStyle = { marginTop: 4, fontSize: 12, color: 'var(--text-muted)' };
