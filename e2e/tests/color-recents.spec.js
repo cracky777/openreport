@@ -31,11 +31,11 @@ async function openPicker(page) {
   await page.evaluate(([k, v]) => localStorage.setItem(k, JSON.stringify(v)), [STORE, SEEDED]);
   await page.reload();
   await page.locator('.widget-content').first().click({ position: { x: 30, y: 30 } });
-  // Container > Background: it opens on white, so a colour wrongly filed on
+  // Frame > Background: it opens on white, so a colour wrongly filed on
   // blur is unmistakable in the list. The section remembers whether it was
   // left open, so it is unfolded only when its controls are absent.
   const swatch = page.locator('[aria-label="Pick a color"]').last();
-  if (await swatch.count() === 0) await page.getByText('Container', { exact: true }).first().click();
+  if (await swatch.count() === 0) await page.getByText('Frame', { exact: true }).first().click();
   await swatch.click();
   await expect.poll(() => shown(page)).toBe('#ffffff');
 }

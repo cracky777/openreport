@@ -307,12 +307,14 @@ export default function Viewer() {
         dimensionOverrides: report?.settings?.dimensionOverrides || {},
         measureOverrides: report?.settings?.measureOverrides || {},
       };
+      // The slicer's own rules restrict the values it offers, searched or not.
+      const ownWidgetFilters = Array.isArray(w.dataBinding?.widgetFilters) ? w.dataBinding.widgetFilters : [];
       const res = await api.post(`/models/${model.id}/query`, {
         dimensionNames: [dim],
         measureNames: [],
         limit: 1000,
         filters: {},
-        widgetFilters: [{ field: dim, op: 'contains', value: term, isMeasure: false }],
+        widgetFilters: [...ownWidgetFilters, { field: dim, op: 'contains', value: term, isMeasure: false }],
         distinct: true,
         reportId: id,
         bypassCache: true,

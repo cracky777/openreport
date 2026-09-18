@@ -37,20 +37,28 @@ const _hs59 = { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 };
 const _hs60 = { fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 const _hs61 = { padding: '6px 8px 2px', borderTop: '1px solid var(--border-default)' };
 
-function Section({ title, children, defaultOpen, sectionState, bare }) {
+// A collapsible block of the config panel. Its collapse state is remembered
+// under `id` (falling back to the title) within the widget type the
+// `sectionState` was made for, so folding "Colors" on a bar chart leaves it
+// open on a table, and renaming a section keeps what the user chose.
+// `tone="accent"` tints the header — the Filters section, which changes the
+// numbers rather than their look, wears it.
+function Section({ id, title, children, defaultOpen, sectionState, bare, tone }) {
   if (bare) {
     return <div style={_hs41}>{children}</div>;
   }
 
   // Default: closed for collapsible sections, open for non-collapsible
   const defOpen = defaultOpen ?? (sectionState ? false : true);
-  const isCollapsed = sectionState ? sectionState.collapsed[title] ?? !defOpen : false;
-  const toggle = sectionState ? () => sectionState.toggle(title) : undefined;
+  const key = sectionState?.prefix ? `${sectionState.prefix}:${id || title}` : (id || title);
+  const isCollapsed = sectionState ? sectionState.collapsed[key] ?? !defOpen : false;
+  const toggle = sectionState ? () => sectionState.toggle(key, isCollapsed) : undefined;
+  const accent = tone === 'accent';
 
   return (
-    <div style={sectionStyle}>
-      <div onClick={toggle} style={{ ...sectionHeaderStyle, cursor: toggle ? 'pointer' : 'default' }}>
-        <span style={_hs42}>{title}</span>
+    <div style={accent ? { ...sectionStyle, borderColor: 'var(--accent-primary-border)' } : sectionStyle}>
+      <div onClick={toggle} style={{ ...sectionHeaderStyle, cursor: toggle ? 'pointer' : 'default', ...(accent ? { background: 'var(--accent-primary-soft)' } : null) }}>
+        <span style={accent ? { ..._hs42, color: 'var(--accent-primary)' } : _hs42}>{title}</span>
         {toggle && (
           <span style={{ display: 'inline-flex', color: 'var(--text-disabled)', transition: 'transform 0.15s', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>
             <TbChevronDown size={12} />
