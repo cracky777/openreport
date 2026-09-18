@@ -9,6 +9,7 @@ import { useIsCompact } from '../../hooks/useMediaQuery';
 import { ICON_SIZE } from '../actionIcons';
 import ConfirmDeleteButton from '../ConfirmDeleteButton/ConfirmDeleteButton';
 import { useCustomVisuals } from '../../hooks/useCustomVisuals';
+import { toast } from '../Toast/toast';
 
 const _hs0 = {
       position: 'absolute', top: 'calc(100% + 6px)', left: '50%',
@@ -174,7 +175,6 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
   const hoverTimerRef = useRef(null);
   const [previewPrompt, setPreviewPrompt] = useState(false);
   const [rebuildPrompt, setRebuildPrompt] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState(null); // {type: 'error'|'success', msg}
   const fileInputRef = useRef(null);
   const customVisualsApi = useCustomVisuals(workspaceId);
 
@@ -201,9 +201,12 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
     setOpenMenu(null);
   };
 
+  // Outcome goes through the app toast, not the flyout: the flyout closes as
+  // soon as the pointer leaves it (the OS file picker moves it), so a message
+  // rendered inside would never be seen. Reopen the flyout so the freshly
+  // installed visual is on screen.
   const handleUploadVisual = async (file) => {
     if (!file || !workspaceId) return;
-    setUploadStatus(null);
     const fd = new FormData();
     fd.append('package', file);
     try {
@@ -215,11 +218,11 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         throw new Error(j.error || `Upload failed (${res.status})`);
       }
       const j = await res.json();
-      setUploadStatus({ type: 'success', msg: `Installed ${j.visual.name}` });
+      toast(`Installed ${j.visual.name} v${j.visual.version}`, 'success');
       customVisualsApi.refresh();
-      setTimeout(() => setUploadStatus(null), 3000);
+      setOpenMenu('customVisuals');
     } catch (err) {
-      setUploadStatus({ type: 'error', msg: String(err.message || err) });
+      toast(String(err.message || err));
     }
   };
 
@@ -235,7 +238,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
       }
       customVisualsApi.refresh();
     } catch (err) {
-      setUploadStatus({ type: 'error', msg: String(err.message || err) });
+      toast(String(err.message || err));
     }
   };
 
@@ -584,28 +587,24 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                           <TbDownload size={14} style={_hs38} />
                           Download starter template
                         </a>
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept=".zip"
-                          style={_hs39}
-                          onChange={(e) => { handleUploadVisual(e.target.files?.[0]); e.target.value = ''; }}
-                        />
                       </>
-                    )}
-                    {uploadStatus && (
-                      <div style={{
-                        padding: '8px 14px', fontSize: 11,
-                        color: uploadStatus.type === 'error' ? 'var(--state-danger)' : 'var(--state-success)',
-                        background: uploadStatus.type === 'error' ? 'rgba(220,38,38,0.08)' : 'rgba(22,163,74,0.08)',
-                      }}>
-                        {uploadStatus.msg}
-                      </div>
                     )}
                   </div>
                 </div>
               )}
             </div>
+            {/* Outside the flyout on purpose: the flyout unmounts when the
+                pointer leaves it, which the OS file picker causes, and a
+                change event on an unmounted input never reaches React. */}
+            {customVisualsApi.canManage && (
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".zip"
+                style={_hs39}
+                onChange={(e) => { handleUploadVisual(e.target.files?.[0]); e.target.value = ''; }}
+              />
+            )}
           </>
         )}
       </div>
