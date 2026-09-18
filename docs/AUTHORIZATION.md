@@ -29,8 +29,8 @@ Deux niveaux de rôles, indépendants (pas de matrice croisée en OSS) :
 
 | Rôle workspace | Peut |
 |---|---|
-| `admin` (owner ou membre admin) | Éditer/supprimer le workspace, gérer les membres. |
-| `editor` | Déplacer un rapport (qu'il possède) dans le workspace. |
+| `admin` (owner ou membre admin) | Tout ce que peut `editor`, plus éditer/supprimer le workspace et gérer les membres. |
+| `editor` | Éditer, supprimer, dupliquer et déplacer les rapports du workspace ; créer un rapport sur un modèle déjà utilisé par un rapport du workspace (ce modèle apparaît dans sa liste `GET /api/models`, en lecture seule). Ne peut ni éditer le modèle ni publier un rapport. |
 | `viewer` | Lecture des rapports du workspace. |
 
 ## Middleware d'authentification
@@ -71,7 +71,9 @@ Quatre fonctions portent le contrôle d'accès aux données (définies dans le r
 
 **`canWriteModel(model, user, req)`** — OSS : propriétaire du modèle ou admin global.
 
-**`canWriteReport(report, user, req)`** — OSS : propriétaire du rapport ou admin global.
+**`canWriteReport(report, user, req)`** — OSS : propriétaire du rapport, admin global, ou membre
+`admin`/`editor` du workspace qui contient le rapport (`workspaceRoleOf`). Un membre `viewer` reçoit
+**403** (le rapport lui est visible, pas modifiable).
 
 **Lecture vs écriture** :
 - Lecture (`GET /api/reports/:id`, `POST /api/models/:id/query`) : gardée par `canAccessReport` /
@@ -79,12 +81,18 @@ Quatre fonctions portent le contrôle d'accès aux données (définies dans le r
 - Écriture : par ces fonctions, **pas** par une clause SQL `WHERE user_id = ?`. Cette forme ne
   subsiste que pour le cadrage des datasources.
 
-**`canBuildOnModel(model, user, req)`** — OSS : propriétaire du modèle ou admin global.
+**`canBuildOnModel(model, user, req)`** — OSS : propriétaire du modèle, admin global, ou membre
+`admin`/`editor` d'un workspace qui contient déjà un rapport sur ce modèle. Le propriétaire a mis la
+donnée devant cette équipe en y plaçant un rapport ; ses éditeurs peuvent en bâtir d'autres.
 
 **Créer ou modifier un rapport exige `canBuildOnModel`**, pas seulement `canAccessModel`. Lire le
-modèle d'autrui via un rapport partagé ne suffit donc pas à bâtir dessus : sinon n'importe quel
+modèle d'autrui via un rapport **public** ne suffit donc pas à bâtir dessus : sinon n'importe quel
 compte pouvait créer un rapport sur ce modèle puis le publier, ce qui ouvre `/query` en anonyme sur
-des données qui ne sont pas les siennes.
+des données qui ne sont pas les siennes. La publication reste de toute façon gardée par
+`canWriteModel` (ci-dessous), y compris pour un éditeur de workspace.
+
+**`GET /api/models`** liste les modèles du caller **et** ceux sur lesquels `canBuildOnModel` répond
+oui via un workspace ; `user_id` dit à qui chacun appartient.
 
 > `canBuildOnModel` n'est **pas** `canWriteModel`, même si les deux répondent pareil en OSS. Écrire
 > un rapport n'a jamais demandé le droit d'éditer le modèle, et confondre les deux casse le cloud :
@@ -152,8 +160,8 @@ de RLS. À l'exécution de `/query` :
 | Lire un rapport **public** | ✅ | ✅ | ✅ | ✅ |
 | Lire un rapport **privé** (non partagé) | ❌ | son propre | son propre | ✅ (tous) |
 | Requêter un modèle via rapport public | ✅ (RLS) | ✅ | ✅ | ✅ |
-| Créer un rapport | ❌ | ❌¹ | ✅ | ✅ |
-| Modifier / supprimer un rapport | ❌ | propriétaire | propriétaire | ✅ (tous) |
+| Créer un rapport | ❌ | ❌¹ ² | ✅ ² | ✅ |
+| Modifier / supprimer un rapport | ❌ | propriétaire ² | propriétaire ² | ✅ (tous) |
 | Créer un modèle / une datasource | ❌ | ❌¹ | ✅ | ✅ |
 | Gérer les membres d'un workspace | ❌ | admin du workspace | admin du workspace | ✅ |
 | Voir/restaurer l'historique d'un rapport | ❌ | ❌ | ❌ | ✅ |
@@ -162,6 +170,9 @@ de RLS. À l'exécution de `/query` :
 ¹ La création n'est pas bloquée par le rôle global mais par la **propriété de la ressource
 parente** (posséder une datasource pour créer un modèle, un modèle pour créer un rapport). Un
 `viewer` sans ressource parente ne peut rien créer en pratique.
+
+² Ou membre `admin`/`editor` du workspace concerné (rapports du workspace, modèles qu'ils utilisent),
+quel que soit le rôle global.
 
 ---
 

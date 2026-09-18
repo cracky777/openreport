@@ -112,13 +112,23 @@ router.get('/', authFor('read'), (req, res) => {
   if (typeof cloudHooks.listModels === 'function') {
     return res.json({ models: cloudHooks.listModels(req) });
   }
+  // One's own models, plus those one may build a report on through a
+  // workspace: an admin/editor of a workspace that holds a report on the
+  // model (the same rule as canBuildOnModel). Editing them stays with the
+  // owner; `user_id` says whose each one is.
   const models = db.prepare(`
-    SELECT m.id, m.name, m.description, m.datasource_id, d.name as datasource_name, m.created_at, m.updated_at
+    SELECT m.id, m.user_id, m.name, m.description, m.datasource_id, d.name as datasource_name, m.created_at, m.updated_at
     FROM models m
     JOIN datasources d ON d.id = m.datasource_id
     WHERE m.user_id = ?
+       OR m.id IN (
+         SELECT r.model_id FROM reports r
+         JOIN workspaces w ON w.id = r.workspace_id
+         LEFT JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = ?
+         WHERE w.owner_id = ? OR wm.role IN ('admin', 'editor')
+       )
     ORDER BY m.updated_at DESC
-  `).all(req.user.id);
+  `).all(req.user.id, req.user.id, req.user.id);
   res.json({ models });
 });
 

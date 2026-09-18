@@ -95,36 +95,53 @@ function canWriteModel(model, user, req) {
   return user.id === model.user_id || user.role === 'admin';
 }
 
+// The role the caller holds in a workspace: its owner is an admin, a member
+// has the role of their membership, anyone else none. OSS only; the cloud
+// answers through cloudHooks.workspaceAccess with the org in the picture.
+function workspaceRoleOf(workspaceId, userId) {
+  if (!workspaceId || !userId) return null;
+  const ws = db.prepare('SELECT owner_id FROM workspaces WHERE id = ?').get(workspaceId);
+  if (!ws) return null;
+  if (ws.owner_id === userId) return 'admin';
+  const member = db.prepare('SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?').get(workspaceId, userId);
+  return member ? member.role : null;
+}
+const WRITING_ROLES = new Set(['admin', 'editor']);
+
 // Building a report on a model is not editing it. What this guard has to
 // exclude is the caller whose ONLY route to the model is someone else's shared
 // report: they could build on it, flip the report public, and open anonymous
-// /query on data that is not theirs. OSS has no tenant to lean on, so the
-// honest bar is owner-or-admin. Cloud delegates and answers a different, richer
-// question — "is this model in your org?" — because there a viewer who is
-// editor on a workspace is a legitimate report author, while the public-report
-// path stays excluded. Deliberately NOT canWriteModel: that one means "may edit
-// the model", which authoring a report never requires.
+// /query on data that is not theirs. OSS: the model's owner, a global admin,
+// or an admin/editor of a workspace that already holds a report on the model:
+// its owner put the data in front of that team on purpose, and publishing
+// still needs canWriteModel, so the public path stays shut. Cloud delegates
+// and answers "is this model in your org?". Deliberately NOT canWriteModel:
+// that one means "may edit the model", which authoring a report never requires.
 function canBuildOnModel(model, user, req) {
   if (typeof cloudHooks.canBuildOnModel === 'function') return cloudHooks.canBuildOnModel(model, user, req);
   if (!model || !user) return false;
-  return user.id === model.user_id || user.role === 'admin';
+  if (user.id === model.user_id || user.role === 'admin') return true;
+  const workspaces = db.prepare('SELECT DISTINCT workspace_id FROM reports WHERE model_id = ? AND workspace_id IS NOT NULL').all(model.id);
+  return workspaces.some((r) => WRITING_ROLES.has(workspaceRoleOf(r.workspace_id, user.id)));
 }
 
-// Read access to a model's METADATA (GET /:id). OSS: same as query access.
-// Cloud makes it stricter (org membership only, no public-report path) so a
-// public-report viewer can /query the model but not enumerate its full schema.
+// Read access to a model's METADATA (GET /:id): same as query access. The
+// Viewer builds every query from the model's dimensions and measures, so a
+// reader who may query but not read the model sees only empty widgets.
 function canReadModel(model, user, req) {
   if (typeof cloudHooks.canReadModel === 'function') return cloudHooks.canReadModel(model, user, req);
   return canAccessModel(model, user, req);
 }
 
-// Write access to a report (edit / delete / duplicate). OSS: owner or global
-// admin. Cloud: org admin, or workspace owner/admin/editor, or (personal
-// report) owner + org editor.
+// Write access to a report (edit / delete / duplicate). OSS: owner, global
+// admin, or an admin/editor of the workspace the report lives in; a viewer
+// of that workspace only reads. Cloud: org admin, or workspace
+// owner/admin/editor, or (personal report) owner + org editor.
 function canWriteReport(report, user, req) {
   if (typeof cloudHooks.canWriteReport === 'function') return cloudHooks.canWriteReport(report, user, req);
   if (!report || !user) return false;
-  return user.id === report.user_id || user.role === 'admin';
+  if (user.id === report.user_id || user.role === 'admin') return true;
+  return WRITING_ROLES.has(workspaceRoleOf(report.workspace_id, user.id));
 }
 
 // View / restore a report's version history. OSS: global admin. Cloud: org admin.
@@ -148,11 +165,8 @@ function canPlaceReportIn(workspaceId, req) {
   const access = typeof cloudHooks.workspaceAccess === 'function'
     ? cloudHooks.workspaceAccess(workspaceId, req)
     : (() => {
-      const ws = db.prepare('SELECT owner_id FROM workspaces WHERE id = ?').get(workspaceId);
-      if (!ws) return null;
-      if (ws.owner_id === req.user.id) return { role: 'admin' };
-      const member = db.prepare('SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?').get(workspaceId, req.user.id);
-      return member ? { role: member.role } : null;
+      const role = workspaceRoleOf(workspaceId, req.user.id);
+      return role ? { role } : null;
     })();
   return !!access && access.role !== 'viewer';
 }
@@ -672,13 +686,16 @@ router.post('/:id/duplicate', authFor('read'), (req, res) => {
   // Copying someone else's report must not hand over their pre-baked widget
   // data: that snapshot was computed under THEIR identity and bypasses the
   // copier's RLS — GET /:id strips it for exactly that reason. And the copy
-  // belongs to the copier, so it must not land inside the source's workspace
-  // (a foreign row in a workspace they may not even be a member of).
+  // belongs to the copier, so it stays in the source's workspace only for a
+  // member who writes there; anyone else (a global admin included) gets it in
+  // their own space rather than as a foreign row in a workspace they are not
+  // part of.
   const isSrcOwner = req.user && req.user.id === src.user_id;
   const widgetsForCopy = isSrcOwner
     ? src.widgets
     : JSON.stringify(stripWidgetData(JSON.parse(src.widgets || '{}')));
-  const workspaceForCopy = isSrcOwner ? src.workspace_id : null;
+  const writesThere = WRITING_ROLES.has(workspaceRoleOf(src.workspace_id, req.user.id));
+  const workspaceForCopy = (isSrcOwner || writesThere) ? src.workspace_id : null;
   db.prepare(`
     INSERT INTO reports (id, user_id, model_id, title, workspace_id, layout, widgets, settings)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
