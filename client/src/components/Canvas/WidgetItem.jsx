@@ -24,16 +24,17 @@ import { currentFieldDrag } from '../../utils/fieldDrag';
 // scrollbars — but nothing else, so the empty space around and below the rows
 // moves the widget like any chart.
 //
-// A slicer and a custom visual are controls edge to edge; they keep the 8px
-// frame as their handle, because there is no inert area to grab. A text
-// widget is inert until double-clicked, so it is grabbed anywhere like a
-// chart; its editing surface stops the mousedown itself, so a drag never
-// starts on the text being typed.
+// A slicer is a control edge to edge; it keeps the 8px frame as its handle,
+// because there is no inert area to grab. A text widget is inert until
+// double-clicked, so it is grabbed anywhere like a chart; its editing surface
+// stops the mousedown itself, so a drag never starts on the text being typed.
+// A custom visual lives in an iframe, which swallows every pointer event; in
+// the editor CustomVisualWidget covers it with a shield that lets the drag
+// through and hands clicks to the visual, so it behaves like a chart.
 const DRAG_CANCEL = {
   table: '.widget-content table, .resize-handle',
   pivotTable: '.widget-content table, .resize-handle',
   filter: '.widget-content, .resize-handle',
-  customVisual: '.widget-content, .resize-handle',
 };
 const DEFAULT_DRAG_CANCEL = '.resize-handle';
 
@@ -456,6 +457,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             activeSelection={widget.type === 'filter' && reportFilters ? reportFilters[widget.dataBinding?.selectedDimensions?.[0]] : undefined}
             onDataClick={onCrossFilter ? (dimName, value) => onCrossFilter(item.i, dimName, value) : undefined}
             highlightValue={crossHighlight?.widgetId === item.i ? crossHighlight.value : null}
+            editable={!readOnly}
           />
         </div>
 
@@ -509,9 +511,10 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
         {/* "View SQL" — small icon button on selected widgets that hit the
             query API. Opens a portal modal showing the raw SQL. Hidden in
             read-only mode, during Edit Interactions, and on widgets that
-            don't query (text / shape / filter / custom visual). */}
+            don't query (text / shape / filter). A custom visual queries
+            like a chart, so it gets both buttons. */}
         {isSelected && !readOnly && !editInteractionsActive
-          && !['text', 'shape', 'filter', 'customVisual'].includes(widget.type) && (
+          && !['text', 'shape', 'filter'].includes(widget.type) && (
           <button
             onClick={(e) => { e.stopPropagation(); setShowSql(true); }}
             title="View the SQL query"
@@ -526,7 +529,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             button. Auto-fetch on click is disabled, so this is the way to
             trigger a fresh query without editing the binding. */}
         {isSelected && !readOnly && !editInteractionsActive
-          && !['text', 'shape', 'filter', 'customVisual'].includes(widget.type) && onRefreshWidget && (
+          && !['text', 'shape', 'filter'].includes(widget.type) && onRefreshWidget && (
           <button
             onClick={(e) => { e.stopPropagation(); onRefreshWidget(item.i); }}
             title="Refresh this widget's data"

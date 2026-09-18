@@ -55,7 +55,9 @@ export default function ConfirmDeleteButton({
         onBlur={() => setArmed(false)}
         title={armed ? 'Click again to confirm' : label}
         aria-label={label}
-        style={{ ...danger.style, ...(armed ? iconArmed : null), ...style }}
+        // Armed wins over the caller's chrome: a borderless, transparent
+        // override must not hide the red that says "click again".
+        style={{ ...danger.style, ...style, ...(armed ? iconArmed : null) }}
       >
         <DeleteIcon size={size} />
       </button>

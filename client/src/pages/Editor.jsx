@@ -1494,12 +1494,14 @@ export default function Editor() {
     load();
   }, [id, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleAddWidget = useCallback((type, subType, extraConfig, customSize) => {
+  // `forceNew` always adds, even with a widget selected: an import lands on
+  // the canvas as its own visual rather than replacing whatever was selected.
+  const handleAddWidget = useCallback((type, subType, extraConfig, customSize, forceNew = false) => {
     const widgetId = uuidv4();
     const defaultSize = customSize || WIDGET_TYPES[type]?.defaultSize || { w: 24, h: 16 };
 
     // If a widget is selected and not adding a shape/object, transform it
-    if (selectedWidget && widgets[selectedWidget] && type !== 'shape') {
+    if (selectedWidget && widgets[selectedWidget] && type !== 'shape' && !forceNew) {
       const existing = widgets[selectedWidget];
       const convertedData = convertData(existing.data, existing.type, type);
 
@@ -1526,6 +1528,10 @@ export default function Editor() {
             // A choice already made on the legend survives the switch; only a
             // widget that never had one gets the chart default.
             ...(LEGEND_CHART_TYPES.has(type) && existing.config?.showLegend == null ? { showLegend: true } : {}),
+            // What identifies the new type (a custom visual's id, bundle and
+            // manifest) must survive the switch too, or the widget has a
+            // type and nothing to render.
+            ...extraConfig,
           },
         },
       }));

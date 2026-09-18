@@ -191,20 +191,20 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
     setOpenMenu(null);
   };
 
-  const handleAddCustomVisual = (visual) => {
+  const handleAddCustomVisual = (visual, forceNew = false) => {
     onAddWidget('customVisual', null, {
       visualId: visual.id,
       visualName: visual.name,
       bundleUrl: visual.bundleUrl,
       manifest: visual.manifest,
-    });
+    }, undefined, forceNew);
     setOpenMenu(null);
   };
 
   // Outcome goes through the app toast, not the flyout: the flyout closes as
   // soon as the pointer leaves it (the OS file picker moves it), so a message
-  // rendered inside would never be seen. Reopen the flyout so the freshly
-  // installed visual is on screen.
+  // rendered inside would never be seen. The installed visual goes straight
+  // onto the canvas, as its own widget, so the import has a visible result.
   const handleUploadVisual = async (file) => {
     if (!file || !workspaceId) return;
     const fd = new FormData();
@@ -220,7 +220,10 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
       const j = await res.json();
       toast(`Installed ${j.visual.name} v${j.visual.version}`, 'success');
       customVisualsApi.refresh();
-      setOpenMenu('customVisuals');
+      handleAddCustomVisual({
+        ...j.visual,
+        bundleUrl: `/api/workspaces/${workspaceId}/visuals/${j.visual.id}/bundle.js`,
+      }, true);
     } catch (err) {
       toast(String(err.message || err));
     }
