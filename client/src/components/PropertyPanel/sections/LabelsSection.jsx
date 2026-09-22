@@ -140,7 +140,19 @@ export default function LabelsSection({ ctx }) {
               <CompareLineEditor title="% evolution" checked={cfg.showN1Percent === true}
                 onToggle={(v) => toggleCompareCfg('showN1Percent', v)}
                 style={cfg.n1PercentStyle} defaultLabel="vs N-1"
-                onStyleChange={(next) => toggleCompareCfg('n1PercentStyle', next)} hasSign />
+                onStyleChange={(next) => toggleCompareCfg('n1PercentStyle', next)} hasSign>
+                {/* (N − N-1) ÷ base. The previous period is the usual reading of
+                    "evolution"; some reports (Power BI's DIVIDE(N − N-1, N)) read
+                    it against the period on screen. */}
+                <Field label="Divide by">
+                  <select value={cfg.n1PercentStyle?.base || 'previous'}
+                    onChange={(e) => toggleCompareCfg('n1PercentStyle', { ...(cfg.n1PercentStyle || {}), base: e.target.value })}
+                    style={{ ...inputStyle, width: '100%' }}>
+                    <option value="previous">Previous period (N-1)</option>
+                    <option value="current">Selected period (N)</option>
+                  </select>
+                </Field>
+              </CompareLineEditor>
             </div>
           </SubSection>
         )}

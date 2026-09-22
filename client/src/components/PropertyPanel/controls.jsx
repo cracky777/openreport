@@ -287,7 +287,9 @@ const recentSwatch = {
   border: '1px solid var(--border-default)', flexShrink: 0,
 };
 
-function CompareLineEditor({ title, checked, onToggle, style, defaultLabel, onStyleChange, hasSign }) {
+// `children`: extra fields a line needs beyond its styling (the % line picks
+// its base), rendered right after the label.
+function CompareLineEditor({ title, checked, onToggle, style, defaultLabel, onStyleChange, hasSign, children }) {
   const [open, setOpen] = useState(false);
   const s = style || {};
   const update = (patch) => onStyleChange({ ...s, ...patch });
@@ -335,6 +337,7 @@ function CompareLineEditor({ title, checked, onToggle, style, defaultLabel, onSt
               placeholder={defaultLabel}
               style={fillStyle} />
           </Field>
+          {children}
           <Field label="Font size">
             <input type="number" min={8} max={32} value={s.fontSize ?? 12}
               onChange={(e) => update({ fontSize: Math.max(8, parseIntOrNull(e.target.value)) })}

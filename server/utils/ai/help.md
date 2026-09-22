@@ -111,7 +111,7 @@
 - Top N: Filters section → Top N → tick Show Top N + Others, then set N. Items beyond N are grouped into one "Others" bucket. Available on Bar, Pie and TreeMap.
 - Row limit: Data section → Row limit (default 1000).
 - Time period: Data section → Time period → pick a Date dimension and a Period (Year to date, Quarter to date, Month to date, Last 7/30/90 days, Last 12 months, Previous month/quarter/year).
-- Scorecard vs last year: drop a date in Compare with (date), then in Labels → Comparison tick N-1 value, N vs N-1 or % evolution.
+- Scorecard vs last year: drop a date in Compare with (date), then in Labels → Comparison tick N-1 value, N vs N-1 or % evolution. The % line divides the change by the previous period; open it and set Divide by → Selected period (N) to read the change against the period on screen.
 
 ## filters — Filters: slicers, report filters and visual filters
 - Slicer on the page: toolbar Filter ▼ → Visual Filter, then drop a dimension in its Field. Its section sets the Style: List, Dropdown, Buttons, Range, and for dates Date range, Relative date, Calendar. Filters (Restrict values) limits the values it offers.

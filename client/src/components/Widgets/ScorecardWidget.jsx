@@ -106,9 +106,12 @@ export default function ScorecardWidget({ data, config }) {
     const txt = (diff > 0 ? '+' : '') + fmtNum(diff);
     lines.push(buildLine('difference', diff, txt, config.n1DifferenceStyle));
   }
-  if (config?.showN1Percent && n1 !== null && !isNaN(rawValue) && n1 !== 0) {
+  // The % line divides the change by the previous period unless the author
+  // chose the selected period as its base (Labels → Comparison → Divide by).
+  const pctBase = config?.n1PercentStyle?.base === 'current' ? rawValue : n1;
+  if (config?.showN1Percent && n1 !== null && !isNaN(rawValue) && pctBase !== 0) {
     const diff = rawValue - n1;
-    const pct = (diff / Math.abs(n1)) * 100;
+    const pct = (diff / Math.abs(pctBase)) * 100;
     const txt = (pct > 0 ? '+' : '') + pct.toFixed(1) + '%';
     lines.push(buildLine('percent', pct, txt, config.n1PercentStyle));
   }
