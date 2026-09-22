@@ -5,7 +5,7 @@ import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
  * HTML legend rendered outside of ECharts canvas.
  * Uses arrow buttons for navigation instead of scrollbars.
  */
-export default memo(function ChartLegend({ items, position, onToggle, hiddenSeries, fontFamily }) {
+export default memo(function ChartLegend({ items, position, onToggle, hiddenSeries, fontFamily, color }) {
   const isVertical = position === 'left' || position === 'right';
   const listRef = useRef(null);
   const [canScrollBack, setCanScrollBack] = useState(false);
@@ -105,7 +105,9 @@ export default memo(function ChartLegend({ items, position, onToggle, hiddenSeri
                 background: hidden ? '#ccc' : item.color,
               }} />
               <span title={item.name} style={{
-                fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.2,
+                // Unset, the legend follows the report theme and stays readable
+                // through a light/dark switch.
+                fontSize: 11, color: color || 'var(--text-secondary)', lineHeight: 1.2,
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 maxWidth: isVertical ? 86 : 120,
               }}>{item.name}</span>

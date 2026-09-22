@@ -21,6 +21,18 @@ export const CHART_COLORS = [
 // 10 of CHART_COLORS so the lower-index colors match across widgets.
 export const CHART_COLORS_BASIC = CHART_COLORS.slice(0, 10);
 
+const HEX = /^#[0-9a-f]{6}$/i;
+
+// The series palette of ONE widget: `config.palette` when it holds one, the
+// shared palette otherwise — so every report built before the key existed
+// keeps its colors. A per-series `legendColors` entry still wins over both.
+// This is what lets a whole page be recolored without knowing the name of a
+// single series (they are data values): set the palette, not the names.
+export function paletteOf(config, fallback) {
+  const own = Array.isArray(config?.palette) ? config.palette.filter((c) => typeof c === 'string' && HEX.test(c)) : [];
+  return own.length ? own : fallback;
+}
+
 // Neutral fill for the "Others" slice/bar/cell when a widget bundles
 // the long tail into a single bucket. Slate-400.
 export const OTHERS_COLOR = '#94a3b8';

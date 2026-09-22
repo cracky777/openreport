@@ -6,7 +6,7 @@ import ChartLegend from './ChartLegend';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { applyTopN } from '../../utils/topNGroup';
 import { compareAxisValues } from '../../utils/axisSort';
-import { CHART_COLORS_BASIC as COLORS, OTHERS_COLOR, hexToRgba } from '../../utils/chartPalette';
+import { paletteOf, CHART_COLORS_BASIC as COLORS, OTHERS_COLOR, hexToRgba } from '../../utils/chartPalette';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
@@ -42,7 +42,8 @@ export default memo(function PieWidget({ data, config, onDataClick, highlightVal
     if (!hasData) return { option: null, legendItems: [] };
     const fmt = Object.values(data._measureFormats || {})[0];
     const customColors = config?.legendColors || {};
-    const getColor = (name) => customColors[name] || COLORS[getStableIdx(name) % COLORS.length];
+    const palette = paletteOf(config, COLORS);
+    const getColor = (name) => customColors[name] || palette[getStableIdx(name) % palette.length];
 
     const gradient = config?.valueGradient;
     const useGradient = gradient?.enabled === true;
@@ -151,7 +152,7 @@ export default memo(function PieWidget({ data, config, onDataClick, highlightVal
     }));
     return { option: opt, legendItems };
   }, [data, hasData, showLegend, legendPosition, config?.donut, showDataLabels, dataLabelContent,
-      dataLabelAbbr, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, sortOrder, axisSort, highlightValue, config?.legendColors, config?.dataLabelPosition,
+      dataLabelAbbr, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, sortOrder, axisSort, highlightValue, config?.legendColors, config?.palette, config?.dataLabelPosition,
       topNEnabled, topN, othersLabel,
       config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 
@@ -185,11 +186,11 @@ export default memo(function PieWidget({ data, config, onDataClick, highlightVal
   return (
     <div style={{ display: 'flex', flexDirection: flexDir, width: '100%', height: '100%' }}>
       {showHtmlLegend && (legendPosition === 'top' || legendPosition === 'left') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
+        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
       <div ref={chartRef} style={_hs0} />
       {showHtmlLegend && (legendPosition === 'bottom' || legendPosition === 'right') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
+        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
     </div>
   );

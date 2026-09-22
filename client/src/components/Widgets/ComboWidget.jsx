@@ -7,7 +7,7 @@ import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues } from '../../utils/axisSort';
 import { calcLabelRotation } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
-import { CHART_COLORS as COLORS } from '../../utils/chartPalette';
+import { paletteOf, CHART_COLORS as COLORS } from '../../utils/chartPalette';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
@@ -69,6 +69,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
     if (!hasData) return { option: null, legendItems: [] };
 
     const customColors = config?.legendColors || {};
+    const palette = paletteOf(config, COLORS);
     const allBarNames = (data.barSeries || []).map((s) => s.name);
     const allLineNames = (data.lineSeries || []).map((s) => s.name);
 
@@ -83,9 +84,9 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
     }
 
     const colorMap = {};
-    allBarNames.forEach((n) => { colorMap[n] = customColors[n] || COLORS[getStableIdx(n) % COLORS.length]; });
-    allLineNames.forEach((n) => { colorMap[n] = customColors[n] || COLORS[getStableIdx(n) % COLORS.length]; });
-    const getColor = (name) => colorMap[name] || customColors[name] || COLORS[getStableIdx(name) % COLORS.length];
+    allBarNames.forEach((n) => { colorMap[n] = customColors[n] || palette[getStableIdx(n) % palette.length]; });
+    allLineNames.forEach((n) => { colorMap[n] = customColors[n] || palette[getStableIdx(n) % palette.length]; });
+    const getColor = (name) => colorMap[name] || customColors[name] || palette[getStableIdx(name) % palette.length];
 
     let labels = [...data.labels];
     let sortedIndices = labels.map((_, i) => i);
@@ -466,7 +467,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
   }, [data, hasData, isStacked, showXAxis, showYAxis, showDataLabels, dataLabelFontSize, dataLabelColor,
       valueAbbr, hideZeros, showLegend, legendPosition, gridLineStyle, gridLineWidth,
       showSecondaryAxis, smoothLine, lineArea, lineSymbol, lineSymbolSize, dataLabelRotate, sortOrder, axisSort, groupBySort, hiddenSeries, highlightValue,
-      config?.legendColors, config?.barDirection, config?.yAxisInterval, config?.secondaryYAxisInterval,
+      config?.legendColors, config?.palette, config?.barDirection, config?.yAxisInterval, config?.secondaryYAxisInterval,
       config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
       config?.secondaryYAxisLabelFontSize, config?.secondaryYAxisLabelColor,
       config?.xAxisTitle, config?.yAxisTitle, config?.secondaryYAxisTitle,
@@ -504,11 +505,11 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
   return (
     <div ref={rootRef} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: isLR ? 'row' : 'column' }}>
       {showLegend && legendItems.length > 0 && (legendPosition === 'top' || legendPosition === 'left') && (
-        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} />
+        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
       <div ref={chartRef} style={_hs0} />
       {showLegend && legendItems.length > 0 && (legendPosition === 'bottom' || legendPosition === 'right') && (
-        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} />
+        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
     </div>
   );

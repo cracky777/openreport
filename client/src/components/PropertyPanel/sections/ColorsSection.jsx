@@ -5,6 +5,7 @@ import { Section, SubSection, Field, ColorInput } from '../controls';
 import DropZone from '../../DropZone/DropZone';
 import { hasData, isChart } from './visualTypes';
 import { TableConditionalPart } from './tableParts';
+import { paletteOf } from '../../../utils/chartPalette';
 
 const seriesList = { display: 'flex', flexDirection: 'column', gap: 8 };
 const seriesRow = { borderBottom: '1px solid var(--border-subtle)', paddingBottom: 6 };
@@ -81,6 +82,7 @@ function SeriesPart({ widget, updateConfig, inputStyle }) {
   const cfg = widget.config || {};
   const names = legendValuesOf(widget.data);
   const customColors = cfg.legendColors || {};
+  const seriesPalette = paletteOf(cfg, SERIES_COLORS);
   const customSymbols = cfg.legendSymbols || {};
   const customImages = cfg.legendImages || {};
   const scatter = widget.type === 'scatter';
@@ -92,7 +94,7 @@ function SeriesPart({ widget, updateConfig, inputStyle }) {
           <div key={name} style={seriesRow}>
             <div style={seriesName}>{name}</div>
             <div style={seriesControls}>
-              <ColorInput value={customColors[name] || SERIES_COLORS[i % SERIES_COLORS.length]}
+              <ColorInput value={customColors[name] || seriesPalette[i % seriesPalette.length]}
                 onChange={(v) => updateConfig('legendColors', { ...customColors, [name]: v })} />
               {scatter && (
                 <select value={customSymbols[name] || 'circle'}

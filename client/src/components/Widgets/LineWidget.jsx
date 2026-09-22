@@ -7,7 +7,7 @@ import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues } from '../../utils/axisSort';
 import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
-import { CHART_COLORS_BASIC as COLORS, hexToRgba } from '../../utils/chartPalette';
+import { paletteOf, CHART_COLORS_BASIC as COLORS, hexToRgba } from '../../utils/chartPalette';
 import { buildDataLabel } from '../../utils/chartLabels';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
@@ -65,7 +65,8 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
     if (!hasData) return { option: null, legendItems: [] };
 
     const customColors = config?.legendColors || {};
-    const getColor = (name) => customColors[name] || COLORS[getStableIdx(name) % COLORS.length];
+    const palette = paletteOf(config, COLORS);
+    const getColor = (name) => customColors[name] || palette[getStableIdx(name) % palette.length];
 
     const series = [];
     let labels = [...data.labels];
@@ -258,7 +259,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
     return { option: opt, legendItems, rawLabels };
   }, [data, subType, showLabels, showLegend, legendPosition, hasData, config?.smooth, config?.color, isArea, isStacked, hideZeros, sortOrder, axisSort, groupBySort,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
-      dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors,
+      dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors, config?.palette,
       config?.lineSymbol, config?.lineSymbolSize,
       config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
       config?.xAxisTitle, config?.yAxisTitle, config?.showXAxisTitle, config?.showYAxisTitle, chartTheme.grid]);
@@ -297,11 +298,11 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
   return (
     <div ref={rootRef} style={{ display: 'flex', flexDirection: flexDir, width: '100%', height: '100%' }}>
       {showHtmlLegend && (legendPosition === 'top' || legendPosition === 'left') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
+        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
       <div ref={chartRef} style={_hs0} />
       {showHtmlLegend && (legendPosition === 'bottom' || legendPosition === 'right') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} />
+        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
     </div>
   );

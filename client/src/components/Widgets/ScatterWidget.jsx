@@ -4,7 +4,7 @@ import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
-import { CHART_COLORS as COLORS } from '../../utils/chartPalette';
+import { paletteOf, CHART_COLORS as COLORS } from '../../utils/chartPalette';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
@@ -41,9 +41,10 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
     try {
 
     const customColors = config?.legendColors || {};
+    const palette = paletteOf(config, COLORS);
     const customSymbols = config?.legendSymbols || {};
     const customImages = config?.legendImages || {};
-    const getColor = (name) => customColors[name] || COLORS[getStableIdx(name) % COLORS.length];
+    const getColor = (name) => customColors[name] || palette[getStableIdx(name) % palette.length];
     const getSymbol = (name) => {
       if (customImages[name]) return `image://${customImages[name]}`;
       return customSymbols[name] || 'circle';
@@ -178,7 +179,7 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
 
     return { option: opt, legendItems };
     } catch (e) { console.error('ScatterWidget error:', e); return { option: null, legendItems: [] }; }
-  }, [data, hasData, config?.color, showXAxis, showYAxis, symbolSize, showDataLabels, config?.dataLabelRotate, config?.dataLabelFontSize, showLegend, legendPosition, hiddenSeries, highlightValue, config?.legendColors, config?.legendSymbols, config?.legendImages, config?.xAxisTitle, config?.yAxisTitle, config?.headerFontSize, config?.headerColor, config?.headerBold, config?.showXHeader, config?.showYHeader, config?.showXAxisTitle, config?.showYAxisTitle, config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
+  }, [data, hasData, config?.color, showXAxis, showYAxis, symbolSize, showDataLabels, config?.dataLabelRotate, config?.dataLabelFontSize, showLegend, legendPosition, hiddenSeries, highlightValue, config?.legendColors, config?.palette, config?.legendSymbols, config?.legendImages, config?.xAxisTitle, config?.yAxisTitle, config?.headerFontSize, config?.headerColor, config?.headerBold, config?.showXHeader, config?.showYHeader, config?.showXAxisTitle, config?.showYAxisTitle, config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
       config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor, chartTheme.grid]);
 
   const option = memoResult?.option;
@@ -211,11 +212,11 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
   return (
     <div ref={rootRef} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: isLR ? 'row' : 'column' }}>
       {showLegend && legendItems.length > 0 && (legendPosition === 'top' || legendPosition === 'left') && (
-        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} />
+        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
       <div ref={chartRef} style={_hs0} />
       {showLegend && legendItems.length > 0 && (legendPosition === 'bottom' || legendPosition === 'right') && (
-        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} />
+        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
     </div>
   );

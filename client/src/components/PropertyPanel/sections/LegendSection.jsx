@@ -1,7 +1,7 @@
 // Section 8 — Legend. The key drawn next to the chart: whether, where, in
 // what type. The series palette is under Colors, the Legend drop zone under
 // Fields — this section is only the drawn legend.
-import { Section, Field } from '../controls';
+import { Section, Field, ColorInput } from '../controls';
 import FontPicker from '../../FontPicker/FontPicker';
 import { isChart } from './visualTypes';
 
@@ -28,6 +28,9 @@ export default function LegendSection({ ctx }) {
           </Field>
           <Field label="Font">
             <FontPicker value={cfg.legendFontFamily} onChange={(v) => updateConfig('legendFontFamily', v)} />
+          </Field>
+          <Field label="Text color">
+            <ColorInput value={cfg.legendTextColor || '#475569'} onChange={(v) => updateConfig('legendTextColor', v)} />
           </Field>
         </>
       )}

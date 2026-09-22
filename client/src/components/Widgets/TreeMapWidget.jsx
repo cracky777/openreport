@@ -5,7 +5,7 @@ import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { applyTopN } from '../../utils/topNGroup';
 import { compareAxisValues } from '../../utils/axisSort';
-import { CHART_COLORS_BASIC as COLORS, OTHERS_COLOR } from '../../utils/chartPalette';
+import { paletteOf, CHART_COLORS_BASIC as COLORS, OTHERS_COLOR } from '../../utils/chartPalette';
 import { useChartFonts } from '../../hooks/useChartFonts';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
 import WidgetEmptyState from './WidgetEmptyState';
@@ -39,7 +39,8 @@ export default memo(function TreeMapWidget({ data, config, onDataClick, highligh
     if (!hasData) return { option: null };
     const fmt = Object.values(data._measureFormats || {})[0];
     const customColors = config?.legendColors || {};
-    const getColor = (name) => customColors[name] || COLORS[getStableIdx(name) % COLORS.length];
+    const palette = paletteOf(config, COLORS);
+    const getColor = (name) => customColors[name] || palette[getStableIdx(name) % palette.length];
 
     const gradient = config?.valueGradient;
     const useGradient = gradient?.enabled === true;
@@ -140,7 +141,7 @@ export default memo(function TreeMapWidget({ data, config, onDataClick, highligh
     };
 
     return { option: opt };
-  }, [data, hasData, sortOrder, axisSort, showDataLabels, dataLabelContent, dataLabelAbbr, dataLabelColor, dataLabelSize, config?.dataLabelRotate, showBorder, borderColor, borderWidth, highlightValue, config?.legendColors,
+  }, [data, hasData, sortOrder, axisSort, showDataLabels, dataLabelContent, dataLabelAbbr, dataLabelColor, dataLabelSize, config?.dataLabelRotate, showBorder, borderColor, borderWidth, highlightValue, config?.legendColors, config?.palette,
       topNEnabled, topN, othersLabel,
       config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 
