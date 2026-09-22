@@ -30,8 +30,8 @@ const {
   setAiConfig,
   publicAiConfig,
 } = require('../utils/settingsHelper');
-const aiProviders = require('../utils/ai/providers');
-const aiTools = require('../utils/ai/tools');
+const { testProvider } = require('../utils/ai/providerTest');
+const cloudHooks = require('../cloudHooks');
 const aiAccess = require('../utils/ai/access');
 const queryCache = require('../utils/queryCache');
 const apiToken = require('../utils/apiToken');
@@ -48,7 +48,16 @@ router.get('/usage', requireAdmin, (req, res) => {
 });
 
 // What users thought of the assistant's answers. `days` = window (default 30).
-router.get('/ai/feedback', requireAdmin, (req, res) => {
+// When the edition sets the assistant up per organization (cloudHooks.
+// resolveAiScope), the instance-wide settings below would configure nothing —
+// and the ratings of every organization are not the operator's to read.
+const aiPerOrganization = () => typeof cloudHooks.resolveAiScope === 'function';
+function instanceAiOnly(req, res, next) {
+  if (aiPerOrganization()) return res.status(404).json({ error: 'The AI assistant is set up by each organization' });
+  return next();
+}
+
+router.get('/ai/feedback', requireAdmin, instanceAiOnly, (req, res) => {
   res.json(aiFeedback.summary({ days: req.query.days, orgId: req.organizationId || null }));
 });
 
@@ -271,13 +280,14 @@ router.get('/settings', requireAdmin, (req, res) => {
     publicSharingPolicy: getPublicSharingPolicy(),
     apiEnabled: isApiEnabled(),
     apiMinRole: getApiMinRole(),
-    ai: publicAiConfig(),
+    ai: aiPerOrganization() ? null : publicAiConfig(),
+    aiPerOrganization: aiPerOrganization(),
   });
 });
 
 // The AI provider the assistant talks to. The key goes in and never comes back
 // out: reads carry `hasApiKey` only, and an empty key on save keeps the stored one.
-router.put('/settings/ai', requireAdmin, (req, res) => {
+router.put('/settings/ai', requireAdmin, instanceAiOnly, (req, res) => {
   try {
     res.json({ ai: setAiConfig(req.body) });
   } catch (err) {
@@ -288,32 +298,15 @@ router.put('/settings/ai', requireAdmin, (req, res) => {
 // Who does NOT get the assistant. Everyone who can edit a report has it by
 // default; an admin takes it away account by account, and that holds whatever
 // provider the account would bring itself (utils/ai/access.js).
-router.put('/users/:id/ai-access', requireAdmin, (req, res) => {
+router.put('/users/:id/ai-access', requireAdmin, instanceAiOnly, (req, res) => {
   if (typeof req.body.denied !== 'boolean') return res.status(400).json({ error: '`denied` must be true or false' });
   if (!aiAccess.setDenied(req.params.id, req.body.denied)) return res.status(404).json({ error: 'User not found' });
   res.json({ id: req.params.id, aiDenied: req.body.denied });
 });
 
-// Tries the SAVED config with a one-tool round trip. Reaching the provider is
-// half the answer — a small local model that answers but cannot call tools
-// would leave the assistant unable to propose anything, so that is reported too.
-router.post('/settings/ai/test', requireAdmin, async (req, res) => {
-  const config = getAiConfig();
-  if (config.keyError) return res.json({ ok: false, toolCalling: false, error: config.keyError });
-  if (!config.baseUrl || !config.model) return res.json({ ok: false, toolCalling: false, error: 'Save a base URL and a model first' });
-  try {
-    const turn = await aiProviders.chat({
-      config,
-      system: 'This is a connectivity check. Call the `ping` tool with ok=true.',
-      messages: [{ role: 'user', text: 'ping' }],
-      tools: [aiTools.PING],
-    });
-    res.json({ ok: true, toolCalling: turn.toolCalls.some((c) => c.name === 'ping') });
-  } catch (err) {
-    const known = err instanceof aiProviders.AiProviderError;
-    if (!known) console.error('[ai test]', err);
-    res.json({ ok: false, toolCalling: false, error: known ? err.message : 'The test failed' });
-  }
+// Tries the SAVED config (utils/ai/providerTest.js).
+router.post('/settings/ai/test', requireAdmin, instanceAiOnly, async (req, res) => {
+  res.json(await testProvider(getAiConfig()));
 });
 
 // Every API token on the instance. The admin who decides whether the API is

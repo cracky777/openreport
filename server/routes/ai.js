@@ -55,15 +55,11 @@ const chatLimiter = rateLimit({
 });
 
 // Who gets the assistant and on whose provider is decided in one place
-// (utils/ai/access.js). The cloud build decides per organization instead, and
-// has no personal providers.
+// (utils/ai/access.js), with the same rules everywhere; the cloud build only
+// says where they are read — the organization, not the instance.
 function resolveAccess(req) {
-  if (typeof cloudHooks.resolveAiConfig === 'function') {
-    const config = cloudHooks.resolveAiConfig(req);
-    const on = !!(config && config.enabled);
-    return { config: on ? config : null, source: on ? 'instance' : null, reason: on ? null : 'off' };
-  }
-  return aiAccess.resolveForUser(req.user);
+  const scope = typeof cloudHooks.resolveAiScope === 'function' ? cloudHooks.resolveAiScope(req) : undefined;
+  return aiAccess.resolveForUser(req.user, scope);
 }
 
 // Bringing one's own provider is for whoever is left without one: not when the

@@ -21,22 +21,22 @@ const refused = { ...toggle, background: 'var(--bg-subtle)', border: '1px solid 
 // Everyone who can edit a report has the assistant; this is where an admin
 // takes it away from an account. A refusal holds whatever provider the account
 // would bring itself: it means no assistant, not "not on our bill".
-export default function AiAccessList() {
+export default function AiAccessList({ endpoints }) {
   const [users, setUsers] = useState([]);
   const [busyId, setBusyId] = useState(null);
   const [search, setSearch] = useState('');
   const [refusedOnly, setRefusedOnly] = useState(false);
 
   useEffect(() => {
-    api.get('/admin/users')
+    api.get(endpoints.users)
       .then((res) => setUsers(res.data.users || []))
       .catch(() => { /* admin gate handled by the page's users fetch */ });
-  }, []);
+  }, [endpoints]);
 
   const flip = async (user) => {
     setBusyId(user.id);
     try {
-      const { data } = await api.put(`/admin/users/${user.id}/ai-access`, { denied: !user.aiDenied });
+      const { data } = await api.put(endpoints.access(user.id), { denied: !user.aiDenied });
       setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, aiDenied: data.aiDenied } : u)));
     } catch (err) {
       toast(err.response?.data?.error || 'Could not change this account\'s access');

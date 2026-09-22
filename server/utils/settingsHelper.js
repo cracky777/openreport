@@ -171,7 +171,9 @@ function canUseApi(user) {
 }
 
 // ─── AI assistant ───────────────────────────────────────────────────
-// One provider for the whole instance, chosen by an admin. Two wire protocols
+// One provider for the whole instance, chosen by an admin — or, in the cloud
+// edition, one per organization (cloudHooks.resolveAiScope): the functions
+// taking a stored config work on either; the instance's wrap them. Two wire protocols
 // cover the field: `openai-compat` is the chat-completions shape that OpenAI,
 // Mistral, Ollama, LM Studio, Azure and OpenRouter all speak; `anthropic` is
 // the native Messages API.
@@ -191,18 +193,23 @@ const AI_DEFAULTS = { enabled: true, provider: 'openai-compat', baseUrl: '', mod
 // nobody to talk to, and the editor must not offer a panel that can only fail.
 const isConfigured = (cfg) => !!(cfg.baseUrl && cfg.model);
 
+const withAiDefaults = (stored) => ({ ...AI_DEFAULTS, ...(stored && typeof stored === 'object' ? stored : {}) });
+
 function storedAiConfig() {
-  const stored = getSetting('ai_config', null);
-  return { ...AI_DEFAULTS, ...(stored && typeof stored === 'object' ? stored : {}) };
+  return withAiDefaults(getSetting('ai_config', null));
 }
 
 // The config as the provider layer needs it, key in clear. A key that no
 // longer decrypts (DATASOURCE_ENC_KEY rotated or removed) disables the
 // assistant with a reason instead of taking the whole settings page down.
-function getAiConfig() {
-  const cfg = storedAiConfig();
+function effectiveAiConfig(stored) {
+  const cfg = withAiDefaults(stored);
   const { apiKey, keyError } = clearAiKey(cfg);
   return { ...cfg, apiKey, keyError, enabled: !!cfg.enabled && !keyError && isConfigured(cfg) };
+}
+
+function getAiConfig() {
+  return effectiveAiConfig(storedAiConfig());
 }
 
 // A stored provider config's key, in clear — shared with the per-user configs
@@ -217,8 +224,8 @@ function clearAiKey(cfg) {
 }
 
 // What an admin may read back. The key itself is never part of it.
-function publicAiConfig() {
-  const cfg = storedAiConfig();
+function publicAiConfigOf(stored) {
+  const cfg = withAiDefaults(stored);
   return {
     enabled: !!cfg.enabled,
     // The switch is one thing, whether authors actually get the assistant another.
@@ -229,6 +236,10 @@ function publicAiConfig() {
     dataSharing: cfg.dataSharing,
     hasApiKey: !!cfg.apiKey,
   };
+}
+
+function publicAiConfig() {
+  return publicAiConfigOf(storedAiConfig());
 }
 
 function validateAiBaseUrl(raw) {
@@ -246,9 +257,11 @@ function validateAiBaseUrl(raw) {
 
 // Same rule as a datasource password: an empty key means keep the stored one,
 // because the form never receives it and so has nothing to send back.
-function setAiConfig(patch) {
+// Returns the next stored config; throws on an invalid patch, before anything
+// is written.
+function patchAiConfig(stored, patch) {
   const p = patch && typeof patch === 'object' ? patch : {};
-  const next = storedAiConfig();
+  const next = withAiDefaults(stored);
   // Back to "no instance provider": every user is then free to bring their
   // own. The switch and the data-sharing level are the admin's and stay.
   if (p.removeProvider === true) Object.assign(next, { provider: AI_DEFAULTS.provider, baseUrl: '', model: '', apiKey: '' });
@@ -260,7 +273,11 @@ function setAiConfig(patch) {
   // On without a provider is a state of its own, not a mistake: it is the one
   // in which each user may bring theirs (utils/ai/access.js).
   if (p.enabled !== undefined) next.enabled = !!p.enabled;
-  setSetting('ai_config', next);
+  return next;
+}
+
+function setAiConfig(patch) {
+  setSetting('ai_config', patchAiConfig(storedAiConfig(), patch));
   return publicAiConfig();
 }
 
@@ -294,6 +311,10 @@ module.exports = {
   getAiConfig,
   setAiConfig,
   publicAiConfig,
+  storedAiConfig,
+  effectiveAiConfig,
+  publicAiConfigOf,
+  patchAiConfig,
   applyAiProviderPatch,
   clearAiKey,
   QUERY_TIMEOUT_MIN_MS,

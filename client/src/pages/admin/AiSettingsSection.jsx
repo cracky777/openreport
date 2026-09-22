@@ -22,8 +22,24 @@ const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: 'var(--bg-
 const linkBtn = { background: 'none', border: 'none', padding: 0, fontSize: 11, color: 'var(--accent-primary)', cursor: 'pointer' };
 const pendingHint = { margin: '4px 0 0', fontSize: 11, color: 'var(--state-warning, #b45309)' };
 const testResult = (ok) => ({ fontSize: 12, color: ok ? 'var(--state-success)' : 'var(--state-danger)', flex: 1 });
+const note = { fontSize: 13, color: 'var(--text-muted)', margin: 0 };
 
-export default function AiSettingsSection() {
+// Where the settings live. The admin console sets up the instance; the cloud
+// edition passes an organization's endpoints and reuses this very panel.
+const INSTANCE_AI_ENDPOINTS = {
+  settings: '/admin/settings',
+  save: '/admin/settings/ai',
+  test: '/admin/settings/ai/test',
+  users: '/admin/users',
+  access: (userId) => `/admin/users/${userId}/ai-access`,
+  feedback: '/admin/ai/feedback',
+};
+
+/**
+ * @param {{endpoints?: object, owner?: string}} props `owner` names whose
+ *   provider it is in the copy: "the instance", "the organization".
+ */
+export default function AiSettingsSection({ endpoints = INSTANCE_AI_ENDPOINTS, owner = 'the instance' }) {
   // On by default, like the server: configuring a provider is what turns the
   // assistant on, there is no second step to forget.
   const [form, setForm] = useState({ enabled: true, provider: 'openai-compat', baseUrl: '', model: '', dataSharing: 'schema' });
@@ -33,6 +49,8 @@ export default function AiSettingsSection() {
   const [apiKey, setApiKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [test, setTest] = useState(null);
+  // An edition that sets the assistant up per organization: nothing here to set.
+  const [perOrganization, setPerOrganization] = useState(false);
 
   const load = (ai) => {
     setForm({ enabled: ai.enabled, provider: ai.provider, baseUrl: ai.baseUrl, model: ai.model, dataSharing: ai.dataSharing });
@@ -43,10 +61,13 @@ export default function AiSettingsSection() {
   };
 
   useEffect(() => {
-    api.get('/admin/settings')
-      .then((res) => { if (res.data.ai) load(res.data.ai); })
+    api.get(endpoints.settings)
+      .then((res) => {
+        if (res.data.aiPerOrganization) setPerOrganization(true);
+        else if (res.data.ai) load(res.data.ai);
+      })
       .catch(() => { /* admin gate handled by the page's users fetch */ });
-  }, []);
+  }, [endpoints]);
 
   const set = (patch) => { setForm((f) => ({ ...f, ...patch })); setTest(null); };
 
@@ -61,7 +82,7 @@ export default function AiSettingsSection() {
   const save = async (patch = {}) => {
     setBusy(true);
     try {
-      const res = await api.put('/admin/settings/ai', { ...form, ...patch, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) });
+      const res = await api.put(endpoints.save, { ...form, ...patch, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) });
       load(res.data.ai);
       toast('AI settings saved', 'success');
       return true;
@@ -80,7 +101,7 @@ export default function AiSettingsSection() {
     if (!(await save())) return;
     setBusy(true);
     try {
-      const res = await api.post('/admin/settings/ai/test');
+      const res = await api.post(endpoints.test);
       setTest(res.data);
     } catch (err) {
       setTest({ ok: false, error: err.response?.data?.error || 'The test failed' });
@@ -95,6 +116,15 @@ export default function AiSettingsSection() {
       : 'Connected, but this model did not call a tool: the assistant will not be able to propose visuals with it.')
     : test.error);
 
+  if (perOrganization) {
+    return (
+      <div style={card}>
+        <h3 style={cardTitle}><TbSparkles size={16} color="var(--accent-primary)" /> AI assistant</h3>
+        <p style={note}>The AI assistant is set up by each organization: its admins choose the provider and who has it.</p>
+      </div>
+    );
+  }
+
   return (
     <div style={card}>
       <h3 style={cardTitle}><TbSparkles size={16} color="var(--accent-primary)" /> AI assistant</h3>
@@ -108,7 +138,7 @@ export default function AiSettingsSection() {
             Without a provider below, each user may plug in their own, for their own use; switched off,
             nobody has the assistant.
           </p>
-          {form.enabled && !active && <p style={pendingHint}>On, with no provider for the instance: each user may plug in their own. Set one below to provide it to everyone.</p>}
+          {form.enabled && !active && <p style={pendingHint}>On, with no provider for {owner}: each user may plug in their own. Set one below to provide it to everyone.</p>}
         </div>
         <button onClick={() => save({ enabled: !form.enabled })} aria-pressed={form.enabled} disabled={busy}
           style={{ ...toggle, ...(form.enabled ? toggleOn : null) }}>
@@ -179,16 +209,16 @@ export default function AiSettingsSection() {
         {testMessage && <span style={testResult(test.ok && test.toolCalling)}>{testMessage}</span>}
         {active || form.baseUrl ? (
           <button style={linkBtn} onClick={() => save({ removeProvider: true })} disabled={busy}
-            title="Removes the instance's provider and key. Each user may then plug in their own.">Remove provider</button>
+            title={`Removes the provider and key of ${owner}. Each user may then plug in their own.`}>Remove provider</button>
         ) : null}
         <button style={secondaryBtn} onClick={runTest} disabled={busy}>Save &amp; test</button>
         <button style={primaryBtn} onClick={() => save()} disabled={busy}>Save</button>
       </div>
 
       <div style={divider} />
-      <AiAccessList />
+      <AiAccessList endpoints={endpoints} />
       <div style={divider} />
-      <AiFeedbackSection />
+      <AiFeedbackSection endpoint={endpoints.feedback} />
     </div>
   );
 }

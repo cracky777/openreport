@@ -17,14 +17,14 @@ const DOWN = 'var(--state-danger, #dc2626)';
 
 // What users made of the assistant's answers: the question and the visual it
 // chose. The answer's text is not kept — it can quote data.
-export default function AiFeedbackSection() {
+export default function AiFeedbackSection({ endpoint }) {
   const [data, setData] = useState(null);
 
   useEffect(() => {
-    api.get('/admin/ai/feedback', { params: { days: 30 } })
+    api.get(endpoint, { params: { days: 30 } })
       .then((res) => setData(res.data))
       .catch(() => { /* admin gate handled by the page */ });
-  }, []);
+  }, [endpoint]);
 
   if (!data) return null;
   return (

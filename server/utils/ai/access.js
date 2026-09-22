@@ -14,9 +14,13 @@
 // A user's own provider decides WHERE the prompt goes, never WHAT goes: the
 // data-sharing level stays the instance's. Letting the person who picks the
 // destination also widen what is sent to it would undo the admin's decision.
+//
+// "The instance" is a scope: its stored config and whether this user is denied
+// in it. The cloud edition passes its own — the organization the request runs
+// in, set up by that organization's admins (cloudHooks.resolveAiScope).
 
 const db = require('../../db');
-const { getAiConfig, publicAiConfig, applyAiProviderPatch, clearAiKey } = require('../settingsHelper');
+const { storedAiConfig, effectiveAiConfig, publicAiConfigOf, applyAiProviderPatch, clearAiKey } = require('../settingsHelper');
 
 const PERSONAL_DEFAULTS = { provider: 'openai-compat', baseUrl: '', model: '', apiKey: '' };
 
@@ -38,17 +42,23 @@ function isDenied(userId) {
   return !!(row && row.ai_denied);
 }
 
+/** The instance's scope: its settings, and the account's own denial flag. */
+function instanceScope(user) {
+  return { stored: storedAiConfig(), denied: isDenied(user.id) };
+}
+
 /**
+ * @param {{stored: object, denied: boolean}} [scope] where the rules are read; the instance when omitted
  * @returns {{
  *   config: object|null,                        what the chat route hands the provider layer; null = no assistant
  *   source: 'instance'|'personal'|null,
  *   reason: 'off'|'denied'|'setup'|null,        why there is none; 'setup' = the user may bring their own
  * }}
  */
-function resolveForUser(user) {
-  const instance = getAiConfig();
-  if (!publicAiConfig().enabled) return { config: null, source: null, reason: 'off' };
-  if (isDenied(user.id)) return { config: null, source: null, reason: 'denied' };
+function resolveForUser(user, scope = instanceScope(user)) {
+  const instance = effectiveAiConfig(scope.stored);
+  if (!publicAiConfigOf(scope.stored).enabled) return { config: null, source: null, reason: 'off' };
+  if (scope.denied) return { config: null, source: null, reason: 'denied' };
   if (instance.enabled) return { config: instance, source: 'instance', reason: null };
 
   const personal = storedPersonal(user.id);

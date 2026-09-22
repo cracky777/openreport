@@ -136,11 +136,13 @@ const cloudHooks = {
   //   owner or org admin — without it the OSS rule runs unscoped in a
   //   multi-tenant deployment.
   canManageSchedule: null,
-  // resolveAiConfig(req) → config|null — the AI provider config for this
-  // request, same shape as settingsHelper.getAiConfig() (key in clear).
-  //   OSS: one instance-wide config set by the admin. Cloud: per organization,
-  //   which is also where a plan check or a quota belongs.
-  resolveAiConfig: null,
+  // resolveAiScope(req) → { stored, denied } — where the AI assistant's rules
+  // are read for this request (utils/ai/access.js): the stored provider config
+  // (settingsHelper shape, key encrypted) and whether this user is denied there.
+  //   OSS: the instance, set up by its admin. Cloud: the active organization,
+  //   set up by that organization's admins — also where a plan check belongs.
+  // Set, the instance-wide AI settings of the admin console are switched off.
+  resolveAiScope: null,
 };
 
 module.exports = cloudHooks;
