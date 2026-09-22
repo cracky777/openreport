@@ -32,12 +32,6 @@ const cloudHooks = require('../cloudHooks');
 
 const WEBHOOK_TIMEOUT_MS = 10_000;
 
-function appBase() {
-  if (process.env.ROLLUP_INTERNAL_URL) return process.env.ROLLUP_INTERNAL_URL.replace(/\/+$/, '');
-  const port = process.env.PORT || '3001';
-  return `http://127.0.0.1:${port}`;
-}
-
 const OPS = {
   gt: (v, t) => v > t,
   gte: (v, t) => v >= t,
@@ -59,7 +53,7 @@ async function defaultFireQuery(alert) {
     userId: alert.user_id,
     organizationId: alert.organization_id || null,
   });
-  const res = await fetch(`${appBase()}/api/models/${alert.model_id}/query`, {
+  const res = await fetch(`${internalToken.appBase()}/api/models/${alert.model_id}/query`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', [internalToken.HEADER]: token },
     body: JSON.stringify({

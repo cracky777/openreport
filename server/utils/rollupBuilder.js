@@ -58,18 +58,6 @@ function buildProgress() {
   return out;
 }
 
-// The builder calls the app's own /query route over loopback. A server
-// calling ITSELF must use the in-container loopback, NOT a public URL —
-// a public INTERNAL_APP_URL (https, behind nginx/Cloudflare) makes the
-// self-call leave the container and fail with a generic "fetch failed"
-// (TLS/DNS/redirect). Default to 127.0.0.1:PORT; allow an explicit
-// ROLLUP_INTERNAL_URL escape hatch for split-container deployments.
-function appBase() {
-  if (process.env.ROLLUP_INTERNAL_URL) return process.env.ROLLUP_INTERNAL_URL.replace(/\/+$/, '');
-  const port = process.env.PORT || '3001';
-  return `http://127.0.0.1:${port}`;
-}
-
 // Grain planning + rollup naming helpers (pure, no shared state) — see ./rollupPlanning.
 const {
   grainHashOf, normalizeFilterRules, baseFilterHashOf, rollupTableName,
@@ -468,7 +456,7 @@ function fetchRollupRows({
     measureOverrides: ex.measureOverrides || {},
   });
 
-  const u = new URL(`${appBase()}/api/models/${modelId}/query`);
+  const u = new URL(`${internalToken.appBase()}/api/models/${modelId}/query`);
   const client = u.protocol === 'https:' ? require('https') : require('http');
 
   return new Promise((resolve, reject) => {

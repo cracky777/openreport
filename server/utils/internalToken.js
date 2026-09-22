@@ -106,4 +106,16 @@ function middleware(req, res, next) {
   next();
 }
 
-module.exports = { HEADER, SCOPE, sign, verify, middleware };
+// Where an in-process caller reaches this server. A server calling ITSELF must
+// use the in-container loopback, NOT a public URL — a public INTERNAL_APP_URL
+// (https, behind nginx/Cloudflare) makes the self-call leave the container and
+// fail with a generic "fetch failed" (TLS/DNS/redirect), and the middleware
+// above would refuse it anyway. Default to 127.0.0.1:PORT; ROLLUP_INTERNAL_URL
+// is the escape hatch for split-container deployments.
+function appBase() {
+  if (process.env.ROLLUP_INTERNAL_URL) return process.env.ROLLUP_INTERNAL_URL.replace(/\/+$/, '');
+  const port = process.env.PORT || '3001';
+  return `http://127.0.0.1:${port}`;
+}
+
+module.exports = { HEADER, SCOPE, sign, verify, middleware, appBase };
