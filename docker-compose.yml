@@ -1,20 +1,52 @@
-# Full stack for a public host: the app, nginx on :80/:443 and a Let's Encrypt
-# certificate that renews itself. Needs a domain name pointing at this machine.
-# For a LAN box, a NAS or a reverse proxy you already run, use the
-# single-container docker-compose.simple.yml instead.
+# OpenReport with Docker Compose — one file, two ways to run it.
+#
+# 1. One container, plain HTTP on port 3001 (the default). For a home server,
+#    a NAS, a Raspberry Pi, or a host where a reverse proxy you already run
+#    (Caddy, Traefik, Nginx Proxy Manager…) terminates TLS:
+#
+#      printf 'SESSION_SECRET=%s\nINTERNAL_TOKEN_SECRET=%s\nDATASOURCE_ENC_KEY=%s\n' \
+#        $(openssl rand -hex 32) $(openssl rand -hex 32) $(openssl rand -hex 32) > .env
+#      docker compose up -d
+#
+#    Then open http://<host>:3001 — the first account to sign up becomes the
+#    admin. Behind a reverse proxy, forward X-Forwarded-Proto: the session
+#    cookie gets its Secure flag from that header, so the same image serves
+#    http://nas:3001 on the LAN and https://reports.example.com through the proxy.
+#
+# 2. A public host with a domain name: the same app, plus nginx on :80/:443 and
+#    a Let's Encrypt certificate that renews itself. Clone the repository (nginx
+#    reads deploy/nginx.conf — set your domain there), then add to .env:
+#
+#      COMPOSE_PROFILES=https
+#      OPENREPORT_BIND=127.0.0.1     # port 3001 reachable from this machine only
+#
+#    and issue the first certificate once:
+#      docker compose up -d
+#      docker compose run --rm certbot certonly --webroot -w /var/lib/letsencrypt -d yourdomain.com
+#
+# All three secrets are mandatory; the server refuses to start with a missing or
+# sample value. DATASOURCE_ENC_KEY encrypts your database passwords at rest —
+# back it up with the openreport-data volume, the credentials are unreadable
+# without it. Upgrade with: docker compose pull && docker compose up -d
 services:
-  app:
+  openreport:
+    # The published image, amd64 and arm64. Pin a release with
+    # OPENREPORT_VERSION=0.2.0 in .env; a checkout of the repository can build
+    # its own instead with: docker compose up -d --build
+    image: ghcr.io/cracky777/openreport:${OPENREPORT_VERSION:-latest}
     build: .
     container_name: openreport
     restart: unless-stopped
-    # No host port mapping — the app is reachable only through nginx (internal
-    # docker network → http://app:3001). Access prod via nginx on :80/:443.
+    ports:
+      - "${OPENREPORT_BIND:-0.0.0.0}:${OPENREPORT_PORT:-3001}:3001"
     environment:
       - NODE_ENV=production
       - PORT=3001
       - "SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET required (generate: openssl rand -hex 32)}"
       - "INTERNAL_TOKEN_SECRET=${INTERNAL_TOKEN_SECRET:?INTERNAL_TOKEN_SECRET required (openssl rand -hex 32; must differ from SESSION_SECRET)}"
       - "DATASOURCE_ENC_KEY=${DATASOURCE_ENC_KEY:?DATASOURCE_ENC_KEY required (openssl rand -hex 32; keep it stable / backed up)}"
+      # Optional. See .env.example for what each one does.
+      - "CORS_ORIGIN=${CORS_ORIGIN:-}"
       # Sites allowed to frame an /embed page (CSP frame-ancestors).
       # Default * — narrow it to your customers' domains when you know them.
       - "EMBED_FRAME_ANCESTORS=${EMBED_FRAME_ANCESTORS:-}"
@@ -33,12 +65,19 @@ services:
       # Set to 1 only for an IdP you trust that omits email_verified: it lets a
       # first SSO login attach to an existing password account by email alone.
       - "OIDC_ALLOW_EMAIL_LINKING=${OIDC_ALLOW_EMAIL_LINKING:-}"
+      # Set to 1 on a multi-user instance to forbid datasources, webhooks and AI
+      # providers on localhost or the private network. See .env.example.
+      - "OPENREPORT_BLOCK_INTERNAL_HOSTS=${OPENREPORT_BLOCK_INTERNAL_HOSTS:-}"
     volumes:
-      - app-data:/app/server/data
+      # SQLite metadata, uploaded files, rollup caches. Everything to back up.
+      - openreport-data:/app/server/data
     networks:
-      - openreport-net
+      openreport-net:
+        # deploy/nginx.conf proxies to http://app:3001.
+        aliases: [app]
 
   nginx:
+    profiles: [https]
     image: nginx:alpine
     container_name: openreport-nginx
     # nginx reads its certificates once, at start. A renewed certificate is
@@ -55,11 +94,15 @@ services:
       - certbot-etc:/etc/letsencrypt:ro
       - certbot-var:/var/lib/letsencrypt
     depends_on:
-      - app
+      - openreport
     networks:
       - openreport-net
 
+  # Issuance is a one-shot, run by hand for each new name (see the top of this
+  # file). Renewal is the certbot-renew service below — deliberately a SEPARATE
+  # service so this one keeps the image's `certbot` entrypoint.
   certbot:
+    profiles: [https]
     image: certbot/certbot
     container_name: openreport-certbot
     volumes:
@@ -67,17 +110,13 @@ services:
       - certbot-var:/var/lib/letsencrypt
     depends_on:
       - nginx
-    # Issuance is a one-shot, run by hand for each new name. Renewal is the
-    # certbot-renew service below — deliberately a SEPARATE service so this one
-    # keeps the image's `certbot` entrypoint and the command below still works:
-    #   docker compose run --rm certbot certonly --webroot -w /var/lib/letsencrypt -d yourdomain.com
 
-  # Let's Encrypt certificates last 90 days. Nothing here renewed them: certbot
-  # in a container has neither the systemd timer nor the cron job it installs on
-  # a host, so the certificate simply expired and HTTPS broke. This loop asks
-  # twice a day; certbot itself no-ops until a certificate is within 30 days of
-  # expiry, so it is cheap and never hammers the ACME service.
+  # Let's Encrypt certificates last 90 days, and certbot in a container has
+  # neither the systemd timer nor the cron job it installs on a host. This loop
+  # asks twice a day; certbot itself no-ops until a certificate is within 30
+  # days of expiry, so it is cheap and never hammers the ACME service.
   certbot-renew:
+    profiles: [https]
     image: certbot/certbot
     container_name: openreport-certbot-renew
     restart: unless-stopped
@@ -90,7 +129,7 @@ services:
       - nginx
 
 volumes:
-  app-data:
+  openreport-data:
   certbot-etc:
   certbot-var:
 

@@ -2,7 +2,7 @@ name: Docker image
 
 # Publishes ghcr.io/<owner>/openreport. A release tag (v1.2.3) produces the
 # `1.2.3`, `1.2` and `latest` tags; every push to master refreshes `edge`.
-# docker-compose.simple.yml and the README point at `latest`, so the image a
+# docker-compose.yml and the README point at `latest`, so the image a
 # reader pulls is always the last release, never a half-tested master.
 on:
   push:

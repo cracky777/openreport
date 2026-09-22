@@ -75,7 +75,7 @@ Raspberry Pi; the image is built for amd64 and arm64.
 
 ```bash
 mkdir openreport && cd openreport
-curl -fsSL https://raw.githubusercontent.com/cracky777/openreport/master/docker-compose.simple.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/cracky777/openreport/master/docker-compose.yml -o docker-compose.yml
 printf 'SESSION_SECRET=%s\nINTERNAL_TOKEN_SECRET=%s\nDATASOURCE_ENC_KEY=%s\n' \
   $(openssl rand -hex 32) $(openssl rand -hex 32) $(openssl rand -hex 32) > .env
 docker compose up -d
@@ -91,9 +91,10 @@ encrypts your database passwords, so back it up with the volume. Upgrade with
   point it at port 3001 and forward `X-Forwarded-Proto`. The session cookie
   gets its `Secure` flag from that header, so plain HTTP on the LAN and HTTPS
   through the proxy both work with the same image.
-- **Public host with TLS built in**: the [`docker-compose.yml`](docker-compose.yml)
-  at the root of the repository bundles nginx and a Let's Encrypt certificate.
-  Clone the repository, fill in `.env` and follow the comments in the file.
+- **Public host with TLS built in**: the same [`docker-compose.yml`](docker-compose.yml)
+  also bundles nginx and a Let's Encrypt certificate, behind the `https` profile.
+  Clone the repository, add `COMPOSE_PROFILES=https` to `.env` and follow the
+  comments at the top of the file.
 - **Without Docker** — a Node 22 host, systemd, or hacking on the code — see below.
 
 ### From source
