@@ -16,6 +16,7 @@ server/data/
 # e2e run artefacts (throwaway database, session, traces)
 e2e/.tmp/
 e2e/test-results/
+/test-results/
 e2e/playwright-report/
 
 # Notes de travail locales : revue de sécurité (payloads inclus) et brouillon de CLAUDE.md
