@@ -33,6 +33,17 @@ describe('POST /models/:id/query — 400 branches', () => {
     expect(res.body.error).toMatch(/Missing in model/);
   });
 
+  // Both fields would be emitted `AS "amt"`; the driver keeps one column and
+  // the table showed a single merged column instead of two.
+  test('a dimension and a measure sharing a label are rejected by name', async () => {
+    const { owner, model } = seed([
+      { name: 'items.amt_sum', table: 'items', column: 'amt', aggregation: 'sum', label: 'label' },
+    ]);
+    const res = await run(owner, model, { dimensionNames: ['items.label'], measureNames: ['items.amt_sum'] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/share the label "label"/);
+  });
+
   test('selecting neither a dimension nor a measure is rejected', async () => {
     const { owner, model } = seed();
     const res = await run(owner, model, { dimensionNames: [], measureNames: [] });

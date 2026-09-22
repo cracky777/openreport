@@ -1421,6 +1421,17 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   if (selectedDimensions.length === 0 && selectedMeasures.length === 0) {
     return res.status(400).json({ error: 'Select at least one dimension or measure' });
   }
+  // A result row is keyed by label, so a dimension and a measure sharing one
+  // land on the same SELECT alias: the database keeps a single column and the
+  // visual shows one. Name the clash instead of silently merging the two.
+  {
+    const dimByLabel = new Map(selectedDimensions.map((d) => [d.label || d.name, d]));
+    const clash = selectedMeasures.find((m) => dimByLabel.has(m.label || m.name));
+    if (clash) {
+      const label = clash.label || clash.name;
+      return res.status(400).json({ error: `Dimension and measure share the label "${label}". Rename one of them in the model.` });
+    }
+  }
 
   // Total components (see `withTotalComponents` above). Reuses the rollup
   // decomposer, so the two paths agree on which averages are safe to split and

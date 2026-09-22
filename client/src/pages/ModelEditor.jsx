@@ -397,9 +397,14 @@ export default function ModelEditor() {
     setDimensions((prev) => [...prev, {
       name: dimName, table, column: col.column_name,
       type: eff.type,
-      label: col.column_name,
+      label: labelTaken(col.column_name) ? `${col.column_name} (dimension)` : col.column_name,
     }]);
   };
+
+  // A query result is keyed by label, so a dimension and a measure cannot share
+  // one (the server refuses the query). A column used both ways gets its second
+  // field labelled after its role.
+  const labelTaken = (label) => [...dimensions, ...measures].some((f) => (f.label || f.name) === label);
 
   const addMeasure = (table, column) => {
     const col = typeof column === 'string' ? { column_name: column, data_type: 'number' } : column;
@@ -411,7 +416,7 @@ export default function ModelEditor() {
     const measName = `${table}.${col.column_name}_sum`;
     setMeasures((prev) => [...prev, {
       name: measName, table, column: col.column_name,
-      aggregation: 'sum', label: col.column_name,
+      aggregation: 'sum', label: labelTaken(col.column_name) ? `${col.column_name} (sum)` : col.column_name,
       // Stamp the source data type so the SQL builder can wrap PostgreSQL
       // `interval` columns with EXTRACT(EPOCH FROM …) — otherwise SUM/AVG
       // returns a JS object that renders as "[object Object]" in widgets.
