@@ -690,7 +690,10 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
       )}
       {showSelectAll && multiSelect && (
         <div style={_hs18}>
-          <label style={{ ...listRowStyle, fontWeight: 500, fontSize }}>
+          {/* Its own color, like the rows under it: left to inherit, it took the
+              APP's text color, not the report theme's — dark on a dark report
+              edited in a light app. */}
+          <label style={{ ...listRowStyle, fontWeight: 500, fontSize, color: fontColor }}>
             <input type="checkbox"
               checked={selected.length > 0}
               ref={(el) => { if (el) el.indeterminate = selected.length > 0 && selected.length < values.length; }}
