@@ -103,7 +103,7 @@
 - Fields: the drop zones (Axis/Category/Rows/Columns, Values, Legend…; Scorecard has Value and Compare with (date)).
 - Filters: rules that only affect this visual (Add filter), and Top N for bar, pie and treemap.
 - Data: Time period (Date dimension + Period), Row limit, When empty message.
-- Then the visual's own section (named after its type: smooth lines, donut, totals, slicer style…), Colors (series, gradient, Color by rule), Labels (data labels, number format, N-1 comparison lines), Axes, Legend, Frame (title font, border, background, shadow).
+- Then the visual's own section (named after its type: smooth lines, donut, totals, slicer style…), Colors (series, gradient, Color by rule), Labels (data labels, number format, N-1 comparison lines), Axes (each axis with its line color, title, font and, for the X axis, the label angle; the grid's line style, width and color), Legend, Frame (title font, border, background, shadow).
 - A section that does not apply to the visual is not shown.
 
 ## sorting-topn — Sorting, Top N, row limit, time periods, year-over-year

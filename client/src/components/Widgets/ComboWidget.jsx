@@ -5,7 +5,7 @@ import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues } from '../../utils/axisSort';
-import { calcLabelRotation } from '../../utils/chartHelpers';
+import { calcLabelRotation, calcBottomMargin, axisLineStyle, alignDualAxes } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { paletteOf, CHART_COLORS as COLORS } from '../../utils/chartPalette';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
@@ -64,6 +64,8 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
 
   // Goes on the widget's root: the report theme's colours are read back from it.
   const [chartTheme, rootRef] = useChartTheme();
+  // Unset, the grid follows the report theme; the Axes section can override it.
+  const gridLineColor = config?.gridLineColor || chartTheme.grid;
 
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
@@ -318,8 +320,19 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
     // When secondary axis is on, each axis has its own scale.
     // When off, both bars and lines share the primary axis — use the larger max so nothing gets clipped.
     const leftRaw = showSecondaryAxis ? barMax : Math.max(barMax, lineMax);
-    const leftMax = leftRaw > 0 ? Math.ceil(leftRaw * 1.1) : undefined;
-    const rightMax = lineMax > 0 ? Math.ceil(lineMax * 1.1) : undefined;
+    let leftMax = leftRaw > 0 ? Math.ceil(leftRaw * 1.1) : undefined;
+    let rightMax = lineMax > 0 ? Math.ceil(lineMax * 1.1) : undefined;
+    let leftStep = yAxisInterval || undefined;
+    let rightStep = secondaryYAxisInterval || undefined;
+    // Two axes, one grid: the right axis takes as many steps as the left so
+    // its labels sit on the grid lines instead of between them.
+    if (showSecondaryAxis) {
+      const aligned = alignDualAxes({ leftMax, rightMax, leftInterval: leftStep, rightInterval: rightStep });
+      if (aligned.left.max !== undefined) {
+        ({ max: leftMax, interval: leftStep } = aligned.left);
+        ({ max: rightMax, interval: rightStep } = aligned.right);
+      }
+    }
     const yAxisFontSize = config?.yAxisLabelFontSize ?? 11;
     const yAxisColor = config?.yAxisLabelColor || '#64748b';
     const secYAxisFontSize = config?.secondaryYAxisLabelFontSize ?? 11;
@@ -347,18 +360,18 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
     const isBarAxisDur = barLabelsArr.some((l) => isDurationCol(l, data._durationColumns));
     const isLineAxisDur = lineLabelsArr.some((l) => isDurationCol(l, data._durationColumns));
     const yAxes = [{
-      type: 'value', show: showYAxis,
+      type: 'value', show: showYAxis, ...axisLineStyle(config?.yAxisLineColor),
       max: leftMax,
-      interval: yAxisInterval || undefined,
+      interval: leftStep,
       ...yNameCfg,
       axisLabel: { fontSize: yAxisFontSize, color: yAxisColor, fontFamily: yAxisFontFamily, formatter: (v) => isBarAxisDur ? formatDuration(v) : (abbreviateNumber(v, valueAbbr) ?? formatNumber(v)) },
-      splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth, color: chartTheme.grid } },
+      splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth, color: gridLineColor } },
     }];
     if (showSecondaryAxis) {
       yAxes.push({
-        type: 'value', show: showYAxis, position: 'right',
+        type: 'value', show: showYAxis, position: 'right', ...axisLineStyle(config?.secondaryYAxisLineColor),
         max: rightMax,
-        interval: secondaryYAxisInterval || undefined,
+        interval: rightStep,
         ...secYNameCfg,
         axisLabel: { fontSize: secYAxisFontSize, color: secYAxisColor, fontFamily: secYAxisFontFamily, formatter: (v) => isLineAxisDur ? formatDuration(v) : (abbreviateNumber(v, valueAbbr) ?? formatNumber(v)) },
         splitLine: { show: false },
@@ -399,10 +412,12 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
     const xAxisFontSize = config?.xAxisLabelFontSize ?? 11;
     const xAxisColor = config?.xAxisLabelColor || '#64748b';
     const xNameCfg = xTitleVal ? { name: xTitleVal, nameLocation: 'center', nameGap: 28, nameTextStyle: { fontSize: xAxisFontSize + 1, color: xAxisColor, fontWeight: 500, fontFamily: xAxisFontFamily } } : {};
+    // The Axes section may pin the tilt of the category labels; otherwise the chart picks one that fits its width.
+    const xRotate = isHoriz ? 0 : (config?.xAxisLabelRotate ?? calcLabelRotation(labels, w));
     const categoryAxis = {
-      type: 'category', data: labels, show: showXAxis,
+      type: 'category', data: labels, show: showXAxis, ...axisLineStyle(config?.xAxisLineColor),
       ...xNameCfg,
-      axisLabel: { show: true, rotate: isHoriz ? 0 : calcLabelRotation(labels, w), fontSize: xAxisFontSize, color: xAxisColor, fontFamily: xAxisFontFamily },
+      axisLabel: { show: true, rotate: xRotate, fontSize: xAxisFontSize, color: xAxisColor, fontFamily: xAxisFontFamily },
       position: barDir === 'verticalInverse' ? 'top' : barDir === 'horizontalInverse' ? 'right' : undefined,
       inverse: barDir === 'horizontalInverse',
     };
@@ -436,7 +451,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
       : (isHoriz && showSecondaryAxis ? 40 : 20);
     const baseRight = barDir === 'horizontalInverse' ? 80
       : (!isHoriz && showSecondaryAxis ? 50 : 20);
-    const baseBottom = barDir === 'verticalInverse' ? 15 : (showXAxis ? 40 : 15);
+    const baseBottom = barDir === 'verticalInverse' ? 15 : (showXAxis ? calcBottomMargin(xRotate, labels, 40, xAxisFontSize) : 15);
     const baseLeft = barDir === 'horizontalInverse' ? 15 : (isHoriz ? 80 : (showYAxis ? 50 : 15));
     const catExtra = xTitleVal ? 18 : 0;
     const valExtra = yTitleVal ? 20 : 0;
@@ -465,10 +480,10 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
 
     return { option: opt, legendItems, rawLabels };
   }, [data, hasData, isStacked, showXAxis, showYAxis, showDataLabels, dataLabelFontSize, dataLabelColor,
-      valueAbbr, hideZeros, showLegend, legendPosition, gridLineStyle, gridLineWidth,
+      valueAbbr, hideZeros, showLegend, legendPosition, gridLineStyle, gridLineWidth, gridLineColor,
       showSecondaryAxis, smoothLine, lineArea, lineSymbol, lineSymbolSize, dataLabelRotate, sortOrder, axisSort, groupBySort, hiddenSeries, highlightValue,
       config?.legendColors, config?.palette, config?.barDirection, config?.yAxisInterval, config?.secondaryYAxisInterval,
-      config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
+      config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.xAxisLabelRotate, config?.xAxisLineColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor, config?.yAxisLineColor, config?.secondaryYAxisLineColor,
       config?.secondaryYAxisLabelFontSize, config?.secondaryYAxisLabelColor,
       config?.xAxisTitle, config?.yAxisTitle, config?.secondaryYAxisTitle,
       config?.showXAxisTitle, config?.showYAxisTitle, config?.showSecondaryYAxisTitle,

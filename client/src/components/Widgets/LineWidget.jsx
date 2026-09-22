@@ -5,7 +5,7 @@ import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues } from '../../utils/axisSort';
-import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
+import { calcLabelRotation, calcBottomMargin, axisLineStyle } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { paletteOf, CHART_COLORS_BASIC as COLORS, hexToRgba } from '../../utils/chartPalette';
 import { buildDataLabel } from '../../utils/chartLabels';
@@ -60,6 +60,8 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
 
   // Goes on the widget's root: the report theme's colours are read back from it.
   const [chartTheme, rootRef] = useChartTheme();
+  // Unset, the grid follows the report theme; the Axes section can override it.
+  const gridLineColor = config?.gridLineColor || chartTheme.grid;
 
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
@@ -97,6 +99,8 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
 
     // Keep raw labels for cross-filter, format display labels separately
     const rawLabels = [...labels];
+    // The Axes section may pin the tilt of the category labels; otherwise the chart picks one that fits its width.
+    const xRotate = config?.xAxisLabelRotate ?? calcLabelRotation(labels, w);
     if (datePart) {
       labels = labels.map((l) => formatDateLabel(l, datePart));
     }
@@ -202,17 +206,17 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
       },
       legend: { show: false },
       xAxis: {
-        type: 'category', data: labels, show: showXAxis,
+        type: 'category', data: labels, show: showXAxis, ...axisLineStyle(config?.xAxisLineColor),
         ...xNameCfg,
         axisLabel: {
-          show: showLabels, rotate: calcLabelRotation(labels, w),
+          show: showLabels, rotate: xRotate,
           fontSize: config?.xAxisLabelFontSize ?? 11,
           color: config?.xAxisLabelColor || '#64748b',
           fontFamily: xAxisFontFamily,
         },
       },
       yAxis: {
-        type: 'value', show: showYAxis,
+        type: 'value', show: showYAxis, ...axisLineStyle(config?.yAxisLineColor),
         ...yNameCfg,
         axisLabel: {
           show: showLabels,
@@ -232,13 +236,13 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
         },
         max: subType === 'stackedArea100' ? 100 : undefined,
         interval: yAxisInterval || undefined,
-        splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth, color: chartTheme.grid } },
+        splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth, color: gridLineColor } },
       },
       series,
       grid: {
         top: 15,
         right: 20,
-        bottom: (showXAxis ? calcBottomMargin(calcLabelRotation(labels, w), labels) : 15) + xTitleExtra,
+        bottom: (showXAxis ? calcBottomMargin(xRotate, labels, 35, config?.xAxisLabelFontSize ?? 11) : 15) + xTitleExtra,
         left: (showYAxis ? 50 : 15) + yTitleExtra,
       },
     };
@@ -258,10 +262,10 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
     const legendItems = (allSeriesForLegend || []).map((s, i) => ({ name: s.name, color: getColor(s.name, i) }));
     return { option: opt, legendItems, rawLabels };
   }, [data, subType, showLabels, showLegend, legendPosition, hasData, config?.smooth, config?.color, isArea, isStacked, hideZeros, sortOrder, axisSort, groupBySort,
-      showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
+      showXAxis, showYAxis, gridLineStyle, gridLineWidth, gridLineColor, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors, config?.palette,
       config?.lineSymbol, config?.lineSymbolSize,
-      config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
+      config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.xAxisLabelRotate, config?.xAxisLineColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor, config?.yAxisLineColor, config?.secondaryYAxisLineColor,
       config?.xAxisTitle, config?.yAxisTitle, config?.showXAxisTitle, config?.showYAxisTitle, chartTheme.grid]);
 
   const option = memoResult?.option;

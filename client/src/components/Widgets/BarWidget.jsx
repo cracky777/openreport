@@ -5,7 +5,7 @@ import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues } from '../../utils/axisSort';
-import { calcLabelRotation, calcBottomMargin } from '../../utils/chartHelpers';
+import { calcLabelRotation, calcBottomMargin, axisLineStyle } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { paletteOf, CHART_COLORS as COLORS, OTHERS_COLOR, hexToRgba } from '../../utils/chartPalette';
 import { buildDataLabel } from '../../utils/chartLabels';
@@ -129,6 +129,8 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
   // Memoize the ECharts option to avoid recalculating on every render
   // Goes on the widget's root: the report theme's colours are read back from it.
   const [chartTheme, rootRef] = useChartTheme();
+  // Unset, the grid follows the report theme; the Axes section can override it.
+  const gridLineColor = config?.gridLineColor || chartTheme.grid;
 
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
@@ -492,14 +494,16 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
     const showYTitle = config?.showYAxisTitle ?? true;
     const xTitle = showXTitle ? ((config?.xAxisTitle ?? '') || (isHoriz ? (data._measureLabel || '') : (data._dimLabel || ''))) : '';
     const yTitle = showYTitle ? ((config?.yAxisTitle ?? '') || (isHoriz ? (data._dimLabel || '') : (data._measureLabel || ''))) : '';
+    // The Axes section may pin the tilt of the category labels; otherwise the chart picks one that fits its width.
+    const xRotate = isHoriz ? 0 : (config?.xAxisLabelRotate ?? calcLabelRotation(labels, w));
     const categoryAxis = {
-      type: 'category', data: labels, show: showXAxis,
-      axisLabel: { show: showLabels, rotate: isHoriz ? 0 : calcLabelRotation(labels, w) },
+      type: 'category', data: labels, show: showXAxis, ...axisLineStyle(config?.xAxisLineColor),
+      axisLabel: { show: showLabels, rotate: xRotate },
       position: barDir === 'verticalInverse' ? 'top' : barDir === 'horizontalInverse' ? 'right' : undefined,
       inverse: barDir === 'horizontalInverse',
     };
     const valueAxis = {
-      type: 'value', show: showYAxis,
+      type: 'value', show: showYAxis, ...axisLineStyle(config?.yAxisLineColor),
       axisLabel: {
         show: showLabels,
         formatter: (val) => {
@@ -519,7 +523,7 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
       },
       max: subType === 'stacked100' ? 100 : customYMax ? Math.ceil(customYMax * 1.1) : undefined,
       interval: yAxisInterval || undefined,
-      splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth, color: chartTheme.grid } },
+      splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth, color: gridLineColor } },
       inverse: barDir === 'verticalInverse' || barDir === 'horizontalInverse',
       position: barDir === 'horizontalInverse' ? 'right' : undefined,
     };
@@ -538,7 +542,7 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
     // Adjust grid margins to accommodate axis titles
     const baseTop = barDir === 'verticalInverse' ? 35 : 15;
     const baseRight = barDir === 'horizontalInverse' ? 80 : 15;
-    const baseBottom = barDir === 'verticalInverse' ? 15 : (showXAxis ? calcBottomMargin(isHoriz ? 0 : calcLabelRotation(labels, w), labels) : 15);
+    const baseBottom = barDir === 'verticalInverse' ? 15 : (showXAxis ? calcBottomMargin(xRotate, labels, 35, config?.xAxisLabelFontSize ?? 11) : 15);
     const baseLeft = barDir === 'horizontalInverse' ? 15 : (isHoriz ? 80 : (showYAxis ? 50 : 15));
     const xTitleExtra = xTitle ? 18 : 0;
     const yTitleExtra = yTitle ? 20 : 0;
@@ -571,9 +575,9 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
 
     return { option: opt, legendItems, rawLabels, othersLabelIdx };
   }, [data, subType, showLabels, hideZeros, showLegend, legendPosition, sortOrder, axisSort, groupBySort, hasData, config?.color,
-      showXAxis, showYAxis, gridLineStyle, gridLineWidth, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
+      showXAxis, showYAxis, gridLineStyle, gridLineWidth, gridLineColor, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors, config?.palette, config?.barDirection,
-      config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
+      config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.xAxisLabelRotate, config?.xAxisLineColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor, config?.yAxisLineColor, config?.secondaryYAxisLineColor,
       config?.xAxisTitle, config?.yAxisTitle, config?.showXAxisTitle, config?.showYAxisTitle,
       topNEnabled, topN, othersLabel,
       config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor, chartTheme.grid]);

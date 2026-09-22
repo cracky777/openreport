@@ -188,7 +188,7 @@ export const DESIGN_KEYS = [
   'xAxisTitle', 'showYAxis', 'showYAxisTitle', 'yAxisTitle', 'smooth', 'donut', 'backgroundColor',
   'transparentBg', 'borderEnabled', 'borderColor', 'borderRadius',
   'xAxisLabelColor', 'yAxisLabelColor', 'secondaryYAxisLabelColor', 'headerColor', 'dataLabelBgColor',
-  'dataLabelBgOpacity', 'gridLineStyle', 'gridLineWidth', 'gaugeColor', 'gaugeTrackColor', 'gaugeThresholdColor',
+  'dataLabelBgOpacity', 'gridLineStyle', 'gridLineWidth', 'gridLineColor', 'xAxisLineColor', 'yAxisLineColor', 'secondaryYAxisLineColor', 'gaugeColor', 'gaugeTrackColor', 'gaugeThresholdColor',
   'gaugeOverColor', 'gaugeConditionalColor', 'gaugeValueColor', 'gaugeLabelColor', 'gaugeAxisColor',
   'slicerFontColor', 'slicerSelectedColor', 'slicerSelectedBg', 'shapeFill', 'shapeStroke', 'lineColor',
   'mergeSeparatorColor', 'tableConfig', 'palette', 'legendTextColor',
