@@ -4,8 +4,26 @@ All notable changes to OpenReport are listed here. Versions follow
 [Semantic Versioning](https://semver.org/); each one is a git tag and a
 `ghcr.io/cracky777/openreport` image.
 
-## Unreleased
+## 0.2.0 — 2026-09-22
 
+- One `docker-compose.yml` instead of two. By default it runs the published
+  image as a single container on port 3001; `COMPOSE_PROFILES=https` in `.env`
+  adds nginx and a Let's Encrypt certificate for a public host.
+  `docker-compose.simple.yml` is gone.
+
+  **Upgrading.** From the single-container file: nothing to do, the data stays
+  in the same `openreport-data` volume — replace the file, then
+  `docker compose up -d --remove-orphans`. From the full-stack file (nginx +
+  certbot), the data was in the `app-data` volume: stop the stack, copy it
+  once into the new volume, then start again with the https profile:
+
+  ```bash
+  docker compose down
+  docker volume create <project>_openreport-data
+  docker run --rm -v <project>_app-data:/from -v <project>_openreport-data:/to alpine cp -a /from/. /to/
+  ```
+
+  (`<project>` is the directory name, as shown by `docker volume ls`.)
 - AI assistant in the report editor (Admin › AI: it turns on as soon as a
   provider is configured, and an admin can switch it off). Plug in
   Anthropic or any OpenAI-compatible server (OpenAI, Mistral, Ollama, LM Studio…).
