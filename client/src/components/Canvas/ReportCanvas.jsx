@@ -4,7 +4,7 @@ import { WIDGET_TYPES } from '../Widgets';
 import { getMergeGroups, groupSeams, groupRect, mergeCorners, mergeSpan, edgeMidpoint, groupBorderCss } from '../../utils/mergeFrames';
 import WidgetItem from './WidgetItem';
 import { stackedOrder, stackedHeight, STACK_BREAKPOINT, STACK_GAP } from '../../utils/stackedLayout';
-import { clampPos, clampDelta, clampRect, dragBounds } from '../../utils/pageBounds';
+import { clampPos, clampDelta, clampRect, dragBounds, minSize } from '../../utils/pageBounds';
 
 // Inner padding of the stacked (small-screen) column.
 const STACK_PAD = 12;
@@ -234,13 +234,14 @@ export default function ReportCanvas({
       const dy = (e.clientY - resizing.startY) / scale;
       const updates = {};
 
+      const { minW, minH } = resizing;
       // Width changes (snap to grid)
-      if (dir.includes('e')) updates.w = Math.max(80, snap(resizing.startW + dx));
-      if (dir.includes('w')) { updates.w = Math.max(80, snap(resizing.startW - dx)); updates.x = snap(resizing.startPosX + dx); if (updates.w <= 80) updates.x = resizing.startPosX + resizing.startW - 80; }
+      if (dir.includes('e')) updates.w = Math.max(minW, snap(resizing.startW + dx));
+      if (dir.includes('w')) { updates.w = Math.max(minW, snap(resizing.startW - dx)); updates.x = snap(resizing.startPosX + dx); if (updates.w <= minW) updates.x = resizing.startPosX + resizing.startW - minW; }
 
       // Height changes (snap to grid)
-      if (dir.includes('s')) updates.h = Math.max(40, snap(resizing.startH + dy));
-      if (dir.includes('n')) { updates.h = Math.max(40, snap(resizing.startH - dy)); updates.y = snap(resizing.startPosY + dy); if (updates.h <= 40) updates.y = resizing.startPosY + resizing.startH - 40; }
+      if (dir.includes('s')) updates.h = Math.max(minH, snap(resizing.startH + dy));
+      if (dir.includes('n')) { updates.h = Math.max(minH, snap(resizing.startH - dy)); updates.y = snap(resizing.startPosY + dy); if (updates.h <= minH) updates.y = resizing.startPosY + resizing.startH - minH; }
 
       resizedRef.current = true;
       // A widget grown past the page edge would spill onto the backdrop, which
@@ -250,7 +251,7 @@ export default function ReportCanvas({
         y: updates.y ?? resizing.startPosY,
         w: updates.w ?? resizing.startW,
         h: updates.h ?? resizing.startH,
-      }, pageWidth, canvasHeight);
+      }, pageWidth, canvasHeight, minW, minH);
       emitLive(layout.map((item) =>
         item.i === resizing.id ? { ...item, ...next } : item
       ));
@@ -286,8 +287,9 @@ export default function ReportCanvas({
     e.preventDefault();
     const item = layout.find((l) => l.i === id);
     if (!item) return;
+    const { w: minW, h: minH } = minSize(widgets[id]?.type);
     setResizing({
-      id, dir,
+      id, dir, minW, minH,
       startW: item.w || 400,
       startH: item.h || 300,
       startX: e.clientX,
@@ -295,7 +297,7 @@ export default function ReportCanvas({
       startPosX: item.x || 0,
       startPosY: item.y || 0,
     });
-  }, [layout]);
+  }, [layout, widgets]);
 
   // Stacked column: one widget per row, each spanning the column width at
   // its authored height. No seams, magnets or z-order bar — those are

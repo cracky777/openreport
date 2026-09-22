@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { clampPos, clampDelta, clampRect, dragBounds } from './pageBounds';
+import { clampPos, clampDelta, clampRect, dragBounds, minSize } from './pageBounds';
 
 const PW = 1000;
 const PH = 600;
@@ -86,5 +86,18 @@ describe('clampRect', () => {
   test('the minimum size wins over the page edge, so the widget stays grabbable', () => {
     expect(clampRect({ x: 980, y: 580, w: 200, h: 100 }, PW, PH))
       .toEqual({ x: 980, y: 580, w: 80, h: 40 });
+  });
+});
+
+describe('minSize', () => {
+  test('a shape can shrink to a dot, a visual keeps room for its content', () => {
+    expect(minSize('shape')).toEqual({ w: 10, h: 10 });
+    expect(minSize('bar')).toEqual({ w: 80, h: 40 });
+    expect(minSize(undefined)).toEqual({ w: 80, h: 40 });
+  });
+
+  test('the clamp honours a smaller minimum', () => {
+    expect(clampRect({ x: 980, y: 580, w: 20, h: 20 }, PW, PH, 10, 10))
+      .toEqual({ x: 980, y: 580, w: 20, h: 20 });
   });
 });

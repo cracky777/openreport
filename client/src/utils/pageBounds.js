@@ -90,6 +90,16 @@ export function findFreeSlot(layout, x, y, w, h, pw, ph) {
 }
 
 /**
+ * Smallest size a widget can be resized to. A visual needs room for its
+ * content; a shape is decoration — a dot, a thin bar, a tiny circle — and
+ * stops only where its handles would no longer fit (the snap grid still
+ * rounds it up to one cell when snapping is on).
+ */
+export function minSize(type) {
+  return type === 'shape' ? { w: 10, h: 10 } : { w: 80, h: 40 };
+}
+
+/**
  * Pull a resized rect back inside the page. Only the edge that crossed moves:
  * an overshoot to the west stops the left edge and leaves the right one where
  * the author dropped it, and the other way round.
