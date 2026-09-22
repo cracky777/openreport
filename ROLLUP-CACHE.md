@@ -708,6 +708,36 @@ In `POST /api/models/:id/query`, before any fact SQL:
 
 Any MISS → fall through to the existing live fact-query path unchanged.
 
+### 9a. `cacheOnly` — answer from the rollup store or not at all
+
+`cacheOnly: true` in the `/query` body turns the fall-through off. It is
+what the AI assistant reads data through (`utils/ai/cachedQuery.js`), and
+its promise is that such a request **never opens a connection to the
+source**:
+
+- It outranks every flag that steers towards the source: `sqlOnly` and
+  `bypassCache` are forced off, and `_rollupBuilder` is ignored even under a
+  verified internal token (step 1 above never skips the planner).
+- The INTERVAL catalog probe (`resolveIntervalColumns`) is skipped. It is
+  the only other source access before the planner, and the planner never
+  reads column types, so a HIT is unaffected.
+- On a MISS — main path or slicer-distinct — the route returns
+  `{ rows: [], rowCount: 0, _cache: { hit: false, cacheOnly: true, reason } }`
+  with the §10 reason, **before** `queryCache`: those entries were filled by
+  live queries and would be source rows under a cache label.
+- Only the literal boolean arms it. RLS is unchanged: a restricted requester
+  is `MISS:rls-restricted`, so gets the miss shape, never rows.
+
+The Ask panel of the journey asks about a model with no report: its
+`cacheOnly` body then carries **no `reportId`** (so no report extras are
+loaded). The key only ever comes from the scope the route built — a `reportId`
+written by the language model never reaches `/query`
+(`server/tests/aiCachedQuery.test.js`).
+
+Locked by `server/tests/queryCacheOnly.test.js`, which counts calls to
+`createConnection` (the probe swallows its own errors, so "did not crash"
+proves nothing). Usage events record these as `served: 'cache-only-miss'`.
+
 ---
 
 ## 10. MISS reasons (diagnostic reference)

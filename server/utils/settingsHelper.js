@@ -1,4 +1,5 @@
 const db = require('../db');
+const { encrypt, decrypt } = require('./secretCrypto');
 
 // Bounds for the query timeout setting — enforced server-side so a
 // misconfigured admin UI can never park a runaway query.
@@ -169,7 +170,132 @@ function canUseApi(user) {
   return (ROLE_RANK[user.role] || 0) >= ROLE_RANK[getApiMinRole()];
 }
 
+// ─── AI assistant ───────────────────────────────────────────────────
+// One provider for the whole instance, chosen by an admin. Two wire protocols
+// cover the field: `openai-compat` is the chat-completions shape that OpenAI,
+// Mistral, Ollama, LM Studio, Azure and OpenRouter all speak; `anthropic` is
+// the native Messages API.
+//
+// `dataSharing` is a privacy decision, not a tuning knob: 'schema' sends only
+// field names and labels to the provider, 'schema+cache' also lets the
+// assistant read rows out of the rollup cache — rows that then leave the
+// instance. Off by default for that reason.
+const AI_PROVIDERS = ['openai-compat', 'anthropic'];
+const AI_DATA_SHARING = ['schema', 'schema+cache'];
+// `enabled` is the admin's switch, on unless they turn it off: configuring a
+// provider is the decision to use the assistant, a second "and now enable it"
+// step was only ever forgotten. What is NOT on by default is `dataSharing`.
+const AI_DEFAULTS = { enabled: true, provider: 'openai-compat', baseUrl: '', model: '', apiKey: '', dataSharing: 'schema' };
+
+// The switch alone does not make an assistant: without a provider there is
+// nobody to talk to, and the editor must not offer a panel that can only fail.
+const isConfigured = (cfg) => !!(cfg.baseUrl && cfg.model);
+
+function storedAiConfig() {
+  const stored = getSetting('ai_config', null);
+  return { ...AI_DEFAULTS, ...(stored && typeof stored === 'object' ? stored : {}) };
+}
+
+// The config as the provider layer needs it, key in clear. A key that no
+// longer decrypts (DATASOURCE_ENC_KEY rotated or removed) disables the
+// assistant with a reason instead of taking the whole settings page down.
+function getAiConfig() {
+  const cfg = storedAiConfig();
+  const { apiKey, keyError } = clearAiKey(cfg);
+  return { ...cfg, apiKey, keyError, enabled: !!cfg.enabled && !keyError && isConfigured(cfg) };
+}
+
+// A stored provider config's key, in clear — shared with the per-user configs
+// (utils/ai/access.js), which are stored the same way.
+function clearAiKey(cfg) {
+  if (!cfg.apiKey) return { apiKey: '', keyError: null };
+  try {
+    return { apiKey: decrypt(cfg.apiKey), keyError: null };
+  } catch {
+    return { apiKey: '', keyError: 'The stored API key cannot be decrypted. Check DATASOURCE_ENC_KEY, then save the key again.' };
+  }
+}
+
+// What an admin may read back. The key itself is never part of it.
+function publicAiConfig() {
+  const cfg = storedAiConfig();
+  return {
+    enabled: !!cfg.enabled,
+    // The switch is one thing, whether authors actually get the assistant another.
+    active: !!cfg.enabled && isConfigured(cfg),
+    provider: cfg.provider,
+    baseUrl: cfg.baseUrl,
+    model: cfg.model,
+    dataSharing: cfg.dataSharing,
+    hasApiKey: !!cfg.apiKey,
+  };
+}
+
+function validateAiBaseUrl(raw) {
+  const v = String(raw == null ? '' : raw).trim().replace(/\/+$/, '');
+  let url;
+  try {
+    url = new URL(v);
+  } catch {
+    throw new Error('Base URL must be a valid http(s) URL');
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('Base URL must be a valid http(s) URL');
+  if (url.username || url.password) throw new Error('Base URL must not carry credentials');
+  return v;
+}
+
+// Same rule as a datasource password: an empty key means keep the stored one,
+// because the form never receives it and so has nothing to send back.
+function setAiConfig(patch) {
+  const p = patch && typeof patch === 'object' ? patch : {};
+  const next = storedAiConfig();
+  // Back to "no instance provider": every user is then free to bring their
+  // own. The switch and the data-sharing level are the admin's and stay.
+  if (p.removeProvider === true) Object.assign(next, { provider: AI_DEFAULTS.provider, baseUrl: '', model: '', apiKey: '' });
+  else applyAiProviderPatch(next, p);
+  if (p.dataSharing !== undefined) {
+    if (!AI_DATA_SHARING.includes(p.dataSharing)) throw new Error(`Data sharing must be one of: ${AI_DATA_SHARING.join(', ')}`);
+    next.dataSharing = p.dataSharing;
+  }
+  // On without a provider is a state of its own, not a mistake: it is the one
+  // in which each user may bring theirs (utils/ai/access.js).
+  if (p.enabled !== undefined) next.enabled = !!p.enabled;
+  setSetting('ai_config', next);
+  return publicAiConfig();
+}
+
+// The provider half of a config — where, which model, which key — validated
+// and applied in place. The instance's config and a user's own share it: same
+// rules, same encryption, one place to get them wrong.
+function applyAiProviderPatch(next, p) {
+  if (p.provider !== undefined) {
+    if (!AI_PROVIDERS.includes(p.provider)) throw new Error(`Provider must be one of: ${AI_PROVIDERS.join(', ')}`);
+    next.provider = p.provider;
+  }
+  if (p.baseUrl !== undefined) next.baseUrl = validateAiBaseUrl(p.baseUrl);
+  if (p.model !== undefined) {
+    const model = String(p.model == null ? '' : p.model).trim();
+    if (!model || model.length > 200) throw new Error('Model must be 1 to 200 characters');
+    next.model = model;
+  }
+  if (p.clearApiKey === true) next.apiKey = '';
+  if (typeof p.apiKey === 'string' && p.apiKey.trim()) {
+    try {
+      next.apiKey = encrypt(p.apiKey.trim());
+    } catch {
+      throw new Error('Set DATASOURCE_ENC_KEY and restart the server before saving an API key: it is never stored in clear.');
+    }
+  }
+}
+
 module.exports = {
+  AI_PROVIDERS,
+  AI_DATA_SHARING,
+  getAiConfig,
+  setAiConfig,
+  publicAiConfig,
+  applyAiProviderPatch,
+  clearAiKey,
   QUERY_TIMEOUT_MIN_MS,
   QUERY_TIMEOUT_MAX_MS,
   QUERY_TIMEOUT_DEFAULT_MS,

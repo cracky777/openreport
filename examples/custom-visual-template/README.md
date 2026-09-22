@@ -111,7 +111,13 @@ The iframe runs with `sandbox="allow-scripts"` (no `allow-same-origin`):
 
 - No access to the parent DOM, cookies, sessions, or localStorage.
 - No ESM `import` / Node `require` — inline what you need into `visual.js`.
-- Network calls to public origins work (CDN imports, REST APIs).
+- Network calls to public origins work (CDN imports, REST APIs) — for visuals
+  you upload. A visual written by the AI assistant runs under an extra
+  Content-Security-Policy with no network at all; re-uploading it as a `.zip`
+  makes it yours, and lifts that policy.
+
+`ctx.data` always carries `rows` (possibly empty) and `fields`, including on the
+first render of a widget that has not fetched yet.
 
 ## Reloading after edits
 

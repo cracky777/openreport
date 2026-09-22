@@ -854,6 +854,16 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     withTotalComponents,
   } = req.body;
 
+  // `cacheOnly` = answer from the rollup store or not at all. The AI assistant
+  // reads data through it, and its whole promise is that nothing it asks can
+  // open a connection to the source. It therefore outranks every flag that
+  // steers a request towards the source, and only the literal boolean arms it.
+  const cacheOnly = req.body.cacheOnly === true;
+  if (cacheOnly) {
+    sqlOnly = false;
+    bypassCache = false;
+  }
+
   // Embed tokens carry locked filters — appended server-side on EVERY query,
   // so the hosting page can't peel them off by editing its own requests.
   if (req.embedPrincipal && req.embedPrincipal.lockedFilters.length > 0) {
@@ -1049,7 +1059,9 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
         }
       }
     }
-    if (intervalProbe.length) {
+    // The probe reads the source catalog. The planner never looks at
+    // column types, so a cacheOnly request loses nothing by skipping it.
+    if (intervalProbe.length && !cacheOnly) {
       const intervalSet = await resolveIntervalColumns(datasource, intervalProbe);
       for (const key of intervalSet) {
         // Force type='interval' but preserve any other fields the user set
@@ -1208,7 +1220,9 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   // to ten minutes and skips usage metering. Only the in-process builder may
   // claim it, and it proves that with the loopback-only internal token — the
   // route is otherwise reachable anonymously through a public report.
-  const isRollupBuilderRequest = !!(req.body && req.body._rollupBuilder) && req.internalTokenVerified === true;
+  // The assistant also arrives with the internal token, so cacheOnly has to
+  // switch the builder's powers off rather than rely on the flag being absent.
+  const isRollupBuilderRequest = !!(req.body && req.body._rollupBuilder) && req.internalTokenVerified === true && !cacheOnly;
   // `bypassCache` = an explicit user refresh of a visual. Per product
   // decision it must be handled by the LIVE query and stored in
   // queryCache — NOT served from the rollup. So skip the rollup planner;
@@ -1223,6 +1237,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   const isSlicerDistinct = !!distinct
     && Array.isArray(measureNames) && measureNames.length === 0
     && Array.isArray(dimensionNames) && dimensionNames.length === 1;
+  let plannerMissReason = null;
   if (sqlOnly || isRollupBuilderRequest || bypassCache) {
     __mark(`SKIP rollup planner (sqlOnly=${!!sqlOnly}, builder=${isRollupBuilderRequest}, bypassCache=${!!bypassCache})`);
   } else if (isSlicerDistinct) {
@@ -1265,6 +1280,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     // cache rebuild would be served, undoing the whole "rebuild +
     // refresh" semantics for slicer widgets.
     req._slicerDistinctBypassQueryCache = true;
+    plannerMissReason = rollupResult.reason;
   } else {
     const rollupPlanner = require('../utils/rollupPlanner');
     const __tRollup = Date.now();
@@ -1317,6 +1333,13 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       });
     }
     req._preAggMissReason = rollupResult.reason;
+    plannerMissReason = rollupResult.reason;
+  }
+  // Stops before queryCache on purpose: its entries were filled by live
+  // queries, so serving them would hand out source rows under a cache label.
+  if (cacheOnly) {
+    req._usage = { served: 'cache-only-miss', rows: 0, detail: plannerMissReason };
+    return res.json({ rows: [], rowCount: 0, _cache: { hit: false, cacheOnly: true, reason: plannerMissReason } });
   }
   // ──────────────────────────────────────────────────────────────────────
 

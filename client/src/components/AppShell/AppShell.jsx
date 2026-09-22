@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { TbShield, TbBell, TbTelescope, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug, TbPlugConnected } from 'react-icons/tb';
+import { TbShield, TbBell, TbSparkles, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug, TbPlugConnected } from 'react-icons/tb';
+import api from '../../utils/api';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -14,6 +15,7 @@ import StepNav from './StepNav';
 import JoinLayer from './JoinLayer';
 import WorkspacePicker from './WorkspacePicker';
 import { STEPS } from './steps';
+import AskPanel from '../Ask/AskPanel';
 
 // Shared chrome for the three journey stages (Sources → Models → Reports).
 // It owns what used to be the Dashboard header — logo, cloud org switcher,
@@ -35,6 +37,21 @@ export default function AppShell({ step }) {
   const { canEditOrg } = usePermissions(null, user, null);
 
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  // Whether this account has the assistant, or may set one up for itself.
+  const [askAvailable, setAskAvailable] = useState(false);
+  // Open or closed, the panel stays as the user left it from one page to the next.
+  const [askOpen, setAskOpen] = useState(() => {
+    try { return localStorage.getItem(ASK_OPEN_KEY) === '1'; } catch { return false; /* storage blocked: closed */ }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(ASK_OPEN_KEY, askOpen ? '1' : '0'); } catch { /* storage blocked: not remembered */ }
+  }, [askOpen]);
+  const canAsk = askAvailable && (user?.role === 'admin' || user?.role === 'editor');
+  useEffect(() => {
+    api.get('/ai/status')
+      .then((res) => setAskAvailable(!!res.data.enabled || res.data.reason === 'setup'))
+      .catch(() => { /* the button stays hidden */ });
+  }, []);
   const openBugReport = useBugReport();
   const userMenuRef = useRef(null);
   useEffect(() => {
@@ -170,14 +187,14 @@ export default function AppShell({ step }) {
           {!compact && <StepNav current={step} onGo={go} allowed={stepAllowed} />}
 
           <nav style={rightGroup}>
-          {/* Exploration is read-only: every authenticated user may ask
-              ad-hoc questions of the models they can access. */}
-          <button onClick={() => navigate('/explore')} style={compact ? { ...navBtnStyled, ...navBtnCompact } : navBtnStyled} title="Explore" aria-label="Explore"
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-          >
-            <TbTelescope size={15} /> {!compact && <span>Explore</span>}
-          </button>
+          {/* Asking is building on a model: same roles as creating a report.
+              On a wide screen the panel's own bar opens it; a narrow one has
+              no room for that bar. */}
+          {canAsk && compact && (
+            <button onClick={() => setAskOpen((v) => !v)} style={askBtnStyle(askOpen, compact)} title="Assistant" aria-label="Assistant" aria-pressed={askOpen}>
+              <TbSparkles size={15} />
+            </button>
+          )}
           {/* Alerts need write role — the API refuses viewers, so don't
               show them a dead door. */}
           {(user?.role === 'admin' || user?.role === 'editor') && (
@@ -307,6 +324,7 @@ export default function AppShell({ step }) {
       {/* While a move is in flight both stages ride one ribbon and slide as a
           single block, so their relative positions hold still and JoinLayer can
           run a curve from a card in one column to its target in the other. */}
+      <div style={bodyRowStyle}>
       <div ref={viewportRef} style={viewportStyle} aria-live="polite">
         {/* JoinLayer lives on the ribbon, alongside the columns it links. It
             measures against its own parent, and that parent has to be the
@@ -382,6 +400,8 @@ export default function AppShell({ step }) {
           {!compact && <JoinLayer onFollow={follow} />}
         </div>
       </div>
+      {canAsk && <AskPanel open={askOpen} onToggle={() => setAskOpen((v) => !v)} onClose={() => setAskOpen(false)} compact={compact} />}
+      </div>
 
     </div>
   );
@@ -432,8 +452,11 @@ const relStyle = { position: 'relative' };
 // of the screen. Here it sits against the right edge, where a scrollbar belongs.
 // `scrollbar-gutter` reserves its strip up front so a list crossing the
 // one-screen mark doesn't narrow the columns as it appears.
+// The journey and the assistant side by side: opening the panel narrows the
+// journey instead of covering it.
+const bodyRowStyle = { flex: 1, minHeight: 0, display: 'flex' };
 const viewportStyle = {
-  flex: 1, position: 'relative', minHeight: 0,
+  flex: 1, position: 'relative', minHeight: 0, minWidth: 0,
   overflowX: 'hidden', overflowY: 'auto', scrollbarGutter: 'stable',
 };
 // Twice the viewport, two equal panels: sliding it by -50% swaps one column
@@ -479,6 +502,15 @@ const navBtnStyled = {
   color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13, fontWeight: 500,
   transition: 'background 0.15s',
 };
+const ASK_OPEN_KEY = 'openreport.askOpen';
+
+function askBtnStyle(active, compact) {
+  return {
+    ...navBtnStyled, ...(compact ? navBtnCompact : null),
+    color: active ? 'var(--accent-primary)' : navBtnStyled.color,
+    background: active ? 'var(--accent-primary-soft)' : 'transparent',
+  };
+}
 const userPillStyle = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
   padding: '6px 10px', borderRadius: 8,

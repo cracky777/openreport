@@ -1,7 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useBugReport } from '../components/BugReport/BugReportProvider';
-import { TbBug } from 'react-icons/tb';
-import { useParams, useNavigate, useNavigationType } from 'react-router-dom';
+import { TbBug, TbSparkles } from 'react-icons/tb';
+import ModelAssistant from '../components/ModelAssistant/ModelAssistant';
+import { applyModelProposal } from '../utils/modelProposal';
+import { takeHandOver } from '../utils/modelAssistantHandoff';
+import { useParams, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom';
 import Step1Schema from './Step1Schema';
 import api from '../utils/api';
 import { autoFlagColumns } from '../utils/autoFlagColumns';
@@ -448,6 +451,56 @@ export default function ModelEditor() {
 
   const [saveMsg, setSaveMsg] = useState(null);
 
+  // The model assistant: available as it is in the report editor (on, or on
+  // once the user plugs in their own provider). It is shown the draft as it is
+  // on screen, unsaved, and a proposal it hands over is applied to that draft.
+  const [aiStatus, setAiStatus] = useState(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  // Sent here by the report or Ask assistant (`?assistant=1`): open it, with
+  // the request they handed over.
+  const [searchParams] = useSearchParams();
+  const [assistantRequest, setAssistantRequest] = useState('');
+  useEffect(() => {
+    if (searchParams.get('assistant') !== '1') return;
+    setAssistantOpen(true);
+    // Read once: a second run (StrictMode) finds nothing and must not clear it.
+    const request = takeHandOver(id);
+    if (request) setAssistantRequest(request);
+  }, [searchParams, id]);
+  const headerRef = useRef(null);
+  const [assistantTop, setAssistantTop] = useState(0);
+  const refreshAiStatus = useCallback(() => (
+    api.get('/ai/status').then((res) => setAiStatus(res.data)).catch(() => { /* the button stays hidden */ })
+  ), []);
+  useEffect(() => { refreshAiStatus(); }, [refreshAiStatus]);
+  const aiAvailable = !!aiStatus && (aiStatus.enabled || aiStatus.reason === 'setup');
+  useEffect(() => {
+    if (assistantOpen && headerRef.current) setAssistantTop(headerRef.current.getBoundingClientRect().bottom);
+  }, [assistantOpen]);
+
+  const dataTypeOf = useCallback((table, column) => (tableColumns[table] || []).find((c) => c.column_name === column)?.data_type, [tableColumns]);
+  const getAssistantDraft = useCallback(() => ({
+    tables: Object.fromEntries(selectedTables.filter((t) => tableColumns[t])
+      .map((t) => [t, tableColumns[t].map((c) => ({ column: c.column_name, type: String(c.data_type || '') }))])),
+    joins,
+    roles: Object.fromEntries(Object.entries(tablePositions).filter(([, p]) => p && p.tableType).map(([t, p]) => [t, p.tableType])),
+    dimensions: dimensions.filter((d) => d.table && d.column).map((d) => ({ table: d.table, column: d.column })),
+    measures: measures.filter((m) => m.table && m.column).map((m) => ({ table: m.table, column: m.column, aggregation: m.aggregation })),
+  }), [selectedTables, tableColumns, joins, tablePositions, dimensions, measures]);
+  const applyAssistantProposal = useCallback((proposal) => {
+    const next = applyModelProposal({ joins, dimensions, measures, tablePositions }, proposal, {
+      typeOf: (t, c) => effectiveColumnType(t, c, dataTypeOf(t, c)).type,
+      dataTypeOf,
+    });
+    setJoins(next.joins);
+    setDimensions(next.dimensions);
+    setMeasures(next.measures);
+    setTablePositions(next.tablePositions);
+    // Joins, roles and positions are drawn on the diagram: show it.
+    if ((proposal.joins || []).length || (proposal.removeJoins || []).length || Object.keys(proposal.tableRoles || {}).length || proposal.positions) setStep(1);
+    return true;
+  }, [joins, dimensions, measures, tablePositions, effectiveColumnType, dataTypeOf]);
+
   // Both guards are advisory — the user may legitimately know better than a
   // 100k-row sample. They used to be two blocking prompts in a row, so a model
   // that tripped both asked the same question twice. Gathered into one list,
@@ -597,7 +650,7 @@ export default function ModelEditor() {
         />
       )}
       {/* Header */}
-      <header style={headerShellStyle}>
+      <header ref={headerRef} style={headerShellStyle}>
         <BackButton onClick={goBack} />
         <input
           type="text" value={name} onChange={(e) => setName(e.target.value)}
@@ -646,6 +699,18 @@ export default function ModelEditor() {
         </div>
         {/* Même raison que dans la barre de l'éditeur de rapport : cet écran a
             son propre en-tête et ne passe pas par AppShell. */}
+        {aiAvailable && (
+          <button
+            type="button"
+            aria-label="Model assistant"
+            title="Model assistant"
+            aria-pressed={assistantOpen}
+            onClick={() => setAssistantOpen((v) => !v)}
+            style={{ ...bugBtnStyle, ...(assistantOpen ? { color: 'var(--accent-primary)', background: 'var(--accent-primary-soft)' } : null) }}
+          >
+            <TbSparkles size={17} />
+          </button>
+        )}
         <button
           type="button"
           aria-label="Report a bug"
@@ -780,6 +845,20 @@ export default function ModelEditor() {
             </div>
           </div>
         </div>
+      )}
+
+      {aiAvailable && (
+        <ModelAssistant
+          open={assistantOpen}
+          onClose={() => setAssistantOpen(false)}
+          top={assistantTop}
+          modelId={id}
+          getDraft={getAssistantDraft}
+          onApply={applyAssistantProposal}
+          status={aiStatus}
+          onStatusChange={refreshAiStatus}
+          initialRequest={assistantRequest}
+        />
       )}
 
       {step === 1 && (

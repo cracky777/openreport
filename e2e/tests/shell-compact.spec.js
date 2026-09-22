@@ -6,7 +6,7 @@
 // Without the fix the column is pinned to MIN_COLUMN (360) and inset by
 // PEEK (96): it runs from x=96 to x=456 on a 390px screen, so a sixth of every
 // stage sits off the right edge while the workspace picker overflows its own
-// group and paints over the Explore/Alerts/Admin buttons.
+// group and paints over the Alerts/Admin buttons.
 const fs = require('fs');
 const { test, expect } = require('@playwright/test');
 const F = require('../fixtures');
@@ -57,7 +57,7 @@ test('on a phone the header controls stay clear of each other', async ({ page })
 
   // The picker used to keep its full width and paint straight over these.
   const picker = await page.locator('header button', { hasText: 'My Reports' }).first().boundingBox();
-  for (const name of ['Explore', 'Alerts', 'Admin']) {
+  for (const name of ['Alerts', 'Admin']) {
     const btn = page.getByRole('button', { name, exact: true });
     await expect(btn).toBeVisible();
     const b = await btn.boundingBox();

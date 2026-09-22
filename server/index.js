@@ -23,6 +23,7 @@ const cacheScheduleRoutes = require('./routes/cacheSchedules');
 const alertRoutes = require('./routes/alerts');
 const bookmarkRoutes = require('./routes/bookmarks');
 const rollupRoutes = require('./routes/rollups');
+const aiRoutes = require('./routes/ai');
 const apiTokenRoutes = require('./routes/apiTokens');
 const v1Routes = require('./routes/v1');
 const internalToken = require('./utils/internalToken');
@@ -190,6 +191,7 @@ app.use('/api/cache-schedules', cacheScheduleRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/reports', bookmarkRoutes);
 app.use('/api/rollups', rollupRoutes);
+app.use('/api/ai', aiRoutes);
 app.use('/api/api-tokens', apiTokenRoutes);
 // Public API. Mounted last among the /api routers because it carries its own
 // bearer-token middleware — everything above stays session-only.

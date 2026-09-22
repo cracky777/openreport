@@ -86,6 +86,29 @@ safeMigrate("ALTER TABLE users ADD COLUMN last_seen_at TEXT");
 safeMigrate("ALTER TABLE users ADD COLUMN oidc_iss TEXT");
 safeMigrate("ALTER TABLE users ADD COLUMN oidc_sub TEXT");
 safeMigrate("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc ON users(oidc_iss, oidc_sub) WHERE oidc_sub IS NOT NULL");
+// The AI assistant, per user (utils/ai/access.js). `ai_denied`: an admin took
+// the assistant away from this account, whatever key it would bring. `ai_config`:
+// the user's OWN provider, for when the instance has none — JSON, its API key
+// encrypted like a datasource password. On the row, so both go with the account.
+safeMigrate("ALTER TABLE users ADD COLUMN ai_denied INTEGER NOT NULL DEFAULT 0");
+safeMigrate("ALTER TABLE users ADD COLUMN ai_config TEXT");
+// 👍 / 👎 on the assistant's answers (utils/ai/feedback.js). The question and the
+// shape of the proposal only — never the answer's text, which can quote data.
+db.exec(`CREATE TABLE IF NOT EXISTS ai_feedback (
+  id TEXT PRIMARY KEY,
+  answer_id TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  organization_id TEXT,
+  model_id TEXT,
+  surface TEXT NOT NULL DEFAULT 'ask',
+  rating INTEGER NOT NULL,
+  question TEXT NOT NULL DEFAULT '',
+  visuals TEXT NOT NULL DEFAULT '[]',
+  provider_model TEXT,
+  provider_source TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(user_id, answer_id)
+)`);
 // Incremental rollup refresh window, in months. NULL/0 = full rebuild
 // (historical behaviour). >0 and the model has a date_column → each rebuild
 // re-queries the source only for the last N months and carries the older
@@ -165,6 +188,11 @@ db.exec(`CREATE TABLE IF NOT EXISTS custom_visuals (
   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
   FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE CASCADE
 )`);
+// Where the code came from: 'upload' (a .zip an admin chose) or 'ai' (written by
+// the assistant). The client runs 'ai' visuals with the network shut. Kept on
+// the row, next to the code it describes — a widget config travels with a
+// report export and could be edited to claim otherwise.
+safeMigrate("ALTER TABLE custom_visuals ADD COLUMN origin TEXT NOT NULL DEFAULT 'upload'");
 
 // User groups — indirection for RLS rules (`group:<name>` patterns) so access
 // follows membership instead of per-model email lists: onboarding/offboarding

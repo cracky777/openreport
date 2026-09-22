@@ -23,6 +23,10 @@ import { filterForTarget } from '../utils/crossFilter';
 import { computeBindingsSignature } from '../utils/bindingKey';
 import { convertData, buildSnapshot } from '../utils/editorHelpers';
 import { transformBinding } from '../utils/widgetZones';
+import { findFreeSlot } from '../utils/pageBounds';
+import { applyWidgetsProposal, applyDesignProposal, applyVisualProposal, buildPageContext } from '../utils/aiProposal';
+import { CHART_COLORS } from '../utils/chartPalette';
+import AiPanel from '../components/AiPanel/AiPanel';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useIsCompact } from '../hooks/useMediaQuery';
 import { useAutoRefreshOnImport } from '../hooks/useAutoRefreshOnImport';
@@ -102,37 +106,15 @@ const _hs10 = {
                   background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer',
                 };
 
-const CASCADE_STEP = 24;
-const CASCADE_MAX = 20;
-
 // Chart types whose renderer draws a legend. A new one starts with it shown;
 // the flag is written explicitly so reports saved before this default keep
 // their look, and the widgets themselves still fall back to hidden.
 const LEGEND_CHART_TYPES = new Set(['bar', 'line', 'pie', 'scatter', 'combo']);
 
-// New widgets all land on the same centred slot, so a second one hides the
-// first completely and the user thinks the add did nothing. Nudge each
-// collision down-right until the slot is free, clamped inside the page.
-function findFreeSlot(layout, x, y, w, h, pw, ph) {
-  const maxX = Math.max(0, pw - w);
-  const maxY = Math.max(0, ph - h);
-  const taken = (px, py) => layout.some((it) => it.x === px && it.y === py);
-
-  let nx = x;
-  let ny = y;
-  for (let i = 1; i <= CASCADE_MAX && taken(nx, ny); i++) {
-    nx = Math.min(x + i * CASCADE_STEP, maxX);
-    ny = Math.min(y + i * CASCADE_STEP, maxY);
-  }
-  // Still taken after CASCADE_MAX tries (or the cascade hit the page edge):
-  // overlapping beats pushing the widget off-page.
-  return { x: nx, y: ny };
-}
-
 export default function Editor() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { getThemeVars } = useTheme();
+  const { getThemeVars, themes: availableThemes } = useTheme();
 
   const [report, setReport] = useState(null);
   const [model, setModel] = useState(null);
@@ -1295,6 +1277,102 @@ export default function Editor() {
     }));
   }, [history]);
 
+  // ── AI assistant ────────────────────────────────────────────────────
+  // Off unless an admin configured a provider; the button only shows then.
+  const [aiStatus, setAiStatus] = useState({ enabled: false, dataSharing: 'schema', reason: 'off', personal: null });
+  // The assistant is there for this user: ready, or waiting for the provider
+  // they may bring themselves when the instance has none. Not when it is off
+  // for the instance, nor when an admin took it away from this account.
+  const aiAvailable = aiStatus.enabled || aiStatus.reason === 'setup';
+  const [aiOpen, setAiOpen] = useState(false);
+  const [dataCollapsed, setDataCollapsed] = useState(false);
+  const refreshAiStatus = useCallback(() => (
+    api.get('/ai/status').then((res) => setAiStatus(res.data)).catch(() => { /* assistant stays hidden */ })
+  ), []);
+  useEffect(() => { refreshAiStatus(); }, [refreshAiStatus]);
+
+  // The assistant takes the Data panel's place: three columns beside the
+  // canvas leave too little of it. Opening folds Data, closing brings it back;
+  // in between the author may reopen Data by hand, and it stays.
+  const setAssistantOpen = useCallback((open) => {
+    pinCanvas();
+    setAiOpen(open);
+    // On a phone the panels are tabs of one sheet: nothing to make room for.
+    setDataCollapsed(open && !compact);
+    setTimeout(unpinCanvas, 230);
+  }, [pinCanvas, unpinCanvas, compact]);
+
+  // Read at send time through a ref: the panel must describe the page as it
+  // is now, without re-rendering on every drag tick.
+  const pageStateRef = useRef(null);
+  pageStateRef.current = {
+    layout, widgets, settings, themes: availableThemes, palette: CHART_COLORS,
+    pageWidth: settings.pageWidth || 1140, pageHeight: settings.pageHeight || 800,
+  };
+  const getAiPageContext = useCallback(() => buildPageContext(pageStateRef.current), []);
+
+  // One undo step for the whole proposal, whatever it holds. Returns what the
+  // card shows once applied, or null when nothing was.
+  const [visualsNonce, setVisualsNonce] = useState(0);
+  const handleApplyAiProposal = useCallback(async (proposal) => {
+    if (proposal.kind === 'customVisual') {
+      // Two steps, in this order: the code joins the workspace library (the
+      // server checks again that this user may add code to it), then a widget
+      // pointing at it lands on the page.
+      const wsId = report?.workspace_id;
+      let visual;
+      try {
+        const res = await api.post(`/workspaces/${wsId}/visuals/generated`, { manifest: proposal.manifest, visualJs: proposal.visualJs });
+        visual = res.data.visual;
+      } catch (err) {
+        toast(err.response?.data?.error || 'Could not add the visual to the library');
+        return null;
+      }
+      setVisualsNonce((n) => n + 1);
+      const result = applyVisualProposal(proposal, visual, wsId, { ...pageStateRef.current, effectiveModel, widgetTypes: WIDGET_TYPES });
+      if (result.error) {
+        toast(result.error);
+        return { note: 'Added to the library, but not to the page.' };
+      }
+      setLayoutAndWidgets(result.layout, result.widgets);
+      return { note: 'Added to the workspace library and to the page — Ctrl+Z takes it off the page.' };
+    }
+    if (proposal.kind === 'design') {
+      const before = pageStateRef.current.settings;
+      const result = applyDesignProposal(proposal, pageStateRef.current);
+      if (!result.applied) {
+        toast('None of these changes fits the page any more');
+        return null;
+      }
+      setLayoutAndWidgets(result.layout, result.widgets);
+      if (result.settings) setSettings(result.settings);
+      const skipped = result.skipped ? ` (${result.skipped} no longer applicable)` : '';
+      return {
+        note: `Applied${skipped} — Ctrl+Z undoes layout and style.`,
+        // Report settings are not in the undo stack: the card keeps the way back.
+        revertSettings: result.settings
+          ? () => setSettings((s) => ({ ...s, theme: before.theme, backgroundColor: before.backgroundColor }))
+          : null,
+        // Named after what changed: "Revert theme" on a card that only
+        // touched the page background sends the author looking for a theme.
+        revertWhat: [
+          result.settings?.theme !== before.theme && 'theme',
+          result.settings?.backgroundColor !== before.backgroundColor && 'page background',
+        ].filter(Boolean).join(' and '),
+      };
+    }
+    const result = applyWidgetsProposal(proposal, { ...pageStateRef.current, effectiveModel, widgetTypes: WIDGET_TYPES });
+    if (result.error) {
+      toast(result.error);
+      return null;
+    }
+    // Left unselected on purpose: selecting it opens the configuration panel
+    // over a conversation the author is still in the middle of. They pick the
+    // visual up when they want to work on it.
+    setLayoutAndWidgets(result.layout, result.widgets);
+    return { note: 'Added to the page — Ctrl+Z to undo' };
+  }, [effectiveModel, setLayoutAndWidgets, report?.workspace_id]);
+
   // ── Frame-merge of adjacent visuals ─────────────────────────────────
   // Membership lives on each member's config.mergeGroup; the separator
   // flag on config.mergeSeparator (kept in sync across the group). Pairs
@@ -1800,6 +1878,10 @@ export default function Editor() {
         canUndo={history.canUndo}
         canRedo={history.canRedo}
         onOpenSettings={() => setShowSettings(true)}
+        aiEnabled={aiAvailable && !!report?.model_id}
+        aiOpen={aiOpen}
+        onToggleAi={() => setAssistantOpen(!aiOpen)}
+        visualsNonce={visualsNonce}
         onOpenReportFilters={() => setReportFilterBarOpen((v) => !v)}
         reportFilterCount={liveReportFilterCount != null
           ? liveReportFilterCount
@@ -1967,6 +2049,10 @@ export default function Editor() {
                   aria-current={sheetTab === 'settings' ? 'true' : undefined}>Settings</button>
                 <button onClick={() => setSheetTab('data')} style={sheetTabBtn(sheetTab === 'data')}
                   aria-current={sheetTab === 'data' ? 'true' : undefined}>Data</button>
+                {aiAvailable && (
+                  <button onClick={() => setSheetTab('ai')} style={sheetTabBtn(sheetTab === 'ai')}
+                    aria-current={sheetTab === 'ai' ? 'true' : undefined}>Assistant</button>
+                )}
               </div>
               <button onClick={() => setSheetOpen(false)} style={sheetCloseBtn} aria-label="Close settings">
                 <TbChevronDown size={18} />
@@ -2016,8 +2102,29 @@ export default function Editor() {
           cacheBuiltAt={report?.cache_built_at}
           onResizeStart={pinCanvas}
           onResizeEnd={unpinCanvas}
+          collapsed={dataCollapsed}
+          onCollapsedChange={setDataCollapsed}
         />
         </div>
+        {/* Desktop: a column opened from the toolbar. Phone: a third sheet tab,
+            kept mounted like its neighbours so the conversation survives a switch. */}
+        {aiAvailable && (compact || aiOpen) && (
+          <div style={compact ? sheetPaneStyle(sheetTab === 'ai') : panelsPassthroughStyle}>
+          <AiPanel
+            reportId={id}
+            model={effectiveModel}
+            widgets={widgets}
+            settings={settings}
+            status={aiStatus}
+            onStatusChange={refreshAiStatus}
+            getPageContext={getAiPageContext}
+            onApplyProposal={handleApplyAiProposal}
+            onClose={() => setAssistantOpen(false)}
+            onResizeStart={pinCanvas}
+            onResizeEnd={unpinCanvas}
+          />
+          </div>
+        )}
         </div>
       </div>
 

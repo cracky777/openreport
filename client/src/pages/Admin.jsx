@@ -3,7 +3,8 @@ import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
-import { TbShield, TbEdit, TbEye, TbUserPlus, TbKey, TbExternalLink, TbClock, TbUsersGroup, TbChevronDown, TbChevronRight, TbBell, TbPlayerPause, TbPlayerPlay, TbActivity, TbUsers, TbSettings, TbPlugConnected } from 'react-icons/tb';
+import { TbShield, TbEdit, TbEye, TbUserPlus, TbKey, TbExternalLink, TbClock, TbUsersGroup, TbChevronDown, TbChevronRight, TbBell, TbPlayerPause, TbPlayerPlay, TbActivity, TbUsers, TbSettings, TbPlugConnected, TbSparkles } from 'react-icons/tb';
+import AiSettingsSection from './admin/AiSettingsSection';
 import { ICON_SIZE } from '../components/actionIcons';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
@@ -63,6 +64,7 @@ const ADMIN_TABS = [
   { key: 'alerts', label: 'Alerts', icon: TbBell },
   { key: 'usage', label: 'Usage', icon: TbActivity },
   { key: 'api', label: 'API tokens', icon: TbPlugConnected },
+  { key: 'ai', label: 'AI', icon: TbSparkles },
 ];
 const tabBar = {
   display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 20, padding: 4,
@@ -407,6 +409,7 @@ export default function Admin() {
         {tab === 'alerts' && <AlertsSection />}
         {tab === 'usage' && <UsageSection />}
         {tab === 'api' && <ApiTokensSection />}
+        {tab === 'ai' && <AiSettingsSection />}
       </main>
     </div>
   );

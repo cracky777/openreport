@@ -190,6 +190,22 @@ flowchart TD
 `WHERE` du modèle — le durcissement free-SQL ferme le vecteur principal de contournement, mais ce
 modèle reste applicatif (pas d'isolation au niveau base).
 
+## 6. Assistant IA
+
+L'assistant de l'éditeur (`routes/ai.js`, `utils/ai/`) est un troisième appelant du jeton interne :
+pour lire des données, il rappelle `/query` en loopback **sous l'identité de l'utilisateur**, avec
+`cacheOnly` — le rollup répond ou la requête revient vide, jamais la source (ROLLUP-CACHE.md §9a).
+Contrôle d'accès, gating des extras et RLS restent donc l'unique garde existante, pas une copie.
+Il n'écrit rien : il renvoie des propositions validées côté serveur, que le client revalide et
+n'applique que sur action de l'auteur. Le fournisseur (compatible OpenAI ou Anthropic) est un tiers :
+ce qui lui est envoyé est borné par `prompt.js` — schéma et libellés toujours, lignes du cache
+seulement si l'admin l'autorise.
+
+Suivi : la garantie `cacheOnly` est comportementale (un flag dans le handler `/query`, verrouillé
+par test), pas structurelle. Extraire le prélude de `/query` (fusion des champs, gating des extras,
+résolution RLS) en fonctions testées permettrait d'appeler le planner en processus, sans passer par
+la route — à faire avec la découpe de `models.js`, pas avant.
+
 ---
 
 > Pour les emplacements précis dans le code et l'état de la dette, voir le `README` et (sur un poste

@@ -30,6 +30,7 @@ function buildApp() {
   app.use('/api/alerts', require('../../routes/alerts'));
   app.use('/api/reports', require('../../routes/bookmarks'));
   app.use('/api/rollups', require('../../routes/rollups'));
+  app.use('/api/ai', require('../../routes/ai'));
   app.use('/api/api-tokens', require('../../routes/apiTokens'));
   app.use('/api/v1', require('../../routes/v1'));
   // Same order as index.js: customVisuals first, so its /:wsId/visuals/* routes
@@ -91,4 +92,14 @@ function seedWorkspace({ ownerId, name } = {}) {
   return id;
 }
 
-module.exports = { buildApp, seedUser, seedDatasource, seedModel, seedReport, seedWorkspace, seedGroup, db };
+// A built rollup in the manifest, and nothing on disk: enough for "this model
+// has a cache" (the assistant needs one), not for a query to be served from it.
+function seedRollup({ modelId, grainDims = ['items.label'], measures = ['items.amt_sum'] } = {}) {
+  const id = uuid();
+  db.prepare(`INSERT INTO rollups (id, model_id, organization_id, storage_mode, grain_hash, grain_dims, measures, table_name, built_at, row_count)
+              VALUES (?,?,?,?,?,?,?,?,datetime('now'),?)`)
+    .run(id, modelId, null, 'duckdb', id.slice(0, 8), JSON.stringify(grainDims), JSON.stringify({ outputs: measures.map((name) => ({ name })), atoms: [] }), `r_${id.slice(0, 8)}`, 10);
+  return id;
+}
+
+module.exports = { buildApp, seedUser, seedDatasource, seedModel, seedReport, seedWorkspace, seedGroup, seedRollup, db };

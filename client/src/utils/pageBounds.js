@@ -65,6 +65,30 @@ export function dragBounds(item, group, pw, ph) {
   };
 }
 
+const CASCADE_STEP = 24;
+const CASCADE_MAX = 20;
+
+/**
+ * New widgets all land on the same centred slot, so a second one hides the
+ * first completely and the user thinks the add did nothing. Nudge each
+ * collision down-right until the slot is free, clamped inside the page.
+ */
+export function findFreeSlot(layout, x, y, w, h, pw, ph) {
+  const maxX = Math.max(0, pw - w);
+  const maxY = Math.max(0, ph - h);
+  const taken = (px, py) => layout.some((it) => it.x === px && it.y === py);
+
+  let nx = x;
+  let ny = y;
+  for (let i = 1; i <= CASCADE_MAX && taken(nx, ny); i++) {
+    nx = Math.min(x + i * CASCADE_STEP, maxX);
+    ny = Math.min(y + i * CASCADE_STEP, maxY);
+  }
+  // Still taken after CASCADE_MAX tries (or the cascade hit the page edge):
+  // overlapping beats pushing the widget off-page.
+  return { x: nx, y: ny };
+}
+
 /**
  * Pull a resized rect back inside the page. Only the edge that crossed moves:
  * an overshoot to the west stops the left edge and leaves the right one where

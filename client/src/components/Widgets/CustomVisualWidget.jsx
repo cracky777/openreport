@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, memo } from 'react';
+import { useEffect, useRef, useState, useMemo, memo } from 'react';
+import { buildSrcDoc } from '../../utils/customVisualSandbox';
 
 const _hs0 = { width: '100%', height: '100%', border: 'none', background: 'transparent' };
 const READY_TIMEOUT_MS = 5000;
@@ -13,125 +14,77 @@ const WRAP_STYLE = { position: 'relative', width: '100%', height: '100%' };
 const SCROLLBAR_GUTTER = 17;
 const SHIELD_STYLE = { position: 'absolute', top: 0, left: 0, right: SCROLLBAR_GUTTER, bottom: SCROLLBAR_GUTTER, cursor: 'default' };
 
-// Built-in template for the sandbox iframe. The bundle is injected as a regular
-// <script> tag, so the visual.js file just needs to call OpenReportRegisterVisual({...}).
-//
-// `sandbox="allow-scripts"` (no allow-same-origin) puts the iframe in a unique
-// opaque origin: it can run JS but cannot read parent cookies, localStorage,
-// the parent DOM, or make same-origin fetches. Communication is postMessage-only.
-function buildSrcDoc(bundle) {
-  // Defang any literal `</script>` inside the bundle so it doesn't break the
-  // outer <script> tag we're injecting it into.
-  const safe = String(bundle || '').replace(/<\/script/gi, '<\\/script');
-  return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  html, body, #root { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    color: #0f172a; background: transparent; }
-</style>
-</head>
-<body>
-<div id="root"></div>
-<script>
-(function () {
-  var visual = null;
-  var root = document.getElementById('root');
-  var post = function (msg) {
-    msg.source = 'or-cv';
-    parent.postMessage(msg, '*');
-  };
-  var callbacks = {
-    onCrossFilter: function (dim, value) { post({ type: 'crossFilter', dim: dim, value: value }); }
-  };
+const ORIGIN_HEADER = 'X-OpenReport-Visual-Origin';
+// A widget that has not fetched yet holds `data: {}`. A visual reading
+// `data.rows.length` on that throws on its very first render, and the error
+// then sticks even once the rows arrive. The contract promises rows and
+// fields, so the host keeps the promise from the first message on.
+const EMPTY_DATA = { rows: [], fields: { dimensions: [], measures: [] } };
 
-  window.OpenReportRegisterVisual = function (impl) {
-    if (!impl || typeof impl.render !== 'function') {
-      post({ type: 'error', message: 'Visual must export an object with a render() method' });
-      return;
-    }
-    visual = impl;
-    post({ type: 'registered' });
-  };
-
-  window.addEventListener('message', function (e) {
-    var m = e.data;
-    if (!m || m.source !== 'or-cv-host') return;
-    try {
-      if (m.type === 'init') {
-        if (!visual) { post({ type: 'error', message: 'Visual did not call OpenReportRegisterVisual()' }); return; }
-        visual.render(root, { data: m.data, config: m.config, width: m.width, height: m.height, callbacks: callbacks });
-        post({ type: 'ready' });
-      } else if (m.type === 'update') {
-        // Same shape as render's ctx, callbacks included: a visual that
-        // rebuilds its DOM on update (the template does) wires its click
-        // handlers from this ctx, and without callbacks cross-filtering
-        // silently stopped after the first data update.
-        if (visual && typeof visual.update === 'function') {
-          visual.update({ data: m.data, config: m.config, width: m.width, height: m.height, callbacks: callbacks });
-        }
-      } else if (m.type === 'click') {
-        // A click the host caught on its shield, replayed on whatever the
-        // visual drew at that spot.
-        var hit = document.elementFromPoint(m.x, m.y);
-        if (hit) hit.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: m.x, clientY: m.y }));
-      } else if (m.type === 'destroy') {
-        if (visual && typeof visual.destroy === 'function') visual.destroy();
-      }
-    } catch (err) {
-      post({ type: 'error', message: String((err && err.message) || err) });
-    }
-  });
-
-  // Capture uncaught errors inside the visual so they surface in the host UI
-  window.addEventListener('error', function (e) {
-    post({ type: 'error', message: String(e.message || 'Visual runtime error') });
-  });
-
-  post({ type: 'loaded' });
-})();
-</script>
-<script>
-${safe}
-</script>
-</body>
-</html>`;
-}
-
-export default memo(function CustomVisualWidget({ data, config, chartWidth, chartHeight, onDataClick, editable }) {
+// `inlineBundle` runs code that is not in the library yet — the assistant's
+// proposal, previewed before an admin decides to add it. It is always treated
+// as AI-written: no network.
+export default memo(function CustomVisualWidget({ data: rawData, config, chartWidth, chartHeight, onDataClick, editable, inlineBundle }) {
+  const data = useMemo(() => ({ ...EMPTY_DATA, ...(rawData || {}) }), [rawData]);
   const iframeRef = useRef(null);
-  const stateRef = useRef({ initSent: false });
+  // `watchNavigation` + `ownLoadPending`: see handleFrameLoad.
+  const stateRef = useRef({ initSent: false, watchNavigation: !!inlineBundle, ownLoadPending: !!inlineBundle });
   const [error, setError] = useState(null);
 
   const bundleUrl = config?.bundleUrl;
   const visualId = config?.visualId;
+  // Given as an attribute, so the frame's first document is ours: assigning
+  // srcdoc after mount would put an about:blank load in front of it, and the
+  // navigation watch below counts loads.
+  const inlineDoc = useMemo(() => (inlineBundle ? buildSrcDoc(inlineBundle, { restrictNetwork: true }) : undefined), [inlineBundle]);
 
   // Fetch the bundle and seed the iframe srcdoc whenever the visual identity changes
   useEffect(() => {
-    if (!bundleUrl) return;
+    if (!bundleUrl || inlineBundle) return;
     let cancelled = false;
+    let aiWritten = false;
     setError(null);
     stateRef.current = { initSent: false };
 
     fetch(bundleUrl, { credentials: 'include' })
       .then((r) => {
         if (!r.ok) throw new Error('Failed to load visual bundle (' + r.status + ')');
+        // Read off the response that carries the code, not off the widget
+        // config: a config travels with a report export and can say anything.
+        aiWritten = r.headers.get(ORIGIN_HEADER) === 'ai';
         return r.text();
       })
       .then((bundle) => {
         if (cancelled) return;
         const iframe = iframeRef.current;
         if (!iframe) return;
-        iframe.srcdoc = buildSrcDoc(bundle);
+        stateRef.current.watchNavigation = aiWritten;
+        stateRef.current.ownLoadPending = true;
+        iframe.srcdoc = buildSrcDoc(bundle, { restrictNetwork: aiWritten });
       })
       .catch((err) => {
         if (!cancelled) setError(String(err.message || err));
       });
 
     return () => { cancelled = true; };
-  }, [bundleUrl, visualId]);
+  }, [bundleUrl, visualId, inlineBundle]);
+
+  // The CSP on an AI-written visual closes fetch, images, forms and the rest,
+  // but no policy a document carries can stop it from navigating itself away
+  // with the data in the URL. The first load after we set the document is
+  // ours; any later one means the frame went elsewhere. This is detection, not
+  // prevention — the request has left by then — so the visual is taken down
+  // and the author told, rather than left running.
+  const handleFrameLoad = () => {
+    const s = stateRef.current;
+    if (!s.watchNavigation) return;
+    if (s.ownLoadPending) {
+      s.ownLoadPending = false;
+      return;
+    }
+    clearTimeout(s.readyTimer);
+    setError('This visual tried to navigate away and was stopped. Remove it from the library.');
+  };
 
   // Listen for messages coming back from the sandbox
   useEffect(() => {
@@ -184,7 +137,7 @@ export default memo(function CustomVisualWidget({ data, config, chartWidth, char
     }, '*');
   }, [data, config, chartWidth, chartHeight]);
 
-  if (!visualId || !bundleUrl) {
+  if (!inlineBundle && (!visualId || !bundleUrl)) {
     return <div style={emptyStyle}>Pick a custom visual</div>;
   }
   if (error) {
@@ -209,6 +162,8 @@ export default memo(function CustomVisualWidget({ data, config, chartWidth, char
       <iframe
         ref={iframeRef}
         sandbox="allow-scripts"
+        srcDoc={inlineDoc}
+        onLoad={handleFrameLoad}
         style={_hs0}
         title={config?.visualName || 'Custom visual'}
       />

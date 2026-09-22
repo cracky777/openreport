@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { requireAdmin } = require('../middleware/auth');
+const aiFeedback = require('../utils/ai/feedback');
 const db = require('../db');
 const authHooks = require('../hooks/auth');
 const {
@@ -25,7 +26,13 @@ const {
   setApiEnabled,
   getApiMinRole,
   setApiMinRole,
+  getAiConfig,
+  setAiConfig,
+  publicAiConfig,
 } = require('../utils/settingsHelper');
+const aiProviders = require('../utils/ai/providers');
+const aiTools = require('../utils/ai/tools');
+const aiAccess = require('../utils/ai/access');
 const queryCache = require('../utils/queryCache');
 const apiToken = require('../utils/apiToken');
 const { validatePassword } = require('./auth');
@@ -40,9 +47,17 @@ router.get('/usage', requireAdmin, (req, res) => {
   res.json(usage.summary({ days: req.query.days, orgId: req.organizationId || null }));
 });
 
+// What users thought of the assistant's answers. `days` = window (default 30).
+router.get('/ai/feedback', requireAdmin, (req, res) => {
+  res.json(aiFeedback.summary({ days: req.query.days, orgId: req.organizationId || null }));
+});
+
 // List all users
 router.get('/users', requireAdmin, (req, res) => {
-  const users = db.prepare('SELECT id, email, display_name, role, created_at FROM users ORDER BY created_at ASC').all();
+  // `ai_denied` rides along as a boolean; `ai_config` (a user's own provider,
+  // key included) is theirs alone and is never selected here.
+  const users = db.prepare('SELECT id, email, display_name, role, created_at, ai_denied FROM users ORDER BY created_at ASC').all()
+    .map(({ ai_denied: denied, ...user }) => ({ ...user, aiDenied: !!denied }));
   res.json({ users });
 });
 
@@ -256,7 +271,49 @@ router.get('/settings', requireAdmin, (req, res) => {
     publicSharingPolicy: getPublicSharingPolicy(),
     apiEnabled: isApiEnabled(),
     apiMinRole: getApiMinRole(),
+    ai: publicAiConfig(),
   });
+});
+
+// The AI provider the assistant talks to. The key goes in and never comes back
+// out: reads carry `hasApiKey` only, and an empty key on save keeps the stored one.
+router.put('/settings/ai', requireAdmin, (req, res) => {
+  try {
+    res.json({ ai: setAiConfig(req.body) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Who does NOT get the assistant. Everyone who can edit a report has it by
+// default; an admin takes it away account by account, and that holds whatever
+// provider the account would bring itself (utils/ai/access.js).
+router.put('/users/:id/ai-access', requireAdmin, (req, res) => {
+  if (typeof req.body.denied !== 'boolean') return res.status(400).json({ error: '`denied` must be true or false' });
+  if (!aiAccess.setDenied(req.params.id, req.body.denied)) return res.status(404).json({ error: 'User not found' });
+  res.json({ id: req.params.id, aiDenied: req.body.denied });
+});
+
+// Tries the SAVED config with a one-tool round trip. Reaching the provider is
+// half the answer — a small local model that answers but cannot call tools
+// would leave the assistant unable to propose anything, so that is reported too.
+router.post('/settings/ai/test', requireAdmin, async (req, res) => {
+  const config = getAiConfig();
+  if (config.keyError) return res.json({ ok: false, toolCalling: false, error: config.keyError });
+  if (!config.baseUrl || !config.model) return res.json({ ok: false, toolCalling: false, error: 'Save a base URL and a model first' });
+  try {
+    const turn = await aiProviders.chat({
+      config,
+      system: 'This is a connectivity check. Call the `ping` tool with ok=true.',
+      messages: [{ role: 'user', text: 'ping' }],
+      tools: [aiTools.PING],
+    });
+    res.json({ ok: true, toolCalling: turn.toolCalls.some((c) => c.name === 'ping') });
+  } catch (err) {
+    const known = err instanceof aiProviders.AiProviderError;
+    if (!known) console.error('[ai test]', err);
+    res.json({ ok: false, toolCalling: false, error: known ? err.message : 'The test failed' });
+  }
 });
 
 // Every API token on the instance. The admin who decides whether the API is

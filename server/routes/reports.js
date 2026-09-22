@@ -9,6 +9,13 @@ const queryCache = require('../utils/queryCache');
 const cloudHooks = require('../cloudHooks');
 const embedToken = require('../utils/embedToken');
 const usage = require('../utils/usage');
+const { parseModel } = require('../db/modelRow');
+const { appendWidgets } = require('../utils/reportAppend');
+const { buildEffectiveModel } = require('../utils/ai/effectiveModel');
+const { validateWidgetsProposal } = require('../utils/ai/validateProposal');
+const { layoutNew } = require('../utils/ai/arrangeLayout');
+const { shapingArgsOf } = require('../utils/ai/widgetShaping');
+const { libraryOf } = require('../utils/ai/visualLibrary');
 
 const router = express.Router();
 
@@ -263,6 +270,29 @@ router.get('/', authFor('read'), (req, res) => {
     }
     return out;
   });
+  res.json({ reports });
+});
+
+// The reports on one model that the caller may add a visual to (the "Add to
+// report" picker of the landing-page assistant). GET / cannot serve it: in OSS
+// it lists the caller's own reports only, not the workspace ones they may edit.
+// Declared before /:id, which would otherwise take "writable" for an id.
+router.get('/writable', authFor('read'), (req, res) => {
+  const modelId = typeof req.query.modelId === 'string' ? req.query.modelId : '';
+  if (!modelId) return res.status(400).json({ error: 'modelId is required' });
+  const rows = db.prepare(`
+    SELECT r.*, w.name AS workspace_name
+    FROM reports r LEFT JOIN workspaces w ON w.id = r.workspace_id
+    WHERE r.model_id = ?
+    ORDER BY r.updated_at DESC
+  `).all(modelId);
+  const reports = rows
+    .filter((r) => canAccessReport(r, req.user, req) && canWriteReport(r, req.user, req))
+    .map((r) => {
+      let pages = [];
+      try { pages = (JSON.parse(r.settings).pages || []).map((p) => ({ id: p.id, name: p.name })); } catch { /* unreadable settings: the report is listed, its pages are not */ }
+      return { id: r.id, title: r.title, workspace_id: r.workspace_id, workspace_name: r.workspace_name || null, updated_at: r.updated_at, pages };
+    });
   res.json({ reports });
 });
 
@@ -673,6 +703,55 @@ router.put('/:id', authFor('read'), (req, res) => {
       pages: parsedSettings.pages || null,
     },
   });
+});
+
+// Add widgets to a saved report, outside the editor (the landing-page
+// assistant). PUT above takes the whole document and would need the caller to
+// hold every page and setting; this touches one page. What arrives is what a
+// browser holds of an assistant proposal, so it is trusted no more than the
+// model's own arguments were: rebuilt through the same validator, against the
+// model as THIS report sees it, and placed by the server. All or nothing.
+router.post('/:id/widgets', authFor('read'), (req, res) => {
+  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  if (!report || !canAccessReport(report, req.user, req)) return res.status(404).json({ error: 'Report not found' });
+  if (!canWriteReport(report, req.user, req)) return res.status(403).json({ error: 'Access denied' });
+  const model = report.model_id ? db.prepare('SELECT * FROM models WHERE id = ?').get(report.model_id) : null;
+  if (!model || !canBuildOnModel(model, req.user, req)) return res.status(403).json({ error: 'Not authorized for this model' });
+
+  const sent = req.body && Array.isArray(req.body.widgets) ? req.body.widgets : [];
+  const settings = JSON.parse(report.settings);
+  const effective = buildEffectiveModel(parseModel(model), settings);
+  const page = { width: Number(settings.pageWidth) || 1140, height: Number(settings.pageHeight) || 800 };
+  const asProposed = sent.map((w) => ({
+    type: w && w.type,
+    subType: w && w.config && w.config.subType,
+    title: w && w.config && w.config.title,
+    ...shapingArgsOf(w),
+    visualId: w && w.config && w.config.visualId,
+    binding: w && w.dataBinding,
+  }));
+  // A custom visual must be in THIS report's workspace library.
+  const checked = validateWidgetsProposal({ widgets: asProposed }, { effective, page, library: libraryOf(report.workspace_id) });
+  if (checked.errors.length || checked.widgets.length !== sent.length) {
+    return res.status(400).json({ error: `These visuals cannot be added to this report: ${checked.errors.join('; ') || 'too many at once'}` });
+  }
+  const widgets = layoutNew(checked.widgets, page, effective);
+
+  const pageId = typeof req.body.pageId === 'string' ? req.body.pageId : undefined;
+  const added = db.transaction(() => {
+    // Read again inside the transaction: what is appended to must be what is
+    // written over.
+    const fresh = db.prepare('SELECT layout, widgets, settings FROM reports WHERE id = ?').get(report.id);
+    const next = appendWidgets(
+      { settings: JSON.parse(fresh.settings), layout: JSON.parse(fresh.layout), widgets: JSON.parse(fresh.widgets) },
+      widgets, { pageId }, uuidv4,
+    );
+    snapshotReportVersion(report.id, req.user.id);
+    db.prepare("UPDATE reports SET layout = ?, widgets = ?, settings = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(JSON.stringify(next.layout), JSON.stringify(next.widgets), JSON.stringify(next.settings), report.id);
+    return next;
+  })();
+  res.json({ reportId: report.id, pageId: added.pageId, widgetIds: added.newIds, newPage: added.newPage });
 });
 
 // Duplicate report — creates a copy owned by the caller.

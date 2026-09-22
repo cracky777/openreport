@@ -400,8 +400,13 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
 }
 
 // Right column: model dimensions & measures (always visible, collapsible)
-export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, onResizeStart, onResizeEnd, reportId, cacheBuiltAt }) {
-  const [collapsed, setCollapsed] = useState(false);
+// `collapsed` / `onCollapsedChange` are optional: given, the editor decides
+// when the panel folds (it makes room for the assistant), and the chevrons
+// here still work — they just report to it. Left out, the panel keeps its own.
+export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, onResizeStart, onResizeEnd, reportId, cacheBuiltAt, collapsed: controlled, onCollapsedChange }) {
+  const [own, setOwn] = useState(false);
+  const collapsed = controlled ?? own;
+  const setCollapsed = onCollapsedChange || setOwn;
   const { width, handleProps } = useResizableWidth({ storageKey: 'openreport.dataPanelWidth', defaultWidth: 220, min: 200, max: 480, onDragStart: onResizeStart, onDragEnd: onResizeEnd });
   const compact = useIsCompact();
   const dynamicDataStyle = compact

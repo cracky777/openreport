@@ -4,7 +4,7 @@ import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB
 
 // Widget types whose flyout just adds the base type with the chosen sub-type.
 const SUB_TYPE_MENUS = { bar: BAR_SUB_TYPES, line: LINE_SUB_TYPES, combo: COMBO_SUB_TYPES, gauge: GAUGE_SUB_TYPES };
-import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbDownload, TbHandClick, TbFilter, TbToggleLeft, TbToggleRightFilled, TbPlus, TbX } from 'react-icons/tb';
+import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbDownload, TbHandClick, TbFilter, TbToggleLeft, TbToggleRightFilled, TbPlus, TbX, TbSparkles } from 'react-icons/tb';
 import { useIsCompact } from '../../hooks/useMediaQuery';
 import { ICON_SIZE } from '../actionIcons';
 import ConfirmDeleteButton from '../ConfirmDeleteButton/ConfirmDeleteButton';
@@ -162,7 +162,7 @@ function WidgetTooltip({ text, show }) {
   );
 }
 
-export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, onRebuildCache, cacheWarming = false, cacheWarmPct = 0, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions, onOpenReportFilters, reportFilterCount = 0, reportFilterBarVisible = false }) {
+export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, onRebuildCache, cacheWarming = false, cacheWarmPct = 0, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions, onOpenReportFilters, reportFilterCount = 0, reportFilterBarVisible = false, aiEnabled = false, aiOpen = false, onToggleAi, visualsNonce = 0 }) {
   const navigate = useNavigate();
   // Wrapped, this toolbar was taking 233px of an 844px screen — more than a
   // quarter of the phone, most of it the widget palette you need once per
@@ -177,6 +177,12 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
   const [rebuildPrompt, setRebuildPrompt] = useState(false);
   const fileInputRef = useRef(null);
   const customVisualsApi = useCustomVisuals(workspaceId);
+  // The library can grow from outside this toolbar: the assistant adds the
+  // visuals it writes. The editor bumps the nonce; the list follows.
+  const refreshVisuals = customVisualsApi.refresh;
+  useEffect(() => {
+    if (visualsNonce) refreshVisuals();
+  }, [visualsNonce, refreshVisuals]);
 
   const openPreview = () => {
     window.open(`/view/${reportId}`, '_blank');
@@ -710,6 +716,25 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             </div>
             <div style={_hs48} />
           </>
+        )}
+        {aiEnabled && (
+          <div style={_hs49}
+            onMouseEnter={() => scheduleHover('ai')}
+            onMouseLeave={clearHover}>
+            <button
+              aria-label="AI assistant"
+              aria-pressed={aiOpen}
+              onClick={onToggleAi}
+              style={{
+                ...utilityIconBtn,
+                background: aiOpen ? 'var(--accent-primary-soft)' : 'transparent',
+                boxShadow: aiOpen ? 'inset 0 0 0 1px var(--accent-primary)' : undefined,
+              }}
+            >
+              <TbSparkles size={18} color={aiOpen ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
+            </button>
+            <WidgetTooltip text={aiOpen ? 'Close the assistant' : 'AI assistant'} show={hoverKey === 'ai'} />
+          </div>
         )}
         <div style={_hs49}
           onMouseEnter={() => scheduleHover('settings')}
