@@ -70,6 +70,35 @@ const _hs40 = { fontSize: 12, lineHeight: 1.5 };
 
 const STEPS = ['Tables', 'Schema & Joins', 'Dimensions & Measures'];
 
+// Default positions for the tables that have none, skipping any grid cell
+// already covered by a card — on a saved model the tables keep their (possibly
+// dragged) positions, and a naive cursor restarting at (40,40) dropped every
+// newly added table on top of the first one.
+function placeUnpositioned(positions, tables) {
+  const next = { ...positions };
+  const taken = Object.values(next).filter((p) => p && typeof p.x === 'number');
+  // A cell is free when no card sits within roughly one card footprint.
+  const isFree = (x, y) => taken.every((p) => Math.abs(p.x - x) >= 240 || Math.abs(p.y - y) >= 280);
+  let col = 0;
+  let row = 0;
+  const advance = () => { col += 1; if (col > 2) { col = 0; row += 1; } };
+  tables.forEach((t) => {
+    if (next[t] && typeof next[t].x === 'number') return;
+    let cell = { x: 40 + col * 260, y: 40 + row * 300 };
+    let guard = 0;
+    while (!isFree(cell.x, cell.y) && guard < 200) {
+      advance();
+      cell = { x: 40 + col * 260, y: 40 + row * 300 };
+      guard += 1;
+    }
+    // A position may also carry the table's role (fact / dimension): keep it.
+    next[t] = { ...(next[t] || {}), ...cell };
+    taken.push(cell);
+    advance();
+  });
+  return next;
+}
+
 export default function ModelEditor() {
   const openBugReport = useBugReport();
   const { id } = useParams();
@@ -245,8 +274,11 @@ export default function ModelEditor() {
           setTablesLoading(false);
         }
 
-        // If model already has selected tables, jump to step 1
+        // If model already has selected tables, jump to step 1. A model that
+        // was never laid out (an imported one) has no positions: without these
+        // every card would sit on the same spot.
         if ((m.selected_tables || []).length > 0) {
+          setTablePositions(placeUnpositioned(m.table_positions || {}, m.selected_tables));
           setStep(1);
           for (const t of m.selected_tables) {
             try {
@@ -286,33 +318,7 @@ export default function ModelEditor() {
       setDimensions((prev) => (prev.some((d) => d.table === t) ? prev : [...prev, ...auto.dimensions]));
       setMeasures((prev) => (prev.some((m) => m.table === t) ? prev : [...prev, ...auto.measures]));
     }
-    // Assign default positions for tables without one, skipping any grid
-    // cell already covered by an existing card — on a saved model the tables
-    // keep their (possibly dragged) positions, and a naive cursor restarting
-    // at (40,40) dropped every newly added table on top of the first one.
-    setTablePositions((prev) => {
-      const next = { ...prev };
-      const taken = Object.values(next).filter((p) => p && typeof p.x === 'number');
-      // A cell is free when no card sits within roughly one card footprint.
-      const isFree = (x, y) => taken.every((p) => Math.abs(p.x - x) >= 240 || Math.abs(p.y - y) >= 280);
-      let col = 0;
-      let row = 0;
-      const advance = () => { col += 1; if (col > 2) { col = 0; row += 1; } };
-      selectedTables.forEach((t) => {
-        if (next[t]) return;
-        let cell = { x: 40 + col * 260, y: 40 + row * 300 };
-        let guard = 0;
-        while (!isFree(cell.x, cell.y) && guard < 200) {
-          advance();
-          cell = { x: 40 + col * 260, y: 40 + row * 300 };
-          guard += 1;
-        }
-        next[t] = cell;
-        taken.push(cell);
-        advance();
-      });
-      return next;
-    });
+    setTablePositions((prev) => placeUnpositioned(prev, selectedTables));
     setStep(1);
   }, [selectedTables, tableColumns, model]);
 
