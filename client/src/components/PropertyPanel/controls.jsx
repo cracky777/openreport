@@ -85,10 +85,13 @@ function SubSection({ label, children }) {
   );
 }
 
+const alignLabel = { fontSize: 11, fontWeight: 600, lineHeight: '16px' };
+
+// An option without an icon shows its `label` (the table's "Auto" alignment).
 function AlignButtonGroup({ value, onChange, options }) {
   return (
     <div style={_hs46}>
-      {options.map(({ v, Icon, title }) => {
+      {options.map(({ v, Icon, label, title }) => {
         const active = value === v;
         return (
           <button key={v} type="button" title={title}
@@ -104,7 +107,7 @@ function AlignButtonGroup({ value, onChange, options }) {
               alignItems: 'center',
               justifyContent: 'center',
             }}>
-            <Icon size={16} />
+            {Icon ? <Icon size={16} /> : <span style={alignLabel}>{label}</span>}
           </button>
         );
       })}

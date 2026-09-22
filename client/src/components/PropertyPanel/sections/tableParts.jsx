@@ -2,11 +2,11 @@
 // sections compose. All of them write `config.tableConfig` through the
 // scope-aware helpers of tableCtx.jsx (`t`).
 import { useState } from 'react';
-import { SubSection, Field, RangeInput, ColorInput } from '../controls';
+import { TbAlignLeft, TbAlignCenter, TbAlignRight, TbLayoutAlignTop, TbLayoutAlignMiddle, TbLayoutAlignBottom } from 'react-icons/tb';
+import { SubSection, Field, RangeInput, ColorInput, AlignButtonGroup } from '../controls';
 import { parseIntOrNull, parseFloatOrNull } from '../../../utils/input';
 import { FontFields } from './shared';
 
-const alignRow = { display: 'flex', gap: 2 };
 const hint = { fontSize: 11, color: 'var(--text-disabled)', fontStyle: 'italic' };
 const removeBtn = { fontSize: 10, color: 'var(--state-danger)', background: 'transparent', border: '1px solid var(--state-danger-border)', borderRadius: 3, padding: '2px 6px', cursor: 'pointer', marginTop: 4 };
 const addRow = { display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 };
@@ -14,11 +14,6 @@ const addBtn = { fontSize: 10, padding: '3px 6px', border: '1px solid var(--bord
 const levelLabel = { fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 };
 const levelRow = { display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4 };
 const relative = { position: 'relative' };
-const toggleBtn = {
-  width: 28, height: 24, border: '1px solid var(--border-default)', borderRadius: 3,
-  cursor: 'pointer', fontSize: 11, fontWeight: 600,
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-};
 const iconLevelStyle = { padding: '4px 0', borderBottom: '1px solid var(--border-subtle)' };
 const presetDropdown = {
   position: 'absolute', top: 30, left: 0, zIndex: 20,
@@ -27,18 +22,21 @@ const presetDropdown = {
   boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
 };
 
-function AlignButtons({ value, options, onChange }) {
-  return (
-    <div style={alignRow}>
-      {options.map(([v, l]) => (
-        <button key={v} type="button" onClick={() => onChange(v)}
-          style={{ ...toggleBtn, background: value === v ? 'var(--accent-primary)' : 'var(--bg-panel)', color: value === v ? 'var(--text-inverse)' : 'var(--text-secondary)' }}>
-          {l}
-        </button>
-      ))}
-    </div>
-  );
-}
+// The same icons as the scorecard and text alignment controls.
+const H_ALIGN_OPTIONS = [
+  { v: 'left', Icon: TbAlignLeft, title: 'Align left' },
+  { v: 'center', Icon: TbAlignCenter, title: 'Align center' },
+  { v: 'right', Icon: TbAlignRight, title: 'Align right' },
+];
+// Cells add "Auto": numbers to the right, text to the left.
+const CELL_ALIGN_OPTIONS = [{ v: 'auto', label: 'Auto', title: 'Numbers right, text left' }, ...H_ALIGN_OPTIONS];
+// Where the text sits in a cell taller than it: the row height setting, or a
+// neighbour that wraps onto two lines, leaves that room.
+const V_ALIGN_OPTIONS = [
+  { v: 'top', Icon: TbLayoutAlignTop, title: 'Align top' },
+  { v: 'middle', Icon: TbLayoutAlignMiddle, title: 'Align middle' },
+  { v: 'bottom', Icon: TbLayoutAlignBottom, title: 'Align bottom' },
+];
 
 // ─── Labels ───
 
@@ -63,7 +61,10 @@ export function TableHeadersPart({ t }) {
         <ColorInput value={get('header', 'bgColor', '#f8fafc')} onChange={(v) => update('header.bgColor', v)} />
       </Field>
       <Field label="Alignment">
-        <AlignButtons value={get('header', 'alignment', 'left')} options={[['left', 'L'], ['center', 'C'], ['right', 'R']]} onChange={(v) => update('header.alignment', v)} />
+        <AlignButtonGroup value={get('header', 'alignment', 'left')} options={H_ALIGN_OPTIONS} onChange={(v) => update('header.alignment', v)} />
+      </Field>
+      <Field label="Vertical align">
+        <AlignButtonGroup value={get('header', 'verticalAlignment', 'middle')} options={V_ALIGN_OPTIONS} onChange={(v) => update('header.verticalAlignment', v)} />
       </Field>
       <Field label="Word wrap">
         <input type="checkbox" checked={get('header', 'wordWrap', true)} onChange={(e) => update('header.wordWrap', e.target.checked)} />
@@ -97,7 +98,10 @@ export function TableCellsPart({ t }) {
         <ColorInput value={get('values', 'bgColor', '#ffffff')} onChange={(v) => update('values.bgColor', v)} />
       </Field>
       <Field label="Alignment">
-        <AlignButtons value={get('values', 'alignment', 'auto')} options={[['auto', 'Auto'], ['left', 'L'], ['center', 'C'], ['right', 'R']]} onChange={(v) => update('values.alignment', v)} />
+        <AlignButtonGroup value={get('values', 'alignment', 'auto')} options={CELL_ALIGN_OPTIONS} onChange={(v) => update('values.alignment', v)} />
+      </Field>
+      <Field label="Vertical align">
+        <AlignButtonGroup value={get('values', 'verticalAlignment', 'middle')} options={V_ALIGN_OPTIONS} onChange={(v) => update('values.verticalAlignment', v)} />
       </Field>
       <Field label="Word wrap">
         <input type="checkbox" checked={get('values', 'wordWrap', true)} onChange={(e) => update('values.wordWrap', e.target.checked)} />

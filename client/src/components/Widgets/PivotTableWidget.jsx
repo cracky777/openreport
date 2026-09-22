@@ -271,7 +271,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
       // creates a containing block via 'sticky', so we use that when
       // enabled (keeps the header pinned during vertical scroll).
       position: freeze.stickyHeader ? 'sticky' : 'relative',
-      top: stickyTop, zIndex: 2, textAlign: hs.alignment || 'center',
+      top: stickyTop, zIndex: 2, textAlign: hs.alignment || 'center', verticalAlign: hs.verticalAlignment || 'middle',
     };
   };
 
@@ -299,7 +299,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
     if (vs.fontFamily) loadGoogleFont(vs.fontFamily);
     return {
       padding: cellPad,
-      textAlign: vs.alignment === 'auto' || !vs.alignment ? 'right' : vs.alignment,
+      textAlign: vs.alignment === 'auto' || !vs.alignment ? 'right' : vs.alignment, verticalAlign: vs.verticalAlignment || 'middle',
       fontSize: vs.fontSize || 12,
       color: vs.fontColor || 'var(--text-secondary)',
       fontFamily: vs.fontFamily ? fontStack(vs.fontFamily) : undefined,
