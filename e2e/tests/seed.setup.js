@@ -15,10 +15,16 @@ const MEASURES = [
 // A scorecard reads as text, which is what lets the race spec assert on the
 // number that won. The slicer is in `buttons` mode so each value is a real
 // button carrying its own label.
+//
+// The scorecard carries a stale `_fetchedBinding`, like any report saved once.
+// Without it the editor takes the report for a fresh import, refreshes it and
+// saves on its own when the refresh lands — and if that is after a spec has
+// dragged a widget, the drag is written into the report every later spec reads.
 const WIDGETS = {
   'w-score': {
     type: 'scorecard',
     dataBinding: { selectedDimensions: [], selectedMeasures: [F.MEASURE] },
+    data: { _fetchedBinding: 'stale' },
     config: {},
   },
   'w-filter': {
