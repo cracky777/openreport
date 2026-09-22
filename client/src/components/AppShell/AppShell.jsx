@@ -92,6 +92,28 @@ export default function AppShell({ step }) {
     : Math.max(MIN_COLUMN, viewportWidth - 2 * PEEK);
   const offset = peek - index * columnWidth;
 
+  // The ribbon slides only when the user moves from one stage to another in
+  // this shell. Arriving from another page mounts the shell, and the ribbon
+  // then settles several times on its own — the viewport gets measured, the
+  // permissions arrive and Sources / Models join the ribbon — each of which
+  // used to play the slide, as if the user had come from the stage before.
+  // Decided while rendering, so the commit that moves the ribbon already
+  // carries the transition.
+  const [shownStep, setShownStep] = useState(step);
+  const [sliding, setSliding] = useState(false);
+  if (step !== shownStep) {
+    setShownStep(step);
+    setSliding(true);
+  }
+  const endSlide = (e) => { if (e.target === e.currentTarget) setSliding(false); };
+  // A move that changes nothing on screen fires no transitionend; left on,
+  // the next settle would slide.
+  useEffect(() => {
+    if (!sliding) return undefined;
+    const t = setTimeout(() => setSliding(false), SLIDE_MS + 150);
+    return () => clearTimeout(t);
+  }, [sliding, step]);
+
   // Following a join focuses the relation's parent and moves to the stage the
   // click points at. Both directions focus the same node — walking back up a
   // join is the same branch seen from the other end, not a different filter.
@@ -299,11 +321,10 @@ export default function AppShell({ step }) {
             // ribbon and, with it, the viewport's scrollbar.
             minHeight: viewportHeight || undefined,
             transform: `translateX(${offset}px)`,
-            // Before the first measurement the column width is a placeholder,
-            // so the ribbon would animate from a position that never made
-            // sense. Snap into place instead, then animate on later moves.
-            transition: viewportWidth ? ribbonStyle.transition : 'none',
+            transition: sliding ? ribbonStyle.transition : 'none',
           }}
+          onTransitionEnd={endSlide}
+          onTransitionCancel={endSlide}
         >
           {visibleSteps.map((s) => {
             const peeking = !compact && s.key !== step;
@@ -336,6 +357,7 @@ export default function AppShell({ step }) {
                 // Neighbours are legible enough to show where a join lands,
                 // quiet enough not to compete with the column in focus.
                 opacity: s.key === step ? 1 : 0.45,
+                transition: sliding ? panelStyle.transition : 'none',
               }}
               data-stage-panel=""
               data-peek={s.key === step ? undefined : ''}
@@ -418,6 +440,8 @@ const viewportStyle = {
 // for the next in a single motion.
 // How much of each neighbour shows past the active column.
 const PEEK = 96;
+// --stage-ms in index.css.
+const SLIDE_MS = 420;
 const MIN_COLUMN = 360;
 // Relative, not absolute: the ribbon has to take the height of its tallest
 // column so the viewport has something to scroll. It stays the positioning

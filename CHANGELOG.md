@@ -4,6 +4,11 @@ All notable changes to OpenReport are listed here. Versions follow
 [Semantic Versioning](https://semver.org/); each one is a git tag and a
 `ghcr.io/cracky777/openreport` image.
 
+## Unreleased
+
+- Moving between Reports, Data Models and Data Sources slides the stages as
+  before; arriving on one of them from another page no longer plays the slide.
+
 ## 0.1.0 — 2026-09-13
 
 First tagged release.
