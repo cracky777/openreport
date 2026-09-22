@@ -9,6 +9,7 @@ describe('zone flags', () => {
 
   it('pivot columns belong to pivot only', () => {
     expect(usesPivotColumns('pivot')).toBe(true);
+    expect(usesPivotColumns('pivotTable')).toBe(true);
     expect(usesPivotColumns('bar')).toBe(false);
   });
 });

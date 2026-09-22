@@ -7,7 +7,9 @@
 const LEGEND_TYPES = new Set(['bar', 'line', 'combo', 'scatter']);
 
 export const usesLegend = (type) => LEGEND_TYPES.has(type);
-export const usesPivotColumns = (type) => type === 'pivot';
+// The pivot widget is registered as 'pivotTable' (index.jsx); 'pivot' is kept
+// for bindings saved under the older name.
+export const usesPivotColumns = (type) => type === 'pivotTable' || type === 'pivot';
 
 // Canonical, ordered measure list of a widget whatever zones its type
 // spreads them across. Zone-specific splits (combo bar/line, scatter
