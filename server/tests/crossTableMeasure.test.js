@@ -100,3 +100,57 @@ describe('a 1:1 join leaves the fact a fact', () => {
     expect(sql).not.toMatch(/\(SELECT SUM\("order_items"\."sale_price"\) FROM "order_items"\)/);
   });
 });
+
+// A custom expression pulls in the tables it NAMES, not every table owning a
+// column of the same name. Two facts hang off the same dimensions and share
+// their key columns (`id_call`, `id_status`): a ratio on the first fact used to
+// register the second one too — its column names appeared inside the quoted
+// refs — and the LEFT JOIN through `d_status` multiplied every count by the
+// second fact's rows per status. Power BI showed 8 %, the visual showed
+// something else, and on a real volume the query timed out.
+function twoFactsSharingColumnNames() {
+  const u = seedUser({ role: 'editor' });
+  const ds = seedDatasource({ userId: u, dbType: 'postgres' });
+  const model = seedModel({
+    userId: u, datasourceId: ds, selectedTables: ['f_calls', 'f_calls_agg', 'd_status', 'd_call'],
+    dimensions: [
+      { name: 'd_status.label', table: 'd_status', column: 'label', type: 'string', label: 'label' },
+      { name: 'd_status.id_status', table: 'd_status', column: 'id_status', type: 'integer', label: 'id_status' },
+      { name: 'd_call.id_call', table: 'd_call', column: 'id_call', type: 'integer', label: 'id_call' },
+      { name: 'f_calls_agg.id_call', table: 'f_calls_agg', column: 'id_call', type: 'integer', label: 'agg id_call' },
+    ],
+    measures: [
+      { name: 'lost', table: 'f_calls', column: 'id_call', aggregation: 'count', label: 'lost',
+        filterRules: [{ field: 'd_status.label', isMeasure: false, op: 'eq', value: 'Lost', values: [] }], overrideFilters: false },
+      { name: 'handled', table: 'f_calls', column: 'id_call', aggregation: 'count', label: 'handled',
+        filterRules: [{ field: 'd_status.label', isMeasure: false, op: 'eq', value: 'Handled', values: [] }], overrideFilters: false },
+      { name: 'ratio', table: '', column: '', aggregation: 'custom', label: 'ratio',
+        expression: '((${lost}) / NULLIF((${handled}), 0)) * 100' },
+      { name: 'agg_sum', table: 'f_calls_agg', column: 'duration', aggregation: 'sum', label: 'agg_sum' },
+    ],
+    joins: [
+      { from_table: 'd_status', from_column: 'id_status', to_table: 'f_calls', to_column: 'id_status', cardinality: { from: '1', to: '*' } },
+      { from_table: 'd_status', from_column: 'id_status', to_table: 'f_calls_agg', to_column: 'id_status', cardinality: { from: '1', to: '*' } },
+      { from_table: 'd_call', from_column: 'id_call', to_table: 'f_calls', to_column: 'id_call', cardinality: { from: '1', to: '*' } },
+      { from_table: 'd_call', from_column: 'id_call', to_table: 'f_calls_agg', to_column: 'id_call', cardinality: { from: '1', to: '*' } },
+    ],
+  });
+  return { u, model };
+}
+
+describe('a custom expression joins the tables it names, not every table sharing a column name', () => {
+  test('a ratio of two filtered counts on one fact never joins the other fact', async () => {
+    const { u, model } = twoFactsSharingColumnNames();
+    const sql = await sqlFor(model, u, [], ['ratio']);
+    expect(sql).toMatch(/FROM "f_calls" LEFT JOIN "d_status" ON/);
+    expect(sql).not.toMatch(/"f_calls_agg"/);
+    expect(sql).not.toMatch(/"d_call"/);
+  });
+
+  test('a quoted ref to the other fact still joins it', async () => {
+    const { u, model } = twoFactsSharingColumnNames();
+    const sql = await sqlFor(model, u, ['d_status.label'], ['agg_sum']);
+    expect(sql).toMatch(/FROM "f_calls_agg" LEFT JOIN "d_status" ON/);
+    expect(sql).not.toMatch(/"f_calls"[^_]/);
+  });
+});

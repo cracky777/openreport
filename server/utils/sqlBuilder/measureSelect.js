@@ -11,6 +11,7 @@
 // caller can emit a single 400 — never touches res. Covered by
 // tests/sqlSnapshot*, tests/queryErrors.
 const { measurePrimaryTable, sameComponent } = require('./joinGraph');
+const { expressionTables } = require('./dimensionTables');
 const { firstAggregate, looksTextual, sortValueAlias } = require('./measureSortValue');
 const { preWrapIntervalRefs } = require('../columnTypeResolver');
 const {
@@ -90,14 +91,10 @@ function emitMeasureSelects(ctx) {
         } catch (e) {
           return { error: e.message };
         }
-        // Detect tables BEFORE wrapping interval refs — the wrap inserts the
-        // exact same column ref inside EXTRACT(EPOCH FROM …) so includes()
-        // still matches, but routing pre-wrap is cleaner.
-        for (const field of allFieldsForLookup) {
-          if (inlinedExpression.includes(field.column) || inlinedExpression.includes(field.table)) {
-            tablesUsed.add(field.table);
-          }
-        }
+        // Detect tables BEFORE wrapping interval refs — the wrap keeps the
+        // column ref intact inside EXTRACT(EPOCH FROM …), but routing
+        // pre-wrap is cleaner.
+        for (const t of expressionTables(inlinedExpression, allFieldsForLookup)) tablesUsed.add(t);
         inlinedExpression = preWrapIntervalRefs(inlinedExpression, columnTypes, dbType);
       }
       overrideMeasureInfos.push({
@@ -144,12 +141,7 @@ function emitMeasureSelects(ctx) {
             },
           );
           selectParts.push(`(${rewritten}) AS ${quoteIdent(m.label || m.name, dbType)}`);
-          // Register tables referenced by the inlined expression
-          for (const field of allFieldsForLookup) {
-            if (inlined.includes(field.column) || inlined.includes(field.table)) {
-              tablesUsed.add(field.table);
-            }
-          }
+          for (const t of expressionTables(inlined, allFieldsForLookup)) tablesUsed.add(t);
         } else if (m.aggregation === 'count' || (m.column === '*' && !m.table)) {
           // Column-aware, mirroring the unfiltered branch below: a count on a
           // picked column stays a non-null count under the filter.
@@ -193,12 +185,7 @@ function emitMeasureSelects(ctx) {
       if (sortAgg) {
         selectParts.push(`(${applyNumericCast(sortAgg, dbType)}) AS ${quoteIdent(sortValueAlias(m.label || m.name), dbType)}`);
       }
-      // Extract table references from the INLINED expression for joins
-      for (const field of allFieldsForLookup) {
-        if (inlined.includes(field.column) || inlined.includes(field.table)) {
-          tablesUsed.add(field.table);
-        }
-      }
+      for (const t of expressionTables(inlined, allFieldsForLookup)) tablesUsed.add(t);
     } else if (m.aggregation === 'count_col' && m.table && m.column) {
       // Internal kind used ONLY by the AVG decomposition's denominator
       // (measureType.collectComponentsForVisual): COUNT of NON-NULL

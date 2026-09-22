@@ -12,9 +12,10 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // built: a table the expression touches but nobody registered would join in
 // with no row filter.
 //
-// Deliberately narrower than the custom-measure scan (which also matches bare
-// column names): over-joining a second fact table fans the numbers out
-// silently, whereas a missed table fails loudly at the database.
+// No bare-column matching here, unlike `expressionTables`: a calculated
+// dimension always has a home table where bare names resolve, and over-joining
+// a second fact table fans the numbers out silently, whereas a missed table
+// fails loudly at the database.
 function dimensionTables(dim, fields) {
   if (!dim) return [];
   if (!dim.expression) return dim.table ? [dim.table] : [];
@@ -24,6 +25,28 @@ function dimensionTables(dim, fields) {
   for (const f of fields || []) {
     if (!f || !f.table || tables.has(f.table)) continue;
     if (new RegExp(`(^|[^\\w"])${escapeRe(f.table)}\\.`).test(text)) tables.add(f.table);
+  }
+  return [...tables];
+}
+
+// Tables a custom measure's (inlined) expression reads. Quoted "table"."column"
+// refs and unquoted `table.column` refs name their table outright. A bare
+// column name only counts when the expression quotes nothing at all: matched
+// alongside quoted refs, `id_appel` also named the dimension and the SECOND
+// fact table that own a column of that name, that fact was LEFT JOINed in, and
+// every count and ratio on the first fact was multiplied by its rows.
+function expressionTables(expression, fields) {
+  const text = String(expression || '');
+  const tables = new Set(extractColumnRefsFromExpression(text).map((r) => r.table));
+  for (const f of fields || []) {
+    if (!f || !f.table || tables.has(f.table)) continue;
+    if (new RegExp(`(^|[^\\w"])${escapeRe(f.table)}\\.`).test(text)) tables.add(f.table);
+  }
+  if (tables.size === 0) {
+    for (const f of fields || []) {
+      if (!f || !f.table || !f.column || tables.has(f.table)) continue;
+      if (new RegExp(`(^|[^\\w"])${escapeRe(f.column)}(?![\\w])`).test(text)) tables.add(f.table);
+    }
   }
   return [...tables];
 }
@@ -106,4 +129,4 @@ function fanOutTables(dim, fields, allJoins) {
   };
 }
 
-module.exports = { dimensionTables, dimensionAggregate, readableTables, fanOutTables };
+module.exports = { dimensionTables, expressionTables, dimensionAggregate, readableTables, fanOutTables };

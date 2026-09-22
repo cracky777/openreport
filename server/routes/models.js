@@ -36,7 +36,7 @@ const { buildScalarClause } = require('../utils/sqlBuilder/filterClause');
 const { buildMultiFactBody } = require('../utils/sqlBuilder/multiFact');
 const { buildFromClause } = require('../utils/sqlBuilder/fromClause');
 const { buildTopNOrderLimit } = require('../utils/sqlBuilder/orderLimit');
-const { dimensionTables, dimensionAggregate, fanOutTables } = require('../utils/sqlBuilder/dimensionTables');
+const { dimensionTables, expressionTables, dimensionAggregate, fanOutTables } = require('../utils/sqlBuilder/dimensionTables');
 const { normalizeRows } = require('../utils/rowNormalize');
 const { computeRealFacts, computeJoinedTables, computeConnectedComponents } = require('../utils/sqlBuilder/joinGraph');
 const { buildOverrideSubquery } = require('../utils/sqlBuilder/overrideSubquery');
@@ -1701,14 +1701,10 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       }
       aggExpr = `(${applyNumericCast(inlined, dbType)})`;
       // Pull tables referenced by the inlined expression into the JOIN
-      // graph — same logic the SELECT path uses at line 1477. Without
-      // this, a HAVING that references a table not otherwise selected
-      // would emit SQL with an unresolved alias.
-      for (const field of allFieldsForLookup) {
-        if (inlined.includes(field.column) || inlined.includes(field.table)) {
-          tablesUsed.add(field.table);
-        }
-      }
+      // graph — same rule as the SELECT path. Without this, a HAVING that
+      // references a table not otherwise selected would emit SQL with an
+      // unresolved alias.
+      for (const t of expressionTables(inlined, allFieldsForLookup)) tablesUsed.add(t);
     } else {
       // The HAVING must aggregate with the SAME function the visual uses.
       // The SELECT path applies the per-widget aggregation override
