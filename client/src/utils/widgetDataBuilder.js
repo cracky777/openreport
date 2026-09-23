@@ -118,7 +118,10 @@ export function buildWidgetData({
     if (d) return d.label || d.name || name;
     const v = parseAggVariant(name);
     if (v) {
-      const base = (list || []).find((x) => x.name === v.base);
+      // A variant of a measure, or of a dimension read as a measure of its
+      // column: the server aliases both "<label> (<fn>)".
+      const base = (list || []).find((x) => x.name === v.base)
+        || (effectiveModel?.dimensions || []).find((x) => x.name === v.base);
       if (base) return `${base.label || base.name} (${v.agg})`;
     }
     return name;

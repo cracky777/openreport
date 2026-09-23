@@ -31,6 +31,7 @@ const {
   transformAggregates,
   applyNumericCast,
   buildMeasureAggExpr,
+  aggregateSql,
 } = require('../utils/sqlBuilder/measureAgg');
 const { buildScalarClause } = require('../utils/sqlBuilder/filterClause');
 const { buildMultiFactBody } = require('../utils/sqlBuilder/multiFact');
@@ -998,16 +999,33 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       // normalizeAggregation is the whitelist; 'custom' is in it but is not
       // an aggregation one can ask for by name.
       if (normalizeAggregation(fn, null) !== fn || fn === 'custom') continue;
-      const base = allMeasures.find((x) => x.name === vName.slice(0, sep));
+      const baseName = vName.slice(0, sep);
+      const base = allMeasures.find((x) => x.name === baseName);
       // A custom expression carries its own aggregation inside its SQL —
       // there is nothing to override, and pretending otherwise would emit
       // AVG() around an expression that already aggregates.
-      if (!base || base.aggregation === 'custom' || aggBudget-- <= 0) continue;
+      if (base && base.aggregation === 'custom') continue;
+      if (aggBudget-- <= 0) continue;
+      if (base) {
+        allMeasures.push({ ...base, name: vName, aggregation: fn, label: `${base.label || base.name} (${fn})` });
+        continue;
+      }
+      // No measure of that name: a DIMENSION put where a measure goes is read
+      // as a measure of its own column (Power BI's implicit aggregation). A
+      // column dimension only — a calculated one has no column to aggregate
+      // — and a text column can be counted or bounded, never summed.
+      const dim = allDimensions.find((d) => d.name === baseName && d.table && d.column && !d.expression && !d.datePart);
+      if (!dim) continue;
+      const ov = model.column_types && model.column_types[`${dim.table}.${dim.column}`];
+      const dimType = String((ov && (typeof ov === 'string' ? ov : ov.type)) || dim.type || '');
+      const numeric = /int|num|dec|float|double|real/i.test(dimType);
+      if (!numeric && (fn === 'sum' || fn === 'avg')) continue;
       allMeasures.push({
-        ...base,
         name: vName,
+        table: dim.table,
+        column: dim.column,
         aggregation: fn,
-        label: `${base.label || base.name} (${fn})`,
+        label: `${dim.label || dim.name} (${fn})`,
       });
     }
   }
@@ -1134,7 +1152,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
           }
           if (target.table && target.column) {
             tablesUsed.add(target.table);
-            return `${normalizeAggregation(target.aggregation).toUpperCase()}(CASE WHEN ${whenSql} THEN ${quoteCol(target.table, target.column, dbType)} END)`;
+            return aggregateSql(target.aggregation, `CASE WHEN ${whenSql} THEN ${quoteCol(target.table, target.column, dbType)} END`);
           }
         }
         // No clauses survived (rules pointed at unknown fields) → fall through.
@@ -1172,7 +1190,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       }
       if (target.table && target.column) {
         tablesUsed.add(target.table);
-        return `${normalizeAggregation(target.aggregation).toUpperCase()}(${quoteCol(target.table, target.column, dbType)})`;
+        return aggregateSql(target.aggregation, quoteCol(target.table, target.column, dbType));
       }
       return match;
     });
@@ -1752,7 +1770,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
             ? `COUNT(${wrapH(quoteCol(measDef.table, measDef.column, dbType))})`
             : `COUNT(${whenH ? wrapH('1') : '*'})`)
         : (colExprH
-            ? `${normalizeAggregation(effAggH).toUpperCase()}(${wrapH(colExprH)})`
+            ? aggregateSql(effAggH, wrapH(colExprH))
             : null);
       if (!baseAggExpr) continue;
       // Mirror the SELECT path: `interval` aggregates need EXTRACT(EPOCH …)

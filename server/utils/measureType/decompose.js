@@ -52,6 +52,12 @@ function decomposeMeasure(measure, allMeasures) {
     // AVG broken.
     return { type: 'avg', column: measure.column, table: measure.table || '', dataType: measure.dataType };
   }
+  // A structured distinct count is the same HyperLogLog atom as the custom
+  // `COUNT(DISTINCT "t"."c")` shape below, minus the parsing.
+  if (measure.aggregation === 'count_distinct' && measure.column && measure.column !== '*') {
+    if (Array.isArray(measure.filterRules) && measure.filterRules.length > 0) return null;
+    return { type: 'distinct', kind: 'hll', column: measure.column, table: measure.table || '', lgK: 12 };
+  }
   // Custom-mode trivial single-aggregate fast path. A user who writes
   // `AVG("schema"."table"."col")` or `SUM("table"."col")` in custom mode
   // wanted the equivalent of the structured aggregation, but the rest of

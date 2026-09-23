@@ -326,7 +326,7 @@ export default function DropZone({ label, accepts, fields, onDrop, onRemove, onR
               {/* Aggregation dropdown menu */}
               {aggMenuField === field && (
                 <div style={_hs7}>
-                  {AGG_OPTIONS.map((opt) => (
+                  {(measureInfos[field]?.options || AGG_OPTIONS).map((opt) => (
                     <button key={opt.value}
                       onClick={(e) => { e.stopPropagation(); onAggChange(field, opt.value); setAggMenuField(null); }}
                       style={{

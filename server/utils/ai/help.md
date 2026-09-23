@@ -52,15 +52,15 @@
 5. Step 3. Dimensions & Measures: rename labels, set types and date formats, add calculated fields.
 6. Click Save (top-right). + New Report saves the model and opens a new report on it.
 - The datasource badge in the header lets you switch the model to another data source (Change datasource); broken references are listed with a Re-check button.
-- The model assistant (sparkles button in the model editor header, for the model's owner or an admin, when the AI assistant is available) can propose the joins, which columns are dimensions or measures, new measures (sum, average, count, min, max of a column), which tables are facts or dimensions, and arrange the diagram. Review the card, click Apply, then Save the model. It does not write SQL: calculated fields stay manual.
+- The model assistant (sparkles button in the model editor header, for the model's owner or an admin, when the AI assistant is available) can propose the joins, which columns are dimensions or measures, new measures (sum, average, count, distinct count, min, max of a column), which tables are facts or dimensions, and arrange the diagram. Review the card, click Apply, then Save the model. It does not write SQL: calculated fields stay manual.
 - On a model card: Edit model, Refresh the cache, Incremental cache refresh…, Export as YAML, Delete model; the + adds a report on it.
 
 ## fields — Dimensions, measures and calculated fields
-- Dimensions are what you group or filter by (text, dates…); measures are numbers that get aggregated (sum, average, count, min, max).
+- Dimensions are what you group or filter by (text, dates…); measures are columns that get aggregated (sum, average, count, distinct count, min, max): any column can be one, a text or a date through its count, min or max.
 - In the model editor, step 3 (Dimensions & Measures):
   - + Dimension → New calculated dimension: Label, the table it belongs to, a type (string, integer, decimal, date, boolean) and a SQL expression → Add.
   - + Measure → New calculated measure: Label and a SQL expression → Add.
-- In the report editor, the Data panel (right) also has + Measure and + Dimension. These fields belong to the report only (measure: Label, SUM/AVG/COUNT/MIN/MAX or Custom SQL, optional Add filter and Override report filters). Use Promote to model to make one available to every report on the model.
+- In the report editor, the Data panel (right) also has + Measure and + Dimension. These fields belong to the report only (measure: Label, SUM/AVG/COUNT/COUNT DISTINCT/MIN/MAX or Custom SQL, optional Add filter and Override report filters). Use Promote to model to make one available to every report on the model.
 - In a visual's field well, click a measure to change its aggregation, or add a time-windowed copy (YTD, last 30 days…).
 
 ## rls — Row-level security (RLS)
@@ -100,7 +100,7 @@
 
 ## property-panel — Configuring a visual (property panel)
 - Select a visual; its panel shows a title field ("Add a title…"), the type, row count, Delete widget, and the same sections in this order:
-- Fields: the drop zones (Axis/Category/Rows/Columns, Values, Legend…; Scorecard has Value and Compare with (date)).
+- Fields: the drop zones (Axis/Category/Rows/Columns, Values, Legend…; Scorecard has Value and Compare with (date)). A field can also be dropped straight onto the visual: the overlay names the well it will fill and lists the other wells that take it, drop on one of them to aim. A dimension dropped in Values becomes a measure of its column, Max by default; click the aggregation on the chip to pick Count, Distinct, Min, Max (Sum and Avg on numbers).
 - Filters: rules that only affect this visual (Add filter), and Top N for bar, pie and treemap.
 - Data: Time period (Date dimension + Period), Row limit, When empty message.
 - Then the visual's own section (named after its type: smooth lines, donut, totals, slicer style…), Colors (series, gradient, Color by rule), Labels (data labels, number format, N-1 comparison lines), Axes (each axis with its line color, title, font and, for the X axis, the label angle; the grid's line style, width and color), Legend, Frame (title font, border, background, shadow).

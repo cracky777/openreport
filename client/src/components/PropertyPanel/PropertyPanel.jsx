@@ -9,7 +9,7 @@ import { useResizableWidth } from '../../hooks/useResizableWidth';
 import { getWidgetDisplayInfo } from '../../utils/widgetDisplay';
 import { parseTimeVariant, makeTimeVariant, variantDateDim } from '../../utils/timeIntelligence';
 import { AGG_OPTIONS } from '../../utils/aggregations';
-import { baseMeasureName, makeAggVariant, nextAggVariant, parseAggVariant } from '../../utils/aggVariant';
+import { baseMeasureName, makeAggVariant, nextAggVariant, parseAggVariant, dimensionAsMeasure, aggOptionsForType } from '../../utils/aggVariant';
 import { makeTableCtx } from './sections/tableCtx';
 import FieldsSection from './sections/FieldsSection';
 import FiltersSection from './sections/FiltersSection';
@@ -41,6 +41,13 @@ const _hs40 = {
               whiteSpace: 'nowrap', minWidth: 0,
             };
 const pivotMeasureRow = { marginBottom: 6 };
+
+// A dimension's type as the query reads it: the column type override wins
+// over the declared one.
+const dimType = (model, d) => {
+  const ov = d.table && d.column && model?.column_types && model.column_types[`${d.table}.${d.column}`];
+  return !ov ? d.type : (typeof ov === 'string' ? ov : ov.type);
+};
 
 // Which sections are folded, kept across widget selections. Keyed by
 // "<widget type>:<section id>" (see Section in controls.jsx), so a choice
@@ -101,7 +108,27 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
         measureInfos[vName] = { aggregation: opt.value };
       }
     }
+    // A column dimension can sit in a measure well as a reading of its own
+    // column (see utils/aggVariant): each reading gets a chip label and the
+    // aggregations its type allows.
+    for (const d of (model.dimensions || [])) {
+      if (!d.table || !d.column || d.expression || d.datePart) continue;
+      const options = aggOptionsForType(dimType(model, d));
+      for (const opt of options) {
+        const vName = makeAggVariant(d.name, opt.value);
+        fieldInfos[vName] = { table: d.table, column: d.column, label: `${d.label || d.name} (${opt.label})` };
+        measureInfos[vName] = { aggregation: opt.value, options };
+      }
+    }
   }
+
+  // A dimension dropped in a measure well becomes a reading of its column;
+  // a measure is taken as it is. `existing` decides which reading is free.
+  const asMeasure = (fieldName, fieldType, existing) => {
+    if (fieldType !== 'dimension') return fieldName;
+    const d = (model?.dimensions || []).find((x) => x.name === fieldName);
+    return dimensionAsMeasure(fieldName, existing, d ? dimType(model, d) : '');
+  };
 
   const handleAggChange = (fieldName, newAgg) => {
     // A variant IS its aggregation — changing it renames the entry rather than
@@ -221,6 +248,12 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
   };
 
   const handleDrop = (zone) => (fieldName, fieldType, sourceZone, dropIndex, replace, duplicate) => {
+    // A dimension aimed at a measure well is read as a measure of its column.
+    if (fieldType === 'dimension' && (zone === 'values' || zone === 'value')) {
+      fieldName = asMeasure(fieldName, fieldType, selectedMeass);
+      fieldType = 'measure';
+      duplicate = false;
+    }
     // Second drop of a measure already in this zone: it becomes a variant
     // carrying its own aggregation, so the visual can show the sum AND the
     // average of one column. The name is what tells the two apart, all the
@@ -333,7 +366,7 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
   // the write paths, the field lookups, the drop-zone handlers.
   const ctx = {
     widget, widgetId, model, binding, onUpdate, updateConfig, updateBinding, onRefreshWidget,
-    fieldInfos, measureInfos, dimensionNames, handleAggChange, onTimeVariant,
+    fieldInfos, measureInfos, dimensionNames, handleAggChange, onTimeVariant, asMeasure,
     selectedDims, selectedMeass, groupBy, columnDims,
     getZoneSort, setZoneSort, handleDrop, handleRemove, handleRemoveGroupBy, removeColumnDim, handleReorder,
     inputStyle, sections, styles: { ruleCardStyle, ruleLabelStyle },

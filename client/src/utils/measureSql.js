@@ -118,9 +118,11 @@ export function buildMeasureSql({ aggregation, table, column, filterRules, overr
     || (column === '*' && !table);
   const colExpr = (table && column && column !== '*') ? `"${table}"."${column}"` : null;
   const aggFn = (aggregation === 'count') ? 'COUNT' : (aggregation || 'sum').toUpperCase();
+  // A distinct count is COUNT(DISTINCT …), not a function of its own.
+  const wrapAgg = (inner) => (aggregation === 'count_distinct' ? `COUNT(DISTINCT ${inner})` : `${aggFn}(${inner})`);
   const baseAgg = isCountStar
     ? 'COUNT(*)'
-    : `${aggFn}(${colExpr || 'col'})`;
+    : wrapAgg(colExpr || 'col');
   if (!hasFilter || !whenSql) return baseAgg;
   if (overrideFilters) {
     return `(SELECT ${baseAgg}\n FROM <model>\n WHERE <visual filters except override fields>\n   AND ${whenSql})`;
@@ -129,5 +131,5 @@ export function buildMeasureSql({ aggregation, table, column, filterRules, overr
   // matching rows); COUNT(col) → COUNT(CASE WHEN ... THEN col END) (count
   // of matching non-null values of col). Other aggs wrap the column.
   const inner = isCountStar ? '1' : colExpr;
-  return `${aggFn}(CASE WHEN ${whenSql}\n     THEN ${inner} END)`;
+  return wrapAgg(`CASE WHEN ${whenSql}\n     THEN ${inner} END`);
 }

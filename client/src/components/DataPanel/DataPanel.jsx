@@ -62,6 +62,21 @@ const _hs32 = { fontSize: 11, marginTop: 4, color: 'var(--state-danger)' };
 // so the two side panels read as one design.
 const _hs34 = { display: 'block', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--text-muted)', marginBottom: 3, fontWeight: 600, flexShrink: 0 };
 
+// The column dimensions a measure of `aggregation` may read: any column for
+// COUNT / MIN / MAX, a number for SUM / AVG (a text has no sum).
+const NUMERIC_DIM = /int|num|dec|float|double|real/i;
+const dimensionsFor = (model, aggregation) => {
+  if (aggregation === 'custom') return [];
+  const numericOnly = aggregation === 'sum' || aggregation === 'avg';
+  return (model?.dimensions || []).filter((d) => {
+    if (!d.table || !d.column || d.expression || d.datePart) return false;
+    if (!numericOnly) return true;
+    const ov = model?.column_types && model.column_types[`${d.table}.${d.column}`];
+    const type = !ov ? d.type : (typeof ov === 'string' ? ov : ov.type);
+    return NUMERIC_DIM.test(String(type || ''));
+  });
+};
+
 export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, reportId, cacheBuiltAt }) {
   // Patches the report's in-memory `settings` JSON (persisted on the next
   // Save). Returns false when `onSettingsChange` is missing — callers must
@@ -652,6 +667,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 <option value="sum">SUM</option>
                 <option value="avg">AVG</option>
                 <option value="count">COUNT</option>
+                <option value="count_distinct">COUNT DISTINCT</option>
                 <option value="min">MIN</option>
                 <option value="max">MAX</option>
                 <option value="custom">Custom SQL</option>
@@ -660,11 +676,10 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 <select value={calcField} onChange={(e) => setCalcField(e.target.value)}
                   style={{ ...calcInputStyle, flex: 1, marginBottom: 0 }}>
                   <option value="">{calcAggregation === 'count' ? '— count(*) — all rows' : '— pick a column —'}</option>
-                  {/* COUNT accepts any column type (text / date / number — it
-                      counts non-null values regardless), so widen the picker
-                      to include dimensions too. SUM / AVG / MIN / MAX stay
-                      numeric-only by listing model.measures. */}
-                  {calcAggregation === 'count' && (model.dimensions || []).filter((d) => d.table && d.column).map((d) => (
+                  {/* A dimension is a column like any other: COUNT, MIN and
+                      MAX read any type, SUM and AVG a number. Measures follow,
+                      for the columns the model already aggregates. */}
+                  {dimensionsFor(model, calcAggregation).map((d) => (
                     <option key={'d::' + d.name} value={`${d.table}::${d.column}`}>{d.label || d.column}</option>
                   ))}
                   {(model.measures || []).filter((mm) => mm.table && mm.column && mm.aggregation !== 'custom').map((mm) => (
@@ -993,6 +1008,8 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                     <option value="sum">SUM</option>
                     <option value="avg">AVG</option>
                     <option value="count">COUNT</option>
+                    <option value="count_distinct">COUNT DISTINCT</option>
+                <option value="count_distinct">COUNT DISTINCT</option>
                     <option value="min">MIN</option>
                     <option value="max">MAX</option>
                     <option value="custom">Custom SQL</option>
@@ -1002,10 +1019,9 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                       onChange={(e) => setEditForm({ ...editForm, field: e.target.value })}
                       style={{ ...editInput, flex: 1 }}>
                       <option value="">{editForm.aggregation === 'count' ? '— count(*) — all rows' : '— pick a column —'}</option>
-                      {/* See wizard: COUNT accepts any column, so we show
-                          dimensions on top of measures. Other aggregations
-                          stay measure-only (numeric). */}
-                      {editForm.aggregation === 'count' && (model.dimensions || []).filter((d) => d.table && d.column).map((d) => (
+                      {/* Same rule as the wizard: any column for COUNT / MIN /
+                          MAX, a number for SUM / AVG. */}
+                      {dimensionsFor(model, editForm.aggregation).map((d) => (
                         <option key={'d::' + d.name} value={`${d.table}::${d.column}`}>{d.label || d.column}</option>
                       ))}
                       {(model.measures || []).filter((mm) => mm.table && mm.column && mm.aggregation !== 'custom').map((mm) => (

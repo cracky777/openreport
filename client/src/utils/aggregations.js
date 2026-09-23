@@ -6,6 +6,7 @@ export const AGG_OPTIONS = [
   { value: 'sum', label: 'Sum' },
   { value: 'avg', label: 'Avg' },
   { value: 'count', label: 'Count' },
+  { value: 'count_distinct', label: 'Distinct' },
   { value: 'min', label: 'Min' },
   { value: 'max', label: 'Max' },
 ];

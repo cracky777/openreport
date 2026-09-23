@@ -413,10 +413,14 @@ export default function ModelEditor() {
       setMeasures((prev) => prev.filter((m) => m.name !== existing.name));
       return;
     }
-    const measName = `${table}.${col.column_name}_sum`;
+    // A number is summed; any other column is a measure too, of its maximum
+    // (a text or a date has no sum). Same default as a dimension dropped in a
+    // visual's Values well.
+    const agg = isNumeric(col.data_type) ? 'sum' : 'max';
+    const measName = `${table}.${col.column_name}_${agg}`;
     setMeasures((prev) => [...prev, {
       name: measName, table, column: col.column_name,
-      aggregation: 'sum', label: labelTaken(col.column_name) ? `${col.column_name} (sum)` : col.column_name,
+      aggregation: agg, label: labelTaken(col.column_name) ? `${col.column_name} (${agg})` : col.column_name,
       // Stamp the source data type so the SQL builder can wrap PostgreSQL
       // `interval` columns with EXTRACT(EPOCH FROM …) — otherwise SUM/AVG
       // returns a JS object that renders as "[object Object]" in widgets.
@@ -875,7 +879,7 @@ export default function ModelEditor() {
           measures={measures} setMeasures={setMeasures}
           addDimension={addDimension} addMeasure={addMeasure}
           modelId={id} datasourceId={model?.datasource_id}
-          isNumeric={isNumeric} isDateType={isDateType}
+          isDateType={isDateType}
           columnTypes={columnTypes} setColumnType={setColumnType}
           validateColumnType={validateColumnType} validatingColumn={validatingColumn} validationResults={validationResults}
           rls={rls} setRls={setRls}

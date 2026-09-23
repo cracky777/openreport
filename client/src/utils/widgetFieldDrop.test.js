@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { planFieldDrop } from './widgetFieldDrop';
+import { planFieldDrop, dropTargets } from './widgetFieldDrop';
 
 const MODEL = {
   dimensions: [
@@ -83,7 +83,7 @@ describe('planFieldDrop', () => {
   });
 
   test('a scorecard only reads a dimension to compare periods, so it wants a date', () => {
-    expect(drop(w('scorecard'), 'Country', 'dimension')).toBeNull();
+    expect(drop(w('scorecard'), 'Country', 'dimension').zone).toBe('Value');
     const got = drop(w('scorecard'), 'Date', 'dimension');
     expect(got.binding).toEqual({ compareDateDim: 'Date' });
     // The comparison shows something straight away rather than looking broken.
@@ -100,7 +100,7 @@ describe('planFieldDrop', () => {
   });
 
   test('a visual with no well for that kind of field refuses the drop', () => {
-    expect(drop(w('gauge'), 'Country', 'dimension')).toBeNull();
+    expect(drop(w('gauge'), 'Country', 'dimension').zone).toBe('Value');
     expect(drop(w('filter'), 'Sales', 'measure')).toBeNull();
     expect(drop(w('text'), 'Sales', 'measure')).toBeNull();
     expect(drop(w('shape'), 'Country', 'dimension')).toBeNull();
@@ -111,5 +111,34 @@ describe('planFieldDrop', () => {
     expect(planFieldDrop({ widget: null, fieldName: 'Sales', fieldType: 'measure', model: MODEL })).toBeNull();
     expect(drop(w('bar'), '', 'measure')).toBeNull();
     expect(drop(w('bar'), 'Sales', '')).toBeNull();
+  });
+});
+
+describe('dropTargets — every well the field could take', () => {
+  test('a chart offers its axis, its legend and its values to a dimension', () => {
+    const zones = dropTargets({ widget: w('bar'), fieldName: 'Country', fieldType: 'dimension', model: MODEL }).map((t) => t.zone);
+    expect(zones).toEqual(['Axis', 'Legend', 'Values']);
+  });
+
+  test('a named well wins over the deduced one', () => {
+    const got = planFieldDrop({ widget: w('bar'), fieldName: 'Country', fieldType: 'dimension', model: MODEL, zone: 'Legend' });
+    expect(got.binding).toEqual({ groupBy: ['Country'] });
+  });
+
+  test('a dimension in a measure well is read as the max of its column', () => {
+    const got = planFieldDrop({ widget: w('bar'), fieldName: 'Country', fieldType: 'dimension', model: MODEL, zone: 'Values' });
+    expect(got.binding).toEqual({ selectedMeasures: ['Country@@agg:max'] });
+  });
+
+  test('a scorecard takes any dimension as its value, and a date first as its comparison', () => {
+    expect(drop(w('scorecard'), 'Country', 'dimension')).toEqual({ zone: 'Value', binding: { selectedMeasures: ['Country@@agg:max'] } });
+    const zones = dropTargets({ widget: w('scorecard'), fieldName: 'Date', fieldType: 'dimension', model: MODEL }).map((t) => t.zone);
+    expect(zones).toEqual(['Compare with', 'Value']);
+  });
+
+  test('a full gauge makes no guess but still offers its three wells', () => {
+    const full = w('gauge', { selectedMeasures: ['Sales'], gaugeMaxMeasure: 'T', gaugeThresholdMeasure: 'F' });
+    expect(drop(full, 'Other', 'measure')).toBeNull();
+    expect(dropTargets({ widget: full, fieldName: 'Other', fieldType: 'measure', model: MODEL }).map((t) => t.zone)).toEqual(['Value', 'Max', 'Threshold']);
   });
 });

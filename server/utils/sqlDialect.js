@@ -245,7 +245,7 @@ function quoteLiteral(value, dbType) {
 // the emitted SQL (e.g. `${agg.toUpperCase()}(col)`), which is an
 // injection vector — `aggregation: "1) UNION SELECT secret--"` would
 // otherwise land directly in the query.
-const VALID_AGGREGATIONS = new Set(['sum', 'avg', 'count', 'min', 'max', 'custom']);
+const VALID_AGGREGATIONS = new Set(['sum', 'avg', 'count', 'count_distinct', 'min', 'max', 'custom']);
 
 function normalizeAggregation(agg, fallback = 'sum') {
   const lower = String(agg || '').toLowerCase();

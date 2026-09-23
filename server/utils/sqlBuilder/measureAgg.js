@@ -108,11 +108,19 @@ function buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql = null }) {
     // Set only on the synthetic atoms of an average — see widenFloat above.
     colExpr = widenFloat(rawCol, dbType);
   }
-  const agg = normalizeAggregation(m.aggregation).toUpperCase();
-  const aggExpr = caseWhenSql
-    ? `${agg}(CASE WHEN ${caseWhenSql} THEN ${colExpr} END)`
-    : `${agg}(${colExpr})`;
-  return (isInterval && capabilities(dbType).extractEpoch) ? `EXTRACT(EPOCH FROM ${aggExpr})` : aggExpr;
+  const agg = normalizeAggregation(m.aggregation);
+  const aggExpr = aggregateSql(agg, caseWhenSql ? `CASE WHEN ${caseWhenSql} THEN ${colExpr} END` : colExpr);
+  // A distinct count is a number whatever the column holds.
+  const wrap = isInterval && agg !== 'count_distinct' && capabilities(dbType).extractEpoch;
+  return wrap ? `EXTRACT(EPOCH FROM ${aggExpr})` : aggExpr;
 }
 
-module.exports = { transformAggregates, dialectNumericCast, applyNumericCast, buildMeasureAggExpr };
+// `<AGG>(<inner>)` for a whitelisted aggregation name — the one place that
+// knows a distinct count is spelled COUNT(DISTINCT …) rather than a function
+// of its own.
+function aggregateSql(agg, inner) {
+  const fn = normalizeAggregation(agg);
+  return fn === 'count_distinct' ? `COUNT(DISTINCT ${inner})` : `${fn.toUpperCase()}(${inner})`;
+}
+
+module.exports = { transformAggregates, dialectNumericCast, applyNumericCast, buildMeasureAggExpr, aggregateSql };

@@ -66,7 +66,7 @@ describe('what the model assistant may propose', () => {
     ['a table joined to itself', { joins: [J('orders', 'id', 'orders', 'customer_id')] }, /cannot be joined to itself/],
     ['a second join between the same two tables', { joins: [J('orders', 'customer_id', 'customers', 'id'), J('orders', 'id', 'customers', 'id')] }, /already joined/],
     ['a loop of relations', { joins: [J('orders', 'customer_id', 'customers', 'id'), J('customers', 'id', 'products', 'id'), J('products', 'id', 'orders', 'product_id')] }, /would make a loop of relations/],
-    ['an aggregation that is not one', { measures: [{ table: 'orders', column: 'amount', aggregation: 'SUM(amount) * 2' }] }, /aggregation among sum, avg, count, min, max/],
+    ['an aggregation that is not one', { measures: [{ table: 'orders', column: 'amount', aggregation: 'SUM(amount) * 2' }] }, /aggregation among sum, avg, count, count_distinct, min, max/],
     ['a role that is not one', { tableRoles: [{ table: 'orders', role: 'bridge' }] }, /role fact or dimension/],
   ])('%s is refused', (_what, args, message) => {
     const { errors } = validateModelProposal({ reading: ALL, ...args }, draft());

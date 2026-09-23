@@ -9,7 +9,7 @@ import DropZone from '../../DropZone/DropZone';
 export default function FieldsSection({ ctx }) {
   const {
     widget, widgetId, onUpdate, binding, updateBinding,
-    fieldInfos, measureInfos, dimensionNames, handleAggChange, onTimeVariant,
+    fieldInfos, measureInfos, dimensionNames, handleAggChange, onTimeVariant, asMeasure,
     selectedDims, selectedMeass, groupBy, columnDims,
     getZoneSort, setZoneSort, handleDrop, handleRemove, handleRemoveGroupBy, removeColumnDim, handleReorder,
   } = ctx;
@@ -25,8 +25,10 @@ export default function FieldsSection({ ctx }) {
       onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos}
       sort={getZoneSort('groupBy')} onSortChange={setZoneSort('groupBy')} />
   );
+  // Measure wells take a dimension too: it lands as a reading of its column
+  // (Max by default), the way Power BI aggregates a column put in Values.
   const valuesZone = (label = 'Values', multiple = true) => (
-    <DropZone label={label} accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} onTimeVariant={onTimeVariant} fields={selectedMeass} zoneName={multiple ? 'values' : 'value'}
+    <DropZone label={label} accepts={['measure', 'dimension']} dimensionNames={dimensionNames} measureInfos={measureInfos} onAggChange={handleAggChange} onTimeVariant={onTimeVariant} fields={selectedMeass} zoneName={multiple ? 'values' : 'value'}
       onDrop={handleDrop(multiple ? 'values' : 'value')} onRemove={handleRemove} onReorder={handleReorder('measures')} multiple={multiple} fieldInfos={fieldInfos}
       sort={getZoneSort('values')} onSortChange={setZoneSort('values')} />
   );
@@ -48,13 +50,13 @@ export default function FieldsSection({ ctx }) {
       <>
         {axisZone()}
         {legendZone}
-        <DropZone label="Bar values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={comboBarMeas} zoneName="comboBar"
-          onDrop={(fn) => updateBinding({ comboBarMeasures: [...comboBarMeas, fn] })}
+        <DropZone label="Bar values" accepts={['measure', 'dimension']} dimensionNames={dimensionNames} measureInfos={measureInfos} onAggChange={handleAggChange} fields={comboBarMeas} zoneName="comboBar"
+          onDrop={(fn, ft) => updateBinding({ comboBarMeasures: [...comboBarMeas, asMeasure(fn, ft, comboBarMeas)] })}
           onRemove={(fn) => updateBinding({ comboBarMeasures: comboBarMeas.filter((m) => m !== fn) })}
           onReorder={(arr) => updateBinding({ comboBarMeasures: arr })} multiple fieldInfos={fieldInfos}
           sort={getZoneSort('values')} onSortChange={setZoneSort('values')} />
-        <DropZone label="Line values" accepts={['measure']} measureInfos={measureInfos} onAggChange={handleAggChange} fields={comboLineMeas} zoneName="comboLine"
-          onDrop={(fn) => updateBinding({ comboLineMeasures: [...comboLineMeas, fn] })}
+        <DropZone label="Line values" accepts={['measure', 'dimension']} dimensionNames={dimensionNames} measureInfos={measureInfos} onAggChange={handleAggChange} fields={comboLineMeas} zoneName="comboLine"
+          onDrop={(fn, ft) => updateBinding({ comboLineMeasures: [...comboLineMeas, asMeasure(fn, ft, comboLineMeas)] })}
           onRemove={(fn) => updateBinding({ comboLineMeasures: comboLineMeas.filter((m) => m !== fn) })}
           onReorder={(arr) => updateBinding({ comboLineMeasures: arr })} multiple fieldInfos={fieldInfos}
           sort={getZoneSort('comboLine')} onSortChange={setZoneSort('comboLine')} />

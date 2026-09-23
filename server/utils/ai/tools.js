@@ -386,7 +386,7 @@ const PROPOSE_MODEL_CHANGES = {
           properties: {
             table: { type: 'string' },
             column: { type: 'string', description: 'A column name; for a number of rows, count on the key column of the table' },
-            aggregation: { type: 'string', enum: ['sum', 'avg', 'count', 'min', 'max'] },
+            aggregation: { type: 'string', enum: ['sum', 'avg', 'count', 'count_distinct', 'min', 'max'] },
             label: { type: 'string' },
           },
           required: ['table', 'column', 'aggregation'],

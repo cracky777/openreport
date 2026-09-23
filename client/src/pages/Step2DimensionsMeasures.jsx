@@ -13,6 +13,7 @@ const AGG_OPTIONS = [
   { value: 'sum', label: 'Sum' },
   { value: 'avg', label: 'Average' },
   { value: 'count', label: 'Count' },
+  { value: 'count_distinct', label: 'Count distinct' },
   { value: 'min', label: 'Min' },
   { value: 'max', label: 'Max' },
 ];

@@ -74,7 +74,6 @@ export default function SchemaCanvas({
   onAddMeasure,
   modelId, // used by the cardinality auto-detect endpoint
   datasourceId,
-  isNumeric,
   isDateType,
   rlsTable, // the table currently flagged as the RLS table (if any)
   onOpenRLS, // (tableName) => void — opens the RLS dialog for that table
@@ -729,9 +728,6 @@ export default function SchemaCanvas({
                     ? null
                     : (typeof overrideRaw === 'string' ? overrideRaw : overrideRaw.type);
                   const isOverridden = !!overrideType;
-                  const numeric = overrideType
-                    ? ['number', 'integer', 'decimal'].includes(overrideType)
-                    : isNumeric(col.data_type);
                   const isDate = overrideType ? overrideType === 'date' : isDateType?.(col.data_type);
                   const displayType = overrideType || col.data_type;
                   const isKey = keyRank(col.column_name) < 2; // id*/pk*/fk* — icon + bold + top of the list
@@ -817,14 +813,14 @@ export default function SchemaCanvas({
                         onClick={(e) => { e.stopPropagation(); onAddDimension(tableName, col); }}>
                         D
                       </text>
-                      {numeric && (
-                        <text x={TABLE_WIDTH - 22} y={cy + 4} fontSize={9}
-                          fill={isMeas ? '#16a34a' : '#cbd5e1'} fontWeight={700}
-                          style={_hs25}
-                          onClick={(e) => { e.stopPropagation(); onAddMeasure(tableName, col); }}>
-                          M
-                        </text>
-                      )}
+                      {/* Any column can be a measure: a number sums, the
+                          others take their max (count and min on offer). */}
+                      <text x={TABLE_WIDTH - 22} y={cy + 4} fontSize={9}
+                        fill={isMeas ? '#16a34a' : '#cbd5e1'} fontWeight={700}
+                        style={_hs25}
+                        onClick={(e) => { e.stopPropagation(); onAddMeasure(tableName, col); }}>
+                        M
+                      </text>
 
                       {/* Left dot */}
                       <circle cx={0} cy={cy} r={COL_DOT_RADIUS} fill="#fff" stroke="#94a3b8" strokeWidth={1.5}

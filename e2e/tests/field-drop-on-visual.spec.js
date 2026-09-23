@@ -103,22 +103,46 @@ test('a visual with no well for the field says so instead of guessing', async ({
   });
   await page.setViewportSize({ width: 1600, height: 900 });
   await page.goto(`/edit/${reportId}`);
+  // The slicer is the second visual of the fixture.
+  const slicer = page.locator('.widget-content').nth(1);
+  await expect(slicer).toBeVisible();
+  await page.waitForTimeout(1500);
+
+  // A slicer picks values of one column; a measure has none to pick from, so
+  // it has nowhere to go. Silently filling the slot with it would produce a
+  // broken visual and no explanation.
+  await grab(page, F.MEASURE_LABEL);
+  await moveOver(page, slicer);
+  await expect(page.getByText('No slot for this field')).toBeVisible();
+  await page.mouse.up();
+
+  // Nothing was written: the refused field never reaches the server as a
+  // slicer column.
+  await page.waitForTimeout(800);
+  expect(asked.some((q) => q.distinct && JSON.stringify(q).includes(F.MEASURE))).toBe(false);
+  // And the overlay clears on release rather than staying stuck over the visual.
+  await expect(page.getByText('No slot for this field')).toHaveCount(0);
+});
+
+test('a dimension dropped on a scorecard becomes the max of its column', async ({ page }) => {
+  const { reportId } = ids();
+  const asked = [];
+  await page.route('**/api/models/*/query', (route) => {
+    try { asked.push(JSON.parse(route.request().postData() || '{}')); } catch { /* another shape */ }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rows: [{ 'City (max)': 'Zurich' }], rowCount: 1 }) });
+  });
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto(`/edit/${reportId}`);
   const card = page.locator('.widget-content').first();
   await expect(card).toBeVisible();
   await page.waitForTimeout(1500);
 
-  // A scorecard reads a dimension only to compare two periods, so a plain
-  // string column has nowhere to go. Silently filling the comparison slot with
-  // it would produce a broken visual and no explanation.
+  // A plain string column has no period to compare on, but it can be read as
+  // a measure of itself: the visual announces its Value well and takes it.
   await grab(page, F.SPARE_DIM_LABEL);
   await moveOver(page, card);
-  await expect(page.getByText('No slot for this field')).toBeVisible();
+  await expect(page.getByText('Value', { exact: true }).first()).toBeVisible();
   await page.mouse.up();
-
-  // Nothing was written: the refused field never reaches the server, in the
-  // comparison slot or anywhere else.
-  await page.waitForTimeout(800);
-  expect(JSON.stringify(asked)).not.toContain(F.SPARE_DIM);
-  // And the overlay clears on release rather than staying stuck over the visual.
-  await expect(page.getByText('No slot for this field')).toHaveCount(0);
+  await page.waitForTimeout(1200);
+  expect(asked.some((q) => (q.measureNames || []).includes(`${F.SPARE_DIM}@@agg:max`))).toBe(true);
 });

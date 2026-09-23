@@ -7,7 +7,7 @@ import { fontStack } from '../../utils/googleFonts';
 import MaxRowsWarning from '../Widgets/MaxRowsWarning';
 import { evaluateColorCondition } from '../../utils/conditionalFormat';
 import { useBugReport } from '../BugReport/BugReportProvider';
-import { planFieldDrop } from '../../utils/widgetFieldDrop';
+import { planFieldDrop, dropTargets } from '../../utils/widgetFieldDrop';
 import { currentFieldDrag } from '../../utils/fieldDrag';
 
 // A single positioned/draggable widget on the report canvas: chrome (border,
@@ -52,6 +52,16 @@ const _dropPill = (ok) => ({
   background: ok ? 'var(--accent-primary)' : 'var(--bg-panel)',
   color: ok ? '#fff' : 'var(--text-secondary)',
   boxShadow: '0 1px 4px rgba(0,0,0,0.18)', whiteSpace: 'nowrap',
+});
+// The other wells that would take the field: each one is a drop target of
+// its own, so the user can aim without opening the panel. The overlay lets
+// the pointer through only here.
+const _dropChoices = { display: 'flex', gap: 6, marginTop: 8, pointerEvents: 'auto', flexWrap: 'wrap', justifyContent: 'center' };
+const _dropChoice = (active) => ({
+  padding: '3px 9px', borderRadius: 10, fontSize: 11, fontWeight: 600, cursor: 'copy',
+  background: active ? 'var(--accent-primary)' : 'var(--bg-panel)',
+  color: active ? '#fff' : 'var(--text-secondary)',
+  border: '1px solid var(--border-default)', boxShadow: '0 1px 3px rgba(0,0,0,0.12)', whiteSpace: 'nowrap',
 });
 
 const _hs0 = { position: 'absolute', bottom: 0, left: 0, right: 0, height: 8, cursor: 'move', zIndex: 2 };
@@ -153,7 +163,9 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
   // Dropping a field onto the visual: what the overlay currently announces,
   // and how deep into the visual's own children the cursor is (dragenter and
   // dragleave both fire on every crossing, so entries are counted).
-  const [dropPlan, setDropPlan] = useState(null); // { zone } | { refused: true }
+  const [dropPlan, setDropPlan] = useState(null); // { zone, targets } | { refused: true }
+  // The well the pointer is over among the overlay's choices, if any.
+  const [pickedZone, setPickedZone] = useState(null);
   const dragDepth = useRef(0);
   // A finger reports through DOM events on this node instead of bubbling — it
   // is located by hit-testing, not by the tree (utils/touchDrag). The handlers
@@ -271,17 +283,22 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
   // value tells a visual apart from a well of the config panel — the same kind
   // of target, for a very different reason.
 
+  // The deduced well, and every well that would take the field: with more
+  // than one, the overlay offers them so the user can aim at another.
   const previewDrop = () => {
     const payload = currentFieldDrag();
     if (!payload) return null;
+    const targets = dropTargets({ widget, model, ...payload }).map((t) => t.zone);
+    if (targets.length === 0) return { refused: true };
     const plan = planFieldDrop({ widget, model, ...payload });
-    return plan ? { zone: plan.zone } : { refused: true };
+    return { zone: plan ? plan.zone : null, targets };
   };
 
-  const applyFieldDrop = ({ fieldName, fieldType }) => {
+  const applyFieldDrop = ({ fieldName, fieldType, zone }) => {
     dragDepth.current = 0;
     setDropPlan(null);
-    const plan = planFieldDrop({ widget, fieldName, fieldType, model });
+    setPickedZone(null);
+    const plan = planFieldDrop({ widget, fieldName, fieldType, model, zone });
     if (!plan) return;
     const next = { ...widget, dataBinding: { ...(widget.dataBinding || {}), ...plan.binding } };
     if (plan.config) next.config = plan.config;
@@ -308,7 +325,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
     },
     onDragLeave: () => {
       dragDepth.current = Math.max(0, dragDepth.current - 1);
-      if (dragDepth.current === 0) setDropPlan(null);
+      if (dragDepth.current === 0) { setDropPlan(null); setPickedZone(null); }
     },
     onDrop: (e) => {
       if (!currentFieldDrag()) return;
@@ -317,9 +334,18 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
       applyFieldDrop({
         fieldName: e.dataTransfer.getData('application/field-name'),
         fieldType: e.dataTransfer.getData('application/field-type'),
+        zone: pickedZone || undefined,
       });
     },
   } : {};
+  // Dropping on a choice of the overlay names the well; the visual's own
+  // handler above then reads it from `pickedZone`, so the choices only need
+  // to say which one the pointer is over.
+  const choiceHandlers = (zone) => ({
+    onDragEnter: (e) => { e.preventDefault(); setPickedZone(zone); },
+    onDragOver: (e) => { e.preventDefault(); },
+    onDragLeave: () => setPickedZone((z) => (z === zone ? null : z)),
+  });
 
   dropRef.current = { canDrop, previewDrop, applyFieldDrop };
 
@@ -386,9 +412,22 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
         }}>
         {dropPlan && (
           <div style={_dropOverlay(!dropPlan.refused)}>
-            <span style={_dropPill(!dropPlan.refused)}>
-              {dropPlan.refused ? 'No slot for this field' : dropPlan.zone}
-            </span>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <span style={_dropPill(!dropPlan.refused)}>
+                  {dropPlan.refused ? 'No slot for this field' : (pickedZone || dropPlan.zone || 'Pick a well')}
+                </span>
+              </div>
+              {!dropPlan.refused && dropPlan.targets.length > 1 && (
+                <div style={_dropChoices}>
+                  {dropPlan.targets.map((zone) => (
+                    <span key={zone} style={_dropChoice(zone === (pickedZone || dropPlan.zone))} {...choiceHandlers(zone)}>
+                      {zone}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
         {widget.config?.title && (

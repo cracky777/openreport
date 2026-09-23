@@ -61,3 +61,18 @@ test('a variant of a custom measure is refused — its SQL already aggregates', 
     .send({ dimensionNames: ['items.label'], measureNames: ['items.ratio@@agg:avg'], sqlOnly: true });
   expect(res.status).toBe(400);
 });
+
+// A dimension put where a measure goes is read as a measure of its column.
+test('a dimension variant aggregates the column itself', async () => {
+  const res = await compile(['items.label@@agg:max']);
+  expect(res.status).toBe(200);
+  expect(res.body.sql).toContain('MAX("items"."label") AS "label (max)"');
+});
+
+test('a text dimension can be counted but never summed', async () => {
+  const ok = await compile(['items.label@@agg:count']);
+  expect(ok.status).toBe(200);
+  expect(ok.body.sql).toContain('COUNT("items"."label") AS "label (count)"');
+  const bad = await compile(['items.label@@agg:sum']);
+  expect(bad.status).toBe(400);
+});

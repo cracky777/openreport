@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { parseAggVariant, makeAggVariant, baseMeasureName, nextAggVariant } from './aggVariant';
+import { parseAggVariant, makeAggVariant, baseMeasureName, nextAggVariant, dimensionAsMeasure, aggOptionsForType } from './aggVariant';
 
 describe('parseAggVariant', () => {
   test('reads the aggregation out of the name', () => {
@@ -39,7 +39,20 @@ describe('nextAggVariant', () => {
   });
 
   test('every aggregation taken: repeat rather than refuse the drop', () => {
-    const all = ['m', 'm@@agg:avg', 'm@@agg:count', 'm@@agg:min', 'm@@agg:max'];
+    const all = ['m', 'm@@agg:avg', 'm@@agg:count', 'm@@agg:count_distinct', 'm@@agg:min', 'm@@agg:max'];
     expect(nextAggVariant('m', all, 'sum')).toBe('m@@agg:max');
+  });
+});
+
+describe('dimensionAsMeasure', () => {
+  test('a dimension dropped in Values is read as its Max', () => {
+    expect(dimensionAsMeasure('items.label', [], 'string')).toBe('items.label@@agg:max');
+  });
+  test('a second drop of the same dimension takes another reading', () => {
+    expect(dimensionAsMeasure('items.label', ['items.label@@agg:max'], 'string')).toBe('items.label@@agg:count');
+  });
+  test('a text column is never summed or averaged, a number can be', () => {
+    expect(aggOptionsForType('string').map((o) => o.value)).toEqual(['count', 'count_distinct', 'min', 'max']);
+    expect(aggOptionsForType('integer').map((o) => o.value)).toContain('sum');
   });
 });
