@@ -109,7 +109,7 @@ function setSelection(root, start, end) {
   sel.addRange(range);
 }
 
-export default function RichTextEditor({ runs, textAlign, defaults, anchorRef, onCommit, onCancel }) {
+export default function RichTextEditor({ runs, textAlign, defaults, anchor, onCommit, onCancel }) {
   const editorRef = useRef(null);
   const toolbarRef = useRef(null);
   // Last selection seen inside the editor, kept while a picker holds focus.
@@ -135,7 +135,7 @@ export default function RichTextEditor({ runs, textAlign, defaults, anchorRef, o
   // Toolbar just above the visual, below it when there is no room above.
   useLayoutEffect(() => {
     const update = () => {
-      const r = anchorRef.current?.getBoundingClientRect();
+      const r = anchor?.getBoundingClientRect();
       if (!r) return;
       const above = r.top - BAR_HEIGHT - 6;
       setBarPos({
@@ -150,7 +150,7 @@ export default function RichTextEditor({ runs, textAlign, defaults, anchorRef, o
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
-  }, [anchorRef]);
+  }, [anchor]);
 
   useEffect(() => {
     const onSelection = () => {

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 import { runsFromData, runsToText, normalizeRuns, runStyle } from '../../utils/textRuns';
 import RichTextEditor from './RichTextEditor';
@@ -27,7 +27,11 @@ export default function TextWidget({ data, config, onDataUpdate }) {
     for (const r of runs) if (r.fontFamily) loadGoogleFont(r.fontFamily);
   }, [runs]);
   const [isEditing, setIsEditing] = useState(false);
-  const wrapperRef = useRef(null);
+  // The editing wrapper, as state: the toolbar is placed from it, and a ref
+  // object is still empty when the editor's own layout effect runs (a child's
+  // effects run before its parent's ref is attached). Only the double run of
+  // development's StrictMode hid that — built, the toolbar never showed.
+  const [anchor, setAnchor] = useState(null);
 
   const commit = (edited) => {
     const next = normalizeRuns(edited);
@@ -66,7 +70,7 @@ export default function TextWidget({ data, config, onDataUpdate }) {
   if (isEditing) {
     return (
       <div
-        ref={wrapperRef}
+        ref={setAnchor}
         // Stop click bubbling so clicking inside the editing surface doesn't
         // re-trigger canvas selection / drag-start handlers.
         onClick={(e) => e.stopPropagation()}
@@ -79,7 +83,7 @@ export default function TextWidget({ data, config, onDataUpdate }) {
           runs={runs}
           textAlign={baseStyle.textAlign}
           defaults={{ fontSize: baseStyle.fontSize, color: baseStyle.color }}
-          anchorRef={wrapperRef}
+          anchor={anchor}
           onCommit={commit}
           onCancel={() => setIsEditing(false)}
         />
