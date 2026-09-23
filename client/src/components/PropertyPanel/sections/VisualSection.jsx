@@ -463,7 +463,7 @@ export default function VisualSection({ ctx }) {
 
   if (!body) return null;
   return (
-    <Section id="visual" title={title} sectionState={sections} defaultOpen>
+    <Section id="visual" title={title} sectionState={sections}>
       {body}
     </Section>
   );

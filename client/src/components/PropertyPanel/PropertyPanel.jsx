@@ -49,25 +49,30 @@ const dimType = (model, d) => {
   return !ov ? d.type : (typeof ov === 'string' ? ov : ov.type);
 };
 
-// Which sections are folded, kept across widget selections. Keyed by
-// "<widget type>:<section id>" (see Section in controls.jsx), so a choice
-// made on one visual type does not leak onto another.
-let _sectionState = {};
-const useSectionState = (prefix) => {
-  const [collapsed, setCollapsed] = useState(_sectionState);
+// Which sections are unfolded, keyed by section id (see Section in
+// controls.jsx). One map for every visual: moving from a chart to a table
+// keeps Data open if it was, so the eye lands on the same place. The panel
+// stays mounted while nothing is selected, so the map survives a change of
+// selection; closing the panel forgets it, and the next selection starts with
+// every section folded.
+const useSectionState = (open) => {
+  const [collapsed, setCollapsed] = useState({});
+  // Reset on the render that sees the panel close (React's own way of deriving
+  // state from a prop change), so the reopening render already reads it.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (!open) setCollapsed({});
+  }
   const toggle = useCallback((key, isCollapsed) => {
-    setCollapsed((p) => {
-      const next = { ...p, [key]: !isCollapsed };
-      _sectionState = next;
-      return next;
-    });
+    setCollapsed((p) => ({ ...p, [key]: !isCollapsed }));
   }, []);
-  return { collapsed, toggle, prefix };
+  return { collapsed, toggle };
 };
 
 // Left column: widget configuration (always present, collapsible)
 export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model, onResizeStart, onResizeEnd, onRefreshWidget }) {
-  const sections = useSectionState(widget?.type);
+  const sections = useSectionState(!!widgetId && !!widget);
   const { width, handleProps } = useResizableWidth({ storageKey: 'openreport.configPanelWidth', defaultWidth: 210, min: 180, max: 480, onDragStart: onResizeStart, onDragEnd: onResizeEnd });
   const compact = useIsCompact();
   // Column scope of the table settings and measure scope of the pivot's —

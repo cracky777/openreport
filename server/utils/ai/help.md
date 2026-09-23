@@ -102,8 +102,8 @@
 - Select a visual; its panel shows a title field ("Add a title…"), the type, row count, Delete widget, and the same sections in this order:
 - Fields: the drop zones (Axis/Category/Rows/Columns, Values, Legend…; Scorecard has Value and Compare with (date)). A field can also be dropped straight onto the visual: the overlay names the well it will fill and lists the other wells that take it, drop on one of them to aim. A dimension dropped in Values becomes a measure of its column, Max by default; click the aggregation on the chip to pick Count, Distinct, Min, Max (Sum and Avg on numbers).
 - Filters: rules that only affect this visual (Add filter), and Top N for bar, pie and treemap.
-- Data: Time period (Date dimension + Period), Row limit, When empty message.
-- Then the visual's own section (named after its type: smooth lines, donut, totals, slicer style…), Colors (series, gradient, Color by rule), Labels (data labels, number format, N-1 comparison lines), Axes (each axis with its line color, title, font and, for the X axis, the label angle; the grid's line style, width and color), Legend, Frame (title font, border, background, shadow).
+- Data: Time period (Date dimension + Period), Row limit, When empty message; on a scorecard with a Compare with (date), the Comparison lines (N-1 value, N vs N-1, % evolution).
+- Then the visual's own section (named after its type: smooth lines, donut, totals, slicer style…), Colors (series, gradient, Color by rule), Labels (data labels, number format), Axes (each axis with its line color, title, font and, for the X axis, the label angle; the grid's line style, width and color), Legend, Frame (title font, border, background, shadow).
 - A section that does not apply to the visual is not shown.
 
 ## sorting-topn — Sorting, Top N, row limit, time periods, year-over-year
@@ -111,7 +111,7 @@
 - Top N: Filters section → Top N → tick Show Top N + Others, then set N. Items beyond N are grouped into one "Others" bucket. Available on Bar, Pie and TreeMap.
 - Row limit: Data section → Row limit (default 1000).
 - Time period: Data section → Time period → pick a Date dimension and a Period (Year to date, Quarter to date, Month to date, Last 7/30/90 days, Last 12 months, Previous month/quarter/year).
-- Scorecard vs last year: drop a date in Compare with (date), then in Labels → Comparison tick N-1 value, N vs N-1 or % evolution. The % line divides the change by the previous period; open it and set Divide by → Selected period (N) to read the change against the period on screen.
+- Scorecard vs last year: drop a date in Compare with (date), then in Data → Comparison tick N-1 value, N vs N-1 or % evolution. The % line divides the change by the previous period; open it and set Divide by → Selected period (N) to read the change against the period on screen.
 
 ## filters — Filters: slicers, report filters and visual filters
 - Slicer on the page: toolbar Filter ▼ → Visual Filter, then drop a dimension in its Field. Its section sets the Style: List, Dropdown, Buttons, Range, and for dates Date range, Relative date, Calendar. Filters (Restrict values) limits the values it offers.

@@ -2,13 +2,12 @@
 // labels on a chart, the figure and its caption on a scorecard or a gauge,
 // headers and cells of a grid, the text widget's own type. Number format
 // lives here too, since a format is how a value is written.
-import { Section, SubSection, Field, RangeInput, ColorInput, CompareLineEditor } from '../controls';
+import { Section, SubSection, Field, RangeInput, ColorInput } from '../controls';
 import { parseIntOrNull } from '../../../utils/input';
 import { NumberFormatSelect, FontFields } from './shared';
 import { isChart } from './visualTypes';
 import { TableHeadersPart, TableCellsPart, TableDecimalsField } from './tableParts';
 
-const compareList = { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4, fontSize: 11, color: 'var(--text-secondary)' };
 
 function DataLabelsPart({ widget, updateConfig, inputStyle }) {
   const cfg = widget.config || {};
@@ -78,7 +77,7 @@ function DataLabelsPart({ widget, updateConfig, inputStyle }) {
 }
 
 export default function LabelsSection({ ctx }) {
-  const { widget, widgetId, onUpdate, binding, updateConfig, inputStyle, sections, table, pivot } = ctx;
+  const { widget, updateConfig, inputStyle, sections, table, pivot } = ctx;
   const type = widget.type;
   const cfg = widget.config || {};
   let body = null;
@@ -111,7 +110,6 @@ export default function LabelsSection({ ctx }) {
       </>
     );
   } else if (type === 'scorecard') {
-    const toggleCompareCfg = (key, val) => onUpdate(widgetId, { ...widget, config: { ...cfg, [key]: val } });
     body = (
       <>
         <SubSection label="Value">
@@ -126,36 +124,6 @@ export default function LabelsSection({ ctx }) {
             color={{ value: cfg.labelColor, fallback: '#64748b', onChange: (v) => updateConfig('labelColor', v) }}
             family={{ value: cfg.labelFontFamily, onChange: (v) => updateConfig('labelFontFamily', v) }} />
         </SubSection>
-        {binding.compareDateDim && (
-          <SubSection label="Comparison">
-            <div style={compareList}>
-              <CompareLineEditor title="N-1 value" checked={cfg.showN1Value === true}
-                onToggle={(v) => toggleCompareCfg('showN1Value', v)}
-                style={cfg.n1ValueStyle} defaultLabel="N-1"
-                onStyleChange={(next) => toggleCompareCfg('n1ValueStyle', next)} hasSign={false} />
-              <CompareLineEditor title="N vs N-1" checked={cfg.showN1Difference === true}
-                onToggle={(v) => toggleCompareCfg('showN1Difference', v)}
-                style={cfg.n1DifferenceStyle} defaultLabel="vs N-1"
-                onStyleChange={(next) => toggleCompareCfg('n1DifferenceStyle', next)} hasSign />
-              <CompareLineEditor title="% evolution" checked={cfg.showN1Percent === true}
-                onToggle={(v) => toggleCompareCfg('showN1Percent', v)}
-                style={cfg.n1PercentStyle} defaultLabel="vs N-1"
-                onStyleChange={(next) => toggleCompareCfg('n1PercentStyle', next)} hasSign>
-                {/* (N − N-1) ÷ base. The previous period is the usual reading of
-                    "evolution"; some reports (Power BI's DIVIDE(N − N-1, N)) read
-                    it against the period on screen. */}
-                <Field label="Divide by">
-                  <select value={cfg.n1PercentStyle?.base || 'previous'}
-                    onChange={(e) => toggleCompareCfg('n1PercentStyle', { ...(cfg.n1PercentStyle || {}), base: e.target.value })}
-                    style={{ ...inputStyle, width: '100%' }}>
-                    <option value="previous">Previous period (N-1)</option>
-                    <option value="current">Selected period (N)</option>
-                  </select>
-                </Field>
-              </CompareLineEditor>
-            </div>
-          </SubSection>
-        )}
       </>
     );
   } else if (type === 'gauge') {

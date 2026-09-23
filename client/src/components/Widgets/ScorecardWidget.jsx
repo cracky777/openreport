@@ -107,7 +107,7 @@ export default function ScorecardWidget({ data, config }) {
     lines.push(buildLine('difference', diff, txt, config.n1DifferenceStyle));
   }
   // The % line divides the change by the previous period unless the author
-  // chose the selected period as its base (Labels → Comparison → Divide by).
+  // chose the selected period as its base (Data → Comparison → Divide by).
   const pctBase = config?.n1PercentStyle?.base === 'current' ? rawValue : n1;
   if (config?.showN1Percent && n1 !== null && !isNaN(rawValue) && pctBase !== 0) {
     const diff = rawValue - n1;

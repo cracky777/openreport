@@ -48,9 +48,10 @@ function Section({ id, title, children, defaultOpen, sectionState, bare, tone })
     return <div style={_hs41}>{children}</div>;
   }
 
-  // Default: closed for collapsible sections, open for non-collapsible
+  // Default: closed for collapsible sections, open for non-collapsible. The
+  // key is the section id alone, so the fold survives a change of visual.
   const defOpen = defaultOpen ?? (sectionState ? false : true);
-  const key = sectionState?.prefix ? `${sectionState.prefix}:${id || title}` : (id || title);
+  const key = id || title;
   const isCollapsed = sectionState ? sectionState.collapsed[key] ?? !defOpen : false;
   const toggle = sectionState ? () => sectionState.toggle(key, isCollapsed) : undefined;
   const accent = tone === 'accent';
