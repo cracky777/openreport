@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { clampPos } from '../utils/pageBounds';
+import { clampPos, topZ } from '../utils/pageBounds';
 
 // Editor keyboard shortcuts: Delete/Backspace (remove selected widget),
 // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z (undo/redo), Ctrl+C / Ctrl+V (copy/paste
@@ -102,7 +102,7 @@ export function useKeyboardShortcuts({
         // Clear fetched data to avoid stale cache
         if (newWidget.data) delete newWidget.data._fetchedBinding;
         setLayoutAndWidgets(
-          (prev) => [...prev, newLayout],
+          (prev) => [...prev, { ...newLayout, z: topZ(prev) }],
           (prev) => ({ ...prev, [newId]: newWidget }),
         );
         setSelectedWidget(newId);

@@ -24,7 +24,7 @@ import { computeBindingsSignature } from '../utils/bindingKey';
 import { slicerFilters, sameSelections } from '../utils/slicerFilters';
 import { convertData, buildSnapshot } from '../utils/editorHelpers';
 import { transformBinding } from '../utils/widgetZones';
-import { findFreeSlot } from '../utils/pageBounds';
+import { findFreeSlot, topZ } from '../utils/pageBounds';
 import { applyWidgetsProposal, applyDesignProposal, applyVisualProposal, buildPageContext } from '../utils/aiProposal';
 import { CHART_COLORS } from '../utils/chartPalette';
 import AiPanel from '../components/AiPanel/AiPanel';
@@ -1614,6 +1614,7 @@ export default function Editor() {
           ),
           w: ww,
           h: wh,
+          z: topZ(prevLayout),
         },
       ],
       (prevWidgets) => ({

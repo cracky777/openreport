@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { clampPos, clampDelta, clampRect, dragBounds, minSize } from './pageBounds';
+import { clampPos, clampDelta, clampRect, dragBounds, topZ, minSize } from './pageBounds';
 
 const PW = 1000;
 const PH = 600;
@@ -86,6 +86,17 @@ describe('clampRect', () => {
   test('the minimum size wins over the page edge, so the widget stays grabbable', () => {
     expect(clampRect({ x: 980, y: 580, w: 200, h: 100 }, PW, PH))
       .toEqual({ x: 980, y: 580, w: 80, h: 40 });
+  });
+});
+
+describe('topZ', () => {
+  test('a new visual lands above every other one, including one brought to front', () => {
+    expect(topZ([{ i: 'a' }, { i: 'b', z: 7 }, { i: 'c', z: 2 }])).toBe(8);
+  });
+
+  test('above the default layer on a page never reordered, and 1 on an empty page', () => {
+    expect(topZ([{ i: 'a' }, { i: 'b' }])).toBe(2);
+    expect(topZ([])).toBe(1);
   });
 });
 

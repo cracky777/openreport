@@ -89,6 +89,14 @@ export function findFreeSlot(layout, x, y, w, h, pw, ph) {
   return { x: nx, y: ny };
 }
 
+// The layer above every visual on the page. A visual that arrives (added,
+// pasted, dropped) takes it: at the default layer it would sit behind any
+// visual ever brought to front, and a visual the user cannot see is one they
+// think was never added.
+export function topZ(layout) {
+  return layout.reduce((max, it) => Math.max(max, it.z || 1), 0) + 1;
+}
+
 /**
  * Smallest size a widget can be resized to. A visual needs room for its
  * content; a shape is decoration — a dot, a thin bar, a tiny circle — and

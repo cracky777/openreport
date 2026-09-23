@@ -370,6 +370,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                   onMouseLeave={() => { if (hasSubTypes) setOpenMenu(null); }}
                 >
                   <button
+                    aria-label={`Add ${label}`}
                     onClick={() => { if (!hasSubTypes) onAddWidget(type); }}
                     style={widgetBtnStyle(openMenu === type, iconColor)}
                     onMouseEnter={(e) => {
