@@ -12,7 +12,7 @@
 // measures, x-grain HAVING, measure HAVING/TopN, RLS, distinct, or a dim/filter
 // not conformed to every fact) returns null → the caller's single-query path
 // runs unchanged. Covered by tests/sqlSnapshotJoins (multi-fact).
-const { quoteIdent, quoteAlias, quoteCol, quoteTable, capabilities } = require('../sqlDialect');
+const { quoteAlias, quoteCol, quoteTable, capabilities } = require('../sqlDialect');
 const { deriveJoinKeyword } = require('./joins');
 const { buildMeasureAggExpr } = require('./measureAgg');
 const { buildDimensionExpr } = require('./datePart');
