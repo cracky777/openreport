@@ -17,7 +17,7 @@ const { preWrapIntervalRefs } = require('../columnTypeResolver');
 const {
   transformAggregates, dialectNumericCast, applyNumericCast, buildMeasureAggExpr,
 } = require('./measureAgg');
-const { quoteIdent, quoteCol } = require('../sqlDialect');
+const { quoteAlias, quoteCol } = require('../sqlDialect');
 
 function emitMeasureSelects(ctx) {
   const {
@@ -140,7 +140,7 @@ function emitMeasureSelects(ctx) {
               return `${fn}(CASE WHEN ${whenSql} THEN ${cast} END)`;
             },
           );
-          selectParts.push(`(${rewritten}) AS ${quoteIdent(m.label || m.name, dbType)}`);
+          selectParts.push(`(${rewritten}) AS ${quoteAlias(m.label || m.name, dbType)}`);
           for (const t of expressionTables(inlined, allFieldsForLookup)) tablesUsed.add(t);
         } else if (m.aggregation === 'count' || (m.column === '*' && !m.table)) {
           // Column-aware, mirroring the unfiltered branch below: a count on a
@@ -148,9 +148,9 @@ function emitMeasureSelects(ctx) {
           const filteredCount = (m.aggregation === 'count' && m.table && m.column && m.column !== '*')
             ? `COUNT(CASE WHEN ${whenSql} THEN ${quoteCol(m.table, m.column, dbType)} END)`
             : `COUNT(CASE WHEN ${whenSql} THEN 1 END)`;
-          selectParts.push(`${filteredCount} AS ${quoteIdent(m.label || m.name, dbType)}`);
+          selectParts.push(`${filteredCount} AS ${quoteAlias(m.label || m.name, dbType)}`);
         } else if (m.table && m.column) {
-          selectParts.push(`${buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql: whenSql })} AS ${quoteIdent(m.label || m.name, dbType)}`);
+          selectParts.push(`${buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql: whenSql })} AS ${quoteAlias(m.label || m.name, dbType)}`);
         }
         continue; // handled
       }
@@ -174,7 +174,7 @@ function emitMeasureSelects(ctx) {
       // Paren-aware so a CASE WHEN ... IN (..) inside an aggregate doesn't
       // break the matcher.
       const numericExpr = applyNumericCast(inlined, dbType);
-      selectParts.push(`(${numericExpr}) AS ${quoteIdent(m.label || m.name, dbType)}`);
+      selectParts.push(`(${numericExpr}) AS ${quoteAlias(m.label || m.name, dbType)}`);
       // A custom expression may well return TEXT — a duration formatted in
       // SQL, a label. The number is still inside it, since the expression is
       // aggregated, so the first aggregate rides along under a reserved alias:
@@ -183,7 +183,7 @@ function emitMeasureSelects(ctx) {
       // is already a number the client simply never looks at it.
       const sortAgg = looksTextual(inlined) ? firstAggregate(inlined) : null;
       if (sortAgg) {
-        selectParts.push(`(${applyNumericCast(sortAgg, dbType)}) AS ${quoteIdent(sortValueAlias(m.label || m.name), dbType)}`);
+        selectParts.push(`(${applyNumericCast(sortAgg, dbType)}) AS ${quoteAlias(sortValueAlias(m.label || m.name), dbType)}`);
       }
       for (const t of expressionTables(inlined, allFieldsForLookup)) tablesUsed.add(t);
     } else if (m.aggregation === 'count_col' && m.table && m.column) {
@@ -193,7 +193,7 @@ function emitMeasureSelects(ctx) {
       // matches SQL AVG (NULLs skipped). Distinct from user `count`
       // measures (next branch), which are COUNT(col) only when the wizard
       // picked a column and COUNT(*) otherwise.
-      selectParts.push(`COUNT(${quoteCol(m.table, m.column, dbType)}) AS ${quoteIdent(m.label || m.name, dbType)}`);
+      selectParts.push(`COUNT(${quoteCol(m.table, m.column, dbType)}) AS ${quoteAlias(m.label || m.name, dbType)}`);
     } else if (m.aggregation === 'hll' && m.table && m.column) {
       // Internal kind used ONLY by the rollup builder's DISTINCT-via-HLL
       // pipeline (measureType.collectComponentsForVisual emits one
@@ -208,7 +208,7 @@ function emitMeasureSelects(ctx) {
       // col) cardinality, then re-aggregated in DuckDB — mathematically
       // exact since SUM/MIN/MAX/COUNT are additive.
       const rawCol = quoteCol(m.table, m.column, dbType);
-      selectParts.push(`${rawCol} AS ${quoteIdent(m.label || m.name, dbType)}`);
+      selectParts.push(`${rawCol} AS ${quoteAlias(m.label || m.name, dbType)}`);
       groupByParts.push(rawCol);
     } else if (m.aggregation === 'count') {
       // COUNT(*) when no column is specified (or the legacy '*' sentinel),
@@ -217,9 +217,9 @@ function emitMeasureSelects(ctx) {
       // either; for backwards-compat existing measures that came in
       // with `column='*'` or no table keep the COUNT(*) shape.
       if (m.table && m.column && m.column !== '*') {
-        selectParts.push(`COUNT(${quoteCol(m.table, m.column, dbType)}) AS ${quoteIdent(m.label || m.name, dbType)}`);
+        selectParts.push(`COUNT(${quoteCol(m.table, m.column, dbType)}) AS ${quoteAlias(m.label || m.name, dbType)}`);
       } else {
-        selectParts.push(`COUNT(*) AS ${quoteIdent(m.label || m.name, dbType)}`);
+        selectParts.push(`COUNT(*) AS ${quoteAlias(m.label || m.name, dbType)}`);
       }
     } else {
       // Wrap the column in CAST when the user has overridden it to a numeric
@@ -228,7 +228,7 @@ function emitMeasureSelects(ctx) {
       // interval columns render as an `[object Object]` blob; the shared helper
       // flattens SUM/AVG/MIN/MAX(interval) with EXTRACT(EPOCH …) on pg/azure_pg/
       // duckdb (mysql/mssql have no interval type; BQ flattens post-query).
-      selectParts.push(`${buildMeasureAggExpr(m, { dbType, columnTypes })} AS ${quoteIdent(m.label || m.name, dbType)}`);
+      selectParts.push(`${buildMeasureAggExpr(m, { dbType, columnTypes })} AS ${quoteAlias(m.label || m.name, dbType)}`);
     }
   }
   return null;

@@ -12,7 +12,7 @@
 // measures, x-grain HAVING, measure HAVING/TopN, RLS, distinct, or a dim/filter
 // not conformed to every fact) returns null → the caller's single-query path
 // runs unchanged. Covered by tests/sqlSnapshotJoins (multi-fact).
-const { quoteIdent, quoteCol, quoteTable, capabilities } = require('../sqlDialect');
+const { quoteIdent, quoteAlias, quoteCol, quoteTable, capabilities } = require('../sqlDialect');
 const { deriveJoinKeyword } = require('./joins');
 const { buildMeasureAggExpr } = require('./measureAgg');
 const { buildDimensionExpr } = require('./datePart');
@@ -46,7 +46,7 @@ function buildMultiFactBody({
 
   const dimInfoOf = (d) => ({
     expr: buildDimensionExpr(d, dbType, columnTypes),
-    alias: quoteIdent(d.label || d.name, dbType),
+    alias: quoteAlias(d.label || d.name, dbType),
   });
   const dimInfos = selectedDimensions.map(dimInfoOf);
   const dimSelects = dimInfos.map((x) => `${x.expr} AS ${x.alias}`);
@@ -55,7 +55,7 @@ function buildMultiFactBody({
   // Per-fact aggregate select — mirrors the normal-aggregation branch of
   // the SELECT loop above (CAST override + interval EXTRACT EPOCH).
   const measureSelectOf = (m) => {
-    const alias = quoteIdent(m.label || m.name, dbType);
+    const alias = quoteAlias(m.label || m.name, dbType);
     const rawCol = quoteCol(m.table, m.column, dbType);
     const agg = String(m.aggregation || '').toLowerCase();
     if (agg === 'count') {

@@ -69,6 +69,9 @@ const QUOTING = {
  *   extractEpoch     exposes EXTRACT(EPOCH FROM <interval>), which flattens an
  *                    interval column into seconds
  *   joinUsing        has a `JOIN … USING (…)` clause — T-SQL only has ON
+ *   scalarFrom       the table a SELECT of scalar subqueries must name when
+ *                    nothing else is read — Oracle's DUAL; null where a
+ *                    FROM-less SELECT is accepted
  */
 const CAPABILITIES = {
   postgres: {
@@ -76,7 +79,7 @@ const CAPABILITIES = {
     quoteEscape: 'double',
     textCast: 'VARCHAR', intCast: 'INTEGER', decimalCast: 'NUMERIC',
     wideFloat: 'DOUBLE PRECISION',
-    nullsLast: 'inline', pagination: 'limit', extractEpoch: true, joinUsing: true,
+    nullsLast: 'inline', pagination: 'limit', extractEpoch: true, joinUsing: true, scalarFrom: null,
   },
   // Redshift forked PostgreSQL 8.0.2. Two cells diverge: a bare VARCHAR means
   // VARCHAR(256) there and would truncate a longer value before comparing it,
@@ -86,7 +89,7 @@ const CAPABILITIES = {
     quoteEscape: 'double',
     textCast: 'VARCHAR(65535)', intCast: 'INTEGER', decimalCast: 'NUMERIC',
     wideFloat: 'DOUBLE PRECISION',
-    nullsLast: 'inline', pagination: 'limit', extractEpoch: false, joinUsing: true,
+    nullsLast: 'inline', pagination: 'limit', extractEpoch: false, joinUsing: true, scalarFrom: null,
   },
   mysql: {
     quoting: 'backtick', escapesBackslash: true,
@@ -95,14 +98,14 @@ const CAPABILITIES = {
     // truncates to zero decimals, hence the explicit scale.
     textCast: 'CHAR', intCast: 'SIGNED', decimalCast: 'DECIMAL(38,10)',
     wideFloat: null, // SUM already widens, and old MySQL has no CAST AS DOUBLE
-    nullsLast: 'emulated', pagination: 'limit', extractEpoch: false, joinUsing: true,
+    nullsLast: 'emulated', pagination: 'limit', extractEpoch: false, joinUsing: true, scalarFrom: null,
   },
   mssql: {
     quoting: 'bracket', escapesBackslash: false,
     quoteEscape: 'double',
     textCast: 'VARCHAR', intCast: 'INT', decimalCast: 'DECIMAL(38,10)',
     wideFloat: 'FLOAT',
-    nullsLast: null, pagination: 'fetch', extractEpoch: false, joinUsing: false,
+    nullsLast: null, pagination: 'fetch', extractEpoch: false, joinUsing: false, scalarFrom: null,
   },
   bigquery: {
     quoting: 'bqtick', escapesBackslash: true,
@@ -112,7 +115,7 @@ const CAPABILITIES = {
     nullsLast: 'inline', pagination: 'limit',
     // BigQuery's INTERVAL has no EPOCH extract — those values are flattened by
     // the row post-processor in routes/models.js instead.
-    extractEpoch: false, joinUsing: true,
+    extractEpoch: false, joinUsing: true, scalarFrom: null,
   },
   // Snowflake plie un identifiant non cité en MAJUSCULES ; comme on cite
   // toujours, la casse de l'introspection est celle qu'on émet, et l'aller-retour
@@ -124,7 +127,7 @@ const CAPABILITIES = {
     quoting: 'ansi', escapesBackslash: true, quoteEscape: 'double',
     textCast: 'VARCHAR', intCast: 'INTEGER', decimalCast: 'DECIMAL(38,10)',
     wideFloat: null, // FLOAT/REAL/DOUBLE sont tous du 64 bits chez Snowflake
-    nullsLast: 'inline', pagination: 'limit', extractEpoch: false, joinUsing: true,
+    nullsLast: 'inline', pagination: 'limit', extractEpoch: false, joinUsing: true, scalarFrom: null,
   },
   // ClickHouse cite par accent grave comme MySQL, et l'échappement d'un
   // identifiant y suit les mêmes règles que celui d'un littéral — le doublement
@@ -147,19 +150,19 @@ const CAPABILITIES = {
     wideFloat: 'BINARY_DOUBLE',
     // OFFSET … FETCH NEXT depuis 12c ; les versions antérieures passaient par
     // ROWNUM, qu'on ne vise pas.
-    nullsLast: 'inline', pagination: 'fetch', extractEpoch: false, joinUsing: true,
+    nullsLast: 'inline', pagination: 'fetch', extractEpoch: false, joinUsing: true, scalarFrom: 'DUAL',
   },
   databricks: {
     quoting: 'backtick', escapesBackslash: true, quoteEscape: 'double',
     textCast: 'STRING', intCast: 'BIGINT', decimalCast: 'DECIMAL(38, 10)',
     wideFloat: null,
-    nullsLast: 'inline', pagination: 'limit', extractEpoch: false, joinUsing: true,
+    nullsLast: 'inline', pagination: 'limit', extractEpoch: false, joinUsing: true, scalarFrom: null,
   },
   clickhouse: {
     quoting: 'backtick', escapesBackslash: true, quoteEscape: 'double',
     textCast: 'String', intCast: 'Int64', decimalCast: 'Decimal(38, 10)',
     wideFloat: null,
-    nullsLast: 'inline', pagination: 'limit', extractEpoch: false, joinUsing: true,
+    nullsLast: 'inline', pagination: 'limit', extractEpoch: false, joinUsing: true, scalarFrom: null,
   },
   duckdb: {
     quoting: 'ansi', escapesBackslash: false,
@@ -168,7 +171,7 @@ const CAPABILITIES = {
     // DOUBLE rather than NUMERIC: DuckDB's NUMERIC is DECIMAL(18,3), which
     // would both round and overflow on a large sum.
     wideFloat: 'DOUBLE',
-    nullsLast: 'inline', pagination: 'limit', extractEpoch: true, joinUsing: true,
+    nullsLast: 'inline', pagination: 'limit', extractEpoch: true, joinUsing: true, scalarFrom: null,
   },
 };
 CAPABILITIES.azure_postgres = CAPABILITIES.postgres;
@@ -247,6 +250,39 @@ function quoteLiteral(value, dbType) {
 // otherwise land directly in the query.
 const VALID_AGGREGATIONS = new Set(['sum', 'avg', 'count', 'count_distinct', 'min', 'max', 'custom']);
 
+// The name a result column carries. Every dialect but BigQuery accepts any
+// quoted text, and the client keys rows on the label, so the label IS the
+// alias. BigQuery names a column with letters, digits and underscores only
+// (a label such as "Revenue (avg)" fails the whole query): there the alias
+// is a spelling of the label, and `restoreAliases` keys the rows back on the
+// label before anything reads them.
+function aliasName(label, dbType) {
+  const s = String(label);
+  if (capabilities(dbType).quoting !== 'bqtick') return s;
+  const safe = s.replace(/[^A-Za-z0-9_]/g, '_');
+  return /^[0-9]/.test(safe) ? `_${safe}` : safe;
+}
+
+function quoteAlias(label, dbType) {
+  return quoteIdent(aliasName(label, dbType), dbType);
+}
+
+// Rows keyed on the aliases → rows keyed on the labels (identity when the
+// dialect kept the labels).
+function restoreAliases(rows, labels, dbType) {
+  const back = new Map();
+  for (const label of labels || []) {
+    const alias = aliasName(label, dbType);
+    if (alias !== label) back.set(alias, label);
+  }
+  if (back.size === 0 || !Array.isArray(rows)) return rows;
+  return rows.map((row) => {
+    const out = {};
+    for (const [k, v] of Object.entries(row || {})) out[back.get(k) || k] = v;
+    return out;
+  });
+}
+
 function normalizeAggregation(agg, fallback = 'sum') {
   const lower = String(agg || '').toLowerCase();
   return VALID_AGGREGATIONS.has(lower) ? lower : fallback;
@@ -256,6 +292,9 @@ module.exports = {
   capabilities,
   dialectTypes,
   quoteIdent,
+  quoteAlias,
+  aliasName,
+  restoreAliases,
   quoteTable,
   quoteCol,
   escapeLiteral,

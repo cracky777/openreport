@@ -154,3 +154,39 @@ describe('a custom expression joins the tables it names, not every table sharing
     expect(sql).not.toMatch(/"f_calls"[^_]/);
   });
 });
+
+// The same two shapes on every engine of the dialect table: a value read
+// through a scalar subquery alone (no FROM of its own) and a variant alias
+// with a space and parentheses in it. BigQuery refused the alias and the
+// ORDER BY of a FROM-less SELECT; Oracle refuses a SELECT with no FROM at all.
+const { dialectTypes, capabilities } = require('../utils/sqlDialect');
+
+function starForDialect(dbType) {
+  const u = seedUser({ role: 'editor' });
+  const ds = seedDatasource({ userId: u, dbType });
+  const model = seedModel({
+    userId: u, datasourceId: ds, selectedTables: ['f', 'd'],
+    dimensions: [{ name: 'd.name', table: 'd', column: 'name', type: 'string', label: 'Name' }],
+    measures: [
+      { name: 'f.amt_sum', table: 'f', column: 'amt', aggregation: 'sum', label: 'Amount' },
+      { name: 'd.name_max', table: 'd', column: 'name', aggregation: 'max', label: 'Last name' },
+    ],
+    joins: [{ from_table: 'd', from_column: 'id', to_table: 'f', to_column: 'd_id', cardinality: { from: '1', to: '*' } }],
+  });
+  return { u, model };
+}
+
+describe('every dialect compiles a FROM-less scalar and a variant alias', () => {
+  test.each(dialectTypes())('%s', async (dbType) => {
+    const { u, model } = starForDialect(dbType);
+    const scalar = await sqlFor(model, u, [], ['d.name_max']);
+    expect(scalar).toMatch(/^SELECT \(SELECT MAX\(/);
+    expect(scalar).not.toMatch(/ORDER BY|LIMIT|FETCH/);
+    // The statement ends on the alias, or on the table the engine insists on reading.
+    const from = capabilities(dbType).scalarFrom;
+    expect(from ? scalar.endsWith(` FROM ${from}`) : !/ FROM \S+$/.test(scalar)).toBe(true);
+    const variant = await sqlFor(model, u, ['d.name'], ['f.amt_sum@@agg:avg']);
+    // The alias is the label, except where the engine cannot spell it.
+    expect(variant).toContain(capabilities(dbType).quoting === 'bqtick' ? 'AS `Amount__avg_`' : 'Amount (avg)');
+  });
+});

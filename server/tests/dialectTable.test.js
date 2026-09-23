@@ -29,10 +29,11 @@ const AXES = {
   pagination: (v) => v === 'limit' || v === 'fetch',
   extractEpoch: (v) => typeof v === 'boolean',
   joinUsing: (v) => typeof v === 'boolean',
+  scalarFrom: (v) => v === null || (typeof v === 'string' && v.length > 0),
 };
 
 describe('la table est complète', () => {
-  test.each(dialectTypes())('%s déclare les onze axes, chacun avec une valeur admise', (dbType) => {
+  test.each(dialectTypes())('%s déclare les douze axes, chacun avec une valeur admise', (dbType) => {
     const caps = capabilities(dbType);
     for (const [axis, isValid] of Object.entries(AXES)) {
       expect({ axis, value: caps[axis] }).toEqual({ axis, value: caps[axis] });

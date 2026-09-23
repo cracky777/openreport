@@ -76,3 +76,23 @@ test('a text dimension can be counted but never summed', async () => {
   const bad = await compile(['items.label@@agg:sum']);
   expect(bad.status).toBe(400);
 });
+
+// BigQuery names a result column with letters, digits and underscores only:
+// "Amount (avg)" failed the whole query. The alias is spelled safely there and
+// the rows come back keyed on the label.
+test('on BigQuery a variant alias is spelled safely and the row keeps the label', async () => {
+  const { restoreAliases, aliasName } = require('../utils/sqlDialect');
+  expect(aliasName('Amount (avg)', 'bigquery')).toBe('Amount__avg_');
+  expect(aliasName('Amount (avg)', 'postgres')).toBe('Amount (avg)');
+  expect(aliasName('1er', 'bigquery')).toBe('_1er');
+  const rows = restoreAliases([{ label: 'x', Amount__avg_: 3 }], ['label', 'Amount (avg)'], 'bigquery');
+  expect(rows).toEqual([{ label: 'x', 'Amount (avg)': 3 }]);
+  const owner = seedUser({ role: 'editor' });
+  const ds = seedDatasource({ userId: owner, dbType: 'bigquery' });
+  const model = seedModel({ userId: owner, datasourceId: ds, measures: MEASURES, dimensions: DIMENSIONS });
+  const res = await request(app).post(`/api/models/${model}/query`).set('x-test-user', owner)
+    .send({ dimensionNames: ['items.label'], measureNames: ['items.amt_sum@@agg:avg'], sqlOnly: true });
+  expect(res.status).toBe(200);
+  expect(res.body.sql).toContain('AS `Amount__avg_`');
+  expect(res.body.sql).not.toContain('(avg)`');
+});

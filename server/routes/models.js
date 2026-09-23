@@ -12,7 +12,7 @@ const { canAccessReport, canAccessModel, canWriteModel, canReadModel } = require
 const { getQueryTimeoutMs } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
-const { quoteIdent, quoteTable, quoteCol, escapeLiteral, quoteLiteral, normalizeAggregation, capabilities } = require('../utils/sqlDialect');
+const { quoteIdent, quoteAlias, restoreAliases, quoteTable, quoteCol, escapeLiteral, quoteLiteral, normalizeAggregation, capabilities } = require('../utils/sqlDialect');
 const {
   castToString,
   castToNumber,
@@ -39,6 +39,7 @@ const { buildFromClause } = require('../utils/sqlBuilder/fromClause');
 const { buildTopNOrderLimit } = require('../utils/sqlBuilder/orderLimit');
 const { dimensionTables, expressionTables, dimensionAggregate, fanOutTables } = require('../utils/sqlBuilder/dimensionTables');
 const { normalizeRows } = require('../utils/rowNormalize');
+const { sortValueAlias } = require('../utils/sqlBuilder/measureSortValue');
 const { computeRealFacts, computeJoinedTables, computeConnectedComponents } = require('../utils/sqlBuilder/joinGraph');
 const { buildOverrideSubquery } = require('../utils/sqlBuilder/overrideSubquery');
 const { rejectIfNameTaken } = require('../utils/nameUniqueness');
@@ -1597,7 +1598,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     // and WHERE/HAVING paths all go through buildDimensionExpr so drill-down
     // filters target the same expression the projection used.
     const expr = buildDimensionExpr(d, dbType, columnTypes);
-    selectParts.push(`${expr} AS ${quoteIdent(d.label || d.name, dbType)}`);
+    selectParts.push(`${expr} AS ${quoteAlias(d.label || d.name, dbType)}`);
     groupByParts.push(expr);
     registerDimTables(d);
   });
@@ -1931,7 +1932,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     if (sameTableWhere.length > 0) {
       subSql += ` WHERE ${sameTableWhere.join(' AND ')}`;
     }
-    selectParts[index] = `(${subSql}) AS ${quoteIdent(label, dbType)}`;
+    selectParts[index] = `(${subSql}) AS ${quoteAlias(label, dbType)}`;
   }
 
   // Fill in override-mode filtered measure placeholders. Each becomes a
@@ -1942,7 +1943,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   for (const info of overrideMeasureInfos) {
     const { m, index, label, inlinedExpression } = info;
     const subSql = buildOverrideSubquery(m, inlinedExpression, overrideSubqueryDeps);
-    selectParts[index] = `(${subSql}) AS ${quoteIdent(label, dbType)}`;
+    selectParts[index] = `(${subSql}) AS ${quoteAlias(label, dbType)}`;
   }
 
   // Resolve `__OVERRIDE_REF_<i>__` placeholders left by the inliner when a
@@ -2019,7 +2020,10 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   const dimOnlyShortCircuit = allMeasuresDimOnly && selectedDimensions.length === 0;
   let sql;
   if (dimOnlyShortCircuit) {
-    sql = `SELECT ${selectParts.join(', ')}`;
+    // Scalar subqueries only: no table of its own to read. Oracle still wants
+    // one named (DUAL); the others accept the bare SELECT.
+    const scalarFrom = capabilities(dbType).scalarFrom;
+    sql = `SELECT ${selectParts.join(', ')}${scalarFrom ? ` FROM ${scalarFrom}` : ''}`;
   } else if (multiFactBody) {
     // Per-fact aggregate-then-join body (no outer WHERE/GROUP BY/HAVING —
     // each per-fact subquery already carries them). ORDER BY / LIMIT below.
@@ -2068,7 +2072,9 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       sql += multiFactBody.orderByAliases ? ` ORDER BY ${multiFactBody.orderByAliases}` : ' ORDER BY 1';
     } else if (groupByParts.length > 0) {
       sql += ` ORDER BY ${groupByParts.join(', ')}`;
-    } else if (selectParts.length > 0) {
+    } else if (selectParts.length > 0 && !dimOnlyShortCircuit) {
+      // A FROM-less select of scalar subqueries is one row: nothing to order,
+      // and BigQuery refuses an ORDER BY there.
       sql += ` ORDER BY 1`;
     }
     // offset/limit arrive straight from the request body, and this route is
@@ -2080,6 +2086,10 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     const parsedLimit = parseInt(limit, 10) || 0;
     if (isRollupBuilderRequest && parsedLimit <= 0) {
       builderUncapped = true;
+    } else if (dimOnlyShortCircuit) {
+      // One row by construction — and SQL Server's OFFSET…FETCH would need
+      // the ORDER BY skipped above.
+      builderCapLimit = 1;
     } else {
       const safeLimit = isRollupBuilderRequest
         ? Math.max(1, parsedLimit)
@@ -2230,6 +2240,14 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     } else {
       rawRows = await conn.query(sql);
     }
+    // BigQuery names a result column with letters, digits and underscores
+    // only, so the aliases were spelled that way (quoteAlias). The client keys
+    // rows on the labels: put them back before anything reads the rows.
+    rawRows = restoreAliases(rawRows, [
+      ...selectedDimensions.map((d) => d.label || d.name),
+      ...selectedMeasures.map((m) => m.label || m.name),
+      ...selectedMeasures.filter((m) => m.aggregation === 'custom').map((m) => sortValueAlias(m.label || m.name)),
+    ], dbType);
     // Same shape whatever the driver returned — and whatever the rollup cache
     // returns for the same widget (see utils/rowNormalize.js).
     const rows = normalizeRows(rawRows, {
