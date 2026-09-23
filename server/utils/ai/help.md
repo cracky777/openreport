@@ -93,7 +93,7 @@
 1. Click a widget in the toolbar palette. Types with a ▼ (Bar, Line, Combo, Table, Gauge, Filter) open a sub-menu: e.g. Clustered Bar, Stacked Bar, 100% Stacked Bar; Line, Area, Stacked Area; Line + Stacked Bar; Arc Gauge, Column Gauge; Table, Pivot Table.
 2. Drag dimensions and measures from the Data panel into the visual's field wells (Axis, Values, Legend…).
 3. Move and resize it on the canvas. With a widget selected, the small bar above it offers Send to back, Backward one, Forward one, Bring to front.
-- Text: Shapes → Text, then double-click it to type; the toolbar offers Bold, Italic, Underline, Font size, Clear formatting.
+- Text: Shapes → Text, then double-click it to type; the toolbar offers Bold, Italic, Underline, Font size, Font, Color, Clear formatting. To print a measure inside the text: drop the measure (or a dimension, read as Max of its column) in the Measures well of the Text's Fields section, then write its #tag in the text (the panel lists the tags, e.g. #revenue, #category_max); the value follows the report's filters and slicers. Dropping a field straight onto a Text visual binds it and appends its #tag.
 - Image: Shapes → Image, then in its panel paste a URL or use Upload (upload is not available in the cloud edition), and choose Fit.
 - Line, Square, Round, Arrow are decorative shapes.
 - On a widget: View the SQL query, Refresh this widget's data, Cancel query (while loading).

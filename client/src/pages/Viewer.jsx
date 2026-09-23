@@ -534,7 +534,8 @@ export default function Viewer() {
       // Filter widgets always fetch — they need RLS-filtered distinct values
       // for their bound dimension.
       if (w.type === 'filter') return hasMainBinding;
-      if (w.type === 'text') return hasColorMeas;
+      // A text queries the measures bound to it (printed where it says #tag).
+      if (w.type === 'text') return hasColorMeas || hasMeas;
       return hasMainBinding || hasColorMeas;
     });
     if (toFetch.length > 0) {

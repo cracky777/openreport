@@ -110,3 +110,23 @@ describe('non-additive measures', () => {
     expect(data._nonAdditiveMeasures).toEqual(['Avg basket']);
   });
 });
+
+describe('text with bound measures', () => {
+  const textWidget = {
+    type: 'text',
+    dataBinding: { selectedMeasures: ['sales.amt_sum', 'sales.amt_avg', 'sales.country@@agg:max'] },
+    data: { text: 'Sales #sales on #avg_basket in #country_max', runs: [{ text: 'Sales ' }, { text: '#sales on #avg_basket in #country_max', bold: true }] },
+  };
+  test('the answer is keyed by #tag and leaves the text and its runs alone', () => {
+    const data = build(textWidget, [{ Sales: 1234, 'Avg basket': 12.5, 'Country (max)': 'ZW' }]);
+    expect(data.text).toBe(textWidget.data.text);
+    expect(data.runs).toEqual(textWidget.data.runs);
+    expect(data.values).toEqual({ sales: 1234, avg_basket: 12.5, country_max: 'ZW' });
+  });
+  test('no rows: the author text stays and no value is offered', () => {
+    const data = build(textWidget, []);
+    expect(data.text).toBe(textWidget.data.text);
+    expect(data.runs).toEqual(textWidget.data.runs);
+    expect(data.values).toBeUndefined();
+  });
+});

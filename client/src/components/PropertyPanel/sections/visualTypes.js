@@ -1,8 +1,10 @@
 // Which widget types get which sections — plain data, shared by the sections.
 export const CHART_TYPES = new Set(['bar', 'line', 'combo', 'pie', 'scatter', 'treemap']);
 export const AXIS_TYPES = new Set(['bar', 'line', 'scatter', 'combo']);
-// Widgets with no data binding at all: nothing to filter, limit or colour by value.
-export const STATIC_TYPES = new Set(['text', 'shape', 'image']);
+// Widgets with no data binding at all: nothing to filter, limit or colour by
+// value. A text is not one: it binds measures and prints them where it says
+// "#tag".
+export const STATIC_TYPES = new Set(['shape', 'image']);
 
 export const isChart = (type) => CHART_TYPES.has(type);
 export const hasAxes = (type) => AXIS_TYPES.has(type);

@@ -302,6 +302,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
     if (!plan) return;
     const next = { ...widget, dataBinding: { ...(widget.dataBinding || {}), ...plan.binding } };
     if (plan.config) next.config = plan.config;
+    if (plan.data) next.data = { ...(widget.data || {}), ...plan.data };
     onWidgetUpdate(item.i, next);
     // The field landed somewhere the user cannot see from the canvas; select
     // the visual so the panel shows which well took it, ready to be changed.

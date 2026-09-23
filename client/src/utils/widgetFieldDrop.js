@@ -1,4 +1,6 @@
 import { baseMeasureName, nextAggVariant, dimensionAsMeasure } from './aggVariant';
+import { runsFromData, runsToText, normalizeRuns } from './textRuns';
+import { tagFor } from './textMeasures';
 
 // Where a field lands when it is dropped straight onto a visual.
 //
@@ -171,8 +173,24 @@ function targetsFor({ widget, fieldName, fieldType, model }) {
     case 'customVisual':
       return isDim ? list([dimZone('Dimensions'), measZone('Measures')]) : list([measZone('Measures')]);
 
+    case 'text': {
+      // The field joins the text's Measures well (a dimension as a reading of
+      // its column, as elsewhere) and its "#tag" is written at the end of the
+      // text, where the value will print — the author moves it from there.
+      const entry = asMeasureEntry(fieldName, isDim, meas, binding, model);
+      const runs = runsFromData(widget.data);
+      const tag = '#' + tagFor(entry, model);
+      const sep = runs.length > 0 && !/\s$/.test(runsToText(runs)) ? ' ' : '';
+      const nextRuns = normalizeRuns([...runs, { text: sep + tag }]);
+      return list([{
+        zone: 'Measures',
+        binding: { selectedMeasures: [...meas, entry] },
+        data: { runs: nextRuns, text: runsToText(nextRuns) },
+      }]);
+    }
+
     default:
-      // text, shape, image — nothing here reads the model.
+      // shape, image — nothing here reads the model.
       return none;
   }
 }

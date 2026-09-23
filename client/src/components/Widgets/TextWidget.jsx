@@ -1,7 +1,26 @@
 import { useState, useEffect, useMemo } from 'react';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 import { runsFromData, runsToText, normalizeRuns, runStyle } from '../../utils/textRuns';
+import { fillTags } from '../../utils/textMeasures';
+import formatNumber from '../../utils/formatNumber';
+import { formatDuration } from '../../utils/formatHuman';
+import { toNumber } from '../../utils/numericValue';
 import RichTextEditor from './RichTextEditor';
+
+// What a "#tag" prints once the query answered: the value under that tag,
+// formatted as the measure asks. A tag with no value yet — nothing bound,
+// nothing fetched, or the query returned no row — stays as typed, so the
+// author sees which word the visual is waiting on.
+function tagValue(data, tag) {
+  if (!data?.values || !(tag in data.values)) return undefined;
+  const raw = data.values[tag];
+  if (raw === undefined || raw === null || raw === '') return '';
+  const n = toNumber(raw);
+  if (isNaN(n)) return String(raw);
+  if ((data.valueDurations || []).includes(tag)) return formatDuration(n);
+  const fmt = data.valueFormats?.[tag];
+  return fmt ? formatNumber(n, fmt) : n.toLocaleString();
+}
 
 const _hs0 = { opacity: 0.4, fontStyle: 'italic' };
 
@@ -106,7 +125,7 @@ export default function TextWidget({ data, config, onDataUpdate }) {
     >
       {runs.length > 0 ? (
         <div style={BLOCK_STYLE}>
-          {runs.map((run, i) => <span key={i} style={runStyle(run)}>{run.text}</span>)}
+          {runs.map((run, i) => <span key={i} style={runStyle(run)}>{fillTags(run.text, (tag) => tagValue(data, tag))}</span>)}
         </div>
       ) : (
         <span style={_hs0}>

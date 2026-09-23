@@ -102,7 +102,6 @@ describe('planFieldDrop', () => {
   test('a visual with no well for that kind of field refuses the drop', () => {
     expect(drop(w('gauge'), 'Country', 'dimension').zone).toBe('Value');
     expect(drop(w('filter'), 'Sales', 'measure')).toBeNull();
-    expect(drop(w('text'), 'Sales', 'measure')).toBeNull();
     expect(drop(w('shape'), 'Country', 'dimension')).toBeNull();
     expect(drop(w('image'), 'Sales', 'measure')).toBeNull();
   });
@@ -140,5 +139,26 @@ describe('dropTargets — every well the field could take', () => {
     const full = w('gauge', { selectedMeasures: ['Sales'], gaugeMaxMeasure: 'T', gaugeThresholdMeasure: 'F' });
     expect(drop(full, 'Other', 'measure')).toBeNull();
     expect(dropTargets({ widget: full, fieldName: 'Other', fieldType: 'measure', model: MODEL }).map((t) => t.zone)).toEqual(['Value', 'Max', 'Threshold']);
+  });
+});
+
+describe('a text takes a field in its Measures well', () => {
+  test('a measure is bound and its #tag written at the end of the text', () => {
+    const widget = { type: 'text', dataBinding: {}, config: {}, data: { text: 'Total:', runs: [{ text: 'Total:', bold: true }] } };
+    const got = planFieldDrop({ widget, fieldName: 'Sales', fieldType: 'measure', model: MODEL });
+    expect(got.zone).toBe('Measures');
+    expect(got.binding).toEqual({ selectedMeasures: ['Sales'] });
+    expect(got.data.text).toBe('Total: #sales');
+    expect(got.data.runs).toEqual([{ text: 'Total:', bold: true }, { text: ' #sales' }]);
+  });
+  test('a dimension is read as Max of its column, tagged with that reading', () => {
+    const widget = { type: 'text', dataBinding: { selectedMeasures: ['Sales'] }, config: {}, data: { text: 'Sales #sales ' } };
+    const got = planFieldDrop({ widget, fieldName: 'Country', fieldType: 'dimension', model: MODEL });
+    expect(got.binding).toEqual({ selectedMeasures: ['Sales', 'Country@@agg:max'] });
+    expect(got.data.text).toBe('Sales #sales #country_max');
+  });
+  test('an empty text starts with the tag alone', () => {
+    const got = planFieldDrop({ widget: w('text'), fieldName: 'Sales', fieldType: 'measure', model: MODEL });
+    expect(got.data.text).toBe('#sales');
   });
 });

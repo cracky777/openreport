@@ -25,6 +25,7 @@
 import { variantDefsFor } from './timeIntelligence';
 import { toNumber } from './numericValue';
 import { parseAggVariant } from './aggVariant';
+import { tagFor } from './textMeasures';
 
 export function buildWidgetData({
   widget,
@@ -89,6 +90,8 @@ export function buildWidgetData({
       emptyData._isDrillLeaf = drillPath.length >= fullHierarchy.length - 1;
     }
     if (bindingKey) emptyData._fetchedBinding = bindingKey;
+    // A text keeps what the author wrote whatever the query answered.
+    if (w.type === 'text') { emptyData.text = w.data?.text; emptyData.runs = w.data?.runs; }
     return emptyData;
   }
 
@@ -258,6 +261,22 @@ export function buildWidgetData({
       newData._barMeasureLabel = cbm.map((mn) => gl(mn, effectiveModel?.measures)).join(', ');
       newData._lineMeasureLabel = clm.map((mn) => gl(mn, effectiveModel?.measures)).join(', ');
     }
+  } else if (w.type === 'text') {
+    // The measures bound to the text, one value each (no grain), keyed by
+    // the "#tag" the text reaches them with. The text and its runs stay: the
+    // answer fills the tags, it does not replace what the author wrote.
+    const row = rows[0] || {};
+    const values = {};
+    const valueFormats = {};
+    const valueDurations = [];
+    for (const mn of meass) {
+      const md = (effectiveModel?.measures || []).find((x) => x.name === mn);
+      const tag = tagFor(mn, effectiveModel);
+      values[tag] = row[gl(mn, effectiveModel?.measures)];
+      if (md?.format) valueFormats[tag] = md.format;
+      if (String(md?.dataType || '').toLowerCase() === 'interval') valueDurations.push(tag);
+    }
+    newData = { text: w.data?.text, runs: w.data?.runs, values, valueFormats, valueDurations };
   } else if (w.type === 'table') {
     // Object.values would have included the companion column — the number the
     // author's text is positioned by is not a column of the table.

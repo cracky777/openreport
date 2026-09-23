@@ -5,10 +5,14 @@
 // zone carries a "(measure)" suffix.
 import { Section } from '../controls';
 import DropZone from '../../DropZone/DropZone';
+import { tagFor } from '../../../utils/textMeasures';
+
+const TAG_HINT_STYLE = { fontSize: 11, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 };
+const TAG_STYLE = { fontFamily: 'monospace', color: 'var(--text-primary)', background: 'var(--bg-hover)', borderRadius: 3, padding: '0 4px' };
 
 export default function FieldsSection({ ctx }) {
   const {
-    widget, widgetId, onUpdate, binding, updateBinding,
+    widget, widgetId, onUpdate, binding, updateBinding, model,
     fieldInfos, measureInfos, dimensionNames, handleAggChange, onTimeVariant, asMeasure,
     selectedDims, selectedMeass, groupBy, columnDims,
     getZoneSort, setZoneSort, handleDrop, handleRemove, handleRemoveGroupBy, removeColumnDim, handleReorder,
@@ -170,6 +174,19 @@ export default function FieldsSection({ ctx }) {
     zones = (
       <DropZone label="Field" accepts={['dimension']} fields={selectedDims} zoneName="filter"
         onDrop={handleDrop('filter')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
+    );
+  } else if (type === 'text') {
+    // Each bound measure is reachable in the text by its tag; the hint spells
+    // the tags so the author can type them without guessing the folding.
+    zones = (
+      <>
+        {valuesZone('Measures')}
+        <div style={TAG_HINT_STYLE} data-testid="text-measure-tags">
+          {selectedMeass.length === 0
+            ? 'Drop a measure here, then write its #tag in the text to print its value.'
+            : <>Write in the text: {selectedMeass.map((m, i) => <span key={m}>{i > 0 ? ', ' : ''}<code style={TAG_STYLE}>#{tagFor(m, model)}</code></span>)}</>}
+        </div>
+      </>
     );
   }
 

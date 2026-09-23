@@ -182,7 +182,10 @@ export function useWidgetFetch({
       const hasMainBinding = (b.selectedDimensions?.length > 0 || hasMeas);
       // Conditional formatting — only counted as a reason to fetch when the toggle is on.
       const hasColorMeas = !!b.colorMeasure && w.config?.colorCondition?.enabled === true;
-      if ((w.type === 'filter' || w.type === 'text') && !hasColorMeas) return false;
+      // A slicer is queried by refreshSlicer; a text only when measures are
+      // bound to it (printed where the text says #tag) or it colours by one.
+      if (w.type === 'filter' && !hasColorMeas) return false;
+      if (w.type === 'text' && !hasColorMeas && !hasMeas) return false;
       if (!(hasMainBinding || hasColorMeas)) return false;
       // Per-widget cache: if this widget's effective filters (after the
       // interaction-exclusion stripping in filterForTarget) AND its
