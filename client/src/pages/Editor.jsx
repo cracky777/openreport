@@ -21,6 +21,7 @@ import { prepareGlobalRulesForWidget } from '../utils/reportFilterRules';
 import { parseFiltersFromUrl, syncFiltersToUrl } from '../utils/urlFilters';
 import { filterForTarget } from '../utils/crossFilter';
 import { computeBindingsSignature } from '../utils/bindingKey';
+import { slicerFilters, sameSelections } from '../utils/slicerFilters';
 import { convertData, buildSnapshot } from '../utils/editorHelpers';
 import { transformBinding } from '../utils/widgetZones';
 import { findFreeSlot } from '../utils/pageBounds';
@@ -367,25 +368,8 @@ export default function Editor() {
     // managed set from `fromWidgets` (only slicers WITH a selection), so
     // clearing a slicer left its old value preserved as if it were a URL
     // filter, and visuals stayed stuck on the previous selection.
-    const slicerManagedDims = new Set();
-    const fromWidgets = {};
-    for (const w of Object.values(widgets || {})) {
-      if (w?.type !== 'filter') continue;
-      const dim = w.dataBinding?.selectedDimensions?.[0];
-      if (!dim) continue;
-      slicerManagedDims.add(dim);
-      const vals = w.config?.selectedValues;
-      if (Array.isArray(vals) && vals.length > 0) fromWidgets[dim] = vals;
-    }
-    const sameContent = (a, b) => {
-      const aK = Object.keys(a), bK = Object.keys(b);
-      if (aK.length !== bK.length) return false;
-      for (const k of aK) {
-        if (!b[k] || a[k].length !== b[k].length) return false;
-        for (let i = 0; i < a[k].length; i++) if (a[k][i] !== b[k][i]) return false;
-      }
-      return true;
-    };
+    const { fromWidgets, managedDims: slicerManagedDims } = slicerFilters(widgets);
+    const sameContent = sameSelections;
     setSlicerSelections((prev) => sameContent(prev, fromWidgets) ? prev : fromWidgets);
     setReportFilters((prev) => {
       // reportFilters = (URL/external for dims without a slicer) ∪ slicer ∪ crossHighlight
@@ -808,8 +792,19 @@ export default function Editor() {
   // cross-filter / drill-leaf click, which would flood the server with heavy
   // bypassCache `DISTINCT` slicer queries and make drilling feel uncached.
   const prevSettingsFiltersRef = useRef(null);
-  const abortControllerRef = useRef(null);
+  // One AbortController per visual with queries in flight (wId → controller).
+  const abortControllerRef = useRef(new Map());
   const debounceTimerRef = useRef(null);
+  // Per page: { layout, widgets } of the pages not on screen (see switchPage).
+  const pagesDataRef = useRef({});
+  // A visual's answer arriving after its page left the screen is filed on
+  // that page, so coming back shows it instead of querying it again.
+  const keepHiddenResult = useCallback((wId, data) => {
+    for (const page of Object.values(pagesDataRef.current)) {
+      const w = page?.widgets?.[wId];
+      if (w) page.widgets = { ...page.widgets, [wId]: { ...w, _loading: false, data } };
+    }
+  }, []);
   // Set of queryIds currently registered server-side. handleCancelFetch
   // fires a cancel-query call for each so the underlying SQL is aborted
   // (pg_cancel_backend, KILL QUERY, mssql request.cancel, etc.).
@@ -818,7 +813,6 @@ export default function Editor() {
   // when the fetch settles. If the effect's cleanup cancels the debounce
   // before it fires, we revert these flags so the spinner doesn't stick.
   const pendingLoadingRef = useRef(null);
-  const skipNextRefetch = useRef(false); // set to true when filters are restored from saved state
   const prevRefreshCounter = useRef(0);
   // Tracks whether the *next* refresh-counter bump was caused by an
   // explicit user action (Refresh button) vs an internal trigger like
@@ -1082,7 +1076,8 @@ export default function Editor() {
     queryIds.forEach((qid) => {
       api.post('/models/cancel-query', { queryId: qid }).catch(() => {});
     });
-    if (abortControllerRef.current) abortControllerRef.current.abort();
+    for (const controller of abortControllerRef.current.values()) controller.abort();
+    abortControllerRef.current.clear();
     if (debounceTimerRef.current) { clearTimeout(debounceTimerRef.current); debounceTimerRef.current = null; }
     const pending = pendingLoadingRef.current;
     pendingLoadingRef.current = null;
@@ -1109,11 +1104,12 @@ export default function Editor() {
   useWidgetFetch({
     reportFilters, settings, refreshCounter, model, report, id,
     effectiveModel, setRefreshing, history,
-    crossFilterSourceRef, prevRefreshCounter, refreshIsManualRef, skipNextRefetch,
+    crossFilterSourceRef, prevRefreshCounter, refreshIsManualRef,
     prevFiltersJson, abortControllerRef, debounceTimerRef, drillingWidgetIdRef,
     interactionToggleTargetRef, widgetRefreshIdRef, prevSettingsFiltersRef,
     refreshSlicerRef, crossHighlightRef, pendingLoadingRef, activeQueryIdsRef,
     bindingsSignature, prevBindingsSignatureRef, prevBindingSignaturesRef,
+    onHiddenResult: keepHiddenResult,
   });
 
   const [loading, setLoading] = useState(true);
@@ -1128,7 +1124,6 @@ export default function Editor() {
   // Multi-page support
   const [pages, setPages] = useState([{ id: 'page-1', name: 'Page 1' }]);
   const [currentPageIdx, setCurrentPageIdx] = useState(0);
-  const pagesDataRef = useRef({}); // stores { [pageId]: { layout, widgets } }
 
   // While the pages column animates open/closed, take the canvas out of the flex flow and pin
   // it absolutely at its current position/size. That way the column animation doesn't shift or
@@ -1161,11 +1156,11 @@ export default function Editor() {
   // user navigated to a page-2 that has no slicer on that dim. Net effect:
   // a slicer set on page 1 silently filtered every widget on page 2.
   //
-  // Wiping reportFilters + slicerSelections + crossHighlight on every
-  // switch breaks that leak — the slicer's own selectedValues stay on
-  // `widget.config`, so when the user navigates back to page 1 the
-  // widgets effect rebuilds the same reportFilters map from the visible
-  // slicers, preserving the user's selection on its home page.
+  // Every switch replaces reportFilters + slicerSelections with the TARGET
+  // page's own slicer selections (kept on `widget.config`) and drops the
+  // cross-highlight — that breaks the leak. Derived here, in the same commit
+  // as the widgets, so the fetch pass sees the page under its real filters
+  // and only queries what its saved data does not already answer.
   const switchPage = useCallback((idx) => {
     if (idx === currentPageIdx) return;
     const curPage = pages[currentPageIdx];
@@ -1177,8 +1172,9 @@ export default function Editor() {
     const targetPage = pages[idx];
     const targetData = pagesDataRef.current[targetPage.id] || { layout: [], widgets: {} };
     history.set(targetData);
-    setReportFilters({});
-    setSlicerSelections({});
+    const targetFilters = slicerFilters(targetData.widgets).fromWidgets;
+    setReportFilters(targetFilters);
+    setSlicerSelections(targetFilters);
     setCrossHighlight(null);
   }, [currentPageIdx, pages, history, setSelectedWidget]);
 
@@ -1495,8 +1491,8 @@ export default function Editor() {
         // the fetch effect, so the load-time `settings.reportFilters`
         // transition ({} → saved) is misread as a user global-filter
         // change and the slicer needlessly refetches on every editor open
-        // (notably after a warm, when saved widget data is judged stale so
-        // skipNextRefetch isn't set). Now: slicer refreshes ⟺ a real
+        // (notably after a warm, when saved widget data is judged stale). Now:
+        // slicer refreshes ⟺ a real
         // post-load global-filter change OR an explicit/manual refresh.
         prevSettingsFiltersRef.current = JSON.stringify(
           Array.isArray(r.settings?.reportFilters) ? r.settings.reportFilters : []
@@ -1526,30 +1522,14 @@ export default function Editor() {
           history.set({ layout: r.layout || [], widgets: firstPageWidgets });
         }
         setCurrentPageIdx(0);
-
-        // slicerSelections/reportFilters are auto-derived from widgets' config.selectedValues.
-        // Skip the resulting refetch — but only when the saved data is actually
-        // present. Reports saved before the data.values cap fix could have
-        // stripped widget.data; in that case we must let the effect fire so
-        // visuals repopulate.
-        const hasSavedFilter = Object.values(firstPageWidgets).some((w) => {
-          if (w?.type !== 'filter') return false;
-          return Array.isArray(w.config?.selectedValues) && w.config.selectedValues.length > 0;
-        });
-        const hasUsableSavedData = Object.values(firstPageWidgets).every((w) => {
-          if (!w || w.type === 'text' || w.type === 'shape' || w.type === 'image') return true;
-          const d = w.data;
-          if (!d || typeof d !== 'object') return false;
-          return Array.isArray(d.values)
-            || Array.isArray(d.rows)
-            || Array.isArray(d.labels)
-            || Array.isArray(d.items)
-            || Array.isArray(d.points)
-            || Array.isArray(d.barSeries)
-            || Array.isArray(d.rawRows)
-            || typeof d.value !== 'undefined';
-        });
-        if (hasSavedFilter && hasUsableSavedData) skipNextRefetch.current = true;
+        // The page's slicer filters land with its widgets, so the first fetch
+        // pass compares every saved snapshot against its real key: a visual
+        // saved under these filters and this cache build stays as it is, a
+        // stale one (cache rebuilt since, filter changed) is queried now
+        // rather than on the first page switch.
+        const firstFilters = slicerFilters(firstPageWidgets).fromWidgets;
+        setSlicerSelections(firstFilters);
+        setReportFilters(firstFilters);
 
         if (r.model_id) {
           const modelRes = await api.get(`/models/${r.model_id}`);

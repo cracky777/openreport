@@ -14,8 +14,11 @@ import { prepareGlobalRulesForWidget } from '../utils/reportFilterRules';
 // unchanged; every value/ref/callback it reads is passed in, so the closure and
 // dependency array stay identical to the inline original.
 export function useWidgetFetch({
-  reportFilters, settings, refreshCounter, model, report, id, effectiveModel, setRefreshing, history, crossFilterSourceRef, prevRefreshCounter: prevRefreshCounterRef, refreshIsManualRef, skipNextRefetch: skipNextRefetchRef, prevFiltersJson: prevFiltersJsonRef, abortControllerRef, debounceTimerRef, drillingWidgetIdRef, interactionToggleTargetRef, widgetRefreshIdRef, prevSettingsFiltersRef, refreshSlicerRef, crossHighlightRef, pendingLoadingRef, activeQueryIdsRef,
+  reportFilters, settings, refreshCounter, model, report, id, effectiveModel, setRefreshing, history, crossFilterSourceRef, prevRefreshCounter: prevRefreshCounterRef, refreshIsManualRef, prevFiltersJson: prevFiltersJsonRef, abortControllerRef, debounceTimerRef, drillingWidgetIdRef, interactionToggleTargetRef, widgetRefreshIdRef, prevSettingsFiltersRef, refreshSlicerRef, crossHighlightRef, pendingLoadingRef, activeQueryIdsRef,
   bindingsSignature, prevBindingsSignatureRef, prevBindingSignaturesRef,
+  // (wId, data) for an answer whose visual is no longer on screen — on another
+  // page of the report. `abortControllerRef.current` is a Map wId → controller.
+  onHiddenResult,
 }) {
   useEffect(() => {
     // Compare against report-level filters (from Settings) too — changing the
@@ -66,21 +69,16 @@ export function useWidgetFetch({
     const manualRefresh = refreshRequested && refreshIsManualRef.current;
     refreshIsManualRef.current = false;
     prevRefreshCounterRef.current = refreshCounter;
-    // Skip refetch if we just restored filters from saved state — saved widget data already reflects them
-    if (skipNextRefetchRef.current) {
-      skipNextRefetchRef.current = false;
-      prevFiltersJsonRef.current = json;
-      return;
-    }
     // Skip only if NOTHING changed: filters identical AND no fresh cross-filter click AND no refresh request
     if (json === prevFiltersJsonRef.current && sourceId === null && !refreshRequested
         && !bindingsChanged) return;
     if (!model) return;
     prevFiltersJsonRef.current = json;
 
-    // Abort previous in-flight requests
-    if (abortControllerRef.current) abortControllerRef.current.abort();
-    // Clear previous debounce
+    // Clear previous debounce. In-flight queries are NOT aborted here: a run
+    // only replaces the queries of the visuals it re-issues (see the
+    // per-visual controllers below), so a page switch, a slicer of another
+    // dimension or a settings save leaves the other loads running.
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
 
     crossFilterSourceRef.current = null;
@@ -154,12 +152,15 @@ export function useWidgetFetch({
     // only became reachable when a field could be dropped straight onto a
     // visual — the panel edits the selected widget, and a selected slicer
     // reloads on its own.
+    // A page switch makes every widget of the new page "appear" here; a slicer
+    // that arrives with its saved list of values needs no query for that.
     if (movedIds) {
       for (const wId of movedIds) {
         const w = currentWidgets[wId];
-        if (w?.type === 'filter' && w.dataBinding?.selectedDimensions?.[0]) {
-          refreshSlicerRef.current?.(wId);
-        }
+        if (w?.type !== 'filter' || !w.dataBinding?.selectedDimensions?.[0]) continue;
+        const appeared = !prevPer || !(wId in prevPer);
+        if (appeared && Array.isArray(w.data?.values) && w.data.values.length > 0) continue;
+        refreshSlicerRef.current?.(wId);
       }
     }
 
@@ -226,10 +227,15 @@ export function useWidgetFetch({
 
     // Debounce 150ms — if user clicks rapidly, only the last one fires
     debounceTimerRef.current = setTimeout(() => {
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-
       const promises = toFetch.map(([wId, w]) => {
+        // One controller per visual: re-issuing its queries cancels only its
+        // own previous ones. A single shared controller used to cancel every
+        // load in flight on any run — leaving a page mid-load lost that
+        // page's answers, and coming back queried it all over again.
+        const previous = abortControllerRef.current.get(wId);
+        if (previous) previous.abort();
+        const controller = new AbortController();
+        abortControllerRef.current.set(wId, controller);
         // Build the query bodies + per-widget metadata in one shot.
         // Pure utility — Editor passes manualRefresh as bypassCache and
         // skips filter widgets entirely (they're already excluded from
@@ -345,14 +351,20 @@ export function useWidgetFetch({
           // when it's ready. React 18 batches the setSilent calls that
           // share a tick so a wave of fast widgets still resolves with a
           // single render.
+          if (abortControllerRef.current.get(wId) === controller) abortControllerRef.current.delete(wId);
           if (controller.signal.aborted) return { wId, data: null };
+          // The visual may have left the screen with its page while its
+          // queries ran: the answer then goes to the page it belongs to
+          // (onHiddenResult), so coming back shows it instead of asking again.
+          let hidden = false;
           history.setSilent((prev) => {
-            if (!prev.widgets?.[wId]) return prev;
+            if (!prev.widgets?.[wId]) { hidden = true; return prev; }
             return {
               ...prev,
               widgets: { ...prev.widgets, [wId]: { ...prev.widgets[wId], _loading: false, data: data || {} } },
             };
           });
+          if (hidden && onHiddenResult) onHiddenResult(wId, data || {});
           return { wId, data };
         });
       });
@@ -362,7 +374,6 @@ export function useWidgetFetch({
       // per-promise commit above — no batched widget update here.
       Promise.all(promises).then(() => {
         pendingLoadingRef.current = null;
-        if (controller.signal.aborted) { setRefreshing(false); return; }
         setRefreshing(false);
       });
     }, 150);
