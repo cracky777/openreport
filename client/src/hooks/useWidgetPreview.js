@@ -45,11 +45,12 @@ export function useWidgetPreview(widget, { model, reportId, settings, enabled = 
     const optional = (body) => (body ? post(body).catch(() => null) : Promise.resolve(null));
     const main = bodies.main ? post(bodies.main) : Promise.reject(new Error('Nothing to query'));
 
-    Promise.all([main, optional(bodies.color), optional(bodies.total), optional(bodies.n1), optional(bodies.comboLine)])
-      .then(([res, colorRes, totalRes, n1Res, comboLineRes]) => {
+    const period = bodies.period ? Promise.all(bodies.period.map(optional)) : Promise.resolve(null);
+    Promise.all([main, optional(bodies.color), optional(bodies.total), optional(bodies.n1), optional(bodies.comboLine), period])
+      .then(([res, colorRes, totalRes, n1Res, comboLineRes, periodRes]) => {
         const data = buildWidgetData({
           widget: capped, rows: res.data?.rows, meta, effectiveModel: model,
-          colorRes, totalRes, n1Res, comboLineRes,
+          colorRes, totalRes, n1Res, comboLineRes, periodRes,
           totalComponents: res.data?.totalComponents || null,
           sql: null,
         });

@@ -7,6 +7,7 @@ import {
   shiftWidgetFiltersForN1,
 } from './comparePeriod';
 import { timePeriodFilter, timePeriodOf, comparableRange, buildTimeVariants } from './timeIntelligence';
+import { splitPeriodMeasures, shiftFilterContext } from './periodShift';
 
 // Build the assembled query bodies + the resolved metadata needed by the
 // response handler for one widget. Pure function — no React, no axios,
@@ -216,6 +217,11 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
   const { names: measureNames, timeVariants } = buildTimeVariants(
     dedupMeasures ? [...new Set(meass)] : meass, effectiveModel
   );
+  // Period-shifted measures with a date-derived dimension on the axis leave
+  // the main query and come back from one moved query per shift, realigned
+  // in buildWidgetData (see utils/periodShift.js).
+  const periodSplit = splitPeriodMeasures(measureNames, allDims, effectiveModel);
+  const mainMeasureNames = periodSplit.groups.length > 0 ? periodSplit.main : measureNames;
 
   // N-1 comparison query (scorecards only). Same SQL shape as the main
   // fetch but every filter on a year-like / full-date dim is shifted -1.
@@ -296,7 +302,7 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
 
   const mainQueryBody = hasMainBinding ? {
     dimensionNames: allDims,
-    measureNames,
+    measureNames: mainMeasureNames,
     measureAggOverrides: aggOverridesPayload,
     limit: queryLimit,
     filters: queryFilters,
@@ -348,6 +354,20 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
     ...commonExtras,
   } : null;
 
+  const periodQueryBodies = periodSplit.groups.map((g) => {
+    const moved = shiftFilterContext(queryFilters, widgetFilters, effectiveModel?.dimensions, g);
+    return {
+      dimensionNames: allDims,
+      measureNames: g.measures,
+      measureAggOverrides: aggOverridesPayload,
+      limit: queryLimit,
+      filters: moved.filters,
+      widgetFilters: sanitizeWidgetFilters(moved.widgetFilters),
+      ignorePeriodShift: true,
+      ...commonExtras,
+    };
+  });
+
   const comboLineQueryBody = comboLineApplies ? {
     dimensionNames: dims,
     measureNames: [...new Set(clm)],
@@ -369,6 +389,7 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
       colorMeasure, compareDateDim, comboLineApplies,
       topN: { applies: topNApplies, value: topNValue, measure: topNMeasure },
       n1: { shouldFetch: shouldFetchN1 },
+      periodGroups: periodSplit.groups,
       mainQueryId,
     },
     bodies: {
@@ -376,6 +397,7 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
       color: colorQueryBody,
       total: totalQueryBody,
       n1: n1QueryBody,
+      period: periodQueryBodies.length > 0 ? periodQueryBodies : null,
       comboLine: comboLineQueryBody,
       sqlOnly: sqlOnlyQueryBody,
     },

@@ -374,8 +374,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           ? api.post(`/models/${model.id}/query`, bodies.comboLine, { signal: abortController.signal }).catch(() => null)
           : Promise.resolve(null);
 
-        const [res, colorRes, totalRes, n1Res, comboLineRes] = await Promise.all([
-          mainPromise, colorPromise, totalPromise, n1Promise, comboLinePromise,
+        const periodPromise = bodies.period
+          ? Promise.all(bodies.period.map((b) => api.post(`/models/${model.id}/query`, b, { signal: abortController.signal }).catch(() => null)))
+          : Promise.resolve(null);
+        const [res, colorRes, totalRes, n1Res, comboLineRes, periodRes] = await Promise.all([
+          mainPromise, colorPromise, totalPromise, n1Promise, comboLinePromise, periodPromise,
         ]);
         if (run.cancelled) return;
 
@@ -390,7 +393,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           rows: res.data?.rows,
           meta,
           effectiveModel: model,
-          colorRes, totalRes, n1Res, comboLineRes,
+          colorRes, totalRes, n1Res, comboLineRes, periodRes,
           totalComponents: res.data?.totalComponents || null,
           sql, bindingKey,
           // DataPanel kept every selected dim in the pivot row list (no
@@ -1270,6 +1273,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 )}
                 <span style={dragHandle}>⠿</span>
                 <span style={{ ...truncatedLabel, fontWeight: 600 }} title={dateCol.label || dateCol.column}>{dateCol.label || dateCol.column}</span>
+                {dateCol.table && <span style={dateTableName} title={dateCol.table}>{String(dateCol.table).split('.').pop()}</span>}
                 <span style={{ ...dateTag, flexShrink: 0 }}>📅</span>
               </div>
               {/* Date parts — collapsed by default, expanded via the chevron */}
@@ -1715,6 +1719,8 @@ const dragHandle = {
   fontSize: 10, color: 'var(--border-strong)', cursor: 'grab', flexShrink: 0,
 };
 // Label inside a field row — truncates with "…" if too long
+const dateTableName = { fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90, flexShrink: 1 };
+
 const truncatedLabel = {
   flex: 1, minWidth: 0, fontSize: 12,
   overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',

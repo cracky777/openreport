@@ -30,7 +30,7 @@ function findDim(name, dimensions) {
 // date-table flavour AND fall back to label/name keyword sniffing for
 // raw integer columns named `year`/`annee`/`yr`/`anno` so out-of-the-box
 // schemas don't need any datePart annotation to work.
-function isYearLikeDim(dimDef) {
+export function isYearLikeDim(dimDef) {
   if (!dimDef) return false;
   if (dimDef.datePart === 'num_year') return true;
   if (dimDef.type === 'integer' || dimDef.type === 'number') {
@@ -40,7 +40,7 @@ function isYearLikeDim(dimDef) {
   return false;
 }
 
-function isFullDateDim(dimDef) {
+export function isFullDateDim(dimDef) {
   if (!dimDef) return false;
   return dimDef.type === 'date' || dimDef.datePart === 'full_date';
 }

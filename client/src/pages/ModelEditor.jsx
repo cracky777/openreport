@@ -428,14 +428,23 @@ export default function ModelEditor() {
     }]);
   };
 
+  // The same form adds a SQL measure or edits one (`editing` = its name).
+  // An edit keeps the name — widgets are bound to it — and everything the
+  // measure carries besides its label and SQL (format, rules, description).
   const addCalculatedMeasure = () => {
     if (!calcMeasure.label || !calcMeasure.expression) return;
-    const measName = `_calc.${calcMeasure.label.replace(/\s+/g, '_').toLowerCase()}`;
-    if (measures.find((m) => m.name === measName)) return;
-    setMeasures((prev) => [...prev, {
-      name: measName, table: '', column: '', aggregation: 'custom',
-      expression: calcMeasure.expression, label: calcMeasure.label,
-    }]);
+    if (calcMeasure.editing) {
+      setMeasures((prev) => prev.map((m) => (m.name === calcMeasure.editing
+        ? { ...m, label: calcMeasure.label, expression: calcMeasure.expression }
+        : m)));
+    } else {
+      const measName = `_calc.${calcMeasure.label.replace(/\s+/g, '_').toLowerCase()}`;
+      if (measures.find((m) => m.name === measName)) return;
+      setMeasures((prev) => [...prev, {
+        name: measName, table: '', column: '', aggregation: 'custom',
+        expression: calcMeasure.expression, label: calcMeasure.label,
+      }]);
+    }
     setCalcMeasure({ label: '', expression: '' });
     setShowCalcMeasure(false);
   };

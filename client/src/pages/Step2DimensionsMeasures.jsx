@@ -1,6 +1,8 @@
 import SqlExpressionInput from '../components/SqlExpressionInput/SqlExpressionInput';
 import ValidationBadge from '../components/ValidationBadge';
+import { EditIcon, DeleteIcon, ICON_SIZE } from '../components/actionIcons';
 import { readOverride, normalizeStoredType, chevronSvg } from '../utils/modelEditorHelpers';
+import { PERIOD_UNITS, periodShiftOf } from '../utils/periodShift';
 
 // Step 2 of the model wizard: review/edit the flagged dimensions & measures
 // (types, formats, labels, calculated measures) and the joins summary.
@@ -63,10 +65,17 @@ const editableInputStyle = {
 };
 const badge = { padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 };
 const warnIcon = { fontSize: 13, cursor: 'help', lineHeight: 1 };
-const removeBtn = {
-  fontSize: 12, color: 'var(--state-danger)', background: 'transparent', border: '1px solid #fca5a5',
-  borderRadius: 4, padding: '2px 8px', cursor: 'pointer',
+// Row actions: the shared glyphs (actionIcons), drawn light so a table of
+// fifty rows does not become a wall of buttons.
+const rowIconBtn = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  padding: 4, borderRadius: 6, background: 'transparent', border: '1px solid transparent',
+  cursor: 'pointer', color: 'var(--text-secondary)',
 };
+const removeBtn = { ...rowIconBtn, color: 'var(--state-danger)' };
+const shiftBtn = { ...rowIconBtn, marginRight: 2, fontSize: 11, fontWeight: 700, width: 'auto', padding: '0 6px' };
+const PERIOD_TITLE = 'The same selection moved back in time: the report\'s date filters shift by a year, a quarter, a month or a day for this measure alone (Power BI\'s SAMEPERIODLASTYEAR).';
+const editBtn = { ...rowIconBtn, marginRight: 2 };
 const addCalcBtn = {
   fontSize: 12, fontWeight: 600, padding: '4px 10px', border: '1px solid #8b5cf6',
   borderRadius: 4, background: 'var(--bg-active)', color: 'var(--accent-primary)', cursor: 'pointer',
@@ -98,6 +107,26 @@ export default function Step2DimensionsMeasures({
   brokenRefByKey,
   setColumnType, validateColumnType, removeDimension, addCalculatedMeasure, removeMeasure,
 }) {
+  // The date columns a period shift can move: what the report filters by.
+  const dateDims = dimensions.filter((d) => d.table && d.column && !d.datePart && !d.expression
+    && normalizeStoredType(readOverride(columnTypes[`${d.table}.${d.column}`])?.type || d.type) === 'date');
+  const periodOptions = dateDims.flatMap((d) => PERIOD_UNITS.map((u) => ({
+    value: `${u.value}|${d.name}`,
+    label: dateDims.length > 1 ? `${u.label} · ${d.label || d.name}` : u.label,
+  })));
+  const setPeriodShift = (name, value) => setMeasures((prev) => prev.map((x) => {
+    if (x.name !== name) return x;
+    const { periodShift: _drop, ...rest } = x;
+    if (!value) return rest;
+    const [unit, dim] = value.split('|');
+    return { ...rest, periodShift: { dim, unit, n: -1 } };
+  }));
+  // A shifted copy next to the base: "Amount" and "Amount (N-1)" side by side.
+  const addShiftedCopy = (m) => setMeasures((prev) => {
+    let name = `${m.name}_prev_year`;
+    for (let i = 2; prev.some((x) => x.name === name); i++) name = `${m.name}_prev_year_${i}`;
+    return [...prev, { ...m, name, label: `${m.label || m.name} (N-1)`, periodShift: { dim: dateDims[0].name, unit: 'year', n: -1 } }];
+  });
   return (
     <div style={_hs43}>
       <div style={_hs44}>
@@ -300,7 +329,7 @@ export default function Step2DimensionsMeasures({
                       />
                     </td>
                     <td style={tdStyle}>
-                      <button className="btn-hover btn-hover-danger" onClick={() => removeDimension(d.name)} style={removeBtn}>Remove</button>
+                      <button className="btn-hover btn-hover-danger" onClick={() => removeDimension(d.name)} style={removeBtn} title="Remove this dimension"><DeleteIcon size={ICON_SIZE.modal} /></button>
                     </td>
                   </tr>
                   );
@@ -314,12 +343,12 @@ export default function Step2DimensionsMeasures({
         <div style={cardStyle}>
           <div style={_hs49}>
             <h3 style={{ ...cardTitle, marginBottom: 0 }}>Measures ({measures.length})</h3>
-            <button className="btn-hover btn-hover-accent" onClick={() => setShowCalcMeasure(true)} style={addCalcBtn}>+ Measure</button>
+            <button className="btn-hover btn-hover-accent" onClick={() => { setCalcMeasure({ label: '', expression: '' }); setShowCalcMeasure(true); }} style={addCalcBtn}>+ Measure</button>
           </div>
 
           {showCalcMeasure && (
             <div style={_hs50}>
-              <div style={_hs51}>New calculated measure</div>
+              <div style={_hs51}>{calcMeasure.editing ? 'Edit calculated measure' : 'New calculated measure'}</div>
               <input
                 type="text" placeholder="Label (e.g. Amount per capita)"
                 value={calcMeasure.label} onChange={(e) => setCalcMeasure({ ...calcMeasure, label: e.target.value })}
@@ -333,7 +362,7 @@ export default function Step2DimensionsMeasures({
               />
               <div style={_hs52}>
                 <button className="btn-hover" onClick={() => { setShowCalcMeasure(false); setCalcMeasure({ label: '', expression: '' }); }} style={calcCancelBtn}>Cancel</button>
-                <button className="btn-hover btn-hover-primary" onClick={addCalculatedMeasure} disabled={!calcMeasure.label || !calcMeasure.expression} style={calcSaveBtn}>Add</button>
+                <button className="btn-hover btn-hover-primary" onClick={addCalculatedMeasure} disabled={!calcMeasure.label || !calcMeasure.expression} style={calcSaveBtn}>{calcMeasure.editing ? 'Save' : 'Add'}</button>
               </div>
             </div>
           )}
@@ -350,6 +379,7 @@ export default function Step2DimensionsMeasures({
                   <th style={thStyle}>Column</th>
                   <th style={thStyle}>Aggregation</th>
                   <th style={thStyle}>Label (display name)</th>
+                  <th style={thStyle} title={PERIOD_TITLE}>Period</th>
                   <th style={thStyle}></th>
                 </tr>
               </thead>
@@ -359,7 +389,7 @@ export default function Step2DimensionsMeasures({
                   return (
                   <tr key={m.name} style={broken ? { background: 'var(--state-warning-soft)' } : undefined} title={broken ? (broken.issue === 'missing_table' ? `Table "${broken.table}" not found` : broken.issue === 'missing_column' ? `Column "${broken.column}" missing in "${broken.table}"` : broken.issue) : undefined}>
                     <td style={tdStyle}>{broken && <span style={_hs54}>⚠️</span>}{m.aggregation === 'custom' ? <span style={_hs55}>SQL</span> : m.table}</td>
-                    <td style={tdStyle} title={m.expression || ''}>
+                    <td style={tdStyle} title={m.description ? `${m.description}\n\n${m.expression || ''}` : (m.expression || '')}>
                       {m.aggregation === 'custom' ? (
                         <span style={_hs56}>
                           {m.expression?.length > 30 ? m.expression.substring(0, 30) + '...' : m.expression}
@@ -391,7 +421,31 @@ export default function Step2DimensionsMeasures({
                       />
                     </td>
                     <td style={tdStyle}>
-                      <button className="btn-hover btn-hover-danger" onClick={() => removeMeasure(m.name)} style={removeBtn}>Remove</button>
+                      {periodOptions.length === 0 ? (
+                        <span style={_hs55} title="Add a date dimension to compare periods">—</span>
+                      ) : (
+                        <select
+                          style={inlineInput}
+                          title={PERIOD_TITLE}
+                          value={(() => { const ps = periodShiftOf(m); return ps ? `${ps.unit}|${ps.dim}` : ''; })()}
+                          onChange={(e) => setPeriodShift(m.name, e.target.value)}
+                        >
+                          <option value="">Current</option>
+                          {periodOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                      )}
+                    </td>
+                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                      {!periodShiftOf(m) && periodOptions.length > 0 && (
+                        <button className="btn-hover" title="Add a copy of this measure over the previous year (N-1)"
+                          onClick={() => addShiftedCopy(m)} style={shiftBtn}>N-1</button>
+                      )}
+                      {m.aggregation === 'custom' && (
+                        <button className="btn-hover" title="Edit the label and the SQL of this measure"
+                          onClick={() => { setCalcMeasure({ label: m.label || '', expression: m.expression || '', editing: m.name }); setShowCalcMeasure(true); }}
+                          style={editBtn}><EditIcon size={ICON_SIZE.modal} /></button>
+                      )}
+                      <button className="btn-hover btn-hover-danger" onClick={() => removeMeasure(m.name)} style={removeBtn} title="Remove this measure"><DeleteIcon size={ICON_SIZE.modal} /></button>
                     </td>
                   </tr>
                   );
@@ -415,7 +469,7 @@ export default function Step2DimensionsMeasures({
                   <span style={{ ...badge, background: 'var(--bg-active)', color: 'var(--accent-primary)' }}>{j.type}</span>
                   <span style={_hs63}>{j.to_table}</span>
                   <span style={_hs64}>.{j.to_column}</span>
-                  <button className="btn-hover btn-hover-danger" onClick={() => setJoins((prev) => prev.filter((_, idx) => idx !== i))} style={{ ...removeBtn, marginLeft: 'auto' }}>x</button>
+                  <button className="btn-hover btn-hover-danger" onClick={() => setJoins((prev) => prev.filter((_, idx) => idx !== i))} style={{ ...removeBtn, marginLeft: 'auto' }} title="Remove this join"><DeleteIcon size={ICON_SIZE.modal} /></button>
                 </div>
               ))}
             </div>

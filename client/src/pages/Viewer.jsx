@@ -83,7 +83,8 @@ export default function Viewer() {
       ...model,
       dimensions: [...baseDims, ...extraDims],
       measures: [...baseMeas, ...extraMeas],
-      dateColumn: s.dateColumn != null ? s.dateColumn : model.dateColumn,
+      // Null is the editor's "removed", not an absence.
+      dateColumn: s.dateColumn !== undefined ? s.dateColumn : model.dateColumn,
     };
   }, [model, report?.settings]);
   const urlFiltersAppliedRef = useRef(false);
@@ -587,8 +588,11 @@ export default function Viewer() {
       const comboLinePromise = bodies.comboLine
         ? api.post(`/models/${model.id}/query`, bodies.comboLine).catch(() => null)
         : Promise.resolve(null);
+      const periodPromise = bodies.period
+        ? Promise.all(bodies.period.map((b) => api.post(`/models/${model.id}/query`, b).catch(() => null)))
+        : Promise.resolve(null);
 
-      Promise.all([mainPromise, colorPromise, totalPromise, n1Promise, comboLinePromise]).then(([res, colorRes, totalRes, n1Res, comboLineRes]) => {
+      Promise.all([mainPromise, colorPromise, totalPromise, n1Promise, comboLinePromise, periodPromise]).then(([res, colorRes, totalRes, n1Res, comboLineRes, periodRes]) => {
         if (fetchSeqRef.current[wId] !== seq) return; // a newer round owns this widget
         const rows = res.data?.rows;
         // Per the bug investigation, the Viewer keeps `[...dims]` for the
@@ -599,7 +603,7 @@ export default function Viewer() {
         // alongside the next phase of the data-builder extraction.
         const data = buildWidgetData({
           widget: w, rows, meta, effectiveModel,
-          colorRes, totalRes, n1Res, comboLineRes,
+          colorRes, totalRes, n1Res, comboLineRes, periodRes,
           totalComponents: res.data?.totalComponents || null,
           pivotFilterRowDims: false,
         });

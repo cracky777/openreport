@@ -59,7 +59,8 @@
 - Dimensions are what you group or filter by (text, dates…); measures are columns that get aggregated (sum, average, count, distinct count, min, max): any column can be one, a text or a date through its count, min or max.
 - In the model editor, step 3 (Dimensions & Measures):
   - + Dimension → New calculated dimension: Label, the table it belongs to, a type (string, integer, decimal, date, boolean) and a SQL expression → Add.
-  - + Measure → New calculated measure: Label and a SQL expression → Add.
+  - + Measure → New calculated measure: Label and a SQL expression → Add. Edit (on a SQL measure's row) reopens the same form to change its label or SQL; the measure keeps its name, so the visuals bound to it follow.
+  - Period (a column of the measures table): the same measure over the report's date selection moved back — Previous year, quarter, month or day. Current = no shift. The N-1 button on a row adds a shifted copy of that measure ("Amount (N-1)") so the two can sit side by side in a visual; an evolution is then a SQL measure such as (${amount} - ${amount_prev_year}) / NULLIF(${amount_prev_year}, 0). The shift follows the date filters of the report (slicers, year, time window); with no date filter the shifted measure equals its base. It needs a date dimension in the model.
 - In the report editor, the Data panel (right) also has + Measure and + Dimension. These fields belong to the report only (measure: Label, SUM/AVG/COUNT/COUNT DISTINCT/MIN/MAX or Custom SQL, optional Add filter and Override report filters). Use Promote to model to make one available to every report on the model.
 - In a visual's field well, click a measure to change its aggregation, or add a time-windowed copy (YTD, last 30 days…).
 
@@ -103,7 +104,7 @@
 - Fields: the drop zones (Axis/Category/Rows/Columns, Values, Legend…; Scorecard has Value and Compare with (date)). A field can also be dropped straight onto the visual: the overlay names the well it will fill and lists the other wells that take it, drop on one of them to aim. A dimension dropped in Values becomes a measure of its column, Max by default; click the aggregation on the chip to pick Count, Distinct, Min, Max (Sum and Avg on numbers).
 - Filters: rules that only affect this visual (Add filter), and Top N for bar, pie and treemap.
 - Data: Time period (Date dimension + Period), Row limit, When empty message; on a scorecard with a Compare with (date), the Comparison lines (N-1 value, N vs N-1, % evolution).
-- Then the visual's own section (named after its type: smooth lines, donut, totals, slicer style…), Colors (series, gradient, Color by rule), Labels (data labels, number format), Axes (each axis with its line color, title, font and, for the X axis, the label angle; the grid's line style, width and color), Legend, Frame (title font, border, background, shadow).
+- Then the visual's own section (named after its type: smooth lines, donut, totals, slicer style…), Colors (series, gradient, Color by rule), Labels (data labels, number format; on a scorecard the value's weight and, for a date value, its Date format), Axes (each axis with its line color, title, font and, for the X axis, the label angle; the grid's line style, width and color), Legend, Frame (title font, border, background, shadow).
 - A section that does not apply to the visual is not shown.
 
 ## sorting-topn — Sorting, Top N, row limit, time periods, year-over-year
@@ -115,7 +116,7 @@
 
 ## filters — Filters: slicers, report filters and visual filters
 - Slicer on the page: toolbar Filter ▼ → Visual Filter, then drop a dimension in its Field. Its section sets the Style: List, Dropdown, Buttons, Range, and for dates Date range, Relative date, Calendar. Filters (Restrict values) limits the values it offers.
-- Report filters (apply to every visual of the report): Filter ▼ → Global filter shows the Report filters bar → + (Add a report filter) → + Add a filter on… → set the rule → Save (applies on next refresh) or Save & refresh.
+- Report filters (apply to every visual of the report): Filter ▼ → Global filter shows the Report filters bar → + (Add a report filter) → type to search a field, click it or press Enter → set the rule → Save (applies on next refresh) or Save & refresh. A field dragged from the Data panel and dropped on the bar starts a rule on it the same way.
 - Click a report-filter chip to edit it, the hand icon to choose which widgets it applies to, × to remove it. Hiding the bar keeps the filters active.
 - Visual-only filters: the visual's Filters section → Add filter (dimensions or measures).
 
@@ -147,6 +148,7 @@
 - Available only for reports inside a workspace. Where: editor toolbar → Custom visuals (puzzle icon).
 - Any member can insert an installed visual from that menu.
 - Workspace admins can Upload custom visual (.zip), Download starter template, and delete a visual (Delete custom visual). The library is shared by all reports of the workspace.
+- Visuals OpenReport ships (currently Sankey: source, target, weight, optional colour category) are listed in the same flyout as "built-in · install" for a workspace admin; installing one adds it to the library and drops it on the canvas.
 - The AI assistant can also write a new visual; only a workspace admin can add it to the library (see ai-editor).
 
 ## schedules — Scheduling a report
@@ -195,10 +197,11 @@
 - A data model can be exported as YAML from its card (Export as YAML).
 
 ## import — Importing reports, models and Power BI files
-- Report: Reports stage → Import report → choose a .openreport.json file → Bind to data model (its fields must match) → Import.
+- Report: Reports stage → Import → Open Report → choose a .openreport.json file → Bind to data model (its fields must match) → Import.
 - Model: Data Models stage → Import model → choose a .model.yaml file.
-- Power BI: Data Models stage → Import Power BI → drop a .pbit file (Power BI Desktop → Save as → Template) → use an existing connection or create one → Next → review Tables, Joins, Measures translated, Measures kept as drafts, Pages, Visuals → set Model name and Report title → Import → Open the model / Open the report.
+- Power BI: Reports stage → Import → Power BI (the report lands in the open workspace; the Import menu also lists Looker Studio, not available yet) → drop a .pbit file (Power BI Desktop → Save as → Template) → use an existing connection or create one → Next → review Tables, Joins, Measures translated, Measures kept as drafts, Pages, Visuals → set Model name and Report title → Import → Open the model / Open the report.
 - A .pbit holds no data and no password. Not every DAX measure or visual can be converted; unconverted measures are kept as drafts and the review lists what was not supported.
+- Custom Power BI visuals (third-party or private, e.g. a sankey or a flow tree) are never imported: the review shows an alert naming each one and how many times it is used, and a placeholder keeps its place on the page. Rebuild them with a built-in visual (Custom visuals → built-in · install) or one from the workspace library.
 - Who: admins and editors.
 
 ## viewer — Viewing a report (and on mobile)

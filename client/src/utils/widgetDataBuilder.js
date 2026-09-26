@@ -26,6 +26,7 @@ import { variantDefsFor } from './timeIntelligence';
 import { toNumber } from './numericValue';
 import { parseAggVariant } from './aggVariant';
 import { tagFor } from './textMeasures';
+import { mergePeriodRows } from './periodShift';
 
 export function buildWidgetData({
   widget,
@@ -36,6 +37,8 @@ export function buildWidgetData({
   totalRes,
   n1Res,
   comboLineRes,
+  // One response per moved query of a period-shifted measure (bodies.period).
+  periodRes = null,
   sql,
   bindingKey = null,
   pivotFilterRowDims = false,
@@ -59,6 +62,7 @@ export function buildWidgetData({
     };
   }
   const topNApplies = topN.applies;
+  rows = mergePeriodRows(rows, periodRes, meta, effectiveModel);
 
   // Extract the colour-coding aggregate from the optional color query.
   let _colorValue;

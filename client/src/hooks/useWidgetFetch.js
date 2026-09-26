@@ -306,7 +306,11 @@ export function useWidgetFetch({
           ? api.post(`/models/${model.id}/query`, bodies.comboLine, { signal: controller.signal }).catch(() => null)
           : Promise.resolve(null);
 
-        return Promise.all([mainPromise, colorPromise, totalPromise, n1Promise, comboLinePromise]).then(([res, colorRes, totalRes, n1Res, comboLineRes]) => {
+        const periodPromise = bodies.period
+          ? Promise.all(bodies.period.map((b) => api.post(`/models/${model.id}/query`, b, { signal: controller.signal }).catch(() => null)))
+          : Promise.resolve(null);
+
+        return Promise.all([mainPromise, colorPromise, totalPromise, n1Promise, comboLinePromise, periodPromise]).then(([res, colorRes, totalRes, n1Res, comboLineRes, periodRes]) => {
           const rows = res.data?.rows;
           // Combine both queries' SQL when an auxiliary line query was
           // fired so the SQL viewer shows every statement contributing to
@@ -325,7 +329,7 @@ export function useWidgetFetch({
           });
           const data = buildWidgetData({
             widget: w, rows, meta, effectiveModel,
-            colorRes, totalRes, n1Res, comboLineRes,
+            colorRes, totalRes, n1Res, comboLineRes, periodRes,
             totalComponents: res.data?.totalComponents || null,
             sql, bindingKey,
             // Keep every selected dim in `_rowDims` even when the same dim
