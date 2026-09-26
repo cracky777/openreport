@@ -57,15 +57,21 @@ test('on a phone the header controls stay clear of each other', async ({ page })
 
   // The picker used to keep its full width and paint straight over these.
   const picker = await page.locator('header button', { hasText: 'My Reports' }).first().boundingBox();
+  const account = page.getByRole('button', { name: 'Account', exact: true });
+  await expect(account).toBeVisible();
+  const b = await account.boundingBox();
+  expect(b.x, 'the account pill starts past the right edge').toBeLessThan(PHONE.width);
+  expect(Math.round(b.x + b.width), 'the account pill runs off the right edge').toBeLessThanOrEqual(PHONE.width);
+  expect(b.x, 'the account pill sits under the workspace picker').toBeGreaterThanOrEqual(picker.x + picker.width - 1);
+  // A control the thumb has to hit.
+  expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(36);
+  // Alerts and Admin live in the account menu, not in the header.
+  await account.click();
   for (const name of ['Alerts', 'Admin']) {
-    const btn = page.getByRole('button', { name, exact: true });
-    await expect(btn).toBeVisible();
-    const b = await btn.boundingBox();
-    expect(b.x, `${name} starts past the right edge`).toBeLessThan(PHONE.width);
-    expect(Math.round(b.x + b.width), `${name} runs off the right edge`).toBeLessThanOrEqual(PHONE.width);
-    expect(b.x, `${name} sits under the workspace picker`).toBeGreaterThanOrEqual(picker.x + picker.width - 1);
-    // A control the thumb has to hit.
-    expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(36);
+    const item = page.getByRole('button', { name, exact: true });
+    await expect(item).toBeVisible();
+    const box = await item.boundingBox();
+    expect(Math.round(box.x + box.width), `${name} runs off the right edge`).toBeLessThanOrEqual(PHONE.width);
   }
 });
 

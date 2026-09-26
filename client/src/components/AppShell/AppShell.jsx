@@ -19,11 +19,12 @@ import AskPanel from '../Ask/AskPanel';
 
 // Shared chrome for the three journey stages (Sources → Models → Reports).
 // It owns what used to be the Dashboard header — logo, cloud org switcher,
-// stage switcher, Admin/Platform links and the user menu — so the three
-// stages read as one screen instead of three unrelated pages.
+// stage switcher and the user menu — so the three stages read as one screen
+// instead of three unrelated pages.
 //
-// `step` is the stage key and the only part that swaps. Admin and the user
-// menu stay pinned top-right.
+// `step` is the stage key and the only part that swaps. The user menu stays
+// pinned top-right and holds the doors that are about the account rather
+// than the journey: Alerts, Admin, the cloud Platform link, API tokens.
 export default function AppShell({ step }) {
   const navigate = useNavigate();
   const { search } = useLocation();
@@ -195,25 +196,6 @@ export default function AppShell({ step }) {
               <TbSparkles size={15} />
             </button>
           )}
-          {/* Alerts need write role — the API refuses viewers, so don't
-              show them a dead door. */}
-          {(user?.role === 'admin' || user?.role === 'editor') && (
-            <button onClick={() => navigate('/alerts')} style={compact ? { ...navBtnStyled, ...navBtnCompact } : navBtnStyled} title="Alerts" aria-label="Alerts"
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-            >
-              <TbBell size={15} /> {!compact && <span>Alerts</span>}
-            </button>
-          )}
-          {user?.role === 'admin' && (
-            <button onClick={() => navigate('/admin')} style={compact ? { ...navBtnStyled, ...navBtnCompact } : navBtnStyled} title="Admin" aria-label="Admin"
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-            >
-              <TbShield size={15} /> {!compact && <span>Admin</span>}
-            </button>
-          )}
-
           {/* CLOUD-HOOK: the org switcher sits with the account controls, left
               of the user pill — which org you are in is a question about who
               you are, not about where you are in the journey. Null in OSS. */}
@@ -223,6 +205,7 @@ export default function AppShell({ step }) {
             <button
               onClick={() => setUserMenuOpen((v) => !v)}
               style={compact ? { ...userPillStyle, ...userPillCompact } : userPillStyle}
+              aria-label="Account" aria-haspopup="menu" aria-expanded={userMenuOpen}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-primary-border)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent-primary-soft)'; }}
             >
@@ -232,6 +215,31 @@ export default function AppShell({ step }) {
             </button>
             {userMenuOpen && (
               <div style={userMenuDropdown}>
+                {/* Alerts need write role — the API refuses viewers, so don't
+                    show them a dead door. */}
+                {(user?.role === 'admin' || user?.role === 'editor') && (
+                  <button
+                    onClick={() => { setUserMenuOpen(false); navigate('/alerts'); }}
+                    style={userMenuItem}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <TbBell size={15} />
+                    <span>Alerts</span>
+                  </button>
+                )}
+                {user?.role === 'admin' && (
+                  <button
+                    onClick={() => { setUserMenuOpen(false); navigate('/admin'); }}
+                    style={userMenuItem}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <TbShield size={15} />
+                    <span>Admin</span>
+                  </button>
+                )}
+                {(user?.role === 'admin' || user?.role === 'editor') && <div style={userMenuDivider} />}
                 <div style={userMenuSectionLabel}>Theme</div>
                 <div style={themeListStyle}>
                   {/* "System" follows the OS preference */}

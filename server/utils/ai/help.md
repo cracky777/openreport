@@ -6,7 +6,7 @@
 - Alt+← / Alt+→ moves between stages. On a wide screen you can also click the neighbouring column that peeks in at the edge.
 - Lines between cards show which model uses which source and which report uses which model. Following one filters the next stage; the filter crumb at the top clears it.
 - The workspace picker (folder icon, top-left, next to the logo) chooses between My Reports and the workspaces you belong to.
-- Top-right: Alerts (admins and editors), Admin (admins only), and your user menu.
+- Top-right: your user menu (the account pill). It opens on Alerts (admins and editors), Admin (admins only), the theme, API tokens, Report a bug and Logout.
 - Right edge: the Assistant bar (if the AI assistant is available to you) — click it to open or close the Assistant panel.
 
 ## roles — Roles and who can do what
@@ -164,7 +164,7 @@
 - To be notified when a number crosses a threshold, use Alerts instead.
 
 ## alerts — Alerts on a measure
-- Who: admins and editors. Where: header → Alerts, or a report card → More actions → Alerts… (pre-selects its model).
+- Who: admins and editors. Where: user menu (top-right) → Alerts, or a report card → More actions → Alerts… (pre-selects its model).
 1. Click + New Alert.
 2. Fill Name, Model, Measure, optional Filters (scope the measure — recommended), Condition (>, >=, <, <=, =, !=) and Threshold.
 3. Choose Check: Every 5 minutes, Every 15 minutes, Every hour, Every 6 hours, Every day at 08:00.
