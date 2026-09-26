@@ -61,6 +61,17 @@ test('a plain measure carrying its own rules is ranked with them', async () => {
   expect(orderBy).toContain("'lost'");
 });
 
+test('a dimension-only query ranked by a measure groups instead of DISTINCT', async () => {
+  const measures = [{ name: 'items.amt_sum', table: 'items', column: 'amt', aggregation: 'sum', label: 'Amount' }];
+  const sql = await sqlFor(measures, [], [
+    { field: 'items.amt_sum', op: 'top_n', value: '5', isMeasure: true },
+  ]);
+  // DISTINCT cannot ORDER BY an aggregate it does not select; GROUP BY can.
+  expect(sql).not.toContain('DISTINCT');
+  expect(sql).toContain('GROUP BY');
+  expect(sql.slice(sql.indexOf('ORDER BY'))).toContain('SUM(');
+});
+
 test('a measure without rules is untouched', async () => {
   const measures = [{ name: 'items.amt_sum', table: 'items', column: 'amt', aggregation: 'sum', label: 'Amount' }];
   const sql = await sqlFor(measures, ['items.amt_sum'], [

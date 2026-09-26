@@ -325,6 +325,22 @@ tainted (verified: `_filt.*` with `overrideFilters:false` → not
 tainted → still rollup-served). **Do not** weaken this guard to
 "optimise": silently wrong numbers are worse than a slow live query.
 
+3. **Period shift — `periodShift = { dim, unit, n }`** (Power BI's
+   SAMEPERIODLASTYEAR / DATEADD; `utils/sqlBuilder/periodShift.js`). The
+   measure reads the report's date selection moved back in time. `/query`
+   widens every moved date filter of the WHERE to the union of its two
+   readings and gives EVERY measure of the query a CASE WHEN on its own
+   period (the shifted ones their moved reading, the others the original
+   one). Two consequences for the cache: the shifted measure is
+   `isOverrideTainted` → never materialised; and a query that reaches such
+   a measure while a date filter moves is bypassed by the planner
+   (`reason: 'period-shift'`), since the base measures in it are filtered
+   per period too and no rollup holds that slice. With no moving date
+   filter the shifted measure equals its base and the query is served as
+   usual. The client fires a second, moved query (`ignorePeriodShift`) when
+   a date-derived dimension is on the axis; that query is an ordinary one
+   for the planner.
+
 ---
 
 ### 6b. Per-widget aggregation override — materialised & CACHED

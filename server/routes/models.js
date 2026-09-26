@@ -44,6 +44,8 @@ const { computeRealFacts, computeJoinedTables, computeConnectedComponents } = re
 const { buildOverrideSubquery } = require('../utils/sqlBuilder/overrideSubquery');
 const { rejectIfNameTaken } = require('../utils/nameUniqueness');
 const { emitMeasureSelects } = require('../utils/sqlBuilder/measureSelect');
+const { groupedRuleFields, partitionExprs, windowAgg, canWindow, windowedColumnAgg } = require('../utils/sqlBuilder/windowMeasure');
+const periodShift = require('../utils/sqlBuilder/periodShift');
 const { tablesReachableFrom, getAllowedRlsKeys } = require('../utils/rls');
 const { parseModel } = require('../db/modelRow');
 const modelYaml = require('../utils/modelYaml');
@@ -1031,6 +1033,16 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     }
   }
 
+  // Period-shifted measures (utils/sqlBuilder/periodShift.js): the shifts the
+  // requested measures reach, and whether an active date filter moves under
+  // one of them — only then does the query carry two periods. The client sets
+  // `ignorePeriodShift` on the second query it fires when a date-derived
+  // dimension is on the axis: it has moved the filter context itself and
+  // wants the base of the measure.
+  const ignorePeriodShift = req.body.ignorePeriodShift === true;
+  const periodShifts = ignorePeriodShift ? [] : periodShift.reachablePeriodShifts(measureNames, allMeasures, allDimensions);
+  let periodActive = periodShift.hasMovingFilter(filters, widgetFilters, allDimensions, periodShifts);
+
   const allJoins = model.joins;
   const rls = model.rls;
   // Per-column overrides (type + optional format). Used by castToDate to
@@ -1107,6 +1119,13 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   // overrideRefInfos collects override-mode references so the post-FROM step
   // can substitute the placeholders with subqueries.
   const overrideRefInfos = [];
+  // Sealed SQL of shifted measures referenced from an expression, spliced
+  // back into the final statement (see inlineMeasureRefs).
+  const periodRefs = [];
+  // The period rules the handler itself creates below the WHERE. A rule is
+  // read as SQL only through this set, so nothing shaped like one in a
+  // request body (report extras carry filterRules) can smuggle SQL in.
+  const periodRuleSet = new WeakSet();
   function inlineMeasureRefs(expression, pathStack = []) {
     if (!expression) return expression;
     return String(expression).replace(/\$\{\s*([^}]+?)\s*\}/g, (match, name) => {
@@ -1119,7 +1138,15 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       const target = allMeasures.find((mm) => mm.name === trimmed)
         || allMeasures.find((mm) => mm.label === trimmed);
       if (!target) return match; // leave unresolved so the SQL error is informative
-      const hasRules = Array.isArray(target.filterRules) && target.filterRules.length > 0;
+      // Period rules (see the decoration below the WHERE): a referenced
+      // measure is wrapped by whoever references it, so it drops its own
+      // period rule and takes the caller's — except a shifted measure, which
+      // keeps its moved period and is sealed behind a placeholder so the
+      // caller's wrap cannot nest a second CASE WHEN over it.
+      const targetShifted = periodActive && periodShifts.some((s) => s.measures.has(target.name));
+      const rules = (Array.isArray(target.filterRules) ? target.filterRules : [])
+        .filter((r) => targetShifted || !periodRuleSet.has(r));
+      const hasRules = rules.length > 0;
       // Filtered measure (intersection): wrap aggregate(s) with CASE WHEN.
       // This branch handles BOTH bare aggregations (sum/avg/count/…) AND
       // custom-expression filtered measures — the latter get every
@@ -1128,32 +1155,49 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       // custom measure with filterRules would be inlined without its
       // CASE WHEN context.
       if (hasRules && !target.overrideFilters) {
-        const clauses = target.filterRules.map(buildRuleClause).filter(Boolean);
+        const clauses = rules.map(buildRuleClause).filter(Boolean);
         if (clauses.length > 0) {
           const whenSql = clauses.join(' AND ');
-          if (target.aggregation === 'custom' && target.expression) {
-            // Recursively inline any nested refs in the bare expression,
-            // then wrap each aggregate with CASE WHEN.
-            const inlinedBare = inlineMeasureRefs(target.expression, [...pathStack, trimmed]);
-            const wrapped = transformAggregates(
-              inlinedBare,
-              ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT'],
-              (fn, arg) => `${fn}(CASE WHEN ${whenSql} THEN ${arg} END)`,
-            );
-            return `(${wrapped})`;
-          }
-          if (target.aggregation === 'count' || (target.column === '*' && !target.table)) {
-            // Column-aware: COUNT(CASE WHEN … THEN col END) counts non-null
-            // matching values, mirroring the unfiltered COUNT(col) semantics.
-            if (target.aggregation === 'count' && target.table && target.column && target.column !== '*') {
-              tablesUsed.add(target.table);
-              return `COUNT(CASE WHEN ${whenSql} THEN ${quoteCol(target.table, target.column, dbType)} END)`;
+          // A rule on a grouped dimension: the figure is spread over the
+          // other grouped dimensions, as the SELECT does (windowMeasure.js).
+          const ruleFields = groupedRuleFields(rules, selectedDimensions);
+          const partition = ruleFields.size ? partitionExprs(selectedDimensions, groupByParts, ruleFields) : null;
+          const filtered = (() => {
+            if (target.aggregation === 'custom' && target.expression) {
+              // Recursively inline any nested refs in the bare expression,
+              // then wrap each aggregate with CASE WHEN.
+              const inlinedBare = inlineMeasureRefs(target.expression, [...pathStack, trimmed]);
+              const wrapped = transformAggregates(
+                inlinedBare,
+                ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT'],
+                (fn, arg) => (partition && canWindow(fn, arg)
+                  ? windowAgg(fn, `CASE WHEN ${whenSql} THEN ${arg} END`, partition)
+                  : `${fn}(CASE WHEN ${whenSql} THEN ${arg} END)`),
+              );
+              return `(${wrapped})`;
             }
-            return `COUNT(CASE WHEN ${whenSql} THEN 1 END)`;
-          }
-          if (target.table && target.column) {
-            tablesUsed.add(target.table);
-            return aggregateSql(target.aggregation, `CASE WHEN ${whenSql} THEN ${quoteCol(target.table, target.column, dbType)} END`);
+            if (target.aggregation === 'count' || (target.column === '*' && !target.table)) {
+              // Column-aware: COUNT(CASE WHEN … THEN col END) counts non-null
+              // matching values, mirroring the unfiltered COUNT(col) semantics.
+              let countArg = `CASE WHEN ${whenSql} THEN 1 END`;
+              if (target.aggregation === 'count' && target.table && target.column && target.column !== '*') {
+                tablesUsed.add(target.table);
+                countArg = `CASE WHEN ${whenSql} THEN ${quoteCol(target.table, target.column, dbType)} END`;
+              }
+              return partition ? windowAgg('COUNT', countArg, partition) : `COUNT(${countArg})`;
+            }
+            if (target.table && target.column) {
+              tablesUsed.add(target.table);
+              const windowed = partition ? windowedColumnAgg(target, whenSql, partition, { dbType, columnTypes }) : null;
+              return windowed || aggregateSql(target.aggregation, `CASE WHEN ${whenSql} THEN ${quoteCol(target.table, target.column, dbType)} END`);
+            }
+            return null;
+          })();
+          if (filtered != null) {
+            if (!targetShifted) return filtered;
+            // Tables read only inside the sealed SQL still need their JOIN.
+            for (const t of expressionTables(filtered, fieldsWithTable)) tablesUsed.add(t);
+            return `__PERIOD_REF_${periodRefs.push(filtered) - 1}__`;
           }
         }
         // No clauses survived (rules pointed at unknown fields) → fall through.
@@ -1304,8 +1348,17 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     const rollupPlanner = require('../utils/rollupPlanner');
     const __tRollup = Date.now();
     let rollupResult;
+    const windowedMeasure = (measureNames || []).some((mn) => {
+      const def = allMeasures.find((mm) => mm && mm.name === mn);
+      return def && Array.isArray(def.filterRules) && !def.overrideFilters
+        && groupedRuleFields(def.filterRules, (dimensionNames || []).map((name) => ({ name }))).size > 0;
+    });
+    // A period-shifted measure widens the WHERE to two periods: no rollup
+    // holds that slice, and the base measures in the same query are filtered
+    // per period too.
+    const plannerBypass = windowedMeasure ? 'window-measure' : periodActive ? 'period-shift' : null;
     try {
-      rollupResult = await rollupPlanner.tryServeFromRollup({
+      rollupResult = plannerBypass ? { hit: false, reason: plannerBypass } : await rollupPlanner.tryServeFromRollup({
         model,
         modelId: model.id,
         orgId: req.organizationId || null,
@@ -1503,60 +1556,81 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   // their override fields when building their correlated subquery.
   // `field` is the dimension name (or null for non-dim clauses like RLS).
   const whereParts = [];
+  // Original readings of the date filters a period shift moves; each shift
+  // collects its own moved readings in `s.parts`. The WHERE takes the union
+  // of a moved filter's readings, and the measures pick a side through the
+  // period rules built after the WHERE (periodShift.js).
+  const periodCurrentParts = [];
+  for (const s of periodShifts) s.parts = [];
+  // Push one filter clause, widened to its readings under the shifts that
+  // move it; `movedClause(shift)` builds the clause of the moved filter.
+  const pushWhere = (field, dimDef, sql, movedClause) => {
+    if (!sql) return;
+    const alts = [];
+    for (const s of periodShifts) {
+      if (!periodShift.isShiftableDim(dimDef, s.dimDef)) continue;
+      const moved = movedClause(s);
+      if (!moved) continue;
+      alts.push(moved);
+      s.parts.push({ field, sql: moved });
+    }
+    if (alts.length === 0) {
+      whereParts.push({ field, sql });
+      return;
+    }
+    periodCurrentParts.push({ field, sql });
+    whereParts.push({ field, sql: `(${[sql, ...alts].join(' OR ')})` });
+  };
   if (filters && typeof filters === 'object') {
-    for (const [dimName, raw] of Object.entries(filters)) {
-      // Range-shape: `{ op: 'between', value: [start, end] }` — emitted by
-      // widgetQueryPayload when the slicer style is dateRange / dateBetween
-      // or dateCalendar+between. Routes to a clean BETWEEN clause instead
-      // of the discrete-list IN that would otherwise materialise.
-      const isRange = raw && typeof raw === 'object' && !Array.isArray(raw)
-        && raw.op === 'between' && Array.isArray(raw.value) && raw.value.length === 2;
-      const values = isRange ? null : raw;
-      if (!isRange && (!Array.isArray(values) || values.length === 0)) continue;
-      const dimDef = allDimensions.find((d) => d.name === dimName);
-      if (!dimDef) continue;
-      registerDimTables(dimDef);
+    // Range-shape: `{ op: 'between', value: [start, end] }` — emitted by
+    // widgetQueryPayload when the slicer style is dateRange / dateBetween
+    // or dateCalendar+between. Routes to a clean BETWEEN clause instead
+    // of the discrete-list IN that would otherwise materialise.
+    const isRange = (raw) => raw && typeof raw === 'object' && !Array.isArray(raw)
+      && raw.op === 'between' && Array.isArray(raw.value) && raw.value.length === 2;
+    // One non-empty `filters` entry as a WHERE clause (null when its values
+    // cannot be compared to the column).
+    const filterMapClause = (dimDef, raw) => {
       const col = buildDimensionExpr(dimDef, dbType, columnTypes);
-      if (isRange) {
+      if (isRange(raw)) {
         const [startVal, endVal] = raw.value;
         if (dimDef.type === 'date') {
           const fmt = getDateFormat(dimDef.table, dimDef.column, columnTypes);
-          whereParts.push({
-            field: dimName,
-            sql: `${castToDate(col, dbType, fmt)} BETWEEN ${quoteLiteral(startVal, dbType)} AND ${quoteLiteral(endVal, dbType)}`,
-          });
-        } else if (dimDef.datePart) {
-          const expr = buildDatePartExpr(dimDef, dbType, columnTypes);
-          whereParts.push({
-            field: dimName,
-            sql: `${expr} BETWEEN ${quoteLiteral(startVal, dbType)} AND ${quoteLiteral(endVal, dbType)}`,
-          });
-        } else {
-          whereParts.push({
-            field: dimName,
-            sql: `${col} BETWEEN ${quoteLiteral(startVal, dbType)} AND ${quoteLiteral(endVal, dbType)}`,
-          });
+          return `${castToDate(col, dbType, fmt)} BETWEEN ${quoteLiteral(startVal, dbType)} AND ${quoteLiteral(endVal, dbType)}`;
         }
-        continue;
+        if (dimDef.datePart) {
+          const expr = buildDatePartExpr(dimDef, dbType, columnTypes);
+          return `${expr} BETWEEN ${quoteLiteral(startVal, dbType)} AND ${quoteLiteral(endVal, dbType)}`;
+        }
+        return `${col} BETWEEN ${quoteLiteral(startVal, dbType)} AND ${quoteLiteral(endVal, dbType)}`;
       }
+      const values = raw;
       if (dimDef.datePart) {
         // Drill-down on a date-part dim — filter against the same
         // EXTRACT/YEAR(...) expression used in SELECT. Type-aware IN
         // emits a numeric `IN (2024)` for num_year etc. instead of
         // wrapping a CAST around the EXTRACT.
         const expr = buildDatePartExpr(dimDef, dbType, columnTypes);
-        const clause = buildInList(expr, effectiveDimType(dimDef), values, dbType);
-        if (clause) whereParts.push({ field: dimName, sql: clause });
-      } else if (dimDef.type === 'date') {
+        return buildInList(expr, effectiveDimType(dimDef), values, dbType);
+      }
+      if (dimDef.type === 'date') {
         const fmt = getDateFormat(dimDef.table, dimDef.column, columnTypes);
         const escaped = values.map((v) => quoteLiteral(v, dbType)).join(', ');
-        whereParts.push({ field: dimName, sql: `${castToDate(col, dbType, fmt)} IN (${escaped})` });
-      } else {
-        // Type-aware IN — string columns compared without a CAST so the
-        // engine can hit the index, numeric columns compared as numbers.
-        const clause = buildInList(col, effectiveDimType(dimDef), values, dbType);
-        if (clause) whereParts.push({ field: dimName, sql: clause });
+        return `${castToDate(col, dbType, fmt)} IN (${escaped})`;
       }
+      // Type-aware IN — string columns compared without a CAST so the
+      // engine can hit the index, numeric columns compared as numbers.
+      return buildInList(col, effectiveDimType(dimDef), values, dbType);
+    };
+    for (const [dimName, raw] of Object.entries(filters)) {
+      if (!isRange(raw) && (!Array.isArray(raw) || raw.length === 0)) continue;
+      const dimDef = allDimensions.find((d) => d.name === dimName);
+      if (!dimDef) continue;
+      registerDimTables(dimDef);
+      pushWhere(dimName, dimDef, filterMapClause(dimDef, raw), (s) => {
+        const moved = periodShift.shiftRawFilter(raw, dimDef, s.unit, s.n);
+        return moved ? filterMapClause(dimDef, moved) : null;
+      });
     }
   }
 
@@ -1582,15 +1656,43 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       // by year on a "_date.num_year" dim would never match the raw
       // timestamp column.
       const col = buildDimensionExpr(dimDef, dbType, columnTypes);
-      const clause = buildScalarClause(
-        col, f.op, f.value, f.values,
+      const clauseOf = (rule) => buildScalarClause(
+        col, rule.op, rule.value, rule.values,
         // datePart dims aren't date-typed — they're year/month numbers etc.
         !dimDef.datePart && dimDef.type === 'date',
         getDateFormat(dimDef.table, dimDef.column, columnTypes),
         effectiveDimType(dimDef), dbType,
       );
-      if (clause) whereParts.push({ field: f.field, sql: clause });
+      pushWhere(f.field, dimDef, clauseOf(f), (s) => {
+        const moved = periodShift.shiftRule(f, dimDef, s.unit, s.n);
+        return moved ? clauseOf(moved) : null;
+      });
     }
+  }
+
+  // Period rules: each measure's reading of the moved date filters, appended
+  // to its own rules so the usual filtered-measure paths (CASE WHEN wrap,
+  // override subquery, HAVING) apply it — shifted measures get their moved
+  // reading, every other measure the original one. A shift no filter moved
+  // has nothing to give: its measures read as their base, on the original
+  // period. Built as clauses, since the WHERE just produced them; read back
+  // only through periodRuleSet (see buildRuleClause).
+  periodActive = periodCurrentParts.length > 0;
+  if (periodActive) {
+    const asRules = (parts) => parts.map(({ field, sql }) => {
+      const rule = { field, op: 'period', _period: true, sql };
+      periodRuleSet.add(rule);
+      return rule;
+    });
+    const currentRules = asRules(periodCurrentParts);
+    for (const s of periodShifts) s.rules = s.parts.length ? asRules(s.parts) : currentRules;
+    const decorate = (m) => {
+      if (!m) return m;
+      const s = periodShifts.find((x) => x.measures.has(m.name));
+      return { ...m, filterRules: [...(Array.isArray(m.filterRules) ? m.filterRules : []), ...(s ? s.rules : currentRules)] };
+    };
+    allMeasures.forEach((m, i) => { allMeasures[i] = decorate(m); });
+    selectedMeasures.forEach((m, i) => { selectedMeasures[i] = decorate(m); });
   }
 
   selectedDimensions.forEach((d) => {
@@ -1609,6 +1711,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   // sense inside a CASE WHEN — would need a subquery), and stamps the
   // referenced field's table on `tablesUsed` so the JOIN graph stays correct.
   const buildRuleClause = (rule) => {
+    if (periodRuleSet.has(rule)) return rule.sql;
     if (!rule || rule.isMeasure || !rule.field || !rule.op) return null;
     const dimDef = allDimensions.find((d) => d.name === rule.field);
     if (!dimDef) return null;
@@ -1675,7 +1778,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     allDimensions, allFieldsForLookup, dbType, columnTypes,
     selectParts, tablesUsed, dimOnlyMeasureInfos, overrideMeasureInfos, groupByParts,
     inlineMeasureRefs, buildRuleClause,
-    components, dimTables,
+    components, dimTables, selectedDimensions,
   });
   if (measureErr) return res.status(400).json(measureErr);
 
@@ -2005,7 +2108,10 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   }
 
   __mark('SQL parts assembled (selectParts, whereParts, joins, etc.)');
-  const useDistinct = !sample && (distinct || (selectedDimensions.length > 0 && selectedMeasures.length === 0));
+  // A Top N or a measure comparison on a query that shows no measure still
+  // needs the aggregate: GROUP BY gives it, DISTINCT cannot ORDER BY it.
+  const groupedWithoutMeasures = selectedDimensions.length > 0 && selectedMeasures.length === 0 && (!!topNOverride || havingParts.length > 0);
+  const useDistinct = !sample && !groupedWithoutMeasures && (distinct || (selectedDimensions.length > 0 && selectedMeasures.length === 0));
   // Dim-only short-circuit. When EVERY selected measure was emitted as a
   // dim-only scalar subquery AND there are no grain dims to GROUP BY, the
   // outer FROM/JOIN/WHERE is just CPU waste: it forces a cartesian over
@@ -2033,10 +2139,10 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     if (whereParts.length > 0) {
       sql += ` WHERE ${whereParts.map((w) => w.sql).join(' AND ')}`;
     }
-    if (groupByParts.length > 0 && selectedMeasures.length > 0) {
+    if (groupByParts.length > 0 && (selectedMeasures.length > 0 || groupedWithoutMeasures)) {
       sql += ` GROUP BY ${groupByParts.join(', ')}`;
     }
-    if (havingParts.length > 0 && selectedMeasures.length > 0) {
+    if (havingParts.length > 0 && (selectedMeasures.length > 0 || groupedWithoutMeasures)) {
       sql += ` HAVING ${havingParts.join(' AND ')}`;
     }
   }
@@ -2105,6 +2211,13 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
         }
       }
     }
+  }
+
+  // Splice the sealed SQL of referenced shifted measures back in. A sealed
+  // fragment may itself hold a placeholder (a shift referencing another),
+  // hence the loop; the guard only bounds a malformed nesting.
+  for (let guard = 0; periodRefs.length && /__PERIOD_REF_\d+__/.test(sql) && guard < 20; guard++) {
+    sql = sql.replace(/__PERIOD_REF_(\d+)__/g, (_, i) => periodRefs[Number(i)] || 'NULL');
   }
 
   // sqlOnly mode — return the assembled SQL without executing. Useful for

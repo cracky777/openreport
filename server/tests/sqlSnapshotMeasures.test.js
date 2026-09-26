@@ -78,7 +78,10 @@ for (const dbType of ['postgres', 'redshift', 'snowflake', 'mysql', 'oracle', 'c
 
   // Filtered measure in INTERSECTION mode (filterRules WITHOUT overrideFilters)
   // → SUM(CASE WHEN <rule> THEN col END), still inside the visual's own WHERE.
-  test(`intersection-filtered measure SQL is stable — ${dbType}`, async () => {
+  // Grouped by the rule's own column, as here, the rule replaces that grouping
+  // and the figure is spread over the rows as a window (windowMeasure.js,
+  // tests/windowFilteredMeasure.test.js); the dialects agree on OVER ().
+  test(`filtered measure SQL is stable — ${dbType}`, async () => {
     const measures = [{
       name: 'items.amt_active', table: 'items', column: 'amt', aggregation: 'sum', label: 'amt_active',
       filterRules: [{ field: 'items.label', op: 'eq', value: 'active' }],

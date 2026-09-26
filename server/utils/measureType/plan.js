@@ -13,6 +13,7 @@ const {
 } = require('./decompose');
 const { additiveTypeForMeasure, findMeasureByName } = require('./detect');
 const { compileExpression } = require('./exprParse');
+const { periodShiftOf } = require('../sqlBuilder/periodShift');
 
 // Given the measure DEFs a rollup must serve + the full measure pool,
 // returns everything the builder and planner need:
@@ -280,6 +281,9 @@ function factsForMeasure(measure, allMeasures, _seen) {
 // tainted by this check.
 function isOverrideTainted(measure, allMeasures, _seen) {
   if (!measure) return false;
+  // A period-shifted measure reads a moved date selection the atoms were
+  // never baked for (sqlBuilder/periodShift.js): live only, like override.
+  if (periodShiftOf(measure)) return true;
   const seen = _seen || new Set();
   if (measure.name) {
     if (seen.has(measure.name)) return false;

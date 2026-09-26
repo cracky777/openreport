@@ -18,6 +18,7 @@ const {
   transformAggregates, dialectNumericCast, applyNumericCast, buildMeasureAggExpr,
 } = require('./measureAgg');
 const { quoteAlias, quoteCol } = require('../sqlDialect');
+const { groupedRuleFields, partitionExprs, windowAgg, canWindow, windowedColumnAgg } = require('./windowMeasure');
 
 function emitMeasureSelects(ctx) {
   const {
@@ -25,7 +26,7 @@ function emitMeasureSelects(ctx) {
     allDimensions, allFieldsForLookup, dbType, columnTypes,
     selectParts, tablesUsed, dimOnlyMeasureInfos, overrideMeasureInfos, groupByParts,
     inlineMeasureRefs, buildRuleClause,
-    components, dimTables,
+    components, dimTables, selectedDimensions,
   } = ctx;
 
   for (const m of selectedMeasures) {
@@ -114,6 +115,11 @@ function emitMeasureSelects(ctx) {
       const clauses = m.filterRules.map(buildRuleClause).filter(Boolean);
       if (clauses.length > 0) {
         const whenSql = clauses.join(' AND ');
+        // A rule on a dimension the visual groups by replaces that grouping
+        // rather than narrowing it: the figure is spread over the partition
+        // of the other dimensions (see windowMeasure.js).
+        const ruleFields = groupedRuleFields(m.filterRules, selectedDimensions);
+        const partition = ruleFields.size ? partitionExprs(selectedDimensions, groupByParts, ruleFields) : null;
         if (m.aggregation === 'custom' && m.expression) {
           // Inline `${measure}` references before the CASE WHEN wrap so any
           // aggregates from referenced measures get the filter context too.
@@ -137,6 +143,7 @@ function emitMeasureSelects(ctx) {
               const cast = (fn.toUpperCase() === 'SUM' || fn.toUpperCase() === 'AVG')
                 ? dialectNumericCast(arg, dbType)
                 : arg;
+              if (partition && canWindow(fn, arg)) return windowAgg(fn, `CASE WHEN ${whenSql} THEN ${cast} END`, partition);
               return `${fn}(CASE WHEN ${whenSql} THEN ${cast} END)`;
             },
           );
@@ -145,12 +152,14 @@ function emitMeasureSelects(ctx) {
         } else if (m.aggregation === 'count' || (m.column === '*' && !m.table)) {
           // Column-aware, mirroring the unfiltered branch below: a count on a
           // picked column stays a non-null count under the filter.
-          const filteredCount = (m.aggregation === 'count' && m.table && m.column && m.column !== '*')
-            ? `COUNT(CASE WHEN ${whenSql} THEN ${quoteCol(m.table, m.column, dbType)} END)`
-            : `COUNT(CASE WHEN ${whenSql} THEN 1 END)`;
+          const countArg = (m.aggregation === 'count' && m.table && m.column && m.column !== '*')
+            ? `CASE WHEN ${whenSql} THEN ${quoteCol(m.table, m.column, dbType)} END`
+            : `CASE WHEN ${whenSql} THEN 1 END`;
+          const filteredCount = partition ? windowAgg('COUNT', countArg, partition) : `COUNT(${countArg})`;
           selectParts.push(`${filteredCount} AS ${quoteAlias(m.label || m.name, dbType)}`);
         } else if (m.table && m.column) {
-          selectParts.push(`${buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql: whenSql })} AS ${quoteAlias(m.label || m.name, dbType)}`);
+          const windowed = partition ? windowedColumnAgg(m, whenSql, partition, { dbType, columnTypes }) : null;
+          selectParts.push(`${windowed || buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql: whenSql })} AS ${quoteAlias(m.label || m.name, dbType)}`);
         }
         continue; // handled
       }

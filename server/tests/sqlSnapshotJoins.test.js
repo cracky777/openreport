@@ -97,6 +97,32 @@ for (const dbType of ['postgres', 'redshift', 'snowflake', 'mysql', 'oracle', 'c
   });
 }
 
+// Un filtre sur une dimension atteinte à travers une autre (fait → product →
+// category) : chaque sous-requête de fait doit ponter la table intermédiaire.
+// Sans le pont, la requête retombait sur la jointure directe des deux faits par
+// la dimension partagée — chaque ligne de l'un multipliée par celles de l'autre.
+test('multi-fact filtered through a snowflaked dimension keeps one subquery per fact', async () => {
+  const owner = seedUser({ role: 'editor' });
+  const ds = seedDatasource({ userId: owner, dbType: 'postgres' });
+  const model = seedModel({
+    userId: owner, datasourceId: ds, selectedTables: [...MF_TABLES, 'category'],
+    joins: [...MF_JOINS, { from_table: 'category', from_column: 'id', to_table: 'product', to_column: 'category_id', join_type: 'inner' }],
+    dimensions: [...MF_DIMENSIONS, { name: 'category.name', table: 'category', column: 'name', type: 'string', label: 'categorie' }],
+    measures: MF_MEASURES,
+  });
+  const res = await request(app)
+    .post(`/api/models/${model}/query`)
+    .set('x-test-user', owner)
+    .send({ dimensionNames: ['product.name'], measureNames: ['sales.amt_sum', 'returns.amt_sum'], widgetFilters: [{ field: 'category.name', op: 'in', values: ['A'] }], sqlOnly: true });
+  expect(res.status).toBe(200);
+  const { sql } = res.body;
+  expect(sql).toMatch(/FULL JOIN/);
+  expect(sql.match(/FROM "sales"/g)).toHaveLength(1);
+  expect(sql.match(/FROM "returns"/g)).toHaveLength(1);
+  expect(sql.match(/JOIN "category"/g)).toHaveLength(2);
+  expect(sql).toMatchSnapshot();
+});
+
 // Même requête multi-faits, sans dimension : un scorecard qui n'a aucun grain à
 // raccorder, donc CROSS JOIN au lieu de FULL JOIN. Ce chemin n'était couvert par
 // aucun snapshot, et il tombait sur SQL Server pour une deuxième raison — un

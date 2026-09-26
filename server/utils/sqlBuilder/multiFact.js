@@ -17,6 +17,29 @@ const { deriveJoinKeyword } = require('./joins');
 const { buildMeasureAggExpr } = require('./measureAgg');
 const { buildDimensionExpr } = require('./datePart');
 
+// Shortest chain of joins from any table already in the FROM clause to
+// `target`, as [{ join, table }] in the order the tables are joined in.
+function joinPath(added, target, allJoins) {
+  const via = new Map([...added].map((t) => [t, null]));
+  const queue = [...added];
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const j of allJoins) {
+      if (!j || !j.from_table || !j.to_table) continue;
+      const next = j.from_table === cur ? j.to_table : j.to_table === cur ? j.from_table : null;
+      if (!next || via.has(next)) continue;
+      via.set(next, { join: j, from: cur });
+      if (next === target) {
+        const path = [];
+        for (let t = target; via.get(t); t = via.get(t).from) path.unshift({ join: via.get(t).join, table: t });
+        return path;
+      }
+      queue.push(next);
+    }
+  }
+  return null;
+}
+
 function buildMultiFactBody({
   selectedMeasures, selectedDimensions, realFacts, whereParts,
   allDimensions, allJoins, dbType, columnTypes,
@@ -79,20 +102,17 @@ function buildMultiFactBody({
   const buildFactFrom = (fact) => {
     let from = quoteTable(fact, dbType);
     const added = new Set([fact]);
-    const remaining = neededDimTables.filter((t) => t !== fact);
-    while (remaining.length > 0) {
-      let pickedIdx = -1; let pickedJoin = null;
-      for (let i = 0; i < remaining.length; i++) {
-        const t = remaining[i];
-        const j = allJoins.find((jj) => (jj.from_table === t && added.has(jj.to_table))
-          || (jj.to_table === t && added.has(jj.from_table)));
-        if (j) { pickedIdx = i; pickedJoin = j; break; }
+    for (const target of neededDimTables) {
+      if (added.has(target)) continue;
+      // A dimension reached through another one (fact → department → client)
+      // is bridged like the main FROM clause does; without the bridge, a
+      // filter on the outer dimension sent the query back to the fan-out path.
+      const path = joinPath(added, target, allJoins);
+      if (!path) return null;
+      for (const { join, table } of path) {
+        from += ` ${deriveJoinKeyword(join)} JOIN ${quoteTable(table, dbType)} ON ${quoteCol(join.from_table, join.from_column, dbType)} = ${quoteCol(join.to_table, join.to_column, dbType)}`;
+        added.add(table);
       }
-      if (pickedIdx < 0) return null;
-      const t = remaining.splice(pickedIdx, 1)[0];
-      const jt = deriveJoinKeyword(pickedJoin);
-      from += ` ${jt} JOIN ${quoteTable(t, dbType)} ON ${quoteCol(pickedJoin.from_table, pickedJoin.from_column, dbType)} = ${quoteCol(pickedJoin.to_table, pickedJoin.to_column, dbType)}`;
-      added.add(t);
     }
     return from;
   };
