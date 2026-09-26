@@ -19,6 +19,7 @@ const workspaceRoutes = require('./routes/workspaces');
 const customVisualRoutes = require('./routes/customVisuals');
 const fileUploadRoutes = require('./routes/fileUpload');
 const imageUploadRoutes = require('./routes/imageUpload');
+const pbitImportRoutes = require('./routes/pbitImport');
 const cacheScheduleRoutes = require('./routes/cacheSchedules');
 const alertRoutes = require('./routes/alerts');
 const bookmarkRoutes = require('./routes/bookmarks');
@@ -203,6 +204,7 @@ app.use('/api/workspaces', customVisualRoutes);
 app.use('/api/workspaces', workspaceRoutes);
 app.use('/api/upload', fileUploadRoutes);
 app.use('/api/images', imageUploadRoutes);
+app.use('/api/import', pbitImportRoutes);
 // Serve uploaded images to the browser. The path on disk maps 1:1 with
 // the URL returned by /api/images upload responses (`/uploads/images/…`).
 // An uploaded SVG is a script the browser will happily run on our own origin —

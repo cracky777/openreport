@@ -269,13 +269,16 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
         smooth: smoothLine,
         lineStyle: { color, width: 2 },
         itemStyle: { color },
-        symbol: lineSymbol,
-        symbolSize: lineSymbolSize,
-        showSymbol: lineSymbol !== 'none',
+        // A label hangs on its symbol: no markers = an invisible one.
+        symbol: lineSymbol === 'none' ? 'circle' : lineSymbol,
+        symbolSize: lineSymbol === 'none' ? 0 : lineSymbolSize,
+        showSymbol: lineSymbol !== 'none' || showDataLabels,
         // Same opacity as an unstacked area line, so a combo and a line chart
         // of the same data read alike.
         areaStyle: lineArea ? { opacity: 0.15, color } : undefined,
         emphasis: { disabled: true },
+        // A label that would sit on another is dropped rather than printed over it.
+        labelLayout: { hideOverlap: true },
         label: {
           show: showDataLabels, position: 'top', fontSize: dataLabelFontSize, fontFamily: dataLabelFontFamily, color: dataLabelColor,
           rotate: dataLabelRotate,

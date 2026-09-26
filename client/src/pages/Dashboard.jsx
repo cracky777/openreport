@@ -6,7 +6,7 @@ import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
 import { readSheetNames } from '../utils/readSheetNames';
-import { TbEye, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbBell, TbPlayerPlay, TbToggleLeftFilled, TbToggleRightFilled, TbLoader2, TbRefresh, TbFileText, TbCode } from 'react-icons/tb';
+import { TbEye, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbBell, TbPlayerPlay, TbToggleLeftFilled, TbToggleRightFilled, TbLoader2, TbRefresh, TbFileText, TbCode, TbChartInfographic } from 'react-icons/tb';
 import { DeleteIcon, EditIcon, ICON_SIZE } from '../components/actionIcons';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
@@ -16,7 +16,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useWorkspaceData } from '../hooks/useWorkspaceData';
 import { useCardCacheWarming } from '../hooks/useCardCacheWarming';
 import { TopbarSwitcher, UserMenuExtras } from '../cloud';
-import { PrimaryButton, ImportButton } from '../components/PageHeader/PageHeader';
+import { PrimaryButton, ImportMenuButton, OpenReportMark, PowerBiMark } from '../components/PageHeader/PageHeader';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
 
 import Portal from '../components/Portal/Portal';
@@ -26,6 +26,7 @@ import { useJourneyFocus } from '../hooks/useJourneyFocus';
 import { groupByParent } from '../utils/groupByParent';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
 import CacheInspectorModal from '../components/CacheInspectorModal/CacheInspectorModal';
+import PbitImportWizard from '../components/PbitImport/PbitImportWizard';
 import CacheScheduleModal from '../components/CacheScheduleModal/CacheScheduleModal';
 import ScheduleModal from '../components/ScheduleModal/ScheduleModal';
 import { actionModalTitle, actionModalInput, actionModalActions, actionModalBtnSecondary, actionModalBtnPrimary, cardActionBtn } from '../components/dashboardModalStyles';
@@ -239,6 +240,7 @@ export default function Dashboard() {
     setWsReports,
   } = useWorkspaceData(selectedWs, reports, personalWorkspace);
   const [showCreate, setShowCreate] = useState(false);
+  const [showPbit, setShowPbit] = useState(false);
   // The source step was chosen before the dialog opened, so there is no step 1
   // to go back to — see leaveCreateStep.
   const [modePreset, setModePreset] = useState(false);
@@ -605,17 +607,21 @@ export default function Dashboard() {
     return () => { document.removeEventListener('mousedown', onClick); document.removeEventListener('keydown', onEsc); };
   }, [cardMenu]);
 
-  const duplicateReport = async (report) => {
-    setCardMenu(null);
-    await api.post(`/reports/${report.id}/duplicate`);
-    // Refresh both views. The "My Reports" tab derives from `reports`, but the
-    // workspace view fills `wsReports` from a separate /workspaces/:id fetch
-    // that only fires when selectedWs changes — so we re-pull it here too.
+  // Refresh both views. The "My Reports" tab derives from `reports`, but the
+  // workspace view fills `wsReports` from a separate /workspaces/:id fetch
+  // that only fires when selectedWs changes — so we re-pull it here too.
+  const reloadWsReports = async () => {
     await refreshGraph();
     if (selectedWs) {
       const wsRes = await api.get(`/workspaces/${selectedWs}`);
       setWsReports(wsRes.data.reports || []);
     }
+  };
+
+  const duplicateReport = async (report) => {
+    setCardMenu(null);
+    await api.post(`/reports/${report.id}/duplicate`);
+    await reloadWsReports();
   };
 
   const submitRename = async () => {
@@ -879,18 +885,29 @@ export default function Dashboard() {
                   style={_hs25}
                   onChange={handleImportFile}
                 />
-                <ImportButton
-                  onClick={() => { setImportError(''); importFileRef.current?.click(); }}
-                  title="Import a report from a .openreport.json file"
-                >
-                  Import report
-                </ImportButton>
+                <ImportMenuButton title="Import a report from another tool or from an Open Report file" items={[
+                  { key: 'openreport', icon: <OpenReportMark />, label: 'Open Report', hint: '.openreport.json', title: 'Import a report exported from Open Report',
+                    onClick: () => { setImportError(''); importFileRef.current?.click(); } },
+                  { key: 'powerbi', icon: <PowerBiMark />, label: 'Power BI', hint: '.pbit template', title: 'Rebuild a Power BI template as a model and a report',
+                    onClick: () => setShowPbit(true) },
+                  { key: 'looker', icon: <TbChartInfographic size={16} />, label: 'Looker Studio', hint: 'Coming soon', disabled: true },
+                ]}>
+                  Import
+                </ImportMenuButton>
                 {/* Wrapped: openCreate takes a source mode, and passing it straight
                     as a handler would hand it the click event instead. */}
                 <PrimaryButton onClick={() => openCreate()}>+ New Report</PrimaryButton>
               </div>
             )}
           </div>
+
+          {showPbit && (
+            <PbitImportWizard
+              workspaceId={selectedWs || undefined}
+              onImported={reloadWsReports}
+              onClose={() => setShowPbit(false)}
+            />
+          )}
 
           {/* Members panel */}
 

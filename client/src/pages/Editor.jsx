@@ -151,8 +151,9 @@ export default function Editor() {
       dimensions: [...baseDims, ...extraDims],
       measures: [...baseMeas, ...extraMeas],
       // Report-level dateColumn wins over the model's (the report editor's
-      // Date Table toggle now writes to settings, not the model).
-      dateColumn: settings?.dateColumn != null ? settings.dateColumn : model.dateColumn,
+      // Date Table toggle now writes to settings, not the model). Null is a
+      // choice — the Date Table was removed — and must not fall back.
+      dateColumn: settings && settings.dateColumn !== undefined ? settings.dateColumn : model.dateColumn,
     };
   }, [model, settings]);
   const [selectedWidget, setSelectedWidget] = useState(null);

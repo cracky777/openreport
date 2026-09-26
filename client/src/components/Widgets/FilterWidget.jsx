@@ -44,8 +44,11 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [relValue, setRelValue] = useState(config?.relativeValue || 7);
   const [relUnit, setRelUnit] = useState(config?.relativeUnit || 'days');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  // A date range can open on a saved window (config.dateFrom / dateTo):
+  // the bounds show at once, and filter the report once the values are in.
+  const [dateFrom, setDateFrom] = useState(config?.dateFrom || '');
+  const [dateTo, setDateTo] = useState(config?.dateTo || '');
+  const defaultRangeApplied = useRef(false);
   const [calendarTarget, setCalendarTarget] = useState(null); // null | 'from' | 'to'
   const fromRef = useRef(null);
   const toRef = useRef(null);
@@ -72,8 +75,9 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
         setSelected(config?.selectedValues || []);
       }
       setSearch('');
-      setDateFrom('');
-      setDateTo('');
+      // Back to the saved window, if the slicer opens on one.
+      setDateFrom(config?.dateFrom || '');
+      setDateTo(config?.dateTo || '');
       setBetweenAnchor(null);
       relAppliedRef.current = false;
       setRenderLimit(RENDER_BATCH);
@@ -147,6 +151,19 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
     ? data._searchedValues
     : (data?.values || []);
   const isDate = data?._isDate || false;
+  useEffect(() => {
+    // A saved selection already carries the window (the viewer applies it
+    // before any widget queries): nothing to re-apply once the values land.
+    if ((config?.selectedValues || []).length > 0) return;
+    if (defaultRangeApplied.current || !config?.dateFrom || !config?.dateTo || values.length === 0) return;
+    defaultRangeApplied.current = true;
+    const from = new Date(config.dateFrom);
+    const to = new Date(config.dateTo + 'T23:59:59');
+    const filtered = values.filter((v) => { const d = new Date(v); return !isNaN(d) && d >= from && d <= to; });
+    setSelected(filtered);
+    onFilterChange?.(filtered);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values, config?.dateFrom, config?.dateTo]);
   const multiSelect = config?.multiSelect ?? true;
   const slicerStyle = config?.slicerStyle || (isDate ? 'dateRange' : 'list');
   const showSearch = config?.showSearch ?? true;

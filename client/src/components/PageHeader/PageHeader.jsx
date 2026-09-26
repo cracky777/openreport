@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import { TbArrowLeft, TbUpload } from 'react-icons/tb';
+import { useEffect, useRef, useState } from 'react';
+import { TbArrowLeft, TbUpload, TbChevronDown } from 'react-icons/tb';
 
 // Shared page header styles matching the editor toolbar design language.
 
@@ -140,6 +141,81 @@ export function ImportButton({ children, onClick, disabled, title, style }) {
       <TbUpload size={16} />
       {children}
     </SecondaryButton>
+  );
+}
+
+// The product mark alone (the "O" of the wordmark, the same file the shell
+// shows in compact mode): it reads on both themes at icon size.
+export function OpenReportMark({ size = 16 }) {
+  return <img src="/favicon.png" alt="" aria-hidden="true" style={{ height: size, width: 'auto', display: 'block' }} />;
+}
+
+// Simple Icons no longer ships Microsoft marks, so the Power BI glyph is drawn
+// here: three rising bars in the product's yellow (a theme variable, the
+// brand yellow washes out on a light background — see the connector marks).
+export function PowerBiMark({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true" fill="var(--brand-powerbi)">
+      <rect x="1" y="9" width="3.6" height="6" rx="1" />
+      <rect x="6.2" y="5" width="3.6" height="10" rx="1" />
+      <rect x="11.4" y="1" width="3.6" height="14" rx="1" />
+    </svg>
+  );
+}
+
+// One Import button that opens the list of sources a page can import from
+// (an Open Report file, a Power BI template, later Looker Studio…): the
+// sources multiply, the header keeps a single affordance. `items` =
+// [{ key, icon, label, hint, onClick, disabled }]; a disabled item announces a
+// source that is not there yet.
+const importMenuPanel = {
+  position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 20,
+  minWidth: 240, padding: 4,
+  background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
+  borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+  display: 'flex', flexDirection: 'column',
+};
+const importMenuItem = {
+  display: 'flex', alignItems: 'center', gap: 10,
+  padding: '8px 12px', fontSize: 13,
+  background: 'transparent', border: 'none', borderRadius: 4,
+  color: 'var(--text-secondary)', cursor: 'pointer', textAlign: 'left', whiteSpace: 'nowrap',
+};
+const importMenuHint = { fontSize: 11, color: 'var(--text-disabled)', marginLeft: 'auto', paddingLeft: 12 };
+
+export function ImportMenuButton({ children, items, title, disabled }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onEsc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onEsc);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onEsc); };
+  }, [open]);
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <ImportButton onClick={() => setOpen((o) => !o)} disabled={disabled} title={title}>
+        {children}
+        <TbChevronDown size={14} style={{ marginLeft: 2 }} />
+      </ImportButton>
+      {open && (
+        <div style={importMenuPanel} role="menu">
+          {items.map((it) => (
+            <button key={it.key} type="button" role="menuitem" style={{ ...importMenuItem, ...(it.disabled ? { cursor: 'default', opacity: 0.55 } : null) }}
+              disabled={it.disabled} title={it.title}
+              onClick={() => { setOpen(false); it.onClick && it.onClick(); }}
+              onMouseEnter={(e) => { if (!it.disabled) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+              {it.icon}
+              <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{it.label}</span>
+              {it.hint && <span style={importMenuHint}>{it.hint}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

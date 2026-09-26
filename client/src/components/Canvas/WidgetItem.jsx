@@ -199,10 +199,15 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
   // Text widgets get zero so the configured alignment (left / centre / right
   // and top / middle / bottom) actually reaches the widget's outer edges
   // instead of being inset by an invisible 8 px frame.
-  const contentPadding = widget.type === 'filter' ? 2 : (widget.type === 'text' ? 0 : 8);
+  // A picture or a shape is its own frame: no inset, and no floor on its
+  // size either — a 12 px dot or a 1 px rule must stay that size, or the
+  // overflow clip hides the line drawn at the centre of a taller box.
+  const edgeToEdge = widget.type === 'text' || widget.type === 'image' || widget.type === 'shape';
+  const contentPadding = widget.type === 'filter' ? 2 : (edgeToEdge ? 0 : 8);
   const paddingTotal = contentPadding * 2;
-  const contentWidth = Math.max(50, (typeof w === 'number' ? w : 400) - paddingTotal);
-  const contentHeight = Math.max(50, (typeof h === 'number' ? h : 300) - titleHeight - paddingTotal);
+  const minContent = widget.type === 'image' || widget.type === 'shape' ? 1 : 50;
+  const contentWidth = Math.max(minContent, (typeof w === 'number' ? w : 400) - paddingTotal);
+  const contentHeight = Math.max(minContent, (typeof h === 'number' ? h : 300) - titleHeight - paddingTotal);
 
   // ── Frame chrome (bg / border / radius / shadow) ────────────────────
   // Seam-merge model: EVERY widget (merged or not) keeps its own full

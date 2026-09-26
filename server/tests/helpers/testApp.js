@@ -39,6 +39,7 @@ function buildApp() {
   app.use('/api/workspaces', require('../../routes/workspaces'));
   app.use('/api/upload', require('../../routes/fileUpload'));
   app.use('/api/images', require('../../routes/imageUpload'));
+  app.use('/api/import', require('../../routes/pbitImport'));
   return app;
 }
 

@@ -81,6 +81,8 @@
   --brand-oracle: #c74634;
   /* Le jaune officiel de DuckDB (#fff000) disparaît sur fond clair. */
   --brand-duckdb: #d9a400;
+  /* Même sort pour le jaune Power BI (#f2c811), assombri ici. */
+  --brand-powerbi: #d9a400;
   color-scheme: light;
 }
 
@@ -96,6 +98,7 @@
   --brand-clickhouse: #f5d76e;
   --brand-databricks: #ff6b5a;
   --brand-oracle: #e8756a;
+  --brand-powerbi: #f2c811;
   --bg-app: #0b1220;
   --bg-panel: #111827;
   --bg-panel-alt: #0f172a;

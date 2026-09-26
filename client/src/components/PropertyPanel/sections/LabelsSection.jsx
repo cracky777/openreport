@@ -113,12 +113,35 @@ export default function LabelsSection({ ctx }) {
     body = (
       <>
         <SubSection label="Value">
+          <Field label="Show value">
+            <input type="checkbox" checked={cfg.showValue ?? true} onChange={(e) => updateConfig('showValue', e.target.checked)} />
+          </Field>
           <FontFields inputStyle={inputStyle}
             size={{ value: cfg.valueSize, min: 16, max: 72, placeholder: '36', onChange: (v) => updateConfig('valueSize', v) }}
             color={{ value: cfg.valueColor, fallback: '#0f172a', onChange: (v) => updateConfig('valueColor', v) }}
             family={{ value: cfg.valueFontFamily, onChange: (v) => updateConfig('valueFontFamily', v) }} />
+          <Field label="Weight">
+            <select value={cfg.valueWeight || 700} onChange={(e) => updateConfig('valueWeight', Number(e.target.value))} style={{ ...inputStyle, marginBottom: 0 }}>
+              <option value={300}>Light</option>
+              <option value={400}>Regular</option>
+              <option value={600}>Semibold</option>
+              <option value={700}>Bold</option>
+            </select>
+          </Field>
+          <Field label="Date format">
+            <select value={cfg.dateFormat || ''} onChange={(e) => updateConfig('dateFormat', e.target.value || undefined)} style={{ ...inputStyle, marginBottom: 0 }}>
+              <option value="">As stored</option>
+              <option value="dd/MM/yyyy">dd/MM/yyyy</option>
+              <option value="MM/dd/yyyy">MM/dd/yyyy</option>
+              <option value="dd.MM.yyyy">dd.MM.yyyy</option>
+              <option value="yyyy-MM-dd">yyyy-MM-dd</option>
+            </select>
+          </Field>
         </SubSection>
         <SubSection label="Label">
+          <Field label="Show label">
+            <input type="checkbox" checked={cfg.showLabel ?? true} onChange={(e) => updateConfig('showLabel', e.target.checked)} />
+          </Field>
           <FontFields inputStyle={inputStyle}
             size={{ value: cfg.labelSize, min: 8, max: 32, placeholder: '14', onChange: (v) => updateConfig('labelSize', v) }}
             color={{ value: cfg.labelColor, fallback: '#64748b', onChange: (v) => updateConfig('labelColor', v) }}

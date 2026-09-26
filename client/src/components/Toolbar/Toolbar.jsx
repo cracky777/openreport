@@ -180,6 +180,34 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
   // The library can grow from outside this toolbar: the assistant adds the
   // visuals it writes. The editor bumps the nonce; the list follows.
   const refreshVisuals = customVisualsApi.refresh;
+  // The visuals OpenReport ships, offered to an admin below the library
+  // once the flyout opens; one already installed is not offered again.
+  const [builtins, setBuiltins] = useState([]);
+  useEffect(() => {
+    if (openMenu !== 'customVisuals' || !customVisualsApi.canManage) return;
+    let cancelled = false;
+    fetch('/api/workspaces/builtin-visuals', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : { visuals: [] }))
+      .then((j) => { if (!cancelled) setBuiltins(j.visuals || []); })
+      .catch(() => { /* no catalogue: nothing to offer */ });
+    return () => { cancelled = true; };
+  }, [openMenu, customVisualsApi.canManage]);
+  const installBuiltin = async (id) => {
+    if (!workspaceId) return;
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/visuals/builtin/${id}`, { method: 'POST', credentials: 'include' });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `Install failed (${res.status})`);
+      }
+      const j = await res.json();
+      toast(`Installed ${j.visual.name} v${j.visual.version}`, 'success');
+      customVisualsApi.refresh();
+      handleAddCustomVisual({ ...j.visual, bundleUrl: `/api/workspaces/${workspaceId}/visuals/${j.visual.id}/bundle.js` }, true);
+    } catch (err) {
+      toast(String(err.message || err));
+    }
+  };
   useEffect(() => {
     if (visualsNonce) refreshVisuals();
   }, [visualsNonce, refreshVisuals]);
@@ -577,6 +605,18 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                           />
                         )}
                       </div>
+                    ))}
+                    {customVisualsApi.canManage && builtins.filter((b) => !customVisualsApi.visuals.some((v) => v.id === b.id)).map((b) => (
+                      <button key={'builtin-' + b.id} onClick={() => installBuiltin(b.id)} title={b.description || `Install ${b.name} from the visuals OpenReport ships`}
+                        style={{ ...dropdownItem, display: 'flex', alignItems: 'center' }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
+                        <TbPlus size={14} color="var(--accent-primary)" style={_hs37} />
+                        <div style={_hs33}>
+                          <div style={_hs34}>{b.name}</div>
+                          <div style={_hs35}>built-in · install</div>
+                        </div>
+                      </button>
                     ))}
                     {customVisualsApi.canManage && (
                       <>

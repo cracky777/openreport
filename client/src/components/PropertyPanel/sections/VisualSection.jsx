@@ -256,12 +256,21 @@ export default function VisualSection({ ctx }) {
           </select>
         </Field>
         {isDateRange && (
-          <Field label="Layout">
-            <select value={cfg.dateLayout || 'vertical'} onChange={(e) => updateConfig('dateLayout', e.target.value)} style={{ ...inputStyle, marginBottom: 0 }}>
-              <option value="vertical">Vertical</option>
-              <option value="horizontal">Horizontal</option>
-            </select>
-          </Field>
+          <>
+            <Field label="Layout">
+              <select value={cfg.dateLayout || 'vertical'} onChange={(e) => updateConfig('dateLayout', e.target.value)} style={{ ...inputStyle, marginBottom: 0 }}>
+                <option value="vertical">Vertical</option>
+                <option value="horizontal">Horizontal</option>
+              </select>
+            </Field>
+            {/* The window the report opens on; empty = no preset. */}
+            <Field label="Opens on">
+              <div style={{ display: 'flex', gap: 4 }}>
+                <input type="date" value={cfg.dateFrom || ''} onChange={(e) => updateConfig('dateFrom', e.target.value || undefined)} style={{ ...inputStyle, marginBottom: 0, flex: 1 }} title="From" />
+                <input type="date" value={cfg.dateTo || ''} onChange={(e) => updateConfig('dateTo', e.target.value || undefined)} style={{ ...inputStyle, marginBottom: 0, flex: 1 }} title="To" />
+              </div>
+            </Field>
+          </>
         )}
         {isDateCalendar && (
           <Field label="Selection">

@@ -1,0 +1,24 @@
+{
+  "id": "sankey",
+  "name": "Sankey",
+  "version": "1.0.0",
+  "description": "Flows between steps: each row is one source → target pair weighted by a measure. Nodes are laid out in columns by the order the flows reach them; a third dimension colours the nodes.",
+  "dataSchema": {
+    "dimensions": [
+      { "role": "source", "label": "Source" },
+      { "role": "target", "label": "Target" },
+      { "role": "color", "label": "Colour category (optional)" }
+    ],
+    "measures": [
+      { "role": "weight", "label": "Weight" }
+    ]
+  },
+  "configSchema": [
+    { "key": "hiddenNodes", "label": "Hidden nodes (comma-separated)", "type": "string" },
+    { "key": "showLabels", "label": "Show labels", "type": "boolean", "default": true },
+    { "key": "showValues", "label": "Show values", "type": "boolean", "default": true },
+    { "key": "nodeWidth", "label": "Node width", "type": "number", "default": 14, "min": 4, "max": 60 },
+    { "key": "labelColor", "label": "Label colour", "type": "color", "default": "#b3b3b3" },
+    { "key": "linkOpacity", "label": "Link opacity", "type": "number", "default": 0.45, "min": 0.05, "max": 1, "step": 0.05 }
+  ]
+}

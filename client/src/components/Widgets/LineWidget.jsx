@@ -134,6 +134,13 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
       padding: dataLabelBgOpacity > 0 ? [2, 4] : 0, borderRadius: 2,
     };
 
+    // ECharts hangs a point's label on its symbol: a line drawn without
+    // markers keeps an invisible symbol so its data labels still print.
+    const symbolNone = (config?.lineSymbol ?? 'circle') === 'none';
+    const symbolOpts = symbolNone
+      ? { symbol: 'circle', symbolSize: 0, showSymbol: showDataLabels }
+      : { symbol: config?.lineSymbol ?? 'circle', symbolSize: config?.lineSymbolSize ?? 6, showSymbol: true };
+
     if (visibleSeries && visibleSeries.length > 0) {
       const colTotals100 = subType === 'stackedArea100'
         ? labels.map((_, vi) => visibleSeries.reduce((t, sr) => t + (sr.values[vi] || 0), 0))
@@ -149,13 +156,14 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
         series.push({
           type: 'line', name: s.name || `Series ${i + 1}`, data: values,
           smooth: config?.smooth ?? true,
-          symbol: config?.lineSymbol ?? 'circle',
-          symbolSize: config?.lineSymbolSize ?? 6,
-          showSymbol: (config?.lineSymbol ?? 'circle') !== 'none',
+          ...symbolOpts,
           lineStyle: { color: getColor(s.name) },
           itemStyle: { color: getColor(s.name) },
           areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15, color: getColor(s.name) } : undefined,
           stack: isStacked ? 'total' : undefined,
+          // Dense series: a label that would sit on another is dropped
+          // rather than printed over it.
+          labelLayout: { hideOverlap: true },
           label: { ...labelOpts, formatter: (p) => {
             if (hideZeros && (p.value == null || p.value === 0)) return '';
             return buildDataLabel(p, dataLabelContent, dataLabelAbbr, data._measureFormats?.[p.seriesName], { isDuration: isDurationCol(p.seriesName, data._durationColumns) || isDurationCol(data._measureLabel, data._durationColumns), text: rawTextFor(data, p.seriesName, p.name) });
@@ -165,12 +173,11 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
     } else if (!hasSeries) {
       series.push({
         type: 'line', data: sortedIndices.map((i) => data.values[i] || 0), smooth: config?.smooth ?? true,
-        symbol: config?.lineSymbol ?? 'circle',
-        symbolSize: config?.lineSymbolSize ?? 6,
-        showSymbol: (config?.lineSymbol ?? 'circle') !== 'none',
+        ...symbolOpts,
         lineStyle: { color: config?.color || '#5470c6' },
         itemStyle: { color: config?.color || '#5470c6' },
         areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15 } : undefined,
+        labelLayout: { hideOverlap: true },
         label: { ...labelOpts, formatter: (p) => {
           if (hideZeros && (p.value == null || p.value === 0)) return '';
           return buildDataLabel(p, dataLabelContent, dataLabelAbbr, Object.values(data._measureFormats || {})[0], { isDuration: isDurationCol(data._measureLabel, data._durationColumns), text: rawTextFor(data, p.seriesName, p.name) });

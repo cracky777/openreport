@@ -22,10 +22,10 @@ import { memo } from 'react';
 // lived at the bottom of every widget file (byte-identical across 12
 // widgets) so this is a strict mechanical extraction.
 export default memo(function WidgetEmptyState({ data, config, unboundHint }) {
-  if (data?._rowCount === 0) {
-    if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
-    return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
-  }
+  // "Hide the empty message" is the author asking for silence, whatever
+  // left the visual empty: no rows, or rows a draft measure filled with nulls.
+  if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
+  if (data?._rowCount === 0) return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
   return <div style={emptyStyle}>{unboundHint}</div>;
 });
 

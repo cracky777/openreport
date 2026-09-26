@@ -2,7 +2,8 @@ const js = require('@eslint/js');
 const globals = require('globals');
 
 module.exports = [
-  { ignores: ['node_modules/**', 'data/**', 'coverage/**', 'cloud/**'] },
+  // custom-visuals/ holds browser bundles served as files, not server code.
+  { ignores: ['node_modules/**', 'data/**', 'coverage/**', 'cloud/**', 'custom-visuals/**'] },
   js.configs.recommended,
   {
     files: ['**/*.js'],

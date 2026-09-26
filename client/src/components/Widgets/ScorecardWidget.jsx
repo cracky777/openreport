@@ -3,6 +3,14 @@ import { formatDuration } from '../../utils/formatHuman';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 import { toNumber } from '../../utils/numericValue';
 
+// A date column shown as a card arrives as ISO text; `dateFormat` prints it
+// the way the report's readers write dates (dd/MM/yyyy, MM/dd/yyyy, …).
+function formatDateValue(text, dateFormat) {
+  const m = dateFormat ? text.match(/^(\d{4})-(\d{2})-(\d{2})/) : null;
+  if (!m) return text;
+  return dateFormat.replace('yyyy', m[1]).replace('MM', m[2]).replace('dd', m[3]);
+}
+
 const _hs0 = {
         height: '100%',
         display: 'flex',
@@ -39,9 +47,10 @@ export default function ScorecardWidget({ data, config }) {
   const rawValue = toNumber(data.value);
   const fmtNum = (v) => (isDuration ? formatDuration(v) : (fmt ? formatNumber(v, fmt) : v.toLocaleString()));
 
-  const displayValue = !isNaN(rawValue)
+  const isNumeric = !isNaN(rawValue);
+  const displayValue = isNumeric
     ? fmtNum(rawValue)
-    : String(data.value ?? '');
+    : formatDateValue(String(data.value ?? ''), config?.dateFormat);
 
   // ─── N-1 comparison lines ─────────────────────────────────────────
   // Each toggle that's on contributes a "line" with its own styling
@@ -141,7 +150,7 @@ export default function ScorecardWidget({ data, config }) {
   // The label sits above the figure by default. Below reads better when the
   // scorecard is stacked in a row of tiles and the eye scans the numbers first.
   const labelBelow = config?.labelPosition === 'below';
-  const labelEl = (
+  const labelEl = config?.showLabel === false ? null : (
     <div
       style={{
         fontSize: config?.labelSize || 14,
@@ -175,16 +184,23 @@ export default function ScorecardWidget({ data, config }) {
             {leftLines.map((l, i) => renderLine(l, `l${i}`))}
           </div>
         )}
-        <div
-          style={{
-            fontSize: config?.valueSize || 36,
-            fontWeight: 700,
-            color: config?.valueColor || 'var(--text-primary)',
-            fontFamily: config?.valueFontFamily ? fontStack(config.valueFontFamily) : undefined,
-          }}
-        >
-          {displayValue}
-        </div>
+        {config?.showValue !== false && (
+          <div
+            style={{
+              fontSize: config?.valueSize || 36,
+              fontWeight: config?.valueWeight || 700,
+              // A figure never breaks at its thousands separator; a text
+              // value wraps rather than running out of its card.
+              whiteSpace: isNumeric ? 'nowrap' : 'normal',
+              overflowWrap: isNumeric ? undefined : 'anywhere',
+              textAlign: 'center',
+              color: config?.valueColor || 'var(--text-primary)',
+              fontFamily: config?.valueFontFamily ? fontStack(config.valueFontFamily) : undefined,
+            }}
+          >
+            {displayValue}
+          </div>
+        )}
         {rightLines.length > 0 && (
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,

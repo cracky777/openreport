@@ -1,4 +1,6 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const multer = require('multer');
 const AdmZip = require('adm-zip');
 const { requireAuth } = require('../middleware/auth');
@@ -155,6 +157,44 @@ router.get('/:wsId/visuals/:visualId/icon', requireAuth, requireWorkspaceMember,
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
   res.type(row.icon_mime || 'application/octet-stream').send(row.icon);
+});
+
+// Visuals OpenReport ships (server/custom-visuals/<id>/): the same package
+// layout as an upload, kept in the repo. They are installed on demand into a
+// workspace library — the Power BI import asks for the ones a report needs.
+const BUILTIN_DIR = path.join(__dirname, '..', 'custom-visuals');
+
+function readBuiltinVisual(id) {
+  if (!ID_PATTERN.test(String(id || ''))) return null;
+  const dir = path.join(BUILTIN_DIR, id);
+  if (!fs.existsSync(path.join(dir, 'manifest.json')) || !fs.existsSync(path.join(dir, 'visual.js'))) return null;
+  const { manifest, error } = validateManifest(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
+  if (error) return null;
+  const bundle = fs.readFileSync(path.join(dir, 'visual.js'), 'utf8');
+  const iconPath = ['icon.svg', 'icon.png', 'icon.jpg'].map((f) => path.join(dir, f)).find((p) => fs.existsSync(p));
+  const icon = iconPath ? fs.readFileSync(iconPath) : null;
+  const iconMime = iconPath ? ICON_MIMES[iconPath.split('.').pop()] : null;
+  return { manifest, bundle, icon, iconMime };
+}
+
+router.get('/builtin-visuals', requireAuth, (req, res) => {
+  const ids = fs.existsSync(BUILTIN_DIR) ? fs.readdirSync(BUILTIN_DIR) : [];
+  const visuals = ids.map((id) => readBuiltinVisual(id)).filter(Boolean)
+    .map((v) => ({ id: v.manifest.id, name: v.manifest.name, version: v.manifest.version, description: v.manifest.description || '' }));
+  res.json({ visuals });
+});
+
+router.post('/:wsId/visuals/builtin/:id', requireAuth, requireWorkspaceAdmin, (req, res) => {
+  const v = readBuiltinVisual(req.params.id);
+  if (!v) return res.status(404).json({ error: 'No built-in visual with this id' });
+  const existing = db.prepare('SELECT origin FROM custom_visuals WHERE workspace_id = ? AND visual_id = ?').get(req.params.wsId, v.manifest.id);
+  if (existing && existing.origin !== 'builtin') {
+    return res.status(409).json({ error: 'A visual already uses this id in the library' });
+  }
+  saveVisual({ wsId: req.params.wsId, manifest: v.manifest, bundle: v.bundle, icon: v.icon, iconMime: v.iconMime, userId: req.user.id, origin: 'builtin' });
+  res.status(201).json({
+    visual: { id: v.manifest.id, name: v.manifest.name, version: v.manifest.version, manifest: v.manifest, hasIcon: !!v.icon, origin: 'builtin' },
+  });
 });
 
 // Upload a .zip package
