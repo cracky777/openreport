@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { TbFilter, TbX, TbHandClick } from 'react-icons/tb';
+import { TbFilter, TbX, TbHandClick, TbSearch } from 'react-icons/tb';
 import { AddIcon, ICON_SIZE } from '../actionIcons';
 import FilterRulesEditor, { buildDefaultFilterRule } from '../FilterRulesEditor/FilterRulesEditor';
 
@@ -9,6 +9,48 @@ const _hs1 = { fontSize: 11, color: 'var(--text-muted)', fontWeight: 500, flexSh
 const _hs2 = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 };
 const _hs3 = { fontSize: 11, color: 'var(--text-disabled)', fontStyle: 'italic' };
 const _hs4 = { flex: 1 };
+const _hs5 = { fontSize: 11, color: 'var(--accent-primary)', fontWeight: 500 };
+
+// The "+" picker: one list of every field, narrowed as the user types, so a
+// model with hundreds of columns is a few keystrokes away instead of a scroll
+// through a native dropdown.
+function FieldPicker({ model, onPick }) {
+  const [query, setQuery] = useState('');
+  const inputRef = useRef(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+  const q = query.trim().toLowerCase();
+  const matches = (f) => !q || String(f.label || f.name).toLowerCase().includes(q) || String(f.name).toLowerCase().includes(q);
+  const dims = (model.dimensions || []).filter(matches);
+  const meas = (model.measures || []).filter(matches);
+  const first = dims.length ? { kind: 'd', f: dims[0] } : (meas.length ? { kind: 'm', f: meas[0] } : null);
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter' && first) { e.preventDefault(); onPick(first.f.name, first.kind === 'm'); }
+  };
+  const group = (label, list, kind) => list.length > 0 && (
+    <div key={kind}>
+      <div style={pickerGroupStyle}>{label}</div>
+      {list.map((f) => (
+        <button key={kind + f.name} type="button" onClick={() => onPick(f.name, kind === 'm')} style={pickerItemStyle} title={f.name}>
+          {f.label || f.name}
+        </button>
+      ))}
+    </div>
+  );
+  return (
+    <>
+      <div style={pickerSearchStyle}>
+        <TbSearch size={13} style={_hs0} />
+        <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onKeyDown}
+          placeholder="Search a field…" aria-label="Search a field" style={pickerInputStyle} />
+      </div>
+      <div style={pickerListStyle}>
+        {group('Dimensions', dims, 'd')}
+        {group('Measures', meas, 'm')}
+        {dims.length === 0 && meas.length === 0 && <div style={_hs3}>No field matches</div>}
+      </div>
+    </>
+  );
+}
 
 const VALUELESS = new Set(['is_empty', 'is_not_empty']);
 const OP_SYMBOL = {
@@ -93,7 +135,9 @@ export default function ReportFilterBar({ model, rules, onChange, onRefresh, vis
   const triggerRef = useRef(null);
   const chipRefs = useRef({});
   const popRef = useRef(null);
-  const addSelectRef = useRef(null);
+  const barRef = useRef(null);
+  // A field held over the bar: the bar says it will take it.
+  const [dragOver, setDragOver] = useState(false);
   // popMode = null | { type: 'add' } | { type: 'edit', idx }
   // The popover is scoped to a single rule (edit) or to the field picker
   // (add). The "+ button" and chip clicks each set the appropriate mode so
@@ -126,17 +170,52 @@ export default function ReportFilterBar({ model, rules, onChange, onRefresh, vis
   // Picking a field in add-mode appends the rule (to the draft) and jumps to
   // edit it. The rule is flagged __isNew so it stays hidden from the chip row
   // until the user commits via Save / Save & refresh.
-  const handleAddField = (e) => {
-    const v = e.target.value;
-    if (!v || !model) return;
-    const [kind, name] = v.split('::');
+  const addRuleFor = (name, isMeasure) => {
+    if (!name || !model) return;
     const newIdx = wf.length;
-    const rule = buildDefaultFilterRule(model, name, kind === 'm');
+    const rule = buildDefaultFilterRule(model, name, isMeasure);
     rule.__isNew = true;
     setDraftRules([...wf, rule]);
     setPopMode({ type: 'edit', idx: newIdx });
-    e.target.value = '';
   };
+
+  // A field dragged from the Data panel and dropped on the bar starts a
+  // rule on it, the same as picking it from the "+" list. Mouse drags come
+  // through the DataTransfer, touch drags through the or:* events that
+  // utils/touchDrag sends to every [data-touch-drop] element.
+  const isFieldDrag = (e) => Array.from(e.dataTransfer?.types || []).includes('application/field-name');
+  const onDragOver = (e) => {
+    if (!isFieldDrag(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setDragOver(true);
+  };
+  const onDragLeave = (e) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false);
+  };
+  const onDrop = (e) => {
+    if (!isFieldDrag(e)) return;
+    e.preventDefault();
+    setDragOver(false);
+    addRuleFor(e.dataTransfer.getData('application/field-name'), e.dataTransfer.getData('application/field-type') === 'measure');
+  };
+  const addRuleRef = useRef(addRuleFor);
+  addRuleRef.current = addRuleFor;
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const enter = () => setDragOver(true);
+    const leave = () => setDragOver(false);
+    const drop = (e) => { setDragOver(false); const d = e.detail || {}; addRuleRef.current(d.fieldName, d.fieldType === 'measure'); };
+    el.addEventListener('or:dragenter', enter);
+    el.addEventListener('or:dragleave', leave);
+    el.addEventListener('or:drop', drop);
+    return () => {
+      el.removeEventListener('or:dragenter', enter);
+      el.removeEventListener('or:dragleave', leave);
+      el.removeEventListener('or:drop', drop);
+    };
+  }, [visible]);
 
   // Anchor: edit mode pins to the clicked chip — but new (unsaved) rules
   // don't render a chip, so we fall back to the + button for those.
@@ -176,28 +255,11 @@ export default function ReportFilterBar({ model, rules, onChange, onRefresh, vis
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [popOpen, anchorEl]);
 
-  // In add mode, programmatically open the native dropdown so the user lands
-  // straight on the field picker. showPicker() is widely supported (Chrome 99+,
-  // FF 95+, Safari 16+); fall back to focus() if it isn't available.
-  useEffect(() => {
-    if (popMode?.type !== 'add') return;
-    const el = addSelectRef.current;
-    if (!el) return;
-    const t = setTimeout(() => {
-      try {
-        if (typeof el.showPicker === 'function') el.showPicker();
-        else el.focus();
-      } catch {
-        el.focus();
-      }
-    }, 0);
-    return () => clearTimeout(t);
-  }, [popMode?.type]);
-
   if (!shouldRender) return null;
 
   return (
-    <div style={barStyle}>
+    <div ref={barRef} data-touch-drop="" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
+      style={dragOver ? { ...barStyle, ...barDragOverStyle } : barStyle} data-testid="report-filter-bar">
       <TbFilter size={14} style={_hs0} />
       <span style={_hs1}>
         Report filters
@@ -247,9 +309,11 @@ export default function ReportFilterBar({ model, rules, onChange, onRefresh, vis
             </span>
           );
         })}
-        {visibleCount === 0 && (
+        {dragOver ? (
+          <span style={_hs5}>Drop the field here to filter the report on it</span>
+        ) : visibleCount === 0 && (
           <span style={_hs3}>
-            No filters — click + to add
+            No filters — click + to add, or drop a field here
           </span>
         )}
       </div>
@@ -270,23 +334,7 @@ export default function ReportFilterBar({ model, rules, onChange, onRefresh, vis
           {popMode?.type === 'add' && model && (
             <>
               <div style={popHeaderStyle}>Add filter</div>
-              <select ref={addSelectRef} onChange={handleAddField} value="" style={selectStyle}>
-                <option value="">+ Add a filter on…</option>
-                {(model.dimensions || []).length > 0 && (
-                  <optgroup label="Dimensions">
-                    {model.dimensions.map((d) => (
-                      <option key={'d::' + d.name} value={'d::' + d.name}>{d.label || d.name}</option>
-                    ))}
-                  </optgroup>
-                )}
-                {(model.measures || []).length > 0 && (
-                  <optgroup label="Measures">
-                    {model.measures.map((m) => (
-                      <option key={'m::' + m.name} value={'m::' + m.name}>{m.label || m.name}</option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
+              <FieldPicker model={model} onPick={addRuleFor} />
             </>
           )}
           {popMode?.type === 'edit' && model && wf[popMode.idx] && (
@@ -435,10 +483,34 @@ const popActionsStyle = {
   borderTop: '1px solid var(--border-default)',
 };
 
-const selectStyle = {
-  width: '100%', padding: '6px 8px', marginBottom: 8,
-  border: '1px solid var(--border-default)',
-  borderRadius: 6, fontSize: 12, outline: 'none',
-  background: 'var(--bg-panel)', color: 'var(--text-primary)',
-  boxSizing: 'border-box',
+const barDragOverStyle = {
+  background: 'var(--accent-primary-soft)',
+  boxShadow: 'inset 0 0 0 2px var(--accent-primary)',
+};
+
+const pickerSearchStyle = {
+  display: 'flex', alignItems: 'center', gap: 6,
+  padding: '4px 8px', marginBottom: 6,
+  border: '1px solid var(--border-default)', borderRadius: 6,
+  background: 'var(--bg-panel)',
+};
+
+const pickerInputStyle = {
+  flex: 1, border: 'none', outline: 'none', fontSize: 12,
+  background: 'transparent', color: 'var(--text-primary)', minWidth: 0,
+};
+
+const pickerListStyle = { maxHeight: 260, overflowY: 'auto' };
+
+const pickerGroupStyle = {
+  fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4,
+  color: 'var(--text-muted)', padding: '6px 4px 2px',
+};
+
+const pickerItemStyle = {
+  display: 'block', width: '100%', textAlign: 'left',
+  padding: '5px 8px', fontSize: 12, borderRadius: 4,
+  background: 'transparent', border: 'none', cursor: 'pointer',
+  color: 'var(--text-primary)',
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
