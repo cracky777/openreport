@@ -7,10 +7,11 @@
 // The rows of the open workspace: what lives there or is shared into it —
 // sources and models alike. `selectedWs` null is "My Reports", the personal
 // workspace and nothing else. A source also shows, read-only, behind a model
-// that LIVES here (its editors need it; the server lists it for them), so that
-// model's join line lands on its source. Never behind a model only shared
-// here: sharing a model does not share its source — only a share of the
-// source does.
+// that LIVES here (its editors need it; the server lists it for them). Behind
+// a model only shared here, its source is not shared — only a share of the
+// source does that — so what shows is a locked stand-in (`notShared`): the
+// name the model already carries, so the relation stays drawn, and nothing to
+// open, read or build on.
 const livesIn = (row, wsKey) => !!wsKey
   && (row.workspace_id === wsKey || (Array.isArray(row.shared_in) && row.shared_in.includes(wsKey)));
 
@@ -19,6 +20,12 @@ export function scopeResources({ datasources, models, selectedWs, personalWorksp
   const scopedModels = (models || []).filter((m) => livesIn(m, wsKey));
   const modelSources = new Set(scopedModels.filter((m) => m.workspace_id === wsKey).map((m) => m.datasource_id));
   const scopedSources = (datasources || []).filter((d) => livesIn(d, wsKey) || modelSources.has(d.id));
+  const onScreen = new Set(scopedSources.map((d) => d.id));
+  for (const m of scopedModels) {
+    if (!m.datasource_id || onScreen.has(m.datasource_id)) continue;
+    onScreen.add(m.datasource_id);
+    scopedSources.push({ id: m.datasource_id, name: m.datasource_name, notShared: true });
+  }
   return { wsKey, models: scopedModels, datasources: scopedSources };
 }
 

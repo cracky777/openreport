@@ -198,7 +198,6 @@ const publicCardAccent = { borderColor: 'var(--state-success)' };
 // the list, at that same 4, painted over it. Raising the card lifts the menu
 // with it. Stays well under the shell's own dropdowns at 200.
 const cardMenuOpen = { zIndex: 10 };
-const sharedBadge = { alignSelf: 'center', fontSize: 11, color: 'var(--text-muted)', border: '1px solid var(--border-default)', borderRadius: 4, padding: '1px 6px' };
 // Last of the line and least load-bearing, so it is the one that gives way.
 const cardCacheLink = {
   color: 'var(--text-disabled)',
@@ -643,9 +642,15 @@ export default function Dashboard() {
     }
   };
 
-  const duplicateReport = async (report) => {
+  // `workspaceId`: where the copy goes — a report shared into this workspace
+  // is copied here, not back into its own.
+  const duplicateReport = async (report, workspaceId) => {
     setCardMenu(null);
-    await api.post(`/reports/${report.id}/duplicate`);
+    try {
+      await api.post(`/reports/${report.id}/duplicate`, workspaceId ? { workspaceId } : {});
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not duplicate this report');
+    }
     await reloadWsReports();
   };
 
@@ -1182,14 +1187,21 @@ export default function Dashboard() {
                 const stats = cardCacheStats[report.id];
                 const warming = cardWarmingIds.has(report.id);
                 const menuOpen = cardMenu === report.id;
-                // Shared into this workspace from its own: open it, nothing else.
-                const canEditCard = canEdit && !report.shared;
+                // Shared into this workspace from its own: its editors here do
+                // everything but delete it; its model stays with its own workspace.
+                const canManageCard = canEdit && !report.shared;
                 const skin = report.is_public || menuOpen
                   ? { ...cardStyle, ...(report.is_public ? publicCardAccent : null), ...(menuOpen ? cardMenuOpen : null) }
                   : cardStyle;
                 return (
                 <div key={report.id} style={joinRowStyle}>
-                <div className="journey-card" data-join-anchor={`reports:${report.id}`} style={skin}>
+                <div
+                  className="journey-card"
+                  data-join-anchor={`reports:${report.id}`}
+                  data-join-parent={report.model_id ? `models:${report.model_id}` : undefined}
+                  data-join-parent-name={report.model_name || undefined}
+                  style={skin}
+                >
                   <div onClick={() => window.open(`/view/${report.id}`, '_blank')}
                     style={cardBody}>
                     <h3
@@ -1207,7 +1219,7 @@ export default function Dashboard() {
                               style={metaModelName}
                               title={report.model_name}
                             >{report.model_name}</span>
-                            {canEditCard && report.model_id && (
+                            {canManageCard && report.model_id && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); navigate(`/models/${report.model_id}`); }}
                                 title="Edit model"
@@ -1275,9 +1287,8 @@ export default function Dashboard() {
                   </div>
                   <div style={cardActions}>
                     <button onClick={() => window.open(`/view/${report.id}`, '_blank')} title="View" {...cardActionBtn('accent')}><TbEye size={16} /></button>
-                    {report.shared && <span style={sharedBadge} title="Shared into this workspace from another one: open it here, edit it in its own workspace">shared</span>}
-                    {canEditCard && <button onClick={() => navigate(`/edit/${report.id}`)} title="Edit" {...cardActionBtn()}><EditIcon size={ICON_SIZE.card} /></button>}
-                    {canEditCard && (
+                    {canEdit && <button onClick={() => navigate(`/edit/${report.id}`)} title="Edit" {...cardActionBtn()}><EditIcon size={ICON_SIZE.card} /></button>}
+                    {canEdit && (
                       <div style={cardMenuWrap}
                         ref={menuOpen ? cardMenuRef : null}>
                         <button
@@ -1296,7 +1307,7 @@ export default function Dashboard() {
                               <EditIcon size={ICON_SIZE.modal} /> Rename
                             </button>
                             <button style={cardMenuItem}
-                              onClick={() => duplicateReport(report)}
+                              onClick={() => duplicateReport(report, report.shared ? selectedWs : undefined)}
                               onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                               onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                               <TbCopy size={14} /> Duplicate
@@ -1335,7 +1346,7 @@ export default function Dashboard() {
                             {/* Making a report public is gated by the instance
                                 policy (admin setting); making it private again is
                                 always allowed. The server enforces either way. */}
-                            {canEdit && (report.is_public || canSharePublic) && (
+                            {(report.is_public || canSharePublic) && (
                               <button style={cardMenuItem}
                                 onClick={() => { setCardMenu(null); togglePublic(report); }}
                                 onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
@@ -1358,14 +1369,12 @@ export default function Dashboard() {
                                 <TbLink size={14} /> Copy public link
                               </button>
                             ) : null}
-                            {canEdit && (
-                              <button style={cardMenuItem}
-                                onClick={() => { setCardMenu(null); setEmbedModal(report); }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                                <TbCode size={14} /> Embed…
-                              </button>
-                            )}
+                            <button style={cardMenuItem}
+                              onClick={() => { setCardMenu(null); setEmbedModal(report); }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                              <TbCode size={14} /> Embed…
+                            </button>
                             {user?.role === 'admin' && (
                               <button style={cardMenuItem}
                                 onClick={() => openHistory(report)}
@@ -1430,11 +1439,14 @@ export default function Dashboard() {
                         single row that corner is where the actions now are.
                         Last in the group, so the destructive one isn't the
                         neighbour of View. */}
+                    {/* A shared report is deleted in its own workspace: the bin
+                        says so with a no-entry sign, the reason on hover. */}
                     {canEdit && (
                       <ConfirmDeleteButton
                         variant="icon"
                         label="Delete report"
                         onConfirm={() => deleteReport(report.id)}
+                        blockedReason={report.shared ? 'Cannot delete it because it is shared' : null}
                       />
                     )}
                   </div>

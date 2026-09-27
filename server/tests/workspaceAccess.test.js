@@ -208,6 +208,46 @@ describe('sharing a report into another workspace', () => {
     expect((await as(reader).get(`/reports/${r}`)).status).toBe(403);
     expect((await as(reader).post(`/models/${m}/query`, q)).status).toBe(404);
   });
+
+  test('its editors there do everything but delete it; the model keeps its own bar', async () => {
+    const a = seedUser({ role: 'editor' });
+    const e = seedUser({ role: 'editor' });
+    const home = seedWorkspace({ ownerId: a });
+    const dest = seedWorkspace({ ownerId: a });
+    addMember(dest, e, 'editor');
+    const m = seedModel({ userId: a, datasourceId: seedDatasource({ userId: a }) });
+    db.prepare('UPDATE models SET workspace_id = ? WHERE id = ?').run(home, m);
+    const r = seedReport({ userId: a, modelId: m, workspaceId: home });
+
+    // Before the share, the report does not exist for them.
+    expect((await as(e).put(`/reports/${r}`, { title: 'before share' })).status).toBe(404);
+    // `a` manages the model, so the report may be shared where the model is not.
+    expect((await as(a).put(`/reports/${r}/shares`, { workspaceIds: [dest] })).status).toBe(200);
+
+    expect((await as(e).put(`/reports/${r}`, { title: 'edited from dest', widgets: {}, layout: [] })).status).toBe(200);
+    expect(db.prepare('SELECT title FROM reports WHERE id = ?').get(r).title).toBe('edited from dest');
+    expect((await as(e).put(`/reports/${r}`, { live_mode: true })).status).toBe(200);
+    expect((await as(e).get(`/reports/${r}/shares`)).status).toBe(200);
+    // What exposes the model still asks for the model: publishing needs write
+    // on it, a placement needs it available where the report goes.
+    expect((await as(e).put(`/reports/${r}`, { is_public: true })).status).toBe(403);
+    expect((await as(e).put(`/reports/${r}`, { workspace_id: dest })).status).toBe(403);
+    // Deleting stays with its own workspace.
+    expect((await as(e).del(`/reports/${r}`)).status).toBe(403);
+    // A copy is a new report: it goes where its model is available. Once the
+    // model is shared there too, a copy made from there lands there.
+    const refusedCopy = await as(e).post(`/reports/${r}/duplicate`, { workspaceId: dest });
+    expect(refusedCopy.status).toBe(403);
+    expect(refusedCopy.body.error).toMatch(/not available in this workspace/);
+    db.prepare('INSERT INTO workspace_models (workspace_id, model_id) VALUES (?, ?)').run(dest, m);
+    const copy = await as(e).post(`/reports/${r}/duplicate`, { workspaceId: dest });
+    expect(copy.status).toBe(201);
+    expect(copy.body.report).toMatchObject({ workspace_id: dest, user_id: e });
+
+    // Unsharing takes it back entirely.
+    expect((await as(a).put(`/reports/${r}/shares`, { workspaceIds: [] })).status).toBe(200);
+    expect((await as(e).put(`/reports/${r}`, { title: 'after unshare' })).status).toBe(404);
+  });
 });
 
 describe('reports still open the data of their readers', () => {

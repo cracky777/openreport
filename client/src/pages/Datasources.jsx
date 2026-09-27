@@ -4,7 +4,7 @@ import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
 import { readSheetNames } from '../utils/readSheetNames';
-import { TbUpload, TbArrowsRightLeft, TbShare } from 'react-icons/tb';
+import { TbUpload, TbArrowsRightLeft, TbShare, TbLock } from 'react-icons/tb';
 import { EditIcon, ICON_SIZE } from '../components/actionIcons';
 import { cardActionBtn } from '../components/dashboardModalStyles';
 import { PrimaryButton, SecondaryButton, ImportButton } from '../components/PageHeader/PageHeader';
@@ -352,6 +352,20 @@ export default function Datasources() {
         ) : (
           <div style={_hs9}>
             {orderedDatasources.map((ds) => {
+              // The source behind a model only shared here: its name, so the
+              // relation stays drawn, and nothing to open — it is not shared.
+              if (ds.notShared) return (
+                <div key={ds.id} style={joinRowStyle}>
+                  <div className="journey-card" data-join-anchor={`sources:${ds.id}`} style={lockedCardStyle}
+                    title="The source of a data model shared into this workspace. It is not shared here: ask its workspace admin to share it to build models on it.">
+                    <TbLock size={18} style={lockedIcon} />
+                    <div style={_hs10}>
+                      <div style={lockedName}>{ds.name}</div>
+                      <div style={_hs12}>Not shared with this workspace</div>
+                    </div>
+                  </div>
+                </div>
+              );
               const extra = ds.extra_config ? (typeof ds.extra_config === 'string' ? JSON.parse(ds.extra_config) : ds.extra_config) : {};
               const isUploadedFile = !!extra.sourceFile;
               // Guard on the unscoped count: the server refuses while any model uses it.
@@ -478,6 +492,8 @@ const primaryBtn = {
 // A row is just a centred card now — the join layer draws over the space
 // either side of it.
 const joinRowStyle = { display: 'flex', justifyContent: 'center' };
+const lockedIcon = { color: 'var(--text-muted)', flexShrink: 0 };
+const lockedName = { ..._hs11, color: 'var(--text-secondary)' };
 // Outside the active workspace: dimmed, never hidden — a datasource no report
 // uses yet still has to be reachable and editable from here.
 const readOnlyBadge = { fontSize: 11, color: 'var(--text-muted)', border: '1px solid var(--border-default)', borderRadius: 4, padding: '2px 6px' };
@@ -485,3 +501,4 @@ const dsCardStyle = { width: '100%', maxWidth: 760, flexShrink: 0, flexWrap: 'wr
   backgroundColor: 'var(--bg-panel)', padding: '16px 20px', borderRadius: 8,
   border: '1px solid var(--border-default)', display: 'flex', alignItems: 'center', gap: 12,
 };
+const lockedCardStyle = { ...dsCardStyle, backgroundColor: 'var(--bg-subtle)', borderStyle: 'dashed' };

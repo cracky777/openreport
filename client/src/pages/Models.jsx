@@ -378,7 +378,13 @@ export default function Models() {
               const reportCount = reportsByModelAll.get(m.id) || 0;
               return (
               <div key={m.id} style={joinRowStyle}>
-              <div className="journey-card" data-join-anchor={`models:${m.id}`} style={cardMenu === m.id ? cardStyleMenuOpen : cardStyle}>
+              <div
+                className="journey-card"
+                data-join-anchor={`models:${m.id}`}
+                data-join-parent={m.datasource_id ? `sources:${m.datasource_id}` : undefined}
+                data-join-parent-name={m.datasource_name || undefined}
+                style={cardMenu === m.id ? cardStyleMenuOpen : cardStyle}
+              >
                 <SourceIcon file={fileDatasourceIds.has(m.datasource_id)} dbType={dbTypeByDatasource.get(m.datasource_id)} />
                 <div onClick={() => navigate(`/models/${m.id}`)} style={_hs15}>
                   <div style={_hs16}>{m.name}</div>

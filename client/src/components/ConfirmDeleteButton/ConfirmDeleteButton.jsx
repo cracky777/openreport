@@ -15,7 +15,9 @@ import { cardActionBtn } from '../dashboardModalStyles';
 // `blockedReason` disables the button outright. The server already refuses to
 // delete something that still has children, but letting the click through only
 // to surface an error afterwards makes the user discover the constraint the
-// hard way — the counts are already on screen, so say it first.
+// hard way — the counts are already on screen, so say it first. The reason
+// shows on hover: aria-disabled rather than disabled, since a disabled button
+// does not reliably get hovered.
 export default function ConfirmDeleteButton({
   onConfirm,
   blockedReason,
@@ -42,7 +44,14 @@ export default function ConfirmDeleteButton({
   if (variant === 'icon') {
     if (blockedReason) {
       return (
-        <button disabled title={blockedReason} style={{ ...iconBlocked, ...style }}>
+        <button
+          type="button"
+          aria-disabled="true"
+          aria-label={`${label} (unavailable)`}
+          title={blockedReason}
+          onClick={(e) => e.stopPropagation()}
+          style={{ ...iconBlocked, ...style }}
+        >
           <DeleteIcon size={size} />
         </button>
       );

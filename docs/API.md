@@ -65,7 +65,7 @@ Routes techniques également publiques : `GET /api/health`, les images servies s
 | `POST` | `/api/reports/:id/duplicate` | ✅ | propriétaire (ou admin) | Duplique un rapport. |
 | `GET` | `/api/reports/:id/history` | 👑 | admin | Liste les versions sauvegardées. |
 | `POST` | `/api/reports/:id/history/:versionId/restore` | 👑 | admin | Restaure une version. |
-| `GET` / `PUT` | `/api/reports/:id/shares` | ✅ | `canWriteReport` ; destinations : workspaces d'équipe où l'on a un rôle et où le modèle est disponible | Partage le rapport en lecture (`workspaceIds`) : les membres l'ouvrent et en lisent les données. |
+| `GET` / `PUT` | `/api/reports/:id/shares` | ✅ | `canWriteReport` ; destinations : workspaces d'équipe où l'on a un rôle et où le modèle est disponible | Partage le rapport (`workspaceIds`) : les membres l'ouvrent et en lisent les données, les admins/éditeurs y font tout sauf le supprimer. |
 
 ## Models — `/api/models`
 

@@ -19,7 +19,7 @@ const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const cloudHooks = require('../cloudHooks');
 const { parseModel } = require('../db/modelRow');
-const { canWriteReport, canReadModel, canBuildOnModel, canWriteModel } = require('./reports');
+const { canEditReport, canReadModel, canBuildOnModel, canWriteModel } = require('./reports');
 const { canManageVisuals, canSeeVisuals } = require('./customVisuals');
 const { libraryOf } = require('../utils/ai/visualLibrary');
 const aiAccess = require('../utils/ai/access');
@@ -205,7 +205,7 @@ function answer(res, turn) {
 router.post('/reports/:reportId/chat', requireAuth, chatLimiter, async (req, res) => {
   const row = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.reportId);
   if (!row) return res.status(404).json({ error: 'Report not found' });
-  if (!canWriteReport(row, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
+  if (!canEditReport(row, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
 
   // The schema of this model is about to be shown to a third party: the
   // caller must be allowed to read it themselves first.

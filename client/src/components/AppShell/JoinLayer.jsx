@@ -1,5 +1,4 @@
 import { useState, useLayoutEffect, useRef, useCallback } from 'react';
-import { useGraph } from '../../hooks/graphContext';
 
 // Every relation of the journey, drawn by one component.
 //
@@ -12,12 +11,14 @@ import { useGraph } from '../../hooks/graphContext';
 // Every stage stays mounted, so a card that isn't there was filtered out, and
 // a relation to something the user chose to hide must not be drawn.
 //
-// Cards announce themselves with `data-join-anchor="<stage>:<id>"`; the layer
-// reads the DOM rather than a ref registry, because the cards live in three
-// separate page components and the question — "what is on screen right now" —
-// is precisely what a DOM query answers.
+// Cards announce themselves with `data-join-anchor="<stage>:<id>"`, and the
+// card they hang from with `data-join-parent` (+ `data-join-parent-name`);
+// the layer reads the DOM rather than a ref registry, because the cards live in
+// three separate page components and the question — "what is on screen right
+// now" — is precisely what a DOM query answers. The relations come from the
+// cards too: the Reports stage lists what the workspace shows (a teammate's
+// report, one shared into it), which no list held by the graph matches.
 export default function JoinLayer({ onFollow }) {
-  const { scopedModels, scopedReports } = useGraph();
   const [links, setLinks] = useState([]);
   const hostRef = useRef(null);
 
@@ -47,30 +48,19 @@ export default function JoinLayer({ onFollow }) {
       };
     };
 
-    // The workspace's models and reports only: what is outside the workspace
-    // is not on screen at all, so a line to it would end nowhere. A model only
-    // shared here comes without its source (utils/workspaceScope.js): that
-    // line is dropped below, like any other with an end off screen.
-    const edges = [
-      ...scopedModels.filter((m) => m.datasource_id).map((m) => ({
-        from: `sources:${m.datasource_id}`,
-        to: `models:${m.id}`,
-        parentId: m.datasource_id,
-        parentName: m.datasource_name,
-        noun: 'model',
+    // Every card on screen that hangs from another one.
+    const edges = [...host.querySelectorAll('[data-join-anchor][data-join-parent]')].map((el) => {
+      const from = el.dataset.joinParent;
+      const to = el.dataset.joinAnchor;
+      return {
+        from,
+        to,
+        parentId: from.slice(from.indexOf(':') + 1),
+        parentName: el.dataset.joinParentName,
+        noun: to.startsWith('reports:') ? 'report' : 'model',
         dim: false,
-      })),
-      ...scopedReports.filter((r) => r.model_id).map((r) => ({
-        from: `models:${r.model_id}`,
-        to: `reports:${r.id}`,
-        parentId: r.model_id,
-        parentName: r.model_name,
-        noun: 'report',
-        // Reports are already scoped to the workspace, so any that is drawn is
-        // one the workspace owns.
-        dim: false,
-      })),
-    ];
+      };
+    });
 
     // Both ends must be on screen. Every stage is mounted, so a missing card
     // means it was filtered out — and a relation to something the user chose to
@@ -133,7 +123,7 @@ export default function JoinLayer({ onFollow }) {
       }
     }
     setLinks(next);
-  }, [scopedModels, scopedReports]);
+  }, []);
 
   useLayoutEffect(() => {
     measure();
@@ -153,7 +143,8 @@ export default function JoinLayer({ onFollow }) {
       if (records.every((r) => own && own.contains(r.target))) return;
       measure();
     });
-    mo.observe(host, { childList: true, subtree: true });
+    // A card whose parent changes keeps its node: watch the join attributes too.
+    mo.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-join-anchor', 'data-join-parent', 'data-join-parent-name'] });
     host.addEventListener('scroll', measure, true);
     return () => {
       ro.disconnect();

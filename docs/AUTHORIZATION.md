@@ -41,7 +41,8 @@ sans en tenir les identifiants. Un modèle partagé (`workspace_models`) : leurs
 rapports dessus, leurs membres en lisent les données, personne n'y édite le modèle. Un rapport partagé
 (`workspace_reports`, `PUT /reports/:id/shares`, par qui peut l'éditer, vers un workspace d'équipe où
 son modèle est disponible) : leurs membres l'ouvrent et en lisent les données (`canAccessReport`),
-l'édition reste dans son workspace. **Un nouveau workspace ne contient
+leurs admins/éditeurs y font tout sauf le supprimer (`canEditReport`) — la suppression reste à son
+workspace (`canWriteReport`) ; publier, poser un embed ou placer le rapport gardent l'exigence du modèle. **Un nouveau workspace ne contient
 rien** : une ressource y arrive en y étant créée, déplacée (`PUT /:id/workspace`) ou partagée
 (`PUT /models/:id/shares`). Un rapport ne peut être placé dans un workspace que si son modèle y est
 disponible (attache ou partage), sauf pour qui gère le modèle et pour le workspace personnel de

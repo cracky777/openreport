@@ -165,7 +165,7 @@ function modelPlacementError(model, workspaceId, req) {
 // owner of a private report whose model was taken away from them.
 function canAuthorReport(report, model, user, req) {
   if (!model || canBuildOnModel(model, user, req)) return true;
-  return !!report && WRITING_ROLES.has(workspaceRoleOf(report.workspace_id, user.id));
+  return !!report && (WRITING_ROLES.has(workspaceRoleOf(report.workspace_id, user.id)) || sharedToEditor(report, user, req));
 }
 
 // Write access to a report (edit / delete / duplicate). OSS: owner, global
@@ -177,6 +177,23 @@ function canWriteReport(report, user, req) {
   if (!report || !user) return false;
   if (user.id === report.user_id || user.role === 'admin') return true;
   return WRITING_ROLES.has(workspaceRoleOf(report.workspace_id, user.id));
+}
+
+// Does the caller hold an admin/editor role in a workspace the report is
+// shared into? Within their scope: a share never leaves the organization.
+function sharedToEditor(report, user, req) {
+  if (!report || !user) return false;
+  if (!wsAccess.inScope('reports', report, wsAccess.actorOf(req, user))) return false;
+  return reportShareIds(report.id).some((wsId) => WRITING_ROLES.has(workspaceRoleOf(wsId, user.id)));
+}
+
+// Working on a report — its content, its name, moving, sharing, publishing,
+// its cache mode: whoever may write it, and the admins/editors of a workspace
+// it is shared into; a share hands the report to that team. Deleting it stays
+// with canWriteReport, in its own workspace. What exposes the MODEL keeps its
+// own bar on top (publishing, an embed, a placement where the model is not).
+function canEditReport(report, user, req) {
+  return canWriteReport(report, user, req) || sharedToEditor(report, user, req);
 }
 
 // View / restore a report's version history. OSS: global admin. Cloud: org admin.
@@ -315,7 +332,7 @@ router.get('/writable', authFor('read'), (req, res) => {
     ORDER BY r.updated_at DESC
   `).all(modelId);
   const reports = rows
-    .filter((r) => canAccessReport(r, req.user, req) && canWriteReport(r, req.user, req))
+    .filter((r) => canAccessReport(r, req.user, req) && canEditReport(r, req.user, req))
     .map((r) => {
       let pages = [];
       try { pages = (JSON.parse(r.settings).pages || []).map((p) => ({ id: p.id, name: p.name })); } catch { /* unreadable settings: the report is listed, its pages are not */ }
@@ -635,7 +652,7 @@ router.put('/:id', authFor('read'), (req, res) => {
   if (!report || !canAccessReport(report, req.user, req)) {
     return res.status(404).json({ error: 'Report not found' });
   }
-  if (!canWriteReport(report, req.user, req)) {
+  if (!canEditReport(report, req.user, req)) {
     return res.status(403).json({ error: 'Access denied' });
   }
 
@@ -649,6 +666,7 @@ router.put('/:id', authFor('read'), (req, res) => {
   }
 
   const { title, layout, widgets, settings, is_public, live_mode, workspace_id, pages } = req.body;
+
 
   // Publishing exposes the MODEL, not just this report: /query answers anonymous
   // callers for a public report. Owning the report is therefore not enough —
@@ -752,7 +770,7 @@ router.put('/:id', authFor('read'), (req, res) => {
 router.post('/:id/widgets', authFor('read'), (req, res) => {
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
   if (!report || !canAccessReport(report, req.user, req)) return res.status(404).json({ error: 'Report not found' });
-  if (!canWriteReport(report, req.user, req)) return res.status(403).json({ error: 'Access denied' });
+  if (!canEditReport(report, req.user, req)) return res.status(403).json({ error: 'Access denied' });
   const model = report.model_id ? db.prepare('SELECT * FROM models WHERE id = ?').get(report.model_id) : null;
   if (!model || !canAuthorReport(report, model, req.user, req)) return res.status(403).json({ error: 'Not authorized for this model' });
 
@@ -796,7 +814,16 @@ router.post('/:id/widgets', authFor('read'), (req, res) => {
 router.post('/:id/duplicate', authFor('read'), (req, res) => {
   const src = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
   if (!src || !canAccessReport(src, req.user, req)) return res.status(404).json({ error: 'Report not found' });
-  if (!canWriteReport(src, req.user, req)) return res.status(403).json({ error: 'Access denied' });
+  if (!canEditReport(src, req.user, req)) return res.status(403).json({ error: 'Access denied' });
+  // Where the copy goes, when asked (a report shared into the caller's
+  // workspace is copied there): placed like a new report.
+  const askedWs = req.body && req.body.workspaceId;
+  if (askedWs) {
+    if (!canPlaceReportIn(askedWs, req)) return res.status(403).json({ error: 'Not authorized to add a report to this workspace' });
+    const srcModel = src.model_id ? db.prepare('SELECT * FROM models WHERE id = ?').get(src.model_id) : null;
+    const placement = modelPlacementError(srcModel, askedWs, req);
+    if (placement) return res.status(403).json({ error: placement });
+  }
 
   const newId = uuidv4();
   const newTitle = `${src.title} (copy)`.slice(0, 200);
@@ -812,7 +839,7 @@ router.post('/:id/duplicate', authFor('read'), (req, res) => {
     ? src.widgets
     : JSON.stringify(stripWidgetData(JSON.parse(src.widgets || '{}')));
   const writesThere = WRITING_ROLES.has(workspaceRoleOf(src.workspace_id, req.user.id));
-  const workspaceForCopy = (isSrcOwner || writesThere) ? src.workspace_id : null;
+  const workspaceForCopy = askedWs || ((isSrcOwner || writesThere) ? src.workspace_id : null);
   db.prepare(`
     INSERT INTO reports (id, user_id, model_id, title, workspace_id, layout, widgets, settings)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -889,14 +916,14 @@ router.post('/:id/history/:versionId/restore', authFor('read'), (req, res) => {
 router.get('/:id/shares', authFor('read'), (req, res) => {
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
   if (!report || !canAccessReport(report, req.user, req)) return res.status(404).json({ error: 'Report not found' });
-  if (!canWriteReport(report, req.user, req)) return res.status(403).json({ error: 'Access denied' });
+  if (!canEditReport(report, req.user, req)) return res.status(403).json({ error: 'Access denied' });
   res.json({ workspaceIds: reportShareIds(report.id), workspace_id: report.workspace_id });
 });
 
 router.put('/:id/shares', authFor('read'), (req, res) => {
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
   if (!report || !canAccessReport(report, req.user, req)) return res.status(404).json({ error: 'Report not found' });
-  if (!canWriteReport(report, req.user, req)) return res.status(403).json({ error: 'Access denied' });
+  if (!canEditReport(report, req.user, req)) return res.status(403).json({ error: 'Access denied' });
   const { workspaceIds } = req.body || {};
   if (!Array.isArray(workspaceIds) || workspaceIds.some((id) => typeof id !== 'string')) {
     return res.status(400).json({ error: 'workspaceIds must be a list of workspace ids' });
@@ -936,5 +963,6 @@ module.exports.canWriteModel = canWriteModel;
 module.exports.canBuildOnModel = canBuildOnModel;
 module.exports.canReadModel = canReadModel;
 module.exports.canWriteReport = canWriteReport;
+module.exports.canEditReport = canEditReport;
 module.exports.modelPlacementError = modelPlacementError;
 module.exports.canAuthorReport = canAuthorReport;
