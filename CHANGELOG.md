@@ -4,6 +4,48 @@ All notable changes to OpenReport are listed here. Versions follow
 [Semantic Versioning](https://semver.org/); each one is a git tag and a
 `ghcr.io/cracky777/openreport` image.
 
+## 0.3.0 — 2026-09-27
+
+- **Rights on data sources and data models, by workspace.** Each source and
+  each model now lives in one workspace and can be shared into others: a
+  shared source lets that workspace's editors build models on it, a shared
+  model lets them build reports on it. Sharing a model never shares its
+  source. Viewers read reports and their data; editors see the workspace's
+  sources and models, create models and build reports; workspace admins hold
+  credentials, delete, move, share, set RLS and drive the cache. A new
+  workspace starts empty, and My Reports shows only your personal workspace.
+  A report can be shared read-only with other workspaces (Share report), as
+  long as its model is available there.
+
+  **Upgrading.** On first start, every existing source and model moves to its
+  creator's personal workspace, and each model is shared into the team
+  workspaces whose reports already use it, so every report keeps working.
+  Sources are not shared: share one explicitly for another team to build new
+  models on it. The instance admin still manages everything, but no longer
+  reads data (queries, source preview, RLS bypass) in a workspace where they
+  hold no role.
+- Admin › Resources lists every source, model and report of the instance, with
+  its creator, workspace and shares, and deletes them in dependency order.
+- Import a Power BI template (.pbit) as a data model plus a report, from the
+  single Import menu (Open Report or Power BI).
+- Filtered measures follow Power BI's CALCULATE semantics: a measure's filter
+  on a dimension the visual groups by replaces that grouping instead of
+  intersecting it. New
+  period-shifted measures (same period last year and similar), set from the
+  Period column of the model editor.
+- Any column can be used as a measure, with count distinct; dropping a field
+  on the filter bar adds a filter.
+- Text visuals can print measures where the text says `#tag`.
+- Charts: adjustable grid, axis lines and X-label angle; scorecards pick the
+  base of their % change; tables align headers and cells vertically; a shape
+  can shrink to a point; a new visual lands on top.
+- Report cards: Export report (the same `.openreport.json` as the editor's
+  export). Each workspace in the picker has its own settings gear. Alerts and
+  Admin moved to the user menu.
+- Fixes: BigQuery aliases, an expression only joins the tables it names, a
+  dimension and a measure with the same label are refused instead of merged,
+  switching pages no longer reloads visuals already loaded.
+
 ## 0.2.0 — 2026-09-22
 
 - One `docker-compose.yml` instead of two. By default it runs the published
