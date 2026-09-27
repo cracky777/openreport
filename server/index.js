@@ -221,9 +221,11 @@ app.use('/uploads/images', express.static(path.join(__dirname, 'data', 'uploads'
   },
 }));
 
-// Health check
+// Health check. The version is the one the release sets in package.json, so
+// it always says what is running — the Docker image carries the same file.
+const { version: APP_VERSION } = require('./package.json');
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', version: '0.1.0' });
+  res.json({ status: 'ok', version: APP_VERSION });
 });
 
 // Custom visual starter template — packaged on the fly from examples/custom-visual-template/

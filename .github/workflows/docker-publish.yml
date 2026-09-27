@@ -19,6 +19,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The version a running server reports (/api/health) is read from
+      # server/package.json: a release tag that disagrees with it would publish
+      # an image lying about itself.
+      - name: Tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          pkg="$(node -p "require('./server/package.json').version")"
+          if [ "v$pkg" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME but server/package.json says $pkg"
+            exit 1
+          fi
+
       # arm64 is not optional for a self-hosted tool: Raspberry Pi and Apple
       # Silicon are the two machines people try it on first. The native modules
       # (better-sqlite3, duckdb) ship linux-arm64 prebuilt binaries, so the
