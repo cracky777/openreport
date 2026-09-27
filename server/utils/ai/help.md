@@ -19,10 +19,10 @@
 ## workspaces — Workspaces and sharing with colleagues
 - My Reports holds your personal reports. A workspace is a shared folder of reports with its own members.
 - Create one (admins and editors): workspace picker → New workspace → type a name → + (Create).
-- Add people: pick the workspace → workspace picker → Workspace settings → under Members type an Email address, choose Viewer, Editor or Admin, click the add-member button.
+- Add people: open the workspace picker → click the gear icon at the end of the workspace's row (its settings) → under Members type an Email address, choose Viewer, Editor or Admin, click the add-member button.
 - Only a workspace admin can rename the workspace, change member roles, remove members or delete it. Deleting a workspace moves its reports, data sources and data models back to their creators' My Reports.
 - Move a report into a workspace: on its card, More actions (⋮) → Move to workspace → pick the target → Move.
-- Share a report read-only with other workspaces: on its card, More actions (⋮) → Share report → tick the workspaces → Save. Their members open it (badge "shared") and see its data; editing stays in its own workspace. The report's model must be available in each of them, unless you manage the model. The report's model must be available there (its home, or shared into it) unless you manage the model.
+- Share a report read-only with other workspaces: on its card, More actions (⋮) → Share report → tick the workspaces → Save. Their members open it (badge "shared") and see its data; editing stays in its own workspace. The report's model must be available in each of them (its home, or shared into it), unless you manage the model.
 - Share a data source with another workspace (its editors can then create models on it; its credentials stay with its own workspace): Data Sources stage → share icon on the source card → tick the workspaces → Save. It shows there with a "shared" badge.
 - Share a data model with another workspace (its editors can then build reports on it, nobody there edits it): Data Models stage → More actions (⋮) on the model card → Share → tick the workspaces → Save. Move a model or a data source to another workspace: the arrows icon on its card → pick the target → Move.
 - Custom visuals are only available to reports that live in a workspace.
@@ -84,7 +84,7 @@
 2. Pick the data: Existing Model, Import File (CSV, Excel, Parquet, JSON) or Connect Database.
 3. With an existing model: choose the Model → Create Report. The editor opens.
 - On a report card: View (opens the viewer in a new tab), Edit, More actions (⋮), and delete.
-- More actions (⋮): Rename, Duplicate, Move to workspace, Share public link / Make private, Copy public link, Embed…, History (admins), Schedule refresh, Alerts…, and the Rollup cache / Live query switch (admins).
+- More actions (⋮): Rename, Duplicate, Export report, Move to workspace, Share report, Share public link / Make private, Copy public link, Embed…, History (admins), Schedule refresh, Alerts…, and the Rollup cache / Live query switch (admins).
 - Viewers only get View.
 
 ## editor — The report editor toolbar
@@ -198,7 +198,7 @@
 ## export — Exporting a report
 - Where: the Export (download) button in the editor toolbar or the viewer header.
 - Export PDF (every page), Export PNG, Export Excel, Print.
-- Editor only: Export raw (JSON) — a .openreport.json file you can re-import into another account or instance.
+- Editor only: Export raw (JSON) — a .openreport.json file you can re-import into another account or instance. The same file comes from a report card: More actions (⋮) → Export report.
 - A data model can be exported as YAML from its card (Export as YAML).
 
 ## import — Importing reports, models and Power BI files

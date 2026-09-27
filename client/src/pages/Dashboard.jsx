@@ -4,9 +4,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
+import { downloadReportBundle } from '../utils/reportBundle';
 import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
 import { readSheetNames } from '../utils/readSheetNames';
-import { TbEye, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbBell, TbPlayerPlay, TbToggleLeftFilled, TbToggleRightFilled, TbLoader2, TbRefresh, TbFileText, TbCode, TbChartInfographic } from 'react-icons/tb';
+import { TbEye, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbBell, TbPlayerPlay, TbToggleLeftFilled, TbToggleRightFilled, TbLoader2, TbRefresh, TbFileText, TbCode, TbChartInfographic, TbFileExport } from 'react-icons/tb';
 import { DeleteIcon, EditIcon, ICON_SIZE } from '../components/actionIcons';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 import { ShareWithWorkspacesModal } from '../components/WorkspaceTargets/WorkspaceTargets';
@@ -646,6 +647,18 @@ export default function Dashboard() {
     setCardMenu(null);
     await api.post(`/reports/${report.id}/duplicate`);
     await reloadWsReports();
+  };
+
+  // The card holds a summary row: the file needs the full definition.
+  const exportReport = async (report) => {
+    setCardMenu(null);
+    try {
+      const res = await api.get(`/reports/${report.id}`);
+      const modelName = models.find((m) => m.id === report.model_id)?.name || null;
+      await downloadReportBundle({ model_name: modelName, ...res.data.report });
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not export this report');
+    }
   };
 
   const submitRename = async () => {
@@ -1289,6 +1302,12 @@ export default function Dashboard() {
                               <TbCopy size={14} /> Duplicate
                             </button>
                             <button style={cardMenuItem}
+                              onClick={() => exportReport(report)}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                              <TbFileExport size={14} /> Export report
+                            </button>
+                            <button style={cardMenuItem}
                               onClick={() => {
                                 setCardMenu(null);
                                 // Pre-select the first workspace that ISN'T the report's current one,
@@ -1310,7 +1329,7 @@ export default function Dashboard() {
                                 onClick={() => openShare(report)}
                                 onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                                <TbUsers size={14} /> Share report
+                                <TbShare size={14} /> Share report
                               </button>
                             )}
                             {/* Making a report public is gated by the instance
@@ -1323,7 +1342,7 @@ export default function Dashboard() {
                                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                                 {report.is_public
                                   ? <><TbShareOff size={14} /> Make private</>
-                                  : <><TbShare size={14} /> Share public link</>}
+                                  : <><TbUsers size={14} /> Share public link</>}
                               </button>
                             )}
                             {report.is_public && instance.publicSharingPolicy !== 'disabled' ? (
