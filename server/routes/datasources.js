@@ -11,28 +11,39 @@ const { encrypt } = require('../utils/secretCrypto');
 const cloudHooks = require('../cloudHooks');
 const { rejectIfNameTaken } = require('../utils/nameUniqueness');
 const { blockListEnforced, hostIsBlocked, hostResolvesInternally } = require('../utils/ssrfGuard');
+const wsAccess = require('../utils/workspaceAccess');
+const { ensurePersonalWorkspace } = require('../utils/personalWorkspace');
 
 const router = express.Router();
 
-// Access scoping (cloud org-scopes these; OSS scopes by owner). getDatasource
-// returns the FULL row (secrets included) for the connection paths — callers
-// that return it to the client must project the safe columns.
+// Access scoping (cloud org-scopes these; OSS decides by workspace role, see
+// utils/workspaceAccess.js). getDatasource answers for STRUCTURE (a reader of
+// the source); rows, credentials and deletion re-check below. It returns the
+// FULL row (secrets included) for the connection paths — callers that return
+// it to the client must project the safe columns.
 function getDatasource(id, req) {
   if (typeof cloudHooks.getDatasource === 'function') return cloudHooks.getDatasource(id, req);
-  return db.prepare('SELECT * FROM datasources WHERE id = ? AND user_id = ?').get(id, req.user.id);
+  const row = db.prepare('SELECT * FROM datasources WHERE id = ?').get(id);
+  return row && wsAccess.canReadDatasource(row, req.user) ? row : null;
 }
 function listDatasources(req) {
   if (typeof cloudHooks.listDatasources === 'function') return cloudHooks.listDatasources(req);
-  return db.prepare(
-    'SELECT id, name, db_type, host, port, db_name, created_at, extra_config FROM datasources WHERE user_id = ? ORDER BY name'
-  ).all(req.user.id);
+  return wsAccess.listVisibleDatasources(req.user);
 }
 function stampNewDatasource(req, id) {
   if (typeof cloudHooks.onDatasourceCreate === 'function') cloudHooks.onDatasourceCreate(req, id);
 }
+// Every model on the source blocks its deletion, whoever built it.
 function countModelsUsingDatasource(req, id) {
   if (typeof cloudHooks.countModelsUsingDatasource === 'function') return cloudHooks.countModelsUsingDatasource(req, id);
-  return db.prepare('SELECT COUNT(*) as count FROM models WHERE datasource_id = ? AND user_id = ?').get(id, req.user.id).count;
+  return db.prepare('SELECT COUNT(*) as count FROM models WHERE datasource_id = ?').get(id).count;
+}
+// The cloud keeps deciding through its hooks; the self-hosted rule reads the
+// workspace roles. Sends the 403 itself and returns false when denied.
+function denyUnless(allowed, res, message) {
+  if (typeof cloudHooks.getDatasource === 'function' || allowed) return false;
+  res.status(403).json({ error: message });
+  return true;
 }
 
 // Encrypt the sensitive field(s) inside a datasource's extra_config (currently
@@ -111,7 +122,40 @@ router.get('/:id', authFor('write'), (req, res) => {
   if (!s) {
     return res.status(404).json({ error: 'Datasource not found' });
   }
-  res.json({ datasource: { id: s.id, name: s.name, db_type: s.db_type, host: s.host, port: s.port, db_name: s.db_name, db_user: s.db_user, created_at: s.created_at } });
+  res.json({ datasource: { id: s.id, name: s.name, db_type: s.db_type, host: s.host, port: s.port, db_name: s.db_name, db_user: s.db_user, created_at: s.created_at, workspace_id: wsAccess.datasourceHome(s), access: wsAccess.datasourceAccess(s, req.user), shared_in: wsAccess.sharedWorkspaceIdsOfDatasource(s.id) } });
+});
+
+// The workspaces a source is shared into: their editors see its tables and
+// build models on it. Read and replaced by whoever manages the source; a share
+// goes to a workspace the caller holds a role in (the global admin: any).
+router.get('/:id/shares', authFor('write'), (req, res) => {
+  const source = getDatasource(req.params.id, req);
+  if (!source) return res.status(404).json({ error: 'Datasource not found' });
+  if (typeof cloudHooks.getDatasource === 'function') return res.status(404).json({ error: 'Not available' });
+  if (!wsAccess.canManageDatasource(source, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  const ids = wsAccess.sharedWorkspaceIdsOfDatasource(source.id);
+  const workspaces = ids.length
+    ? db.prepare(`SELECT id, name FROM workspaces WHERE id IN (${ids.map(() => '?').join(', ')})`).all(...ids)
+    : [];
+  res.json({ workspaceIds: ids, workspaces, workspace_id: wsAccess.datasourceHome(source) });
+});
+
+router.put('/:id/shares', authFor('write'), (req, res) => {
+  const source = getDatasource(req.params.id, req);
+  if (!source) return res.status(404).json({ error: 'Datasource not found' });
+  if (typeof cloudHooks.getDatasource === 'function') return res.status(404).json({ error: 'Not available' });
+  if (!wsAccess.canManageDatasource(source, req.user)) return res.status(403).json({ error: 'Only a workspace admin can share this data source' });
+  const { workspaceIds } = req.body || {};
+  if (!Array.isArray(workspaceIds) || workspaceIds.some((id) => typeof id !== 'string')) {
+    return res.status(400).json({ error: 'workspaceIds must be a list of workspace ids' });
+  }
+  for (const wsId of workspaceIds) {
+    if (!db.prepare('SELECT 1 FROM workspaces WHERE id = ?').get(wsId)) return res.status(400).json({ error: `Unknown workspace ${wsId}` });
+    if (!wsAccess.isGlobalAdmin(req.user) && !wsAccess.workspaceRoleOf(wsId, req.user.id)) {
+      return res.status(403).json({ error: 'You can only share a data source with a workspace you belong to' });
+    }
+  }
+  res.json({ workspaceIds: wsAccess.setDatasourceShares(source.id, workspaceIds) });
 });
 
 // Un connecteur peut désigner sa cible ailleurs que dans `host` : la chaîne de
@@ -181,7 +225,11 @@ router.post('/test', authFor('write'), async (req, res) => {
 
 // Create datasource
 router.post('/', authFor('write'), async (req, res) => {
-  const { name, dbType, host, port, dbName, dbUser, dbPassword, extraConfig } = req.body;
+  const { name, dbType, host, port, dbName, dbUser, dbPassword, extraConfig, workspaceId } = req.body;
+  // The source is born in a workspace: the one asked for, else the caller's
+  // personal one. Creating one there is a workspace admin's call.
+  const targetWs = workspaceId || ensurePersonalWorkspace(req.user.id);
+  if (denyUnless(wsAccess.canCreateDatasourceIn(targetWs, req.user), res, 'Only a workspace admin can add a data source there')) return;
 
   // BigQuery and DuckDB don't need host/user
   const needsHost = !['bigquery', 'duckdb', 'snowflake'].includes(dbType);
@@ -212,14 +260,29 @@ router.post('/', authFor('write'), async (req, res) => {
     : dbName;
 
   db.prepare(`
-    INSERT INTO datasources (id, user_id, name, db_type, host, port, db_name, db_user, db_password, extra_config)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, req.user.id, name, dbType, host || '', port || 5432, storedDbName, dbUser || '', encrypt(dbPassword || ''), JSON.stringify(encryptExtraConfig(extraConfig)));
+    INSERT INTO datasources (id, user_id, name, db_type, host, port, db_name, db_user, db_password, extra_config, workspace_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, req.user.id, name, dbType, host || '', port || 5432, storedDbName, dbUser || '', encrypt(dbPassword || ''), JSON.stringify(encryptExtraConfig(extraConfig)), targetWs);
   stampNewDatasource(req, id);
 
   res.status(201).json({
-    datasource: { id, name, db_type: dbType, host: host || '', port: port || 5432, db_name: storedDbName },
+    datasource: { id, name, db_type: dbType, host: host || '', port: port || 5432, db_name: storedDbName, workspace_id: targetWs },
   });
+});
+
+// Move a source to another workspace: an admin on both sides (or the global
+// admin). The models built on it stay where they are.
+router.put('/:id/workspace', authFor('write'), (req, res) => {
+  const existing = getDatasource(req.params.id, req);
+  if (!existing) return res.status(404).json({ error: 'Datasource not found' });
+  const { workspaceId } = req.body || {};
+  if (!workspaceId || !db.prepare('SELECT 1 FROM workspaces WHERE id = ?').get(workspaceId)) return res.status(400).json({ error: 'workspaceId is required' });
+  if (denyUnless(wsAccess.canManageDatasource(existing, req.user) && wsAccess.canCreateDatasourceIn(workspaceId, req.user), res, 'Only an admin of both workspaces can move a data source')) return;
+  db.transaction(() => {
+    db.prepare('UPDATE datasources SET workspace_id = ? WHERE id = ?').run(workspaceId, req.params.id);
+    db.prepare('DELETE FROM workspace_datasources WHERE datasource_id = ? AND workspace_id = ?').run(req.params.id, workspaceId);
+  })();
+  res.json({ message: 'Datasource moved', workspace_id: workspaceId });
 });
 
 // Update datasource (edit existing connection)
@@ -228,6 +291,7 @@ router.put('/:id', authFor('write'), async (req, res) => {
   if (!existing) {
     return res.status(404).json({ error: 'Datasource not found' });
   }
+  if (denyUnless(wsAccess.canManageDatasource(existing, req.user), res, 'Only a workspace admin can edit this data source')) return;
 
   const { name, dbType, host, port, dbName, dbUser, dbPassword, extraConfig } = req.body;
   const newDbType = dbType || existing.db_type;
@@ -352,6 +416,8 @@ router.post('/:id/query', authFor('write'), async (req, res) => {
     return res.status(404).json({ error: 'Datasource not found' });
   }
 
+  if (denyUnless(wsAccess.canQueryDatasource(source, req.user), res, 'Reading rows of this data source needs a role in its workspace')) return;
+
   const { sql } = req.body;
   if (!sql) {
     return res.status(400).json({ error: 'SQL query is required' });
@@ -386,6 +452,7 @@ router.delete('/:id', authFor('write'), (req, res) => {
   // Load first so a cross-org / cross-owner delete is a clean 404, not a no-op.
   const source = getDatasource(req.params.id, req);
   if (!source) return res.status(404).json({ error: 'Datasource not found' });
+  if (denyUnless(wsAccess.canManageDatasource(source, req.user), res, 'Only a workspace admin can delete this data source')) return;
 
   const count = countModelsUsingDatasource(req, req.params.id);
   if (count > 0) {

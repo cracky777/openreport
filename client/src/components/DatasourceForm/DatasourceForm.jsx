@@ -98,7 +98,8 @@ const blankForm = {
  *   - onSaved({ datasource, isNew }): called after a successful save
  *   - onCancel(): called when the user clicks Cancel
  */
-export default function DatasourceForm({ editingId = null, initialValues = null, onSaved, onCancel }) {
+// `workspaceId`: where a NEW source lands (the workspace open on the page).
+export default function DatasourceForm({ editingId = null, initialValues = null, onSaved, onCancel, workspaceId = null }) {
   const [form, setForm] = useState(initialValues || blankForm);
   // Quels connecteurs ce déploiement refuse. La liste vient du serveur, pas
   // d'une constante du client : un opérateur peut lever le garde-fou avec
@@ -181,6 +182,7 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
         const formData = new FormData();
         formData.append('file', dbFile);
         formData.append('name', form.name);
+        if (!editingId && workspaceId) formData.append('workspaceId', workspaceId);
         const headers = { 'Content-Type': 'multipart/form-data' };
         const res = editingId
           ? await api.put(`/upload/${editingId}`, formData, { headers })
@@ -190,7 +192,7 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
         const res = await api.put(`/datasources/${editingId}`, form);
         onSaved?.({ datasource: res.data?.datasource || { id: editingId, ...form }, isNew: false });
       } else {
-        const res = await api.post('/datasources', form);
+        const res = await api.post('/datasources', workspaceId ? { ...form, workspaceId } : form);
         onSaved?.({ datasource: res.data?.datasource, isNew: true });
       }
     } catch (err) {

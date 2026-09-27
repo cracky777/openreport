@@ -57,6 +57,76 @@ function instanceAiOnly(req, res, next) {
   return next();
 }
 
+// Every datasource, model and report of the instance: who created it, the
+// workspace it lives in, the workspaces it is shared into. Metadata only — no
+// credentials, no rows: the global admin manages everything but reads data
+// where a workspace gave them a role (utils/workspaceAccess.js). The cloud
+// scopes these per organization through its own hooks, so the instance-wide
+// list is not served there.
+router.get('/inventory', requireAdmin, (req, res) => {
+  if (typeof cloudHooks.getDatasource === 'function') return res.status(404).json({ error: 'Not available' });
+  const workspaces = new Map(db.prepare(`
+    SELECT w.id, w.name, w.is_personal, u.email AS owner_email, u.display_name AS owner_name
+    FROM workspaces w LEFT JOIN users u ON u.id = w.owner_id
+  `).all().map((w) => [w.id, {
+    id: w.id,
+    // A personal workspace is named "Personal" for everyone: say whose it is.
+    name: w.is_personal ? `Personal · ${w.owner_name || w.owner_email || 'deleted user'}` : w.name,
+    personal: !!w.is_personal,
+  }]));
+  const ws = (id) => (id ? workspaces.get(id) || { id, name: 'Unknown workspace', personal: false } : null);
+  const sharesOf = (table, column) => {
+    const out = new Map();
+    for (const r of db.prepare(`SELECT workspace_id, ${column} AS id FROM ${table}`).all()) {
+      if (!out.has(r.id)) out.set(r.id, []);
+      out.get(r.id).push(ws(r.workspace_id));
+    }
+    return out;
+  };
+  const dsShares = sharesOf('workspace_datasources', 'datasource_id');
+  const modelShares = sharesOf('workspace_models', 'model_id');
+  const reportShares = sharesOf('workspace_reports', 'report_id');
+  const creator = (r) => ({ id: r.user_id, email: r.creator_email || null, name: r.creator_name || null });
+
+  const datasources = db.prepare(`
+    SELECT d.id, d.name, d.db_type, d.created_at, d.user_id, d.workspace_id,
+      u.email AS creator_email, u.display_name AS creator_name,
+      (SELECT COUNT(*) FROM models m WHERE m.datasource_id = d.id) AS model_count
+    FROM datasources d LEFT JOIN users u ON u.id = d.user_id
+    ORDER BY d.name COLLATE NOCASE
+  `).all().map((d) => ({
+    id: d.id, name: d.name, dbType: d.db_type, createdAt: d.created_at, modelCount: d.model_count,
+    creator: creator(d), workspace: ws(d.workspace_id), sharedIn: dsShares.get(d.id) || [],
+  }));
+
+  const models = db.prepare(`
+    SELECT m.id, m.name, m.created_at, m.updated_at, m.user_id, m.workspace_id, d.name AS datasource_name,
+      u.email AS creator_email, u.display_name AS creator_name,
+      (SELECT COUNT(*) FROM reports r WHERE r.model_id = m.id) AS report_count
+    FROM models m
+    LEFT JOIN datasources d ON d.id = m.datasource_id
+    LEFT JOIN users u ON u.id = m.user_id
+    ORDER BY m.name COLLATE NOCASE
+  `).all().map((m) => ({
+    id: m.id, name: m.name, datasourceName: m.datasource_name, createdAt: m.created_at, updatedAt: m.updated_at,
+    reportCount: m.report_count, creator: creator(m), workspace: ws(m.workspace_id), sharedIn: modelShares.get(m.id) || [],
+  }));
+
+  const reports = db.prepare(`
+    SELECT r.id, r.title, r.created_at, r.updated_at, r.user_id, r.workspace_id, r.is_public, m.name AS model_name,
+      u.email AS creator_email, u.display_name AS creator_name
+    FROM reports r
+    LEFT JOIN models m ON m.id = r.model_id
+    LEFT JOIN users u ON u.id = r.user_id
+    ORDER BY r.title COLLATE NOCASE
+  `).all().map((r) => ({
+    id: r.id, name: r.title, modelName: r.model_name, createdAt: r.created_at, updatedAt: r.updated_at,
+    isPublic: !!r.is_public, creator: creator(r), workspace: ws(r.workspace_id), sharedIn: reportShares.get(r.id) || [],
+  }));
+
+  res.json({ datasources, models, reports });
+});
+
 router.get('/ai/feedback', requireAdmin, instanceAiOnly, (req, res) => {
   res.json(aiFeedback.summary({ days: req.query.days, orgId: req.organizationId || null }));
 });

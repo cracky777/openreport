@@ -1,7 +1,8 @@
 // What a workspace role is worth in OSS. An admin/editor member writes the
-// workspace's reports and builds new ones on the models those reports use;
-// a viewer only reads. Publishing stays with whoever owns the model, so the
-// public path the canBuildOnModel hardening closed stays closed.
+// workspace's reports and builds new ones on the models SHARED into the
+// workspace (utils/workspaceAccess.js); a viewer only reads. Publishing stays
+// with whoever manages the model, so the public path the canBuildOnModel
+// hardening closed stays closed.
 const request = require('supertest');
 const { buildApp, seedUser, seedDatasource, seedModel, seedReport, seedWorkspace, db } = require('./helpers/testApp');
 
@@ -14,6 +15,9 @@ function setup(role) {
   const model = seedModel({ userId: owner, datasourceId: ds });
   const ws = seedWorkspace({ ownerId: owner });
   db.prepare('INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?,?,?)').run(ws, member, role);
+  // The owner shares the model with the team; the report they placed there
+  // would open its editing to the team even without the share.
+  db.prepare('INSERT INTO workspace_models (workspace_id, model_id) VALUES (?, ?)').run(ws, model);
   const report = seedReport({ userId: owner, modelId: model, workspaceId: ws, widgets: {
     s1: { type: 'scorecard', dataBinding: {}, config: {}, data: { value: 4242 } },
   } });
@@ -48,6 +52,7 @@ describe('Workspace editor', () => {
     const listed = res.body.models.find((m) => m.id === model);
     expect(listed).toBeTruthy();
     expect(listed.user_id).toBe(owner);
+    expect(listed.access).toBe('build');
   });
 
   test('cannot publish the report: exposing the data is the model owner\'s call', async () => {
@@ -81,6 +86,7 @@ describe('Workspace editor', () => {
     db.prepare('INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?,?,?)').run(otherWs, elsewhere, 'editor');
     const otherDs = seedDatasource({ userId: other });
     const otherModel = seedModel({ userId: other, datasourceId: otherDs });
+    db.prepare('UPDATE models SET workspace_id = ? WHERE id = ?').run(otherWs, otherModel);
     seedReport({ userId: other, modelId: otherModel, workspaceId: otherWs });
     // `model` is only used by the first workspace, where `elsewhere` is nobody.
     const res = await request(app).post('/api/reports').set('x-test-user', elsewhere)

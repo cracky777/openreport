@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../utils/api';
 import { useAuth } from './useAuth';
 import { GraphContext } from './graphContext';
-import { sortActiveFirst } from '../utils/sortActiveFirst';
 import { groupByParent } from '../utils/groupByParent';
+import { scopeResources, roleInWorkspace } from '../utils/workspaceScope';
 
 // The Sources → Models → Reports graph, loaded once for the whole journey.
 //
@@ -28,6 +28,9 @@ export function GraphProvider({ children }) {
   // The user's personal workspace (auto-created at signup). Stays out of the
   // workspaces list — it backs the "My Reports" view.
   const [personalWorkspace, setPersonalWorkspace] = useState(null);
+  // Workspaces the global admin manages without holding a role in them —
+  // openable, listed apart in the picker. Empty for everyone else.
+  const [otherWorkspaces, setOtherWorkspaces] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // The active workspace is a context that spans the whole journey, not a
@@ -51,10 +54,10 @@ export function GraphProvider({ children }) {
   // A workspace that no longer exists (deleted, access revoked) must not leave
   // the picker pointing at nothing.
   useEffect(() => {
-    if (!selectedWs || !workspaces.length) return;
+    if (!selectedWs || (!workspaces.length && !otherWorkspaces.length)) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!workspaces.some((w) => w.id === selectedWs)) setSelectedWs(null);
-  }, [selectedWs, workspaces]);
+    if (!workspaces.some((w) => w.id === selectedWs) && !otherWorkspaces.some((w) => w.id === selectedWs)) setSelectedWs(null);
+  }, [selectedWs, workspaces, otherWorkspaces]);
 
   const refresh = useCallback(async () => {
     // Each list degrades on its own: a datasource the user can't read must not
@@ -70,6 +73,7 @@ export function GraphProvider({ children }) {
     setReports(rRes.data.reports || []);
     setWorkspaces(wsRes.data.workspaces || []);
     setPersonalWorkspace(wsRes.data.personalWorkspace || null);
+    setOtherWorkspaces(wsRes.data.otherWorkspaces || []);
     setLoading(false);
   }, []);
 
@@ -80,9 +84,10 @@ export function GraphProvider({ children }) {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (user) refresh(); }, [user, refresh]);
 
-  // Everything below is scoped to the active workspace, walking the chain
-  // backwards: workspace → its reports → their models → those models'
-  // datasources.
+  // Everything below is scoped to the active workspace. Reports are the
+  // workspace's own; sources and models are those that LIVE there or are
+  // shared into it (utils/workspaceScope.js, the server's rule) — what is
+  // outside is not on screen, so a new workspace starts empty.
   //
   // The counts on the join lines have to use the same scope as the column they
   // point at, otherwise a model advertises "3 reports" while the Reports stage
@@ -92,47 +97,27 @@ export function GraphProvider({ children }) {
     [reports, selectedWs]
   );
 
-  // Null when no workspace is active: nothing is dimmed and nothing is scoped.
-  const activeModelIds = useMemo(() => {
-    if (!selectedWs) return null;
-    const ids = new Set();
-    for (const r of scopedReports) if (r.model_id) ids.add(r.model_id);
-    return ids;
-  }, [selectedWs, scopedReports]);
-
-  const scopedModels = useMemo(
-    () => (activeModelIds ? models.filter((m) => activeModelIds.has(m.id)) : models),
-    [models, activeModelIds]
+  const scoped = useMemo(() => scopeResources({
+    datasources, models, selectedWs, personalWorkspaceId: personalWorkspace?.id,
+  }), [datasources, models, selectedWs, personalWorkspace]);
+  const scopedModels = scoped.models;
+  const scopedDatasources = scoped.datasources;
+  // The workspace new sources and models are created in.
+  const currentWsKey = scoped.wsKey;
+  const isGlobalAdmin = user?.role === 'admin';
+  const currentWsRole = useMemo(
+    () => roleInWorkspace({ selectedWs, workspaces, otherWorkspaces, isGlobalAdmin }),
+    [selectedWs, workspaces, otherWorkspaces, isGlobalAdmin],
   );
-
-  // Used to dim what the workspace doesn't touch — never to hide it, since a
-  // datasource no report uses yet still has to be reachable.
-  const activeDatasourceIds = useMemo(() => {
-    if (!activeModelIds) return null;
-    const ids = new Set();
-    for (const m of scopedModels) if (m.datasource_id) ids.add(m.datasource_id);
-    return ids;
-  }, [activeModelIds, scopedModels]);
 
   // The order of the three columns, decided here rather than in each stage —
   // an order is only worth anything if all three agree on it, and a column
-  // cannot see the ones next to it.
-  //
-  // Sources lead: floating what the active workspace reaches to the top is
-  // applied once, at the root, and the grouping carries it down. Within a
-  // parent's block the same rule applies again, so an active model still
-  // precedes a dimmed sibling under the same source.
-  const orderedDatasources = useMemo(
-    () => sortActiveFirst(datasources, activeDatasourceIds),
-    [datasources, activeDatasourceIds],
-  );
+  // cannot see the ones next to it. Sources lead; models sit in their source's
+  // block, so the join lines never cross.
+  const orderedDatasources = scopedDatasources;
   const orderedModels = useMemo(
-    () => groupByParent(
-      sortActiveFirst(models, activeModelIds),
-      orderedDatasources.map((d) => d.id),
-      'datasource_id',
-    ),
-    [models, activeModelIds, orderedDatasources],
+    () => groupByParent(scopedModels, orderedDatasources.map((d) => d.id), 'datasource_id'),
+    [scopedModels, orderedDatasources],
   );
   // Reports are listed per workspace by the stage itself, so what it needs from
   // here is the order to line up with, not the rows.
@@ -145,23 +130,22 @@ export function GraphProvider({ children }) {
 
 
   const value = useMemo(() => ({
-    datasources, models, reports, workspaces, personalWorkspace, loading,
+    datasources, models, reports, workspaces, otherWorkspaces, personalWorkspace, loading,
     // Workspace-scoped views. Anything drawing relations must use these, so the
     // lines it draws agree with the counts computed from the same scope.
-    scopedModels, scopedReports,
+    scopedModels, scopedReports, scopedDatasources,
     setDatasources, setModels, setReports, setWorkspaces,
     selectedWs, setSelectedWs,
+    currentWsKey, currentWsRole, isGlobalAdmin,
     modelsByDatasourceAll, reportsByModelAll,
-    activeModelIds, activeDatasourceIds,
     // Column order — see above. A stage that renders its own rows must follow
     // these, or its joins start crossing the neighbours'.
     orderedDatasources, orderedModels, modelOrder,
     refresh,
-  }), [datasources, models, reports, workspaces, personalWorkspace, loading,
-    scopedModels, scopedReports,
-    selectedWs,
+  }), [datasources, models, reports, workspaces, otherWorkspaces, personalWorkspace, loading,
+    scopedModels, scopedReports, scopedDatasources,
+    selectedWs, currentWsKey, currentWsRole, isGlobalAdmin,
     modelsByDatasourceAll, reportsByModelAll,
-    activeModelIds, activeDatasourceIds,
     orderedDatasources, orderedModels, modelOrder, refresh]);
 
   return <GraphContext.Provider value={value}>{children}</GraphContext.Provider>;

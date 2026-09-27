@@ -122,7 +122,7 @@ export default function PbitImportWizard({ onClose, workspaceId, onImported }) {
     try {
       setProgress('Creating the model…');
       const yaml = plan.model.yaml.replace(/^name: .*$/m, `name: ${JSON.stringify(modelName || plan.model.name)}`);
-      const mRes = await api.post('/models/import', { yaml, datasourceId: dsId });
+      const mRes = await api.post('/models/import', { yaml, datasourceId: dsId, ...(workspaceId ? { workspaceId } : {}) });
       outcome.modelId = mRes.data.model.id;
 
       // Images travel inside the template; the report references them by
@@ -238,6 +238,7 @@ export default function PbitImportWizard({ onClose, workspaceId, onImported }) {
           )}
           {dsMode === 'new' && (
             <DatasourceForm
+              workspaceId={workspaceId}
               initialValues={{
                 name: plan.model.name,
                 dbType: plan.datasource?.dbType || 'postgres',

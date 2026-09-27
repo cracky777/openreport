@@ -13,7 +13,7 @@ import WorkspaceSettings from './WorkspaceSettings';
 // two where it means nothing — and break the symmetric gutters the join lines
 // rely on.
 export default function WorkspacePicker({ canCreate }) {
-  const { workspaces, selectedWs, setSelectedWs, refresh } = useGraph();
+  const { workspaces, otherWorkspaces, selectedWs, setSelectedWs, refresh } = useGraph();
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [settingsFor, setSettingsFor] = useState(null);
@@ -29,7 +29,7 @@ export default function WorkspacePicker({ canCreate }) {
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onEsc); };
   }, [open]);
 
-  const current = selectedWs ? workspaces.find((w) => w.id === selectedWs) : null;
+  const current = selectedWs ? [...workspaces, ...otherWorkspaces].find((w) => w.id === selectedWs) : null;
   const currentName = current ? current.name : 'My Reports';
 
   const create = async () => {
@@ -77,6 +77,21 @@ export default function WorkspacePicker({ canCreate }) {
               <span style={countStyle}>{ws.report_count}</span>
             </button>
           ))}
+          {/* The global admin manages every workspace; those they hold no role
+              in are listed apart — openable to manage, but showing no data. */}
+          {otherWorkspaces.length > 0 && (
+            <>
+              <div style={divider} />
+              <div style={sectionLabel}>All workspaces · admin</div>
+              {otherWorkspaces.map((ws) => (
+                <button key={ws.id} onClick={() => pick(ws.id)} className="btn-hover" style={rowStyle(selectedWs === ws.id)} title="You manage this workspace without a role in it: its data stays hidden from you">
+                  <TbFolder size={15} />
+                  <span style={rowName}>{ws.name}</span>
+                  <span style={countStyle}>{ws.report_count}</span>
+                </button>
+              ))}
+            </>
+          )}
 
           {selectedWs && (
             <>

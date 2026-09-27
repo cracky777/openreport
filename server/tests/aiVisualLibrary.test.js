@@ -37,6 +37,8 @@ describe('the workspace library, in both assistants', () => {
     db.prepare('INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?,?,?)').run(ws, member, 'editor');
     model = seedModel({ userId: admin, datasourceId: seedDatasource({ userId: admin }) });
     seedRollup({ modelId: model });
+    // Building on the model from the workspace takes a share into it.
+    db.prepare('INSERT INTO workspace_models (workspace_id, model_id) VALUES (?, ?)').run(ws, model);
     report = seedReport({ userId: admin, modelId: model, workspaceId: ws });
     install(ws, admin, 'funnel', 'Funnel', 'Conversion between stages');
     install(otherWs, stranger, 'sankey', 'Sankey', 'Flows');

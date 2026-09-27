@@ -17,14 +17,15 @@ const cloudHooks = require('../cloudHooks');
 
 const router = express.Router();
 
-// Load + authorize the model for a rollup op. OSS: model owner or global admin.
-// Cloud: org-scoped (404 cross-org) + org-owner/admin/model-owner. Sends the
-// 404/403 response itself when denied and returns null.
+// Load + authorize the model for a rollup op. OSS: whoever manages the model
+// (utils/workspaceAccess.js: its creator, an admin of its home workspace, the
+// global admin). Cloud: org-scoped (404 cross-org) + org-owner/admin/model-owner.
+// Sends the 404/403 response itself when denied and returns null.
 function authorizeRollupModel(req, res) {
   if (typeof cloudHooks.authorizeRollupModel === 'function') return cloudHooks.authorizeRollupModel(req, res);
-  const m = db.prepare('SELECT id, user_id FROM models WHERE id = ?').get(req.params.modelId);
+  const m = db.prepare('SELECT id, user_id, workspace_id FROM models WHERE id = ?').get(req.params.modelId);
   if (!m) { res.status(404).json({ error: 'Model not found' }); return null; }
-  if (!(req.user && (req.user.role === 'admin' || m.user_id === req.user.id))) {
+  if (!require('../utils/workspaceAccess').canManageModel(m, req.user)) {
     res.status(403).json({ error: 'Forbidden' });
     return null;
   }

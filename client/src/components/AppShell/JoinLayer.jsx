@@ -17,7 +17,7 @@ import { useGraph } from '../../hooks/graphContext';
 // separate page components and the question — "what is on screen right now" —
 // is precisely what a DOM query answers.
 export default function JoinLayer({ onFollow }) {
-  const { models, scopedReports, activeModelIds } = useGraph();
+  const { scopedModels, scopedReports } = useGraph();
   const [links, setLinks] = useState([]);
   const hostRef = useRef(null);
 
@@ -47,23 +47,17 @@ export default function JoinLayer({ onFollow }) {
       };
     };
 
-    // Every model, not just the workspace's: the Models stage RENDERS them all
-    // and dims the ones the workspace does not touch. Drawing from the scoped
-    // list left a dimmed card floating with no line to the source it came from,
-    // which reads as "this model has no datasource" rather than "no report uses
-    // it yet". Reports stay scoped — one outside the workspace is not on screen
-    // at all, so a line to it would end nowhere.
+    // The workspace's models and reports only: what is outside the workspace
+    // is not on screen at all, so a line to it would end nowhere. A model's
+    // source is always on screen with it (utils/workspaceScope.js).
     const edges = [
-      ...models.filter((m) => m.datasource_id).map((m) => ({
+      ...scopedModels.filter((m) => m.datasource_id).map((m) => ({
         from: `sources:${m.datasource_id}`,
         to: `models:${m.id}`,
         parentId: m.datasource_id,
         parentName: m.datasource_name,
         noun: 'model',
-        // Faded exactly when its card is: a full-strength line into a faded
-        // card would contradict it, and the line is what says the model still
-        // belongs to that source.
-        dim: !!(activeModelIds && !activeModelIds.has(m.id)),
+        dim: false,
       })),
       ...scopedReports.filter((r) => r.model_id).map((r) => ({
         from: `models:${r.model_id}`,
@@ -138,7 +132,7 @@ export default function JoinLayer({ onFollow }) {
       }
     }
     setLinks(next);
-  }, [models, scopedReports, activeModelIds]);
+  }, [scopedModels, scopedReports]);
 
   useLayoutEffect(() => {
     measure();

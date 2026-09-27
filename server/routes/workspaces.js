@@ -4,6 +4,8 @@ const { authFor } = require('../middleware/auth');
 const db = require('../db');
 const cloudHooks = require('../cloudHooks');
 const { rejectIfNameTaken } = require('../utils/nameUniqueness');
+const wsAccess = require('../utils/workspaceAccess');
+const { modelPlacementError } = require('./reports');
 
 const router = express.Router();
 
@@ -103,10 +105,25 @@ router.get('/', authFor('org'), (req, res) => {
   const visible = all.filter((w) => w.is_personal !== 1);
   const personalReportCount = personal ? personal.report_count : 0;
 
+  // The global admin manages every workspace, including those they hold no
+  // role in: listed apart, with no role, so the client can open them without
+  // pretending they belong. Cloud lists through its own hook and adds none.
+  let others = [];
+  if (typeof cloudHooks.listWorkspaces !== 'function' && canAdminAllWorkspaces(req)) {
+    const known = new Set(all.map((w) => w.id));
+    others = db.prepare(`
+      SELECT w.*, NULL as member_role,
+        (SELECT COUNT(*) FROM reports WHERE workspace_id = w.id) as report_count,
+        (SELECT COUNT(*) FROM workspace_members WHERE workspace_id = w.id) + 1 as member_count
+      FROM workspaces w WHERE w.is_personal = 0 ORDER BY w.name
+    `).all().filter((w) => !known.has(w.id));
+  }
+
   res.json({
     workspaces: visible,
     personalWorkspace: personal,
     unassignedReportCount: personalReportCount,
+    otherWorkspaces: others,
   });
 });
 
@@ -141,11 +158,24 @@ router.get('/:id', authFor('org'), (req, res) => {
     WHERE r.workspace_id = ?
     ORDER BY r.updated_at DESC
   `).all(req.params.id);
+  // Reports shared into this workspace from elsewhere: listed read-only.
+  const sharedRaw = db.prepare(`
+    SELECT r.id, r.title, r.updated_at, r.is_public, r.live_mode, r.model_id, r.workspace_id,
+      m.name as model_name,
+      d.id as datasource_id, d.db_type, d.extra_config, 1 as shared
+    FROM workspace_reports wr
+    JOIN reports r ON r.id = wr.report_id
+    LEFT JOIN models m ON m.id = r.model_id
+    LEFT JOIN datasources d ON d.id = m.datasource_id
+    WHERE wr.workspace_id = ?
+    ORDER BY r.updated_at DESC
+  `).all(req.params.id);
+  reportsRaw.push(...sharedRaw);
 
   // Surface uploaded-file size on local (DuckDB) datasources so the workspace UI
   // can show storage usage per report without an extra round-trip.
   const reports = reportsRaw.map((r) => {
-    const out = { id: r.id, title: r.title, updated_at: r.updated_at, is_public: r.is_public, live_mode: r.live_mode, model_id: r.model_id, workspace_id: r.workspace_id, model_name: r.model_name, datasource_id: r.datasource_id, db_type: r.db_type };
+    const out = { id: r.id, title: r.title, updated_at: r.updated_at, is_public: r.is_public, live_mode: r.live_mode, model_id: r.model_id, workspace_id: r.workspace_id, model_name: r.model_name, datasource_id: r.datasource_id, db_type: r.db_type, ...(r.shared ? { shared: true } : {}) };
     if (r.db_type === 'duckdb' && r.extra_config) {
       try {
         const cfg = JSON.parse(r.extra_config);
@@ -208,6 +238,8 @@ router.delete('/:id', authFor('org'), (req, res) => {
     }
     moveReport.run(personalWs, r.id);
   }
+  // Its sources and models go home the same way, and its shares end.
+  wsAccess.rehomeWorkspaceResources(req.params.id, (userId) => personalWorkspaceFor(req, userId));
   db.prepare('DELETE FROM workspaces WHERE id = ?').run(req.params.id);
   res.json({ message: 'Deleted' });
 });
@@ -261,8 +293,12 @@ router.put('/:id/reports/:reportId', authFor('org'), (req, res) => {
   const access = workspaceAccess(req.params.id, req);
   if (!access || (access.role !== 'admin' && access.role !== 'editor')) return res.status(403).json({ error: 'Editor access required' });
   // Verify the report belongs to the requesting user
-  const report = db.prepare('SELECT id FROM reports WHERE id = ? AND user_id = ?').get(req.params.reportId, req.user.id);
+  const report = db.prepare('SELECT id, model_id FROM reports WHERE id = ? AND user_id = ?').get(req.params.reportId, req.user.id);
   if (!report) return res.status(404).json({ error: 'Report not found' });
+  // The model has to be available in the destination (see reports.js).
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(report.model_id);
+  const placement = modelPlacementError(model, req.params.id, req.user);
+  if (placement) return res.status(403).json({ error: placement });
   db.prepare('UPDATE reports SET workspace_id = ? WHERE id = ?').run(req.params.id, req.params.reportId);
   res.json({ message: 'Report moved' });
 });

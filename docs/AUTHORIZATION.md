@@ -14,14 +14,13 @@ Deux niveaux de rôles, indépendants (pas de matrice croisée en OSS) :
 
 | Rôle | Peut |
 |---|---|
-| `admin` | Tout : gestion des utilisateurs (`/api/admin/*`), paramètres globaux, historique des rapports, **et accès à tout modèle/rapport/datasource** (bypass de propriété **et** de RLS). |
-| `editor` | Créer/éditer/supprimer **ses** datasources, modèles et rapports. |
+| `admin` | **Gérer** tout : utilisateurs (`/api/admin/*`), paramètres globaux, historique des rapports, tout workspace, toute datasource, tout modèle, tout rapport (créer, éditer, déplacer, partager, supprimer, RLS, cache). Mais il ne **lit les données** que là où un workspace lui a donné un rôle : ni `/query`, ni l'aperçu SQL d'une datasource, ni contournement de RLS sans rôle. |
+| `editor` | Ce que ses rôles de workspace lui donnent (ci-dessous). |
 | `viewer` | Consulter ses rapports et les rapports publics ; exécuter des requêtes sur les modèles auxquels il a accès. |
 
-> La création de modèles/datasources n'exige pas explicitement le rôle `editor` dans le code : elle
-> est ouverte à tout utilisateur authentifié qui possède la ressource parente. La distinction
-> `editor`/`viewer` est surtout documentaire côté OSS ; le cloisonnement réel repose sur la
-> **propriété** et la **membership de workspace** (ci-dessous).
+> Le rôle global ne décide de rien sur les datasources, modèles et rapports hors le cas `admin` :
+> le cloisonnement réel repose sur le **workspace d'attache** de chaque ressource et la
+> **membership de workspace** (ci-dessous). Source de vérité : `utils/workspaceAccess.js`.
 
 ### Rôles de workspace — colonne `workspace_members.role`
 `admin` | `editor` | `viewer`. Le **propriétaire** du workspace (`workspaces.owner_id`) a un rôle
@@ -29,9 +28,24 @@ Deux niveaux de rôles, indépendants (pas de matrice croisée en OSS) :
 
 | Rôle workspace | Peut |
 |---|---|
-| `admin` (owner ou membre admin) | Tout ce que peut `editor`, plus éditer/supprimer le workspace et gérer les membres. |
-| `editor` | Éditer, supprimer, dupliquer et déplacer les rapports du workspace ; créer un rapport sur un modèle déjà utilisé par un rapport du workspace (ce modèle apparaît dans sa liste `GET /api/models`, en lecture seule). Ne peut ni éditer le modèle ni publier un rapport. |
-| `viewer` | Lecture des rapports du workspace. |
+| `admin` (owner ou membre admin) | Tout ce que peut `editor`, plus : créer des datasources dans le workspace, en tenir les identifiants, les déplacer, les supprimer ; supprimer, déplacer et partager ses modèles, en régler la RLS, piloter leur cache ; éditer/supprimer le workspace et gérer les membres. Lit toutes les lignes des modèles du workspace (bypass RLS). |
+| `editor` | Voir les datasources et modèles du workspace, créer des modèles sur ses sources, éditer ses modèles, bâtir des rapports sur ses modèles et sur ceux partagés dans le workspace ; éditer, supprimer, dupliquer et déplacer les rapports du workspace. Ne peut ni publier un rapport, ni régler la RLS. |
+| `viewer` | Lecture des rapports du workspace, et donc des données de leurs modèles (sous RLS). |
+
+### Workspace d'attache et partage — `workspace_id`, `workspace_datasources`, `workspace_models`
+Chaque datasource et chaque modèle vit dans **un** workspace (le personnel de son créateur par défaut ;
+migration au démarrage pour les lignes antérieures). Les deux peuvent en plus être **partagés** dans
+d'autres workspaces. Une datasource partagée (`workspace_datasources`, `PUT /datasources/:id/shares`) :
+les éditeurs du workspace cible en voient les tables et y créent des modèles (qui vivent chez eux),
+sans en tenir les identifiants. Un modèle partagé (`workspace_models`) : leurs éditeurs bâtissent des
+rapports dessus, leurs membres en lisent les données, personne n'y édite le modèle. Un rapport partagé
+(`workspace_reports`, `PUT /reports/:id/shares`, par qui peut l'éditer, vers un workspace d'équipe où
+son modèle est disponible) : leurs membres l'ouvrent et en lisent les données (`canAccessReport`),
+l'édition reste dans son workspace. **Un nouveau workspace ne contient
+rien** : une ressource y arrive en y étant créée, déplacée (`PUT /:id/workspace`) ou partagée
+(`PUT /models/:id/shares`). Un rapport ne peut être placé dans un workspace que si son modèle y est
+disponible (attache ou partage), sauf pour qui gère le modèle et pour le workspace personnel de
+l'auteur (`modelPlacementError`). Le créateur d'une ressource (`user_id`) en garde la gestion où qu'elle soit.
 
 ## Middleware d'authentification
 
@@ -63,13 +77,19 @@ Quatre fonctions portent le contrôle d'accès aux données (définies dans le r
 2. `user` existe **et** (`user.role === 'admin'` ; **ou** `user.id === report.user_id` ; **ou**
    le rapport est dans un workspace dont `user` est owner ou membre).
 
-**`canAccessModel(model, user, req)`** — lecture d'un modèle :
-1. `user.role === 'admin'` ; **ou**
-2. `user.id === model.user_id` (propriétaire) ; **ou**
-3. il existe un rapport qui **utilise ce modèle** et pour lequel `canAccessReport` est vrai (un
-   modèle est ainsi atteignable via un rapport public ou partagé).
+**`canAccessModel(model, user, req)`** — lecture des données d'un modèle (`/query`) :
+1. `user.id === model.user_id` (créateur) ; **ou**
+2. un rôle, quel qu'il soit, dans le workspace d'attache du modèle ou dans un workspace où il est
+   partagé (`wsAccess.canAccessModelData`) ; **ou**
+3. il existe un rapport qui **utilise ce modèle** et dont l'appelant peut lire les données
+   (`reportGrantsData` : public, le sien, ou membre du workspace du rapport — **jamais** l'admin
+   global par ce chemin).
 
-**`canWriteModel(model, user, req)`** — OSS : propriétaire du modèle ou admin global.
+**`canReadModel`** — métadonnées (`GET /:id`) : `canAccessModel`, ou l'admin global.
+
+**`canWriteModel(model, user, req)`** — OSS : admin/editor du workspace d'attache, créateur, ou admin
+global. **`canManageModel`** (suppression, déplacement, partage, RLS, cache) : admin du workspace
+d'attache, créateur, ou admin global.
 
 **`canWriteReport(report, user, req)`** — OSS : propriétaire du rapport, admin global, ou membre
 `admin`/`editor` du workspace qui contient le rapport (`workspaceRoleOf`). Un membre `viewer` reçoit
@@ -78,12 +98,13 @@ Quatre fonctions portent le contrôle d'accès aux données (définies dans le r
 **Lecture vs écriture** :
 - Lecture (`GET /api/reports/:id`, `POST /api/models/:id/query`) : gardée par `canAccessReport` /
   `canAccessModel`, **sans** `requireAuth` → un anonyme peut lire un rapport public.
-- Écriture : par ces fonctions, **pas** par une clause SQL `WHERE user_id = ?`. Cette forme ne
-  subsiste que pour le cadrage des datasources.
+- Écriture : par ces fonctions, **pas** par une clause SQL `WHERE user_id = ?` (il n'en reste
+  aucune : les datasources aussi passent par `utils/workspaceAccess.js`).
 
-**`canBuildOnModel(model, user, req)`** — OSS : propriétaire du modèle, admin global, ou membre
-`admin`/`editor` d'un workspace qui contient déjà un rapport sur ce modèle. Le propriétaire a mis la
-donnée devant cette équipe en y plaçant un rapport ; ses éditeurs peuvent en bâtir d'autres.
+**`canBuildOnModel(model, user, req)`** — OSS : admin/editor du workspace d'attache du modèle ou
+d'un workspace où il est partagé, créateur, ou admin global. Un rapport déjà placé dans un workspace
+reste éditable par les éditeurs de ce workspace (`canAuthorReport`) : qui l'y a mis a mis la donnée
+devant cette équipe.
 
 **Créer ou modifier un rapport exige `canBuildOnModel`**, pas seulement `canAccessModel`. Lire le
 modèle d'autrui via un rapport **public** ne suffit donc pas à bâtir dessus : sinon n'importe quel
@@ -91,8 +112,15 @@ compte pouvait créer un rapport sur ce modèle puis le publier, ce qui ouvre `/
 des données qui ne sont pas les siennes. La publication reste de toute façon gardée par
 `canWriteModel` (ci-dessous), y compris pour un éditeur de workspace.
 
-**`GET /api/models`** liste les modèles du caller **et** ceux sur lesquels `canBuildOnModel` répond
-oui via un workspace ; `user_id` dit à qui chacun appartient.
+**`GET /api/models`** liste les modèles des workspaces où le caller est admin/editor et ceux qui y
+sont partagés (tout pour l'admin global) ; chaque ligne porte `workspace_id`, `shared_in` et `access`
+(`manage` / `edit` / `build`). **`GET /api/datasources`** de même (`access` : `manage` / `read`, ce
+dernier pour la source derrière un modèle que l'on édite).
+
+**Datasources** : structure (`GET /:id`, `/tables`, `/columns`) pour qui la lit (`canReadDatasource`) ;
+lignes (`/query`) pour un admin/editor de son workspace seulement (`canQueryDatasource`) ; identifiants,
+suppression, déplacement pour qui la gère (`canManageDatasource` : admin du workspace, créateur, admin
+global) ; création par un admin du workspace cible (`canCreateDatasourceIn`).
 
 > `canBuildOnModel` n'est **pas** `canWriteModel`, même si les deux répondent pareil en OSS. Écrire
 > un rapport n'a jamais demandé le droit d'éditer le modèle, et confondre les deux casse le cloud :
@@ -126,7 +154,9 @@ rls = {
 autorisées pour cet email (`[]` = aucune).
 
 **Application** :
-- **Bypass** pour le **propriétaire du modèle** et l'**admin global** (RLS non appliquée).
+- **Bypass** pour le **créateur du modèle** et les **admins de son workspace d'attache**
+  (`bypassesRls`). L'admin global n'en est pas dispensé : sans rôle il n'atteint pas `/query`,
+  avec un rôle d'éditeur ou de lecteur il est filtré comme les autres.
 - Sinon, injection dans le `WHERE` : `CAST("<pk>" AS VARCHAR) IN ('key1', 'key2', …)`, ou
   `WHERE 1 = 0` si aucune clé n'est autorisée (deny-all).
 - `tablesReachableFrom` vérifie que la table RLS rejoint bien toutes les tables interrogées
@@ -162,7 +192,8 @@ de RLS. À l'exécution de `/query` :
 | Requêter un modèle via rapport public | ✅ (RLS) | ✅ | ✅ | ✅ |
 | Créer un rapport | ❌ | ❌¹ ² | ✅ ² | ✅ |
 | Modifier / supprimer un rapport | ❌ | propriétaire ² | propriétaire ² | ✅ (tous) |
-| Créer un modèle / une datasource | ❌ | ❌¹ | ✅ | ✅ |
+| Créer un modèle / une datasource | ❌ | ❌¹ | ✅ ³ | ✅ |
+| Lire les données d'un modèle sans rôle dans son workspace | ❌ | ❌ | ❌ | ❌ |
 | Gérer les membres d'un workspace | ❌ | admin du workspace | admin du workspace | ✅ |
 | Voir/restaurer l'historique d'un rapport | ❌ | ❌ | ❌ | ✅ |
 | Paramètres globaux (`/api/admin/*`) | ❌ | ❌ | ❌ | ✅ |
@@ -171,8 +202,10 @@ de RLS. À l'exécution de `/query` :
 parente** (posséder une datasource pour créer un modèle, un modèle pour créer un rapport). Un
 `viewer` sans ressource parente ne peut rien créer en pratique.
 
-² Ou membre `admin`/`editor` du workspace concerné (rapports du workspace, modèles qu'ils utilisent),
-quel que soit le rôle global.
+² Ou membre `admin`/`editor` du workspace concerné (rapports du workspace, modèles qui y vivent ou y
+sont partagés), quel que soit le rôle global.
+
+³ Un modèle par un admin/editor du workspace cible, une datasource par un admin de celui-ci.
 
 ---
 

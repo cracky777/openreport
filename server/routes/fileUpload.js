@@ -7,6 +7,8 @@ const { authFor } = require('../middleware/auth');
 const db = require('../db');
 const uploadHooks = require('../hooks/upload');
 const cloudHooks = require('../cloudHooks');
+const wsAccess = require('../utils/workspaceAccess');
+const { ensurePersonalWorkspace } = require('../utils/personalWorkspace');
 const { nameTaken } = require('../utils/nameUniqueness');
 const { invalidateDatasource, closeDuckDBFile, adoptDuckDBInstance } = require('../utils/dbConnector');
 const queryCache = require('../utils/queryCache');
@@ -30,7 +32,7 @@ function dedupUpload(req, originalFilename) {
 }
 function listUploadedDatasources(req) {
   if (typeof cloudHooks.listUploadedDatasources === 'function') return cloudHooks.listUploadedDatasources(req);
-  return db.prepare("SELECT * FROM datasources WHERE user_id = ? AND db_type = 'duckdb' AND extra_config LIKE '%sourceFile%'").all(req.user.id);
+  return wsAccess.listVisibleDatasources(req.user).filter((s) => s.db_type === 'duckdb' && String(s.extra_config || '').includes('sourceFile'));
 }
 function stampNewDatasource(req, id) {
   if (typeof cloudHooks.onDatasourceCreate === 'function') cloudHooks.onDatasourceCreate(req, id);
@@ -39,7 +41,19 @@ function stampNewDatasource(req, id) {
 // extra_config, never sent to the client.
 function getDatasource(id, req) {
   if (typeof cloudHooks.getDatasource === 'function') return cloudHooks.getDatasource(id, req);
-  return db.prepare('SELECT * FROM datasources WHERE id = ? AND user_id = ?').get(id, req.user.id);
+  const row = db.prepare('SELECT * FROM datasources WHERE id = ?').get(id);
+  return row && wsAccess.canReadDatasource(row, req.user) ? row : null;
+}
+// Where an uploaded file lands: the workspace asked for, else the caller's
+// personal one; adding a source there is a workspace admin's call. Cloud keeps
+// deciding through its hooks. Returns the workspace id, or null after a 403.
+function targetWorkspaceFor(req, res) {
+  const wsId = req.body.workspaceId || ensurePersonalWorkspace(req.user.id);
+  if (typeof cloudHooks.getDatasource !== 'function' && !wsAccess.canCreateDatasourceIn(wsId, req.user)) {
+    res.status(403).json({ error: 'Only a workspace admin can add a data source there' });
+    return null;
+  }
+  return wsId;
 }
 
 // Ensure upload directories exist
@@ -260,6 +274,8 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
 
   const ext = path.extname(file.originalname).toLowerCase();
   const name = req.body.name || path.basename(file.originalname, ext);
+  const targetWs = targetWorkspaceFor(req, res);
+  if (!targetWs) { try { fs.unlinkSync(file.path); } catch { /* ignore */ } return; }
 
   // A datasource already carries this name → block and tell the user, rather
   // than silently branching them onto it. Takes precedence over the same-file
@@ -299,8 +315,8 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
 
     // Create datasource entry
     db.prepare(`
-      INSERT INTO datasources (id, user_id, name, db_type, host, port, db_name, db_user, db_password, extra_config)
-      VALUES (?, ?, ?, 'duckdb', '', 0, ?, '', '', ?)
+      INSERT INTO datasources (id, user_id, name, db_type, host, port, db_name, db_user, db_password, extra_config, workspace_id)
+      VALUES (?, ?, ?, 'duckdb', '', 0, ?, '', '', ?, ?)
     `).run(dsId, req.user.id, name, duckdbPath, JSON.stringify({
       sourceFile: file.originalname,
       tableName: primary.tableName,   // first table — kept for single-table callers
@@ -308,7 +324,7 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
       tables: tables.map((t) => ({ tableName: t.tableName, rowCount: t.rowCount })),
       fileSize: file.size,            // bytes — used by cloud quota enforcement
       importedAt: new Date().toISOString(),
-    }));
+    }), targetWs);
     stampNewDatasource(req, dsId);
 
     res.status(201).json({
@@ -350,6 +366,10 @@ router.put('/:id', authFor('write'), upload.single('file'), async (req, res) => 
 
   const ds = getDatasource(req.params.id, req);
   if (!ds) { dropUpload(); return res.status(404).json({ error: 'Datasource not found' }); }
+  if (typeof cloudHooks.getDatasource !== 'function' && !wsAccess.canManageDatasource(ds, req.user)) {
+    dropUpload();
+    return res.status(403).json({ error: 'Only a workspace admin can replace this data source' });
+  }
 
   let extra = {};
   try { extra = JSON.parse(ds.extra_config || '{}'); } catch { /* malformed row — rejected just below */ }

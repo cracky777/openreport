@@ -114,6 +114,37 @@ db.exec(`CREATE TABLE IF NOT EXISTS ai_feedback (
 // re-queries the source only for the last N months and carries the older
 // partition rows over from the previous generation file.
 safeMigrate("ALTER TABLE models ADD COLUMN incremental_months INTEGER");
+// Home workspace of sources and models (utils/workspaceAccess.js). Rows
+// without one are rehomed into their owner's personal workspace at boot
+// (personalWorkspace.backfillPersonalWorkspaces) or lazily on first read.
+safeMigrate("ALTER TABLE datasources ADD COLUMN workspace_id TEXT");
+safeMigrate("ALTER TABLE models ADD COLUMN workspace_id TEXT");
+safeMigrate("CREATE INDEX IF NOT EXISTS idx_datasources_workspace ON datasources(workspace_id)");
+safeMigrate("CREATE INDEX IF NOT EXISTS idx_models_workspace ON models(workspace_id)");
+safeMigrate(`CREATE TABLE IF NOT EXISTS workspace_datasources (
+  workspace_id TEXT NOT NULL,
+  datasource_id TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (workspace_id, datasource_id),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (datasource_id) REFERENCES datasources(id) ON DELETE CASCADE
+)`);
+safeMigrate(`CREATE TABLE IF NOT EXISTS workspace_reports (
+  workspace_id TEXT NOT NULL,
+  report_id TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (workspace_id, report_id),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+)`);
+safeMigrate(`CREATE TABLE IF NOT EXISTS workspace_models (
+  workspace_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (workspace_id, model_id),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE
+)`);
 
 // Embed tokens issued for a report. The token itself stays self-contained
 // (signed, stateless); this table exists so one can be listed and revoked

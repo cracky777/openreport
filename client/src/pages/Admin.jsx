@@ -3,8 +3,9 @@ import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
-import { TbShield, TbEdit, TbEye, TbUserPlus, TbKey, TbExternalLink, TbClock, TbUsersGroup, TbChevronDown, TbChevronRight, TbBell, TbPlayerPause, TbPlayerPlay, TbActivity, TbUsers, TbSettings, TbPlugConnected, TbSparkles } from 'react-icons/tb';
+import { TbShield, TbEdit, TbEye, TbUserPlus, TbKey, TbExternalLink, TbClock, TbUsersGroup, TbChevronDown, TbChevronRight, TbBell, TbPlayerPause, TbPlayerPlay, TbActivity, TbUsers, TbSettings, TbPlugConnected, TbSparkles, TbStack2 } from 'react-icons/tb';
 import AiSettingsSection from './admin/AiSettingsSection';
+import InventorySection from './admin/InventorySection';
 import { ICON_SIZE } from '../components/actionIcons';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
@@ -61,6 +62,7 @@ const ADMIN_TABS = [
   { key: 'users', label: 'Users', icon: TbUsers },
   { key: 'settings', label: 'Settings', icon: TbSettings },
   { key: 'groups', label: 'Groups', icon: TbUsersGroup },
+  { key: 'resources', label: 'Resources', icon: TbStack2 },
   { key: 'alerts', label: 'Alerts', icon: TbBell },
   { key: 'usage', label: 'Usage', icon: TbActivity },
   { key: 'api', label: 'API tokens', icon: TbPlugConnected },
@@ -406,6 +408,7 @@ export default function Admin() {
         </>)}
 
         {tab === 'groups' && <GroupsSection />}
+        {tab === 'resources' && <InventorySection />}
         {tab === 'alerts' && <AlertsSection />}
         {tab === 'usage' && <UsageSection />}
         {tab === 'api' && <ApiTokensSection />}

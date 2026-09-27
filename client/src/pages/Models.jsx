@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
-import { TbRefresh, TbLoader2, TbClock, TbDownload } from 'react-icons/tb';
+import { TbRefresh, TbLoader2, TbClock, TbDownload, TbArrowsRightLeft, TbShare, TbDotsVertical } from 'react-icons/tb';
 import { EditIcon, ICON_SIZE } from '../components/actionIcons';
 import { cardActionBtn } from '../components/dashboardModalStyles';
 import IncrementalRefreshDialog from '../components/IncrementalRefreshDialog/IncrementalRefreshDialog';
@@ -14,6 +14,8 @@ import FilterCrumb from '../components/AppShell/FilterCrumb';
 import JoinAdd from '../components/AppShell/JoinAdd';
 import SourceIcon from '../components/AppShell/SourceIcon';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
+import { MoveToWorkspaceModal, ShareWithWorkspacesModal } from '../components/WorkspaceTargets/WorkspaceTargets';
+import { canBuildWithRole, buildableSources } from '../utils/workspaceScope';
 
 // Fills the stage slot AppShell gives it; the shell owns the viewport height.
 const _hs0 = { flex: 1, overflow: 'auto', backgroundColor: 'var(--bg-app)' };
@@ -50,9 +52,54 @@ export default function Models() {
   // Rows come from the shell-level graph so this column is already populated
   // when the carousel slides it in.
   const {
-    setModels, datasources, reportsByModelAll, activeModelIds, loading, refresh,
+    setModels, datasources, reportsByModelAll, loading, refresh,
     orderedModels: graphOrderedModels,
+    currentWsKey, currentWsRole, workspaces, otherWorkspaces, personalWorkspace,
+    scopedDatasources,
   } = useGraph();
+  // A model is created on a source that lives in the open workspace or is
+  // shared into it.
+  const sourcesHere = useMemo(() => buildableSources(scopedDatasources, currentWsKey), [scopedDatasources, currentWsKey]);
+  // Creating a model here takes an admin or editor of the open workspace; what
+  // each card allows comes from the server (`access`: manage / edit / build).
+  const canBuildHere = canBuildWithRole(currentWsRole);
+  const wsOptions = useMemo(() => [
+    ...(personalWorkspace ? [{ id: personalWorkspace.id, name: 'My Reports', role: 'admin' }] : []),
+    ...workspaces.map((w) => ({ id: w.id, name: w.name, role: w.member_role })),
+    ...otherWorkspaces.map((w) => ({ id: w.id, name: w.name, role: 'admin' })),
+  ], [personalWorkspace, workspaces, otherWorkspaces]);
+  const [moving, setMoving] = useState(null);
+  const [sharing, setSharing] = useState(null);
+  // The card's secondary actions sit behind "⋮", as on the report cards; the
+  // id of the card whose menu is open, closed on an outside click or Escape.
+  const [cardMenu, setCardMenu] = useState(null);
+  const cardMenuRef = useRef(null);
+  useEffect(() => {
+    if (!cardMenu) return undefined;
+    const onDown = (e) => { if (cardMenuRef.current && !cardMenuRef.current.contains(e.target)) setCardMenu(null); };
+    const onEsc = (e) => { if (e.key === 'Escape') setCardMenu(null); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onEsc);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onEsc); };
+  }, [cardMenu]);
+  const moveModel = async (workspaceId) => {
+    try {
+      await api.put(`/models/${moving.id}/workspace`, { workspaceId });
+      setMoving(null);
+      refresh();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Move failed');
+    }
+  };
+  const shareModel = async (workspaceIds) => {
+    try {
+      await api.put(`/models/${sharing.id}/shares`, { workspaceIds });
+      setSharing(null);
+      refresh();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Sharing failed');
+    }
+  };
   // The branch the journey is focused on, resolved once for all three stages.
   const focus = useJourneyFocus();
 
@@ -107,7 +154,6 @@ export default function Models() {
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
     if (searchParams.get('newModel') !== '1') return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setForm((f) => ({ ...f, datasourceId: searchParams.get('datasourceId') || '' }));
     setShowForm(true);
     const rest = new URLSearchParams(searchParams);
@@ -119,7 +165,7 @@ export default function Models() {
   const handleCreate = async () => {
     if (!form.name || !form.datasourceId) return;
     try {
-      const res = await api.post('/models', form);
+      const res = await api.post('/models', currentWsKey ? { ...form, workspaceId: currentWsKey } : form);
       navigate(`/models/${res.data.model.id}`);
     } catch (err) {
       toast(err.response?.data?.error || 'Failed to create model');
@@ -152,7 +198,7 @@ export default function Models() {
 
   const postImport = async (yamlText, datasourceId) => {
     try {
-      const res = await api.post('/models/import', { yaml: yamlText, ...(datasourceId ? { datasourceId } : {}) });
+      const res = await api.post('/models/import', { yaml: yamlText, ...(datasourceId ? { datasourceId } : {}), ...(currentWsKey ? { workspaceId: currentWsKey } : {}) });
       setPendingImport(null);
       setImportDsId('');
       toast(`Model "${res.data.model.name}" imported`, 'success');
@@ -217,10 +263,14 @@ export default function Models() {
             )}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <ImportButton onClick={() => importInputRef.current?.click()} title="Import a model from a .model.yaml file">
-              Import model
-            </ImportButton>
-            <PrimaryButton onClick={openForm}>+ New Model</PrimaryButton>
+            {canBuildHere && (
+              <>
+                <ImportButton onClick={() => importInputRef.current?.click()} title="Import a model from a .model.yaml file">
+                  Import model
+                </ImportButton>
+                <PrimaryButton onClick={openForm}>+ New Model</PrimaryButton>
+              </>
+            )}
           </div>
           <input
             ref={importInputRef} type="file" accept=".yaml,.yml" style={{ display: 'none' }}
@@ -236,7 +286,7 @@ export default function Models() {
             </div>
             <select value={importDsId} onChange={(e) => setImportDsId(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }}>
               <option value="">— choose —</option>
-              {datasources.map((ds) => (
+              {sourcesHere.map((ds) => (
                 <option key={ds.id} value={ds.id}>{ds.name}</option>
               ))}
             </select>
@@ -272,11 +322,11 @@ export default function Models() {
                 onChange={(e) => setForm({ ...form, datasourceId: e.target.value })}
               >
                 <option value="">Select a data source...</option>
-                {datasources.map((ds) => (
+                {sourcesHere.map((ds) => (
                   <option key={ds.id} value={ds.id}>{ds.name} ({ds.db_type})</option>
                 ))}
               </select>
-              {datasources.length === 0 && (
+              {sourcesHere.length === 0 && (
                 <p style={_hs6}>
                   No data sources configured.{' '}
                   <button className="btn-hover btn-hover-accent" onClick={() => navigate('/datasources')} style={_hs7}>
@@ -318,7 +368,7 @@ export default function Models() {
               <p style={_hs13}>
                 Models define which tables, dimensions, and measures are available in your reports.
               </p>
-              <button className="btn-hover btn-hover-primary" onClick={openForm} style={primaryBtn}>Create your first model</button>
+              {canBuildHere && <button className="btn-hover btn-hover-primary" onClick={openForm} style={primaryBtn}>Create your first model</button>}
             </div>
           )
         ) : (
@@ -327,8 +377,8 @@ export default function Models() {
               // Guard on the unscoped count: the server refuses while any report uses it.
               const reportCount = reportsByModelAll.get(m.id) || 0;
               return (
-              <div key={m.id} style={activeModelIds && !activeModelIds.has(m.id) ? dimmedRowStyle : joinRowStyle}>
-              <div className="journey-card" data-join-anchor={`models:${m.id}`} style={cardStyle}>
+              <div key={m.id} style={joinRowStyle}>
+              <div className="journey-card" data-join-anchor={`models:${m.id}`} style={cardMenu === m.id ? cardStyleMenuOpen : cardStyle}>
                 <SourceIcon file={fileDatasourceIds.has(m.datasource_id)} dbType={dbTypeByDatasource.get(m.datasource_id)} />
                 <div onClick={() => navigate(`/models/${m.id}`)} style={_hs15}>
                   <div style={_hs16}>{m.name}</div>
@@ -340,53 +390,95 @@ export default function Models() {
                     Updated {new Date(m.updated_at).toLocaleDateString()}
                   </div>
                   {m.description && <div style={_hs18}>{m.description}</div>}
+                  {m.access === 'build' && <div style={sharedBadge} title="Shared into this workspace by its own: build reports on it, edit it there">shared</div>}
                 </div>
                 {/* Same icon-button language as the report cards, so the two
                     columns read as one system: edit / refresh / incremental /
-                    delete, all compact icons with tooltips. */}
+                    delete, all compact icons with tooltips. What shows follows
+                    `access`: an editor edits and exports, a manager also drives
+                    the cache, moves, shares and deletes, a shared model offers
+                    nothing here. */}
                 <div style={_hs19}>
-                  <button
-                    onClick={() => navigate(`/models/${m.id}`)}
-                    title="Edit model"
-                    {...cardActionBtn()}
-                  >
-                    <EditIcon size={ICON_SIZE.card} />
-                  </button>
-                  <button
-                    onClick={() => refreshModelCache(m)}
-                    disabled={refreshingIds.has(m.id)}
-                    title={refreshingIds.has(m.id) ? 'Refreshing cache…' : 'Refresh the cache — rebuilds the rollups shared by every report on this model'}
-                    {...cardActionBtn(refreshingIds.has(m.id) ? 'accent' : 'muted')}
-                  >
-                    {refreshingIds.has(m.id) ? <TbLoader2 size={16} className="spin" /> : <TbRefresh size={16} />}
-                  </button>
-                  <button
-                    onClick={() => setIncrModelId(m.id)}
-                    title="Incremental cache refresh…"
-                    {...cardActionBtn('muted')}
-                  >
-                    <TbClock size={16} />
-                  </button>
-                  <button
-                    onClick={() => exportModel(m)}
-                    title="Export as YAML — the model as versionable code"
-                    {...cardActionBtn('muted')}
-                  >
-                    <TbDownload size={16} />
-                  </button>
-                  <ConfirmDeleteButton
-                    variant="icon"
-                    label="Delete model"
-                    onConfirm={() => handleDelete(m.id)}
-                    blockedReason={reportCount ? `Used by ${reportCount} report${reportCount > 1 ? 's' : ''} — delete those first` : null}
-                  />
+                  {(m.access === 'manage' || m.access === 'edit') && (
+                    <button
+                      onClick={() => navigate(`/models/${m.id}`)}
+                      title="Edit model"
+                      {...cardActionBtn()}
+                    >
+                      <EditIcon size={ICON_SIZE.card} />
+                    </button>
+                  )}
+                  {m.access === 'manage' && (
+                    <button
+                      onClick={() => refreshModelCache(m)}
+                      disabled={refreshingIds.has(m.id)}
+                      title={refreshingIds.has(m.id) ? 'Refreshing cache…' : 'Refresh the cache — rebuilds the rollups shared by every report on this model'}
+                      {...cardActionBtn(refreshingIds.has(m.id) ? 'accent' : 'muted')}
+                    >
+                      {refreshingIds.has(m.id) ? <TbLoader2 size={16} className="spin" /> : <TbRefresh size={16} />}
+                    </button>
+                  )}
+                  {/* Everything else behind "⋮", as on the report cards. What
+                      it lists follows `access`: an editor exports, a manager
+                      also tunes the cache, shares and moves. */}
+                  {(m.access === 'manage' || m.access === 'edit') && (
+                    <div style={cardMenuWrap} ref={cardMenu === m.id ? cardMenuRef : null}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setCardMenu(cardMenu === m.id ? null : m.id); }}
+                        title="More actions"
+                        {...cardActionBtn(cardMenu === m.id ? 'accent' : 'muted')}
+                      >
+                        <TbDotsVertical size={16} />
+                      </button>
+                      {cardMenu === m.id && (
+                        <div style={cardMenuPanel} role="menu">
+                          {m.access === 'manage' && (
+                            <button style={cardMenuItem} role="menuitem"
+                              onClick={() => { setCardMenu(null); setIncrModelId(m.id); }}
+                              onMouseEnter={hoverOn} onMouseLeave={hoverOff}>
+                              <TbClock size={14} /> Incremental cache refresh
+                            </button>
+                          )}
+                          <button style={cardMenuItem} role="menuitem"
+                            onClick={() => { setCardMenu(null); exportModel(m); }}
+                            onMouseEnter={hoverOn} onMouseLeave={hoverOff}>
+                            <TbDownload size={14} /> Export data model
+                          </button>
+                          {m.access === 'manage' && (
+                            <>
+                              <button style={cardMenuItem} role="menuitem"
+                                onClick={() => { setCardMenu(null); setSharing(m); }}
+                                onMouseEnter={hoverOn} onMouseLeave={hoverOff}>
+                                <TbShare size={14} /> Share
+                              </button>
+                              <button style={cardMenuItem} role="menuitem"
+                                onClick={() => { setCardMenu(null); setMoving(m); }}
+                                onMouseEnter={hoverOn} onMouseLeave={hoverOff}>
+                                <TbArrowsRightLeft size={14} /> Move to workspace
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {m.access === 'manage' && (
+                    <ConfirmDeleteButton
+                      variant="icon"
+                      label="Delete model"
+                      onConfirm={() => handleDelete(m.id)}
+                      blockedReason={reportCount ? `Used by ${reportCount} report${reportCount > 1 ? 's' : ''} — delete those first` : null}
+                    />
+                  )}
                 </div>
                 {/* Same parameters the model editor already sends when it
                     bounces back into the new-report wizard. */}
-                <JoinAdd
-                  title={`Add a report on ${m.name}`}
-                  onClick={() => navigate(`/?focus=models:${m.id}&newReport=1&modelId=${m.id}`)}
-                />
+                {canBuildHere && (
+                  <JoinAdd
+                    title={`Add a report on ${m.name}`}
+                    onClick={() => navigate(`/?focus=models:${m.id}&newReport=1&modelId=${m.id}`)}
+                  />
+                )}
               </div>
               </div>
               );
@@ -395,6 +487,24 @@ export default function Models() {
         )}
       {incrModelId && (
         <IncrementalRefreshDialog modelId={incrModelId} onClose={() => setIncrModelId(null)} />
+      )}
+      {moving && (
+        <MoveToWorkspaceModal
+          title={`Move "${moving.name}"`}
+          currentId={moving.workspace_id}
+          options={wsOptions.filter((o) => o.role === 'admin' || o.role === 'editor')}
+          onSubmit={moveModel}
+          onClose={() => setMoving(null)}
+        />
+      )}
+      {sharing && (
+        <ShareWithWorkspacesModal
+          title={`Share "${sharing.name}" with…`}
+          options={wsOptions.filter((o) => o.id !== sharing.workspace_id)}
+          initial={sharing.shared_in || []}
+          onSubmit={shareModel}
+          onClose={() => setSharing(null)}
+        />
       )}
       </main>
     </div>
@@ -418,8 +528,26 @@ const labelStyle = { display: 'block', fontSize: 13, color: 'var(--text-secondar
 // either side of it.
 const joinRowStyle = { display: 'flex', justifyContent: 'center' };
 // Outside the active workspace: dimmed, never hidden — see Datasources.
-const dimmedRowStyle = { ...joinRowStyle, opacity: 0.4 };
+const cardMenuWrap = { position: 'relative' };
+const cardMenuPanel = {
+  position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 20,
+  minWidth: 220, padding: 4,
+  background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
+  borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+  display: 'flex', flexDirection: 'column',
+};
+const cardMenuItem = {
+  display: 'flex', alignItems: 'center', gap: 8,
+  padding: '8px 12px', fontSize: 13,
+  background: 'transparent', border: 'none', borderRadius: 4,
+  color: 'var(--text-secondary)', cursor: 'pointer', textAlign: 'left',
+  whiteSpace: 'nowrap', transition: 'background 0.12s',
+};
+const hoverOn = (e) => { e.currentTarget.style.background = 'var(--bg-hover)'; };
+const hoverOff = (e) => { e.currentTarget.style.background = 'transparent'; };
+const sharedBadge = { display: 'inline-block', marginTop: 4, fontSize: 11, color: 'var(--text-muted)', border: '1px solid var(--border-default)', borderRadius: 4, padding: '1px 6px' };
 const cardStyle = { width: '100%', maxWidth: 760, flexShrink: 0, flexWrap: 'wrap', rowGap: 10,
   backgroundColor: 'var(--bg-panel)', padding: '16px 20px', borderRadius: 8,
   border: '1px solid var(--border-default)', display: 'flex', alignItems: 'center', gap: 12,
 };
+const cardStyleMenuOpen = { ...cardStyle, position: 'relative', zIndex: 10 };

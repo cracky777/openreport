@@ -4,7 +4,7 @@ import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
 import { readSheetNames } from '../utils/readSheetNames';
-import { TbUpload } from 'react-icons/tb';
+import { TbUpload, TbArrowsRightLeft, TbShare } from 'react-icons/tb';
 import { EditIcon, ICON_SIZE } from '../components/actionIcons';
 import { cardActionBtn } from '../components/dashboardModalStyles';
 import { PrimaryButton, SecondaryButton, ImportButton } from '../components/PageHeader/PageHeader';
@@ -18,6 +18,8 @@ import FilterCrumb from '../components/AppShell/FilterCrumb';
 import JoinAdd from '../components/AppShell/JoinAdd';
 import SourceIcon from '../components/AppShell/SourceIcon';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
+import { MoveToWorkspaceModal, ShareWithWorkspacesModal } from '../components/WorkspaceTargets/WorkspaceTargets';
+import { canBuildWithRole } from '../utils/workspaceScope';
 
 // Fills the stage slot AppShell gives it; the shell owns the viewport height.
 const _hs0 = { flex: 1, overflow: 'auto', backgroundColor: 'var(--bg-app)' };
@@ -69,9 +71,47 @@ export default function Datasources() {
   // Rows come from the shell-level graph so this column is already populated
   // when the carousel slides it in.
   const {
-    setDatasources, modelsByDatasourceAll, activeDatasourceIds, loading, refresh,
+    setDatasources, modelsByDatasourceAll, loading, refresh,
     orderedDatasources: graphOrderedDatasources,
+    currentWsKey, currentWsRole, workspaces, otherWorkspaces, personalWorkspace,
   } = useGraph();
+  // Adding a source is a workspace admin's call; building a model on one takes
+  // an editor. What each card allows comes from the server (`access`).
+  const canManageHere = currentWsRole === 'admin';
+  const canBuildHere = canBuildWithRole(currentWsRole);
+  // A source moves between workspaces one administers (the global admin: any).
+  const moveTargets = useMemo(() => [
+    ...(personalWorkspace ? [{ id: personalWorkspace.id, name: 'My Reports' }] : []),
+    ...workspaces.filter((w) => w.member_role === 'admin').map((w) => ({ id: w.id, name: w.name })),
+    ...otherWorkspaces.map((w) => ({ id: w.id, name: w.name })),
+  ], [personalWorkspace, workspaces, otherWorkspaces]);
+  // A source is shared with any workspace one belongs to: its editors then
+  // build models on it there.
+  const shareTargets = useMemo(() => [
+    ...(personalWorkspace ? [{ id: personalWorkspace.id, name: 'My Reports' }] : []),
+    ...workspaces.map((w) => ({ id: w.id, name: w.name })),
+    ...otherWorkspaces.map((w) => ({ id: w.id, name: w.name })),
+  ], [personalWorkspace, workspaces, otherWorkspaces]);
+  const [sharing, setSharing] = useState(null);
+  const shareDatasource = async (workspaceIds) => {
+    try {
+      await api.put(`/datasources/${sharing.id}/shares`, { workspaceIds });
+      setSharing(null);
+      refresh();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Sharing failed');
+    }
+  };
+  const [moving, setMoving] = useState(null);
+  const moveDatasource = async (workspaceId) => {
+    try {
+      await api.put(`/datasources/${moving.id}/workspace`, { workspaceId });
+      setMoving(null);
+      refresh();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Move failed');
+    }
+  };
   // The branch the journey is focused on, resolved once for all three stages.
   const focus = useJourneyFocus();
 
@@ -192,6 +232,7 @@ export default function Datasources() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('name', file.name.replace(/\.[^.]+$/, ''));
+      if (!replaceTarget && currentWsKey) formData.append('workspaceId', currentWsKey);
       appendImportOptions(formData, importOpts);
       const headers = { 'Content-Type': 'multipart/form-data' };
       const res = replaceTarget
@@ -237,10 +278,14 @@ export default function Datasources() {
               style={_hs2} onChange={handleFileSelected} />
             {/* Clears the refresh target: the OS dialog can be dismissed, which
                 would otherwise leave the next pick aimed at a source. */}
-            <ImportButton onClick={() => { setReplaceTarget(null); fileInputRef.current?.click(); }} disabled={uploading}>
-              {uploading ? 'Uploading...' : 'Import file'}
-            </ImportButton>
-            <PrimaryButton onClick={() => { setEditingId(null); setEditingValues(null); setShowForm(true); }}>+ New Connection</PrimaryButton>
+            {canManageHere && (
+              <>
+                <ImportButton onClick={() => { setReplaceTarget(null); fileInputRef.current?.click(); }} disabled={uploading}>
+                  {uploading ? 'Uploading...' : 'Import file'}
+                </ImportButton>
+                <PrimaryButton onClick={() => { setEditingId(null); setEditingValues(null); setShowForm(true); }}>+ New Connection</PrimaryButton>
+              </>
+            )}
           </div>
         </div>
         {DatasourcesHeader && <DatasourcesHeader />}
@@ -279,6 +324,7 @@ export default function Datasources() {
           <Modal onClose={handleCancel} width={620}>
             <h2 style={_hs5}>{editingId ? 'Edit Data Source' : 'New Data Source'}</h2>
             <DatasourceForm
+              workspaceId={currentWsKey}
               editingId={editingId}
               initialValues={editingValues}
               onSaved={handleSaved}
@@ -300,7 +346,7 @@ export default function Datasources() {
           ) : (
             <div style={_hs7}>
               <p style={_hs8}>No data sources configured</p>
-              <button className="btn-hover btn-hover-primary" onClick={() => setShowForm(true)} style={primaryBtn}>Add your first data source</button>
+              {canManageHere && <button className="btn-hover btn-hover-primary" onClick={() => setShowForm(true)} style={primaryBtn}>Add your first data source</button>}
             </div>
           )
         ) : (
@@ -311,7 +357,7 @@ export default function Datasources() {
               // Guard on the unscoped count: the server refuses while any model uses it.
               const modelCount = modelsByDatasourceAll.get(ds.id) || 0;
               return (
-                <div key={ds.id} style={activeDatasourceIds && !activeDatasourceIds.has(ds.id) ? dimmedRowStyle : joinRowStyle}>
+                <div key={ds.id} style={joinRowStyle}>
                 <div className="journey-card" data-join-anchor={`sources:${ds.id}`} style={dsCardStyle}>
                   <SourceIcon file={isUploadedFile} dbType={ds.db_type} />
                   <div style={_hs10}>
@@ -326,8 +372,14 @@ export default function Datasources() {
                     </div>
                   </div>
                   <div style={_hs13}>
-                    {/* Same icon-button language as the report and model cards. */}
-                    {isUploadedFile ? (
+                    {/* Same icon-button language as the report and model cards.
+                        A source one only reads (through a model one edits) shows
+                        where it comes from and nothing to act on. */}
+                    {ds.access !== 'manage' ? (
+                      ds.workspace_id !== currentWsKey && ds.shared_in?.includes(currentWsKey)
+                        ? <span style={readOnlyBadge} title="Shared into this workspace: build models on it; its settings belong to its own workspace">shared</span>
+                        : <span style={readOnlyBadge} title="Shown for a model you edit: its settings belong to its own workspace">read-only</span>
+                    ) : isUploadedFile ? (
                       // A file source has no connection to edit — what it has is
                       // data that goes stale. Same id, so everything downstream
                       // survives the refresh.
@@ -348,19 +400,31 @@ export default function Datasources() {
                         <EditIcon size={ICON_SIZE.card} />
                       </button>
                     )}
-                    <ConfirmDeleteButton
-                      variant="icon"
-                      label="Delete data source"
-                      onConfirm={() => handleDelete(ds.id)}
-                      blockedReason={modelCount ? `Used by ${modelCount} model${modelCount > 1 ? 's' : ''} — delete those first` : null}
-                    />
+                    {ds.access === 'manage' && (
+                      <>
+                        <button onClick={() => setSharing(ds)} title="Share with other workspaces…" {...cardActionBtn(ds.shared_in?.length ? 'accent' : 'muted')}>
+                          <TbShare size={16} />
+                        </button>
+                        <button onClick={() => setMoving(ds)} title="Move to another workspace" {...cardActionBtn('muted')}>
+                          <TbArrowsRightLeft size={16} />
+                        </button>
+                        <ConfirmDeleteButton
+                          variant="icon"
+                          label="Delete data source"
+                          onConfirm={() => handleDelete(ds.id)}
+                          blockedReason={modelCount ? `Used by ${modelCount} model${modelCount > 1 ? 's' : ''} — delete those first` : null}
+                        />
+                      </>
+                    )}
                   </div>
                   {/* Hands the Models stage a source already chosen, the same
                       way the model editor hands the wizard a model. */}
-                  <JoinAdd
-                    title={`Add a data model on ${ds.name}`}
-                    onClick={() => navigate(`/models?focus=sources:${ds.id}&newModel=1&datasourceId=${ds.id}`)}
-                  />
+                  {canBuildHere && (
+                    <JoinAdd
+                      title={`Add a data model on ${ds.name}`}
+                      onClick={() => navigate(`/models?focus=sources:${ds.id}&newModel=1&datasourceId=${ds.id}`)}
+                    />
+                  )}
                 </div>
                 </div>
               );
@@ -368,6 +432,24 @@ export default function Datasources() {
           </div>
         )}
       </main>
+      {sharing && (
+        <ShareWithWorkspacesModal
+          title={`Share "${sharing.name}" with…`}
+          options={shareTargets.filter((o) => o.id !== sharing.workspace_id)}
+          initial={sharing.shared_in || []}
+          onSubmit={shareDatasource}
+          onClose={() => setSharing(null)}
+        />
+      )}
+      {moving && (
+        <MoveToWorkspaceModal
+          title={`Move "${moving.name}"`}
+          currentId={moving.workspace_id}
+          options={moveTargets}
+          onSubmit={moveDatasource}
+          onClose={() => setMoving(null)}
+        />
+      )}
       {saveMsg && (
         <Portal>
           <div style={{
@@ -398,7 +480,7 @@ const primaryBtn = {
 const joinRowStyle = { display: 'flex', justifyContent: 'center' };
 // Outside the active workspace: dimmed, never hidden — a datasource no report
 // uses yet still has to be reachable and editable from here.
-const dimmedRowStyle = { ...joinRowStyle, opacity: 0.4 };
+const readOnlyBadge = { fontSize: 11, color: 'var(--text-muted)', border: '1px solid var(--border-default)', borderRadius: 4, padding: '2px 6px' };
 const dsCardStyle = { width: '100%', maxWidth: 760, flexShrink: 0, flexWrap: 'wrap', rowGap: 10,
   backgroundColor: 'var(--bg-panel)', padding: '16px 20px', borderRadius: 8,
   border: '1px solid var(--border-default)', display: 'flex', alignItems: 'center', gap: 12,

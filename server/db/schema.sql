@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS datasources (
   db_user TEXT NOT NULL,
   db_password TEXT NOT NULL,
   extra_config TEXT DEFAULT '{}',
+  -- Home workspace: rights on the source follow the roles held there.
+  workspace_id TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -51,6 +53,8 @@ CREATE TABLE IF NOT EXISTS models (
   column_types TEXT NOT NULL DEFAULT '{}',
   -- Incremental rollup refresh window in months (NULL/0 = full rebuild)
   incremental_months INTEGER,
+  -- Home workspace: editing rights follow the roles held there.
+  workspace_id TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -80,6 +84,28 @@ CREATE TABLE IF NOT EXISTS workspace_members (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 -- workspace member role: 'admin' | 'editor' | 'viewer'
+
+-- A data source shared into a workspace other than its home: its editors see
+-- the tables and build models on it, nobody there holds its credentials.
+CREATE TABLE IF NOT EXISTS workspace_datasources (
+  workspace_id TEXT NOT NULL,
+  datasource_id TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (workspace_id, datasource_id),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (datasource_id) REFERENCES datasources(id) ON DELETE CASCADE
+);
+
+-- A model shared, read-only, into a workspace other than its home: its
+-- editors build reports on it, its members read the data, nobody edits it.
+CREATE TABLE IF NOT EXISTS workspace_models (
+  workspace_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (workspace_id, model_id),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE
+);
 
 -- Generic key/value store for global app settings (admin-managed in OSS,
 -- e.g. query timeout). Values are JSON-encoded so we can store numbers,
@@ -227,3 +253,14 @@ CREATE TABLE IF NOT EXISTS usage_events (
 CREATE INDEX IF NOT EXISTS idx_usage_kind_ts ON usage_events(kind, ts);
 CREATE INDEX IF NOT EXISTS idx_usage_report ON usage_events(report_id);
 CREATE INDEX IF NOT EXISTS idx_usage_model ON usage_events(model_id);
+
+-- A report shared, read-only, into a workspace other than its own: the
+-- members there open it (and so read its data); editing stays at home.
+CREATE TABLE IF NOT EXISTS workspace_reports (
+  workspace_id TEXT NOT NULL,
+  report_id TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (workspace_id, report_id),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+);

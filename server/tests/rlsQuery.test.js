@@ -41,10 +41,12 @@ describe('RLS enforcement in /models/:id/query', () => {
     expect(s).not.toMatch(/1 = 0/);
   });
 
-  test('global admin bypasses RLS', async () => {
+  // Managing everything is not reading everything (utils/workspaceAccess.js):
+  // with no role in the model's workspace the admin reaches the model through
+  // the public report and is filtered like any stranger.
+  test('a global admin without a role in the workspace is filtered like anyone', async () => {
     const s = await sqlFor(admin);
-    expect(s).not.toContain('client_id');
-    expect(s).not.toMatch(/1 = 0/);
+    expect(s).toMatch(/1 = 0/);
   });
 
   test('a matching viewer is scoped to their allowed key only', async () => {

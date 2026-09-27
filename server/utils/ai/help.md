@@ -5,27 +5,32 @@
 - The stage switcher in the top header shows Data Sources, Data Models and Reports. Viewers only see Reports; Data Sources and Data Models are for admins and editors.
 - Alt+← / Alt+→ moves between stages. On a wide screen you can also click the neighbouring column that peeks in at the edge.
 - Lines between cards show which model uses which source and which report uses which model. Following one filters the next stage; the filter crumb at the top clears it.
-- The workspace picker (folder icon, top-left, next to the logo) chooses between My Reports and the workspaces you belong to.
+- The workspace picker (folder icon, top-left, next to the logo) chooses between My Reports and the workspaces you belong to. Every stage follows it: Data Sources and Data Models show what lives in the open workspace (or is shared into it), Reports shows its reports. An app admin also sees, apart, the workspaces they hold no role in.
 - Top-right: your user menu (the account pill). It opens on Alerts (admins and editors), Admin (admins only), the theme, API tokens, Report a bug and Logout.
 - Right edge: the Assistant bar (if the AI assistant is available to you) — click it to open or close the Assistant panel.
 
 ## roles — Roles and who can do what
 - Every account has an app role: Admin (full access + user management), Editor (create/edit reports, models, datasources) or Viewer (view reports only).
 - The first account registered on an instance becomes the admin; later sign-ups are viewers until an admin changes their role (Admin → Users).
-- Inside a workspace, members also have a workspace role: Admin, Editor or Viewer. Workspace admins and editors can edit the workspace's reports; viewers can only open them.
-- A data model can be changed only by its owner or an app admin.
-- App admins can open every report and bypass row-level security.
+- Inside a workspace, members also have a workspace role: Admin, Editor or Viewer. A viewer opens the workspace's reports. An editor also sees its data sources and data models, creates models on its sources, edits its models and builds reports. A workspace admin also adds data sources (and holds their credentials), deletes, moves and shares models, sets row-level security and drives the cache.
+- Data sources and data models live in one workspace each (My Reports is your personal one, and shows only what lives there). A new workspace holds none: a source or a model reaches it by being created there, moved there, or shared into it.
+- App admins manage everything — every workspace, source, model and report — but they read data only where a workspace gave them a role: without one, a report's visuals stay empty for them and row-level security is not bypassed.
 
 ## workspaces — Workspaces and sharing with colleagues
 - My Reports holds your personal reports. A workspace is a shared folder of reports with its own members.
 - Create one (admins and editors): workspace picker → New workspace → type a name → + (Create).
 - Add people: pick the workspace → workspace picker → Workspace settings → under Members type an Email address, choose Viewer, Editor or Admin, click the add-member button.
-- Only a workspace admin can rename the workspace, change member roles, remove members or delete it. Deleting a workspace moves its reports back to My Reports.
+- Only a workspace admin can rename the workspace, change member roles, remove members or delete it. Deleting a workspace moves its reports, data sources and data models back to their creators' My Reports.
 - Move a report into a workspace: on its card, More actions (⋮) → Move to workspace → pick the target → Move.
+- Share a report read-only with other workspaces: on its card, More actions (⋮) → Share report → tick the workspaces → Save. Their members open it (badge "shared") and see its data; editing stays in its own workspace. The report's model must be available in each of them, unless you manage the model. The report's model must be available there (its home, or shared into it) unless you manage the model.
+- Share a data source with another workspace (its editors can then create models on it; its credentials stay with its own workspace): Data Sources stage → share icon on the source card → tick the workspaces → Save. It shows there with a "shared" badge.
+- Share a data model with another workspace (its editors can then build reports on it, nobody there edits it): Data Models stage → More actions (⋮) on the model card → Share → tick the workspaces → Save. Move a model or a data source to another workspace: the arrows icon on its card → pick the target → Move.
 - Custom visuals are only available to reports that live in a workspace.
 
 ## datasources — Connecting a database
-- Who: admins and editors. Where: Data Sources stage → + New Connection.
+- Who: an admin of the open workspace (My Reports: you). Where: Data Sources stage → + New Connection. The source lands in the open workspace.
+- A source marked "shared" is shared into the open workspace: create models on it, its settings belong to its own workspace. One marked "read-only" is shown because a model you edit reads it.
+- On a source card (workspace admins): edit the connection or re-import the file, Share with other workspaces…, Move to another workspace, Delete; the + creates a model on it (editors).
 - Supported: PostgreSQL, Azure PostgreSQL, Redshift, MySQL, Oracle, Azure SQL, SQL Server, BigQuery, Snowflake, Databricks, ClickHouse, DuckDB.
 1. Click + New Connection, choose the type and fill in host, port, database, user and password (fields change with the type; e.g. SSL, TLS, named instance).
 2. Click Test Connection until it says "Connection successful!".
@@ -44,7 +49,7 @@
 - You can also start from a file when creating a report: Reports → + New Report → Import File (max 500 Mo).
 
 ## models — Building a data model (tables and joins)
-- Who: admins and editors. Where: Data Models stage → + New Model (or the + on a data source card).
+- Who: an admin or editor of the open workspace. Where: Data Models stage → + New Model (or the + on a data source card). The model lands in the open workspace.
 1. Enter a Name, pick the Data Source, optional description → Create & Configure.
 2. Step 1. Tables: tick the tables you need → Next: Schema & Joins →.
 3. Step 2. Schema & Joins: drag from one column's dot to another table's column dot to create a join. Click a join's cardinality to toggle it; Remove join deletes it.
@@ -53,7 +58,7 @@
 6. Click Save (top-right). + New Report saves the model and opens a new report on it.
 - The datasource badge in the header lets you switch the model to another data source (Change datasource); broken references are listed with a Re-check button.
 - The model assistant (sparkles button in the model editor header, for the model's owner or an admin, when the AI assistant is available) can propose the joins, which columns are dimensions or measures, new measures (sum, average, count, distinct count, min, max of a column), which tables are facts or dimensions, and arrange the diagram. Review the card, click Apply, then Save the model. It does not write SQL: calculated fields stay manual.
-- On a model card: Edit model, Refresh the cache, Incremental cache refresh…, Export as YAML, Delete model; the + adds a report on it.
+- On a model card: Edit model, Refresh the cache and Delete model; More actions (⋮) holds Incremental cache refresh, Export data model (a .model.yaml file), Share (with other workspaces) and Move to workspace; the + adds a report on it. What shows follows your role: an editor edits and exports, a workspace admin has everything, a model shared into the workspace (badge "shared") offers only the +.
 
 ## fields — Dimensions, measures and calculated fields
 - Dimensions are what you group or filter by (text, dates…); measures are columns that get aggregated (sum, average, count, distinct count, min, max): any column can be one, a text or a date through its count, min or max.
@@ -219,10 +224,11 @@
 3. Copy the token now: it is shown only once. Revoke it from the same list.
 
 ## admin — The Admin page
-- Admins only. Where: header → Admin. Tabs: Users, Settings, Groups, Alerts, Usage, API tokens, AI.
+- Admins only. Where: user menu (top-right) → Admin. Tabs: Users, Settings, Groups, Resources, Alerts, Usage, API tokens, AI.
 - Users: Add User (Email, Password, Display name, role) → Create; change a role from the list; Reset password; delete.
 - Settings: storage usage, Query timeout, Query cache (on/off, TTL, flush), Public report links.
 - Groups: create groups and add members; use them in RLS as group:name.
+- Resources: every data source, data model and report of the instance, with who created it, the workspace it lives in and the workspaces it is shared with. Switch between the three lists and search by name, creator or workspace. It lists them, it does not open their data. The trash icon at the end of a row deletes it, for everyone. Delete in order: a data source used by data models, or a data model used by reports, cannot be deleted until those are gone (the icon is greyed out and its tooltip says how many are left).
 - Alerts: every alert on the instance. Usage: most viewed reports, slowest queries, per-model stats, report freshness, recent cache builds.
 - API tokens: turn the API on/off, choose who may hold a token, revoke tokens.
 - AI: set up the AI assistant (see ai-access).

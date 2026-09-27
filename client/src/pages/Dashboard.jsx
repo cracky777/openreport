@@ -9,6 +9,7 @@ import { readSheetNames } from '../utils/readSheetNames';
 import { TbEye, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbBell, TbPlayerPlay, TbToggleLeftFilled, TbToggleRightFilled, TbLoader2, TbRefresh, TbFileText, TbCode, TbChartInfographic } from 'react-icons/tb';
 import { DeleteIcon, EditIcon, ICON_SIZE } from '../components/actionIcons';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
+import { ShareWithWorkspacesModal } from '../components/WorkspaceTargets/WorkspaceTargets';
 import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
 import { formatBytes } from '../utils/formatHuman';
 import { useTheme } from '../hooks/useTheme';
@@ -196,6 +197,7 @@ const publicCardAccent = { borderColor: 'var(--state-success)' };
 // the list, at that same 4, painted over it. Raising the card lifts the menu
 // with it. Stays well under the shell's own dropdowns at 200.
 const cardMenuOpen = { zIndex: 10 };
+const sharedBadge = { alignSelf: 'center', fontSize: 11, color: 'var(--text-muted)', border: '1px solid var(--border-default)', borderRadius: 4, padding: '1px 6px' };
 // Last of the line and least load-bearing, so it is the one that gives way.
 const cardCacheLink = {
   color: 'var(--text-disabled)',
@@ -231,7 +233,7 @@ export default function Dashboard() {
   // The active workspace now lives in the shell-level graph — it is a context
   // shared by the three stages, set from the header picker.
   const {
-    reports, setReports, models, refresh: refreshGraph,
+    reports, setReports, models, scopedModels, currentWsKey, refresh: refreshGraph,
     workspaces, personalWorkspace,
     selectedWs, loading, modelOrder,
   } = useGraph();
@@ -334,6 +336,8 @@ export default function Dashboard() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('name', file.name.replace(/\.[^.]+$/, ''));
+      // The source and its model land in the open workspace, like the report.
+      if (currentWsKey) formData.append('workspaceId', currentWsKey);
       appendImportOptions(formData, importOpts);
       const uploadRes = await api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       const ds = uploadRes.data.datasource;
@@ -358,7 +362,7 @@ export default function Dashboard() {
         }
       }
       if (!modelId) {
-        const modelRes = await api.post('/models', { name: ds.name, datasourceId: ds.id });
+        const modelRes = await api.post('/models', { name: ds.name, datasourceId: ds.id, ...(currentWsKey ? { workspaceId: currentWsKey } : {}) });
         modelId = modelRes.data.model.id;
       }
 
@@ -573,6 +577,26 @@ export default function Dashboard() {
   const [embedModal, setEmbedModal] = useState(null);      // report object of the open embed dialog, or null
   const [renameModal, setRenameModal] = useState(null);    // { report, value }
   const [moveModal, setMoveModal] = useState(null);        // { report, targetWs }
+  // Sharing a report read-only into other workspaces: { report, initial }.
+  const [shareModal, setShareModal] = useState(null);
+  const openShare = async (report) => {
+    setCardMenu(null);
+    try {
+      const res = await api.get(`/reports/${report.id}/shares`);
+      setShareModal({ report, initial: res.data.workspaceIds || [] });
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not load the shares');
+    }
+  };
+  const saveShares = async (workspaceIds) => {
+    try {
+      await api.put(`/reports/${shareModal.report.id}/shares`, { workspaceIds });
+      setShareModal(null);
+      toast(workspaceIds.length ? 'Report shared' : 'Report no longer shared', 'success');
+    } catch (err) {
+      toast(err.response?.data?.error || 'Sharing failed');
+    }
+  };
   const [historyModal, setHistoryModal] = useState(null);  // { report, versions, loading }
   const [askRestore, setAskRestore] = useState(null);      // versionId awaiting confirmation
   const [scheduleModal, setScheduleModal] = useState(null); // { report, schedules, loading, editing }
@@ -929,7 +953,7 @@ export default function Dashboard() {
                   style={inputStyle}
                 >
                   <option value="">— pick one —</option>
-                  {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  {scopedModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
                 <p style={_hs43}>
                   Widgets will be re-queried against the model you pick. Field references in the bundle must match this model's dimensions and measures.
@@ -1009,7 +1033,7 @@ export default function Dashboard() {
                     <label style={labelStyle}>Model</label>
                     <select style={inputStyle} value={newModelId} onChange={(e) => setNewModelId(e.target.value)}>
                       <option value="">Select a model...</option>
-                      {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                      {scopedModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                     </select>
                   </div>
                   <div style={_hs58}>
@@ -1145,6 +1169,8 @@ export default function Dashboard() {
                 const stats = cardCacheStats[report.id];
                 const warming = cardWarmingIds.has(report.id);
                 const menuOpen = cardMenu === report.id;
+                // Shared into this workspace from its own: open it, nothing else.
+                const canEditCard = canEdit && !report.shared;
                 const skin = report.is_public || menuOpen
                   ? { ...cardStyle, ...(report.is_public ? publicCardAccent : null), ...(menuOpen ? cardMenuOpen : null) }
                   : cardStyle;
@@ -1168,7 +1194,7 @@ export default function Dashboard() {
                               style={metaModelName}
                               title={report.model_name}
                             >{report.model_name}</span>
-                            {canEdit && report.model_id && (
+                            {canEditCard && report.model_id && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); navigate(`/models/${report.model_id}`); }}
                                 title="Edit model"
@@ -1236,8 +1262,9 @@ export default function Dashboard() {
                   </div>
                   <div style={cardActions}>
                     <button onClick={() => window.open(`/view/${report.id}`, '_blank')} title="View" {...cardActionBtn('accent')}><TbEye size={16} /></button>
-                    {canEdit && <button onClick={() => navigate(`/edit/${report.id}`)} title="Edit" {...cardActionBtn()}><EditIcon size={ICON_SIZE.card} /></button>}
-                    {canEdit && (
+                    {report.shared && <span style={sharedBadge} title="Shared into this workspace from another one: open it here, edit it in its own workspace">shared</span>}
+                    {canEditCard && <button onClick={() => navigate(`/edit/${report.id}`)} title="Edit" {...cardActionBtn()}><EditIcon size={ICON_SIZE.card} /></button>}
+                    {canEditCard && (
                       <div style={cardMenuWrap}
                         ref={menuOpen ? cardMenuRef : null}>
                         <button
@@ -1278,6 +1305,14 @@ export default function Dashboard() {
                               onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                               <TbArrowsRightLeft size={14} /> Move to workspace
                             </button>
+                            {workspaces.length > 0 && (
+                              <button style={cardMenuItem}
+                                onClick={() => openShare(report)}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                                <TbUsers size={14} /> Share report
+                              </button>
+                            )}
                             {/* Making a report public is gated by the instance
                                 policy (admin setting); making it private again is
                                 always allowed. The server enforces either way. */}
@@ -1409,6 +1444,15 @@ export default function Dashboard() {
       )}
 
       {/* Move modal */}
+      {shareModal && (
+        <ShareWithWorkspacesModal
+          title={`Share "${shareModal.report.title}" with…`}
+          options={workspaces.filter((w) => w.id !== shareModal.report.workspace_id).map((w) => ({ id: w.id, name: w.name }))}
+          initial={shareModal.initial}
+          onSubmit={saveShares}
+          onClose={() => setShareModal(null)}
+        />
+      )}
       {moveModal && (
         <Modal onClose={() => setMoveModal(null)}>
             <div style={actionModalTitle}>Move "{moveModal.report.title}"</div>

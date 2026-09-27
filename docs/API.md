@@ -65,20 +65,23 @@ Routes techniques également publiques : `GET /api/health`, les images servies s
 | `POST` | `/api/reports/:id/duplicate` | ✅ | propriétaire (ou admin) | Duplique un rapport. |
 | `GET` | `/api/reports/:id/history` | 👑 | admin | Liste les versions sauvegardées. |
 | `POST` | `/api/reports/:id/history/:versionId/restore` | 👑 | admin | Restaure une version. |
+| `GET` / `PUT` | `/api/reports/:id/shares` | ✅ | `canWriteReport` ; destinations : workspaces d'équipe où l'on a un rôle et où le modèle est disponible | Partage le rapport en lecture (`workspaceIds`) : les membres l'ouvrent et en lisent les données. |
 
 ## Models — `/api/models`
 
 | Méthode | Path | Auth | Permission | Description |
 |---|---|:--:|---|---|
-| `GET` | `/api/models` | ✅ | soi-même | Liste les modèles possédés. |
-| `GET` | `/api/models/:id` | ✅ | propriétaire/admin, ou via rapport (`canAccessModel`) | Détail du modèle ; la carte RLS est retirée pour les non-propriétaires. |
-| `POST` | `/api/models` | ✅ | propriétaire de la datasource | Crée un modèle. |
-| `PUT` | `/api/models/:id` | ✅ | propriétaire (ou admin) | Met à jour (dimensions, mesures, joins, RLS, column_types…). |
-| `DELETE` | `/api/models/:id` | ✅ | propriétaire (ou admin) | Supprime (échoue si des rapports l'utilisent). |
-| `GET` | `/api/models/:id/validate` | ✅ | propriétaire (ou admin) | Valide les références du modèle contre le schéma de la datasource. |
-| `GET` | `/api/models/:id/rls/rows` | ✅ | propriétaire (ou admin) | Lignes de la table RLS pour l'UI. |
-| `POST` | `/api/models/:id/validate-column-type` | ✅ | propriétaire (ou admin) | Vérifie qu'une colonne est coercible vers un type cible. |
-| `POST` | `/api/models/:id/detect-cardinality` | ✅ | propriétaire (ou admin) | Compte les valeurs distinctes d'une colonne. |
+| `GET` | `/api/models` | ✅ | rôle de workspace | Les modèles des workspaces où l'on est admin/editor et ceux qui y sont partagés ; chaque ligne porte `workspace_id`, `shared_in` et `access` (`manage` / `edit` / `build`). Tout pour l'admin global. |
+| `GET` | `/api/models/:id` | ✅ | `canReadModel` (données, ou admin global) | Détail du modèle ; la carte RLS et `shared_in` ne sont rendus qu'à qui le gère. |
+| `POST` | `/api/models` | ✅ | lecteur de la datasource + admin/editor du workspace cible | Crée un modèle (`workspaceId`, sinon le workspace de la datasource). |
+| `PUT` | `/api/models/:id` | ✅ | `canWriteModel` (admin/editor du workspace) ; `rls` : admin du workspace | Met à jour (dimensions, mesures, joins, RLS, column_types…). |
+| `PUT` | `/api/models/:id/workspace` | ✅ | gestionnaire + admin/editor de la destination | Déplace le modèle (`workspaceId`). |
+| `GET` / `PUT` | `/api/models/:id/shares` | ✅ | gestionnaire du modèle | Les workspaces où le modèle est partagé en lecture (`workspaceIds`). |
+| `DELETE` | `/api/models/:id` | ✅ | gestionnaire (créateur, admin du workspace, admin global) | Supprime (échoue si des rapports l'utilisent). |
+| `GET` | `/api/models/:id/validate` | ✅ | `canWriteModel` | Valide les références du modèle contre le schéma de la datasource. |
+| `GET` | `/api/models/:id/rls/rows` | ✅ | `canWriteModel` + rôle dans le workspace (données) | Lignes de la table RLS pour l'UI. |
+| `POST` | `/api/models/:id/validate-column-type` | ✅ | `canWriteModel` + rôle dans le workspace (données) | Vérifie qu'une colonne est coercible vers un type cible. |
+| `POST` | `/api/models/:id/detect-cardinality` | ✅ | `canWriteModel` | Compte les valeurs distinctes d'une colonne. |
 | `POST` | `/api/models/:id/query` | 🔓 | `canAccessModel` | **Exécute une requête de widget** (cœur du produit). Sert depuis un rollup ou en live. |
 | `POST` | `/api/models/cancel-query` | 🔓 | même utilisateur | Annule une requête en vol par `queryId`. |
 
@@ -86,15 +89,17 @@ Routes techniques également publiques : `GET /api/health`, les images servies s
 
 | Méthode | Path | Auth | Permission | Description |
 |---|---|:--:|---|---|
-| `GET` | `/api/datasources` | ✅ | soi-même | Liste les datasources possédées. |
-| `GET` | `/api/datasources/:id` | ✅ | propriétaire (ou admin) | Une datasource (sans le mot de passe). |
+| `GET` | `/api/datasources` | ✅ | rôle de workspace | Les sources des workspaces où l'on est admin/editor et celles qui y sont partagées, plus celles derrière un modèle que l'on édite (`access: 'read'`) ; chaque ligne porte `workspace_id`, `shared_in` et `access` (`manage` / `read`). Tout pour l'admin global. |
+| `GET` | `/api/datasources/:id` | ✅ | lecteur (structure) | Une datasource (sans le mot de passe). |
 | `POST` | `/api/datasources/test` | ✅ | soi-même | Teste une connexion sans sauvegarder. |
-| `POST` | `/api/datasources` | ✅ | soi-même | Crée une datasource (PG/Redshift/Snowflake/Databricks/ClickHouse/MySQL/Oracle/MSSQL/BigQuery/DuckDB…). |
-| `PUT` | `/api/datasources/:id` | ✅ | propriétaire (ou admin) | Met à jour ; invalide le queryCache et les rollups liés. |
-| `DELETE` | `/api/datasources/:id` | ✅ | propriétaire (ou admin) | Supprime (échoue si des modèles l'utilisent). |
-| `GET` | `/api/datasources/:id/tables` | ✅ | propriétaire (ou admin) | Liste les tables. |
-| `GET` | `/api/datasources/:id/tables/:table/columns` | ✅ | propriétaire (ou admin) | Liste les colonnes d'une table. |
-| `POST` | `/api/datasources/:id/query` | ✅ | propriétaire (ou admin) | SELECT ad-hoc (SELECT-only, mono-instruction). |
+| `POST` | `/api/datasources` | ✅ | admin du workspace cible (`workspaceId`, sinon le personnel) ou admin global | Crée une datasource (PG/Redshift/Snowflake/Databricks/ClickHouse/MySQL/Oracle/MSSQL/BigQuery/DuckDB…). |
+| `PUT` | `/api/datasources/:id` | ✅ | gestionnaire (créateur, admin du workspace, admin global) | Met à jour ; invalide le queryCache et les rollups liés. |
+| `PUT` | `/api/datasources/:id/workspace` | ✅ | gestionnaire + admin de la destination | Déplace la source (`workspaceId`). |
+| `GET` / `PUT` | `/api/datasources/:id/shares` | ✅ | gestionnaire de la source | Les workspaces où la source est partagée (`workspaceIds`) : leurs éditeurs y créent des modèles. |
+| `DELETE` | `/api/datasources/:id` | ✅ | gestionnaire | Supprime (échoue si des modèles l'utilisent, quel qu'en soit l'auteur). |
+| `GET` | `/api/datasources/:id/tables` | ✅ | lecteur (structure) | Liste les tables. |
+| `GET` | `/api/datasources/:id/tables/:table/columns` | ✅ | lecteur (structure) | Liste les colonnes d'une table. |
+| `POST` | `/api/datasources/:id/query` | ✅ | admin/editor du workspace de la source (données : jamais l'admin global sans rôle) | SELECT ad-hoc (SELECT-only, mono-instruction). |
 
 ## Admin — `/api/admin`
 
@@ -111,6 +116,7 @@ Routes techniques également publiques : `GET /api/health`, les images servies s
 | `POST` | `/api/admin/settings/query-cache/flush` | 👑 | admin | Vide le cache de requêtes en RAM. |
 | `PUT` | `/api/admin/settings/ai` | 👑 | admin | Configure le fournisseur IA (`provider`, `baseUrl`, `model`, `apiKey`, `dataSharing`, `enabled`). La clé est chiffrée et jamais renvoyée (`hasApiKey`) ; vide = conserver, `clearApiKey: true` = effacer. |
 | `POST` | `/api/admin/settings/ai/test` | 👑 | admin | Teste la config **enregistrée** : `{ ok, toolCalling, error }`. |
+| `GET` | `/api/admin/inventory` | ✅ | admin global (OSS) | Toutes les datasources, modèles et rapports : créateur, workspace d'attache, workspaces de partage (`sharedIn`). Métadonnées seulement. |
 
 ## Assistant IA — `/api/ai`
 
@@ -131,15 +137,15 @@ Routes techniques également publiques : `GET /api/health`, les images servies s
 
 | Méthode | Path | Auth | Permission | Description |
 |---|---|:--:|---|---|
-| `GET` | `/api/workspaces` | ✅ | soi-même | Workspaces possédés ou partagés (le personnel est séparé). |
+| `GET` | `/api/workspaces` | ✅ | soi-même | Workspaces possédés ou partagés (le personnel est séparé) ; `otherWorkspaces` = ceux que l'admin global gère sans y avoir de rôle. |
 | `POST` | `/api/workspaces` | ✅ | soi-même | Crée un workspace (devient owner). |
 | `GET` | `/api/workspaces/:id` | ✅ | membre/owner (ou admin global) | Détail (rapports, membres, owner). |
 | `PUT` | `/api/workspaces/:id` | ✅ | admin du workspace | Met à jour (nom, description). |
-| `DELETE` | `/api/workspaces/:id` | ✅ | admin du workspace | Supprime (workspace personnel interdit ; rapports ré-hébergés). |
+| `DELETE` | `/api/workspaces/:id` | ✅ | admin du workspace | Supprime (workspace personnel interdit ; rapports, sources et modèles ré-hébergés chez leurs créateurs, partages supprimés). |
 | `POST` | `/api/workspaces/:id/members` | ✅ | admin du workspace | Ajoute un membre (rôle admin/editor/viewer). |
 | `PUT` | `/api/workspaces/:id/members/:userId` | ✅ | admin du workspace | Change le rôle d'un membre. |
 | `DELETE` | `/api/workspaces/:id/members/:userId` | ✅ | admin du workspace | Retire un membre. |
-| `PUT` | `/api/workspaces/:id/reports/:reportId` | ✅ | editor/admin du workspace + propriétaire du rapport | Déplace un rapport vers le workspace. |
+| `PUT` | `/api/workspaces/:id/reports/:reportId` | ✅ | editor/admin du workspace + propriétaire du rapport | Déplace un rapport vers le workspace (le modèle doit y être disponible, sauf pour qui le gère). |
 
 ## Custom Visuals — `/api/workspaces/:wsId/visuals`
 

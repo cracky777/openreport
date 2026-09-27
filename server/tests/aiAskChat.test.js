@@ -53,7 +53,9 @@ describe('POST /api/ai/models/:id/chat', () => {
       ],
     });
     // Shared with the workspace AND public: everyone here can read the model
-    // through it. Only some of them may build on it.
+    // through it. Only some of them may build on it: the model is shared into
+    // the workspace, so its editors may, its viewers may not.
+    db.prepare('INSERT INTO workspace_models (workspace_id, model_id) VALUES (?, ?)').run(ws, model);
     seedReport({ userId: owner, modelId: model, workspaceId: ws, isPublic: 1 });
     seedRollup({ modelId: model });
   });
