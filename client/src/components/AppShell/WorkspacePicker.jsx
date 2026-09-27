@@ -48,6 +48,7 @@ export default function WorkspacePicker({ canCreate }) {
   };
 
   const pick = (id) => { setSelectedWs(id); setOpen(false); };
+  const openSettings = (id) => { setSettingsFor(id); setOpen(false); };
 
   return (
     <div ref={boxRef} style={relStyle}>
@@ -71,11 +72,7 @@ export default function WorkspacePicker({ canCreate }) {
             <span style={rowName}>My Reports</span>
           </button>
           {workspaces.map((ws) => (
-            <button key={ws.id} onClick={() => pick(ws.id)} className="btn-hover" style={rowStyle(selectedWs === ws.id)}>
-              <TbFolder size={15} />
-              <span style={rowName}>{ws.name}</span>
-              <span style={countStyle}>{ws.report_count}</span>
-            </button>
+            <WorkspaceRow key={ws.id} ws={ws} active={selectedWs === ws.id} onPick={pick} onSettings={openSettings} />
           ))}
           {/* The global admin manages every workspace; those they hold no role
               in are listed apart — openable to manage, but showing no data. */}
@@ -84,26 +81,11 @@ export default function WorkspacePicker({ canCreate }) {
               <div style={divider} />
               <div style={sectionLabel}>All workspaces · admin</div>
               {otherWorkspaces.map((ws) => (
-                <button key={ws.id} onClick={() => pick(ws.id)} className="btn-hover" style={rowStyle(selectedWs === ws.id)} title="You manage this workspace without a role in it: its data stays hidden from you">
-                  <TbFolder size={15} />
-                  <span style={rowName}>{ws.name}</span>
-                  <span style={countStyle}>{ws.report_count}</span>
-                </button>
+                <WorkspaceRow
+                  key={ws.id} ws={ws} active={selectedWs === ws.id} onPick={pick} onSettings={openSettings}
+                  title="You manage this workspace without a role in it: its data stays hidden from you"
+                />
               ))}
-            </>
-          )}
-
-          {selectedWs && (
-            <>
-              <div style={divider} />
-              <button
-                onClick={() => { setSettingsFor(selectedWs); setOpen(false); }}
-                className="btn-hover"
-                style={{ ...rowStyle(false), color: 'var(--text-muted)' }}
-              >
-                <TbSettings size={15} />
-                <span style={rowName}>Workspace settings</span>
-              </button>
             </>
           )}
 
@@ -143,6 +125,30 @@ export default function WorkspacePicker({ canCreate }) {
   );
 }
 
+// A workspace in the list: its name opens it, the gear opens its settings —
+// two buttons side by side, since a button cannot hold another.
+function WorkspaceRow({ ws, active, onPick, onSettings, title }) {
+  return (
+    <div className="btn-hover" style={rowStyle(active)}>
+      <button onClick={() => onPick(ws.id)} style={pickBtn} title={title}>
+        <TbFolder size={15} />
+        <span style={rowName}>{ws.name}</span>
+        <span style={countStyle}>{ws.report_count}</span>
+      </button>
+      <button
+        onClick={() => onSettings(ws.id)}
+        style={gearBtn}
+        title={`${ws.name} settings`}
+        aria-label={`${ws.name} settings`}
+        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+      >
+        <TbSettings size={14} />
+      </button>
+    </div>
+  );
+}
+
 // The positioning wrapper is a flex item too. `min-width: auto` is the default
 // and refuses to shrink below its content, so the pill inside kept its full
 // width, overflowed its group and painted over the navigation next to it —
@@ -169,6 +175,15 @@ const sectionLabel = { fontSize: 10, fontWeight: 600, color: 'var(--text-muted)'
 const divider = { height: 1, background: 'var(--border-default)', margin: '4px 0' };
 const rowName = { flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 const countStyle = { fontSize: 10, color: 'var(--text-disabled)' };
+const pickBtn = {
+  display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, padding: 0,
+  border: 'none', background: 'none', cursor: 'pointer', font: 'inherit', color: 'inherit', textAlign: 'left',
+};
+const gearBtn = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  width: 22, height: 22, padding: 0, marginRight: -4, border: 'none', borderRadius: 5,
+  background: 'none', color: 'var(--text-muted)', cursor: 'pointer',
+};
 const createRow = { display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px' };
 const inputStyle = {
   flex: 1, minWidth: 0, padding: '4px 8px', fontSize: 12,
