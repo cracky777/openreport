@@ -10,21 +10,24 @@ const datasources = [
   { id: 'd2', user_id: 'u2', workspace_id: TEAM },
   { id: 'd3', user_id: 'u3', workspace_id: OTHER },
   { id: 'd4', user_id: 'u3', workspace_id: OTHER, shared_in: [TEAM] },
+  { id: 'd5', user_id: 'u3', workspace_id: OTHER },
 ];
 const models = [
   { id: 'm1', user_id: ME, workspace_id: PERSONAL, datasource_id: 'd1', shared_in: [] },
   { id: 'm2', user_id: 'u2', workspace_id: TEAM, datasource_id: 'd2', shared_in: [] },
   { id: 'm3', user_id: 'u3', workspace_id: OTHER, datasource_id: 'd3', shared_in: [TEAM] },
   { id: 'm4', user_id: ME, workspace_id: TEAM, datasource_id: 'd2', shared_in: [] },
+  { id: 'm5', user_id: ME, workspace_id: TEAM, datasource_id: 'd5', shared_in: [] },
 ];
 
 describe('scopeResources', () => {
-  it('a workspace shows its own models, the ones shared into it, and their sources', () => {
+  it('a workspace shows its own models, the ones shared into it, and the sources it holds', () => {
     const r = scopeResources({ datasources, models, selectedWs: TEAM, personalWorkspaceId: PERSONAL, userId: ME });
-    expect(r.models.map((m) => m.id)).toEqual(['m2', 'm3', 'm4']);
-    // d3 is on screen because the shared m3 reads it; d4 is shared into the
-    // team; d1 is not the team's.
-    expect(r.datasources.map((d) => d.id)).toEqual(['d2', 'd3', 'd4']);
+    expect(r.models.map((m) => m.id)).toEqual(['m2', 'm3', 'm4', 'm5']);
+    // d4 is shared into the team; d5 sits behind m5, which lives here. d3 is
+    // NOT on screen: m3 is only shared here, and sharing a model does not
+    // share its source. d1 is not the team's.
+    expect(r.datasources.map((d) => d.id)).toEqual(['d2', 'd4', 'd5']);
     // A model is created on what lives here or is shared here, not on d3.
     expect(buildableSources(r.datasources, TEAM).map((d) => d.id)).toEqual(['d2', 'd4']);
   });

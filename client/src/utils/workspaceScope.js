@@ -6,16 +6,18 @@
 
 // The rows of the open workspace: what lives there or is shared into it —
 // sources and models alike. `selectedWs` null is "My Reports", the personal
-// workspace and nothing else. A source also shows when a model on screen reads
-// it (the server lists it read-only), so the join line from a model always
-// lands on its source.
+// workspace and nothing else. A source also shows, read-only, behind a model
+// that LIVES here (its editors need it; the server lists it for them), so that
+// model's join line lands on its source. Never behind a model only shared
+// here: sharing a model does not share its source — only a share of the
+// source does.
 const livesIn = (row, wsKey) => !!wsKey
   && (row.workspace_id === wsKey || (Array.isArray(row.shared_in) && row.shared_in.includes(wsKey)));
 
 export function scopeResources({ datasources, models, selectedWs, personalWorkspaceId }) {
   const wsKey = selectedWs || personalWorkspaceId || null;
   const scopedModels = (models || []).filter((m) => livesIn(m, wsKey));
-  const modelSources = new Set(scopedModels.map((m) => m.datasource_id));
+  const modelSources = new Set(scopedModels.filter((m) => m.workspace_id === wsKey).map((m) => m.datasource_id));
   const scopedSources = (datasources || []).filter((d) => livesIn(d, wsKey) || modelSources.has(d.id));
   return { wsKey, models: scopedModels, datasources: scopedSources };
 }

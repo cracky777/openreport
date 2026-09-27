@@ -23,13 +23,13 @@
 - Only a workspace admin can rename the workspace, change member roles, remove members or delete it. Deleting a workspace moves its reports, data sources and data models back to their creators' My Reports.
 - Move a report into a workspace: on its card, More actions (⋮) → Move to workspace → pick the target → Move.
 - Share a report read-only with other workspaces: on its card, More actions (⋮) → Share report → tick the workspaces → Save. Their members open it (badge "shared") and see its data; editing stays in its own workspace. The report's model must be available in each of them (its home, or shared into it), unless you manage the model.
-- Share a data source with another workspace (its editors can then create models on it; its credentials stay with its own workspace): Data Sources stage → share icon on the source card → tick the workspaces → Save. It shows there with a "shared" badge.
+- Share a data source with another workspace (its editors can then create models on it; its credentials stay with its own workspace): Data Sources stage → share icon on the source card → tick the workspaces → Save. It shows there with a "shared" badge. Sharing a data model never shares its data source: the source reaches another workspace only when it is shared itself.
 - Share a data model with another workspace (its editors can then build reports on it, nobody there edits it): Data Models stage → More actions (⋮) on the model card → Share → tick the workspaces → Save. Move a model or a data source to another workspace: the arrows icon on its card → pick the target → Move.
 - Custom visuals are only available to reports that live in a workspace.
 
 ## datasources — Connecting a database
 - Who: an admin of the open workspace (My Reports: you). Where: Data Sources stage → + New Connection. The source lands in the open workspace.
-- A source marked "shared" is shared into the open workspace: create models on it, its settings belong to its own workspace. One marked "read-only" is shown because a model you edit reads it.
+- A source marked "shared" is shared into the open workspace: create models on it, its settings belong to its own workspace. One marked "read-only" is shown because a model that lives in this workspace, and that you edit, reads it.
 - On a source card (workspace admins): edit the connection or re-import the file, Share with other workspaces…, Move to another workspace, Delete; the + creates a model on it (editors).
 - Supported: PostgreSQL, Azure PostgreSQL, Redshift, MySQL, Oracle, Azure SQL, SQL Server, BigQuery, Snowflake, Databricks, ClickHouse, DuckDB.
 1. Click + New Connection, choose the type and fill in host, port, database, user and password (fields change with the type; e.g. SSL, TLS, named instance).

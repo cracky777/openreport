@@ -48,8 +48,9 @@ export default function JoinLayer({ onFollow }) {
     };
 
     // The workspace's models and reports only: what is outside the workspace
-    // is not on screen at all, so a line to it would end nowhere. A model's
-    // source is always on screen with it (utils/workspaceScope.js).
+    // is not on screen at all, so a line to it would end nowhere. A model only
+    // shared here comes without its source (utils/workspaceScope.js): that
+    // line is dropped below, like any other with an end off screen.
     const edges = [
       ...scopedModels.filter((m) => m.datasource_id).map((m) => ({
         from: `sources:${m.datasource_id}`,
