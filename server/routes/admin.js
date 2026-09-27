@@ -64,7 +64,7 @@ function instanceAiOnly(req, res, next) {
 // scopes these per organization through its own hooks, so the instance-wide
 // list is not served there.
 router.get('/inventory', requireAdmin, (req, res) => {
-  if (typeof cloudHooks.getDatasource === 'function') return res.status(404).json({ error: 'Not available' });
+  if (typeof cloudHooks.workspaceActor === 'function') return res.status(404).json({ error: 'Not available' });
   const workspaces = new Map(db.prepare(`
     SELECT w.id, w.name, w.is_personal, u.email AS owner_email, u.display_name AS owner_name
     FROM workspaces w LEFT JOIN users u ON u.id = w.owner_id

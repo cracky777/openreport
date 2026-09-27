@@ -20,15 +20,57 @@
 // on RLS. And a new workspace holds nothing: a source or a model reaches it
 // by being created there, moved there, or shared into it.
 //
-// The cloud edition keeps taking these decisions itself through cloudHooks;
-// what is here is the self-hosted rule.
+// The cloud edition runs the same rules inside each organization: its
+// actor (cloudHooks.workspaceActor) carries the organization of the request,
+// `orgId`, and the role held in it — an organization admin is the global
+// admin of their organization. Nothing outside that organization is in scope.
+// Every decision here takes an actor, never req.user directly: see actorOf.
 
 const db = require('../db');
+const cloudHooks = require('../cloudHooks');
 const { ensurePersonalWorkspace } = require('./personalWorkspace');
 
 const WRITING_ROLES = new Set(['admin', 'editor']);
 const isGlobalAdmin = (user) => !!user && user.role === 'admin';
 const isOwner = (row, user) => !!user && !!row && user.id === row.user_id;
+
+// Who decides, for a request: the signed-in user in the self-hosted edition,
+// the cloud's view of them in the active organization otherwise. `user` is
+// for callers handed a user apart from req.
+function actorOf(req, user = req && req.user) {
+  if (!user) return null;
+  if (typeof cloudHooks.workspaceActor === 'function') return cloudHooks.workspaceActor(user, req);
+  return user;
+}
+
+// Is a row of `table` within the actor's reach? Always, for a self-hosted
+// actor; in the cloud, only when it belongs to the actor's organization.
+function inScope(table, row, user) {
+  if (!row || !user) return false;
+  if (!user.orgId) return true;
+  const orgId = 'organization_id' in row
+    ? row.organization_id
+    : db.prepare(`SELECT organization_id FROM ${table} WHERE id = ?`).get(row.id)?.organization_id;
+  return !!orgId && orgId === user.orgId;
+}
+
+// The global admin, over a row in their scope.
+const administers = (table, row, user) => isGlobalAdmin(user) && inScope(table, row, user);
+
+// The role the actor holds in a workspace they would act in (create, move,
+// share into): the global admin is an admin of every workspace in scope.
+function workspaceRoleFor(workspaceId, user) {
+  if (!workspaceId || !user || !inScope('workspaces', { id: workspaceId }, user)) return null;
+  if (isGlobalAdmin(user)) return db.prepare('SELECT 1 FROM workspaces WHERE id = ?').get(workspaceId) ? 'admin' : null;
+  return workspaceRoleOf(workspaceId, user.id);
+}
+
+// The personal workspace of the caller: the edition decides where it is (the
+// cloud keeps one per organization).
+function personalWorkspaceOf(req) {
+  if (typeof cloudHooks.resolvePersonalWorkspaceFor === 'function') return cloudHooks.resolvePersonalWorkspaceFor(req, req.user.id);
+  return ensurePersonalWorkspace(req.user.id);
+}
 
 // The role the caller holds in a workspace: its owner is an admin, a member
 // has the role of their membership, anyone else none.
@@ -48,7 +90,10 @@ function homeWorkspaceOf(table, row) {
   if (!row) return null;
   if (row.workspace_id) return row.workspace_id;
   if (!row.user_id) return null;
-  const wsId = ensurePersonalWorkspace(row.user_id);
+  const wsId = typeof cloudHooks.personalWorkspaceOfRow === 'function'
+    ? cloudHooks.personalWorkspaceOfRow(table, row)
+    : ensurePersonalWorkspace(row.user_id);
+  if (!wsId) return null;
   db.prepare(`UPDATE ${table} SET workspace_id = ? WHERE id = ? AND workspace_id IS NULL`).run(wsId, row.id);
   row.workspace_id = wsId;
   return wsId;
@@ -90,7 +135,7 @@ function modelRoles(model, user) {
 // global admin, or someone who edits a model built on it — a model's editor
 // has to see the tables behind it.
 function canReadDatasource(ds, user) {
-  if (!ds || !user) return false;
+  if (!inScope('datasources', ds, user)) return false;
   if (isGlobalAdmin(user) || isOwner(ds, user)) return true;
   if (WRITING_ROLES.has(workspaceRoleOf(datasourceHome(ds), user.id))) return true;
   if (WRITING_ROLES.has(datasourceSharedRole(ds, user))) return true;
@@ -102,7 +147,7 @@ function canReadDatasource(ds, user) {
 // one it is shared into — they build models on it — nothing else, not even the
 // global admin.
 function canQueryDatasource(ds, user) {
-  if (!ds || !user) return false;
+  if (!inScope('datasources', ds, user)) return false;
   if (isOwner(ds, user)) return true;
   return WRITING_ROLES.has(workspaceRoleOf(datasourceHome(ds), user.id)) || WRITING_ROLES.has(datasourceSharedRole(ds, user));
 }
@@ -110,14 +155,13 @@ function canQueryDatasource(ds, user) {
 // Credentials, deletion, moving: the global admin, the creator, or an admin of
 // the source's workspace.
 function canManageDatasource(ds, user) {
-  if (!ds || !user) return false;
+  if (!inScope('datasources', ds, user)) return false;
   if (isGlobalAdmin(user) || isOwner(ds, user)) return true;
   return workspaceRoleOf(datasourceHome(ds), user.id) === 'admin';
 }
 
 function canCreateDatasourceIn(workspaceId, user) {
-  if (!workspaceId || !user) return false;
-  return isGlobalAdmin(user) || workspaceRoleOf(workspaceId, user.id) === 'admin';
+  return workspaceRoleFor(workspaceId, user) === 'admin';
 }
 
 // What the caller may do with a source, for the client: 'manage' | 'read' | null.
@@ -132,14 +176,14 @@ function datasourceAccess(ds, user) {
 // Deletion, moving, sharing, RLS, the cache: the global admin, the creator, or
 // an admin of the model's home workspace.
 function canManageModel(model, user) {
-  if (!model || !user) return false;
+  if (!inScope('models', model, user)) return false;
   if (isGlobalAdmin(user) || isOwner(model, user)) return true;
   return workspaceRoleOf(modelHome(model), user.id) === 'admin';
 }
 
 // Editing the structure: an admin/editor of the home workspace as well.
 function canWriteModel(model, user) {
-  if (!model || !user) return false;
+  if (!inScope('models', model, user)) return false;
   if (isGlobalAdmin(user) || isOwner(model, user)) return true;
   return WRITING_ROLES.has(workspaceRoleOf(modelHome(model), user.id));
 }
@@ -148,7 +192,7 @@ function canWriteModel(model, user) {
 // is shared into. Deliberately NOT canWriteModel: authoring never requires the
 // right to edit the model, and a share grants exactly this.
 function canBuildOnModel(model, user) {
-  if (!model || !user) return false;
+  if (!inScope('models', model, user)) return false;
   if (isGlobalAdmin(user) || isOwner(model, user)) return true;
   const { home, shared } = modelRoles(model, user);
   return WRITING_ROLES.has(home) || WRITING_ROLES.has(shared);
@@ -158,7 +202,7 @@ function canBuildOnModel(model, user) {
 // can open give access too, and the report router adds that path. No global
 // admin bypass: data is read where a role was given.
 function canAccessModelData(model, user) {
-  if (!model || !user) return false;
+  if (!inScope('models', model, user)) return false;
   if (isOwner(model, user)) return true;
   const { home, shared } = modelRoles(model, user);
   return !!home || !!shared;
@@ -167,7 +211,7 @@ function canAccessModelData(model, user) {
 // RLS is for the audience of a model, not for those who own it: the creator
 // and the admins of its home workspace read every row.
 function bypassesRls(model, user) {
-  if (!model || !user) return false;
+  if (!inScope('models', model, user)) return false;
   return isOwner(model, user) || workspaceRoleOf(modelHome(model), user.id) === 'admin';
 }
 
@@ -221,8 +265,14 @@ function setModelShares(modelId, workspaceIds) {
 
 const DATASOURCE_COLUMNS = 'id, user_id, workspace_id, name, db_type, host, port, db_name, created_at, extra_config';
 
+// A cloud actor lists its organization's rows only (the column exists there alone).
+const orgFilter = (user, alias = '') => (user && user.orgId
+  ? { cols: `, ${alias}organization_id`, where: `WHERE ${alias}organization_id = ?`, params: [user.orgId] }
+  : { cols: '', where: '', params: [] });
+
 function listVisibleDatasources(user) {
-  const rows = db.prepare(`SELECT ${DATASOURCE_COLUMNS} FROM datasources ORDER BY name`).all();
+  const org = orgFilter(user);
+  const rows = db.prepare(`SELECT ${DATASOURCE_COLUMNS}${org.cols} FROM datasources ${org.where} ORDER BY name`).all(...org.params);
   const out = [];
   for (const ds of rows) {
     const access = datasourceAccess(ds, user);
@@ -233,12 +283,14 @@ function listVisibleDatasources(user) {
 }
 
 function listVisibleModels(user) {
+  const org = orgFilter(user, 'm.');
   const rows = db.prepare(`
-    SELECT m.id, m.user_id, m.workspace_id, m.name, m.description, m.datasource_id, d.name as datasource_name, m.created_at, m.updated_at
+    SELECT m.id, m.user_id, m.workspace_id, m.name, m.description, m.datasource_id, d.name as datasource_name, m.created_at, m.updated_at${org.cols}
     FROM models m
     JOIN datasources d ON d.id = m.datasource_id
+    ${org.where}
     ORDER BY m.updated_at DESC
-  `).all();
+  `).all(...org.params);
   const out = [];
   for (const m of rows) {
     const access = modelAccess(m, user);
@@ -264,7 +316,11 @@ function rehomeWorkspaceResources(workspaceId, personalWorkspaceFor) {
 
 module.exports = {
   WRITING_ROLES,
-  isGlobalAdmin,
+  actorOf,
+  inScope,
+  administers,
+  workspaceRoleFor,
+  personalWorkspaceOf,
   workspaceRoleOf,
   datasourceHome,
   modelHome,

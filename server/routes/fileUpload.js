@@ -8,7 +8,6 @@ const db = require('../db');
 const uploadHooks = require('../hooks/upload');
 const cloudHooks = require('../cloudHooks');
 const wsAccess = require('../utils/workspaceAccess');
-const { ensurePersonalWorkspace } = require('../utils/personalWorkspace');
 const { nameTaken } = require('../utils/nameUniqueness');
 const { invalidateDatasource, closeDuckDBFile, adoptDuckDBInstance } = require('../utils/dbConnector');
 const queryCache = require('../utils/queryCache');
@@ -32,7 +31,7 @@ function dedupUpload(req, originalFilename) {
 }
 function listUploadedDatasources(req) {
   if (typeof cloudHooks.listUploadedDatasources === 'function') return cloudHooks.listUploadedDatasources(req);
-  return wsAccess.listVisibleDatasources(req.user).filter((s) => s.db_type === 'duckdb' && String(s.extra_config || '').includes('sourceFile'));
+  return wsAccess.listVisibleDatasources(wsAccess.actorOf(req)).filter((s) => s.db_type === 'duckdb' && String(s.extra_config || '').includes('sourceFile'));
 }
 function stampNewDatasource(req, id) {
   if (typeof cloudHooks.onDatasourceCreate === 'function') cloudHooks.onDatasourceCreate(req, id);
@@ -40,16 +39,15 @@ function stampNewDatasource(req, id) {
 // Returns the FULL row (secrets included) — used here only to read db_name and
 // extra_config, never sent to the client.
 function getDatasource(id, req) {
-  if (typeof cloudHooks.getDatasource === 'function') return cloudHooks.getDatasource(id, req);
   const row = db.prepare('SELECT * FROM datasources WHERE id = ?').get(id);
-  return row && wsAccess.canReadDatasource(row, req.user) ? row : null;
+  return row && wsAccess.canReadDatasource(row, wsAccess.actorOf(req)) ? row : null;
 }
 // Where an uploaded file lands: the workspace asked for, else the caller's
-// personal one; adding a source there is a workspace admin's call. Cloud keeps
-// deciding through its hooks. Returns the workspace id, or null after a 403.
+// personal one; adding a source there is a workspace admin's call. Returns the
+// workspace id, or null after a 403.
 function targetWorkspaceFor(req, res) {
-  const wsId = req.body.workspaceId || ensurePersonalWorkspace(req.user.id);
-  if (typeof cloudHooks.getDatasource !== 'function' && !wsAccess.canCreateDatasourceIn(wsId, req.user)) {
+  const wsId = req.body.workspaceId || wsAccess.personalWorkspaceOf(req);
+  if (!wsAccess.canCreateDatasourceIn(wsId, wsAccess.actorOf(req))) {
     res.status(403).json({ error: 'Only a workspace admin can add a data source there' });
     return null;
   }
@@ -366,7 +364,7 @@ router.put('/:id', authFor('write'), upload.single('file'), async (req, res) => 
 
   const ds = getDatasource(req.params.id, req);
   if (!ds) { dropUpload(); return res.status(404).json({ error: 'Datasource not found' }); }
-  if (typeof cloudHooks.getDatasource !== 'function' && !wsAccess.canManageDatasource(ds, req.user)) {
+  if (!wsAccess.canManageDatasource(ds, wsAccess.actorOf(req))) {
     dropUpload();
     return res.status(403).json({ error: 'Only a workspace admin can replace this data source' });
   }

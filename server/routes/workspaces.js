@@ -105,18 +105,20 @@ router.get('/', authFor('org'), (req, res) => {
   const visible = all.filter((w) => w.is_personal !== 1);
   const personalReportCount = personal ? personal.report_count : 0;
 
-  // The global admin manages every workspace, including those they hold no
-  // role in: listed apart, with no role, so the client can open them without
-  // pretending they belong. Cloud lists through its own hook and adds none.
+  // The global admin (in the cloud: the organization admin) manages every
+  // workspace in scope, including those they hold no role in: listed apart,
+  // with no role, so the client can open them without pretending they belong.
+  const managesAll = canAdminAllWorkspaces(req);
   let others = [];
-  if (typeof cloudHooks.listWorkspaces !== 'function' && canAdminAllWorkspaces(req)) {
+  if (managesAll) {
     const known = new Set(all.map((w) => w.id));
+    const orgId = wsAccess.actorOf(req).orgId;
     others = db.prepare(`
       SELECT w.*, NULL as member_role,
         (SELECT COUNT(*) FROM reports WHERE workspace_id = w.id) as report_count,
         (SELECT COUNT(*) FROM workspace_members WHERE workspace_id = w.id) + 1 as member_count
-      FROM workspaces w WHERE w.is_personal = 0 ORDER BY w.name
-    `).all().filter((w) => !known.has(w.id));
+      FROM workspaces w WHERE w.is_personal = 0 ${orgId ? 'AND w.organization_id = ?' : ''} ORDER BY w.name
+    `).all(...(orgId ? [orgId] : [])).filter((w) => !known.has(w.id));
   }
 
   res.json({
@@ -124,6 +126,7 @@ router.get('/', authFor('org'), (req, res) => {
     personalWorkspace: personal,
     unassignedReportCount: personalReportCount,
     otherWorkspaces: others,
+    managesAll,
   });
 });
 
@@ -297,7 +300,7 @@ router.put('/:id/reports/:reportId', authFor('org'), (req, res) => {
   if (!report) return res.status(404).json({ error: 'Report not found' });
   // The model has to be available in the destination (see reports.js).
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(report.model_id);
-  const placement = modelPlacementError(model, req.params.id, req.user);
+  const placement = modelPlacementError(model, req.params.id, req);
   if (placement) return res.status(403).json({ error: placement });
   db.prepare('UPDATE reports SET workspace_id = ? WHERE id = ?').run(req.params.id, req.params.reportId);
   res.json({ message: 'Report moved' });

@@ -63,10 +63,18 @@ La désérialisation recharge `id, email, display_name, role` depuis `users`. En
 
 ## Édition cloud : où se prennent réellement les décisions
 
-Chaque fonction ci-dessous commence par déléguer à `cloudHooks.<même nom>` quand le module cloud est
-chargé (`OPENREPORT_CLOUD=1`). La logique OSS décrite ici est donc le **repli**, pas la règle
-universelle : en cloud, tout est ré-arbitré par le rôle dans l'organisation active. Toutes prennent
-`(objet, user, req)` — `req` porte `organizationId`.
+**Sources et modèles** : la règle est la même dans les deux éditions (`utils/workspaceAccess.js`).
+Chaque décision prend un **acteur** (`wsAccess.actorOf(req)`) : en OSS, l'utilisateur ; en cloud,
+`cloudHooks.workspaceActor` rend `{ id, role, orgId }` — `role` vaut `admin` pour un admin de
+l'organisation active, qui y tient le rôle de l'admin global (gère tout, ne lit les lignes qu'avec un
+rôle), et `orgId` borne la portée : une ligne d'une autre organisation n'existe pas (404), un partage
+ou un déplacement vers un workspace d'une autre organisation est refusé (403), et une requête sans
+organisation active reçoit un `orgId` qui ne correspond à rien. Le workspace personnel est celui de
+l'organisation (`resolvePersonalWorkspaceFor`, `personalWorkspaceOfRow`).
+
+**Rapports** : `canAccessReport`, `canWriteReport`, `canManageReportHistory` délèguent encore à
+`cloudHooks.<même nom>` quand le module cloud est chargé (`OPENREPORT_CLOUD=1`) : la logique OSS
+décrite ici en est le **repli**. Toutes prennent `(objet, user, req)` — `req` porte `organizationId`.
 
 ## Accès aux rapports et modèles
 
@@ -125,8 +133,8 @@ global) ; création par un admin du workspace cible (`canCreateDatasourceIn`).
 > `canBuildOnModel` n'est **pas** `canWriteModel`, même si les deux répondent pareil en OSS. Écrire
 > un rapport n'a jamais demandé le droit d'éditer le modèle, et confondre les deux casse le cloud :
 > un membre `viewer` de l'organisation qui est `editor` sur un workspace est un auteur de rapports
-> légitime, sans pour autant pouvoir toucher au modèle. En cloud le hook répond « ce modèle est-il
-> dans ton organisation ? », ce qui exclut toujours le chemin rapport-public visé par le durcissement.
+> légitime (dès que le modèle est disponible dans ce workspace), sans pour autant pouvoir toucher au
+> modèle.
 
 **Passer `is_public = 1` exige également `canWriteModel`** sur le modèle sous-jacent : publier
 expose la donnée, pas seulement le rapport, et c'est à celui qui détient la donnée d'en décider.

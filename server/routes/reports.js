@@ -92,14 +92,15 @@ function reportGrantsData(report, user, req) {
   if (req && req.embedPrincipal && req.embedPrincipal.reportId === report.id) return true;
   if (report.is_public && getPublicSharingPolicy() !== 'disabled') return true;
   if (!user) return false;
+  // Past the public link, a report opens its data within the caller's scope only.
+  if (!wsAccess.inScope('reports', report, wsAccess.actorOf(req, user))) return false;
   if (user.id === report.user_id) return true;
   return !!wsAccess.workspaceRoleOf(report.workspace_id, user.id) || sharedToMember(report, user);
 }
 
 // Returns true if the user may query the model: a role in its home workspace
 // or in one it is shared into, or a report on it they may read the data of
-// (public or workspace-shared). Cloud replaces this with an org read-role
-// check via cloudHooks.canAccessModel.
+// (public or workspace-shared).
 function canAccessModel(model, user, req) {
   // An embed token grants exactly the model behind ITS report. Checked before
   // the cloud delegation, like canAccessReport above: the cloud hook knows
@@ -110,9 +111,8 @@ function canAccessModel(model, user, req) {
     const embedded = db.prepare('SELECT model_id FROM reports WHERE id = ?').get(req.embedPrincipal.reportId);
     if (embedded && embedded.model_id === model.id) return true;
   }
-  if (typeof cloudHooks.canAccessModel === 'function') return cloudHooks.canAccessModel(model, user, req);
   if (!model) return false;
-  if (wsAccess.canAccessModelData(model, user)) return true;
+  if (wsAccess.canAccessModelData(model, wsAccess.actorOf(req, user))) return true;
   // Every report that uses this model: one the caller may read the data of opens it.
   const reports = db.prepare('SELECT * FROM reports WHERE model_id = ?').all(model.id);
   return reports.some((r) => reportGrantsData(r, user, req));
@@ -120,11 +120,9 @@ function canAccessModel(model, user, req) {
 
 // Write access: who may mutate a model (edit / re-validate / column
 // overrides). OSS: an admin/editor of its home workspace, its creator or the
-// global admin (utils/workspaceAccess.js). Cloud replaces this with the org
-// write-role check (editor/admin) via cloudHooks.canWriteModel.
+// global admin (utils/workspaceAccess.js).
 function canWriteModel(model, user, req) {
-  if (typeof cloudHooks.canWriteModel === 'function') return cloudHooks.canWriteModel(model, user, req);
-  return wsAccess.canWriteModel(model, user);
+  return wsAccess.canWriteModel(model, wsAccess.actorOf(req, user));
 }
 
 const { workspaceRoleOf, WRITING_ROLES } = wsAccess;
@@ -137,8 +135,7 @@ const { workspaceRoleOf, WRITING_ROLES } = wsAccess;
 // answers "is this model in your org?". Deliberately NOT canWriteModel: that
 // one means "may edit the model", which authoring a report never requires.
 function canBuildOnModel(model, user, req) {
-  if (typeof cloudHooks.canBuildOnModel === 'function') return cloudHooks.canBuildOnModel(model, user, req);
-  return wsAccess.canBuildOnModel(model, user);
+  return wsAccess.canBuildOnModel(model, wsAccess.actorOf(req, user));
 }
 
 // Read access to a model's METADATA (GET /:id): query access, or the global
@@ -146,22 +143,19 @@ function canBuildOnModel(model, user, req) {
 // dimensions and measures, so a reader who may query but not read the model
 // sees only empty widgets.
 function canReadModel(model, user, req) {
-  if (typeof cloudHooks.canReadModel === 'function') return cloudHooks.canReadModel(model, user, req);
-  return wsAccess.isGlobalAdmin(user) || canAccessModel(model, user, req);
+  return wsAccess.administers('models', model, wsAccess.actorOf(req, user)) || canAccessModel(model, user, req);
 }
 
 // A report placed in a workspace must find its model there — the workspace is
 // the model's home or the model is shared into it — unless the caller manages
 // the model (putting one's data in front of a team is theirs to decide) or the
 // workspace is the caller's own personal one (a private draft on a model they
-// may build on shows nobody anything new). Cloud answers through its own
-// canBuildOnModel. Returns the refusal, or null.
-function modelPlacementError(model, workspaceId, user) {
-  if (typeof cloudHooks.canBuildOnModel === 'function') return null;
-  if (!model || wsAccess.canManageModel(model, user)) return null;
+// may build on shows nobody anything new). Returns the refusal, or null.
+function modelPlacementError(model, workspaceId, req) {
+  if (!model || wsAccess.canManageModel(model, wsAccess.actorOf(req))) return null;
   if (wsAccess.modelReachableFromWorkspace(model, workspaceId)) return null;
   const ws = db.prepare('SELECT owner_id, is_personal FROM workspaces WHERE id = ?').get(workspaceId);
-  if (ws && ws.is_personal && ws.owner_id === user.id) return null;
+  if (ws && ws.is_personal && ws.owner_id === req.user.id) return null;
   return `The model "${model.name}" is not available in this workspace. Ask its workspace admin to share it there first.`;
 }
 
@@ -539,7 +533,7 @@ router.post('/import', authFor('read'), (req, res) => {
   if (!canPlaceReportIn(targetWs, req)) {
     return res.status(403).json({ error: 'Not authorized to create a report in this workspace' });
   }
-  const placement = modelPlacementError(model, targetWs, req.user);
+  const placement = modelPlacementError(model, targetWs, req);
   if (placement) return res.status(403).json({ error: placement });
   db.prepare(`
     INSERT INTO reports (id, user_id, model_id, title, workspace_id, layout, widgets, settings)
@@ -592,7 +586,7 @@ router.post('/', authFor('read'), (req, res) => {
   if (!canPlaceReportIn(targetWs, req)) {
     return res.status(403).json({ error: 'Not authorized to create a report in this workspace' });
   }
-  const placement = modelPlacementError(model, targetWs, req.user);
+  const placement = modelPlacementError(model, targetWs, req);
   if (placement) return res.status(403).json({ error: placement });
   // A generated title is made unique; a typed one is defended.
   const finalTitle = autoTitle ? uniqueReportTitle(targetWs, title) : title;
@@ -680,7 +674,7 @@ router.put('/:id', authFor('read'), (req, res) => {
     return res.status(403).json({ error: 'Not authorized to move a report into this workspace' });
   }
   if (workspace_id !== undefined && workspace_id !== report.workspace_id) {
-    const placement = modelPlacementError(model, workspace_id, req.user);
+    const placement = modelPlacementError(model, workspace_id, req);
     if (placement) return res.status(403).json({ error: placement });
     // Landing where it was shared: the share becomes its home.
     db.prepare('DELETE FROM workspace_reports WHERE report_id = ? AND workspace_id = ?').run(req.params.id, workspace_id);
@@ -912,10 +906,10 @@ router.put('/:id/shares', authFor('read'), (req, res) => {
   for (const wsId of wanted) {
     const ws = db.prepare('SELECT id, name, is_personal FROM workspaces WHERE id = ?').get(wsId);
     if (!ws || ws.is_personal) return res.status(400).json({ error: 'A report is shared with team workspaces only' });
-    if (!wsAccess.isGlobalAdmin(req.user) && !wsAccess.workspaceRoleOf(wsId, req.user.id)) {
+    if (!wsAccess.workspaceRoleFor(wsId, wsAccess.actorOf(req))) {
       return res.status(403).json({ error: 'You can only share a report with a workspace you belong to' });
     }
-    const placement = modelPlacementError(model, wsId, req.user);
+    const placement = modelPlacementError(model, wsId, req);
     if (placement) return res.status(403).json({ error: `${placement} (workspace "${ws.name}")` });
   }
   db.transaction(() => {

@@ -57,9 +57,8 @@ router.get('/whoami', requireAuth, (req, res) => {
 });
 
 router.get('/models', requireAuth, apiToken.requireScope('read'), (req, res) => {
-  const models = typeof cloudHooks.listModels === 'function'
-    ? cloudHooks.listModels(req)
-    : require('../utils/workspaceAccess').listVisibleModels(req.user);
+  const wsAccess = require('../utils/workspaceAccess');
+  const models = wsAccess.listVisibleModels(wsAccess.actorOf(req));
   res.json({ models: models.map((m) => ({ id: m.id, name: m.name, description: m.description, updated_at: m.updated_at })) });
 });
 

@@ -52,4 +52,4 @@ function backfillModelShares() {
   db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, '1', datetime('now'))").run(SHARES_BACKFILL_KEY);
 }
 
-module.exports = { ensurePersonalWorkspace, backfillPersonalWorkspaces };
+module.exports = { ensurePersonalWorkspace, backfillPersonalWorkspaces, backfillModelShares };

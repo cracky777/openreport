@@ -47,7 +47,6 @@ const { emitMeasureSelects } = require('../utils/sqlBuilder/measureSelect');
 const { groupedRuleFields, partitionExprs, windowAgg, canWindow, windowedColumnAgg } = require('../utils/sqlBuilder/windowMeasure');
 const periodShift = require('../utils/sqlBuilder/periodShift');
 const wsAccess = require('../utils/workspaceAccess');
-const { ensurePersonalWorkspace } = require('../utils/personalWorkspace');
 const { tablesReachableFrom, getAllowedRlsKeys } = require('../utils/rls');
 const { parseModel } = require('../db/modelRow');
 const modelYaml = require('../utils/modelYaml');
@@ -84,32 +83,30 @@ function resolveQueryTimeoutMs(req) {
 // authFor(action) is shared from middleware/auth.js (OSS: requireAuth; cloud
 // adds the org role check via cloudHooks.authz).
 
-// May the caller bind this datasource to a model? OSS: they read it (an
-// admin/editor of its workspace, utils/workspaceAccess.js). Cloud replaces
-// this with an org-membership check via cloudHooks.canUseDatasource.
+// May the caller bind this datasource to a model? They read it: an
+// admin/editor of its workspace (utils/workspaceAccess.js).
 function datasourceUsable(datasourceId, req) {
-  if (typeof cloudHooks.canUseDatasource === 'function') return cloudHooks.canUseDatasource(datasourceId, req);
   const ds = db.prepare('SELECT id, user_id, workspace_id FROM datasources WHERE id = ?').get(datasourceId);
-  return !!ds && wsAccess.canReadDatasource(ds, req.user);
+  return !!ds && wsAccess.canReadDatasource(ds, wsAccess.actorOf(req));
 }
 
 // Where a new model lives: the workspace asked for, else its source's. An
-// admin/editor of that workspace (or the global admin) may create there. Cloud
-// keeps its own placement through the hooks. Returns the id, or null after a 403.
+// admin/editor of that workspace (or the global admin) may create there.
+// Returns the id, or null after a 403.
 function targetWorkspaceForModel(req, res, datasourceId) {
   const ds = db.prepare('SELECT id, user_id, workspace_id FROM datasources WHERE id = ?').get(datasourceId);
-  const wsId = req.body.workspaceId || (ds ? wsAccess.datasourceHome(ds) : null) || ensurePersonalWorkspace(req.user.id);
-  if (typeof cloudHooks.canUseDatasource === 'function') return wsId;
-  if (!wsAccess.isGlobalAdmin(req.user) && !wsAccess.WRITING_ROLES.has(wsAccess.workspaceRoleOf(wsId, req.user.id))) {
+  const wsId = req.body.workspaceId || (ds ? wsAccess.datasourceHome(ds) : null) || wsAccess.personalWorkspaceOf(req);
+  if (!wsAccess.WRITING_ROLES.has(wsAccess.workspaceRoleFor(wsId, wsAccess.actorOf(req)))) {
     res.status(403).json({ error: 'Only an admin or editor of that workspace can create a model there' });
     return null;
   }
   return wsId;
 }
-// The self-hosted rule, unless the cloud decides. Sends the 403 and returns
-// true when denied.
+// A model of another organization does not exist for the caller: 404, not 403.
+const outOfScope = (model, req) => !wsAccess.inScope('models', model, wsAccess.actorOf(req));
+// Sends the 403 and returns true when denied.
 function denyUnless(allowed, res, message) {
-  if (typeof cloudHooks.canWriteModel === 'function' || allowed) return false;
+  if (allowed) return false;
   res.status(403).json({ error: message });
   return true;
 }
@@ -135,15 +132,10 @@ const inFlightQueries = new Map();
 // + RLS helpers used to live inline here — extracted to utils/sqlBuilder/
 // and utils/rls.js. See the `require` block at the top of this file.
 
-// List models for current user. Cloud lists the org's models (+ workspace-
-// shared ones) via cloudHooks.listModels; OSS lists the caller's own.
 router.get('/', authFor('read'), (req, res) => {
-  if (typeof cloudHooks.listModels === 'function') {
-    return res.json({ models: cloudHooks.listModels(req) });
-  }
   // The models of the workspaces one edits, plus those shared into them;
   // `access` says what one may do with each (utils/workspaceAccess.js).
-  res.json({ models: wsAccess.listVisibleModels(req.user) });
+  res.json({ models: wsAccess.listVisibleModels(wsAccess.actorOf(req)) });
 });
 
 // Get single model with full details (owner, global admin, or anyone with access to a report using it)
@@ -164,7 +156,7 @@ router.get('/:id', (req, res, next) => {
   // Strip the RLS rules map (other users' email patterns) from the response for anyone
   // who isn't the owner or a global admin. The viewer's own access is enforced server-side
   // by /query — they don't need to see who else has access.
-  const manages = req.isAuthenticated() && wsAccess.canManageModel(row, req.user);
+  const manages = req.isAuthenticated() && wsAccess.canManageModel(row, wsAccess.actorOf(req));
   const safeRls = manages ? model.rls : {};
 
   res.json({
@@ -173,7 +165,7 @@ router.get('/:id', (req, res, next) => {
       rls: safeRls,
       dateColumn: model.date_column || null,
       workspace_id: wsAccess.modelHome(row),
-      access: req.isAuthenticated() ? wsAccess.modelAccess(row, req.user) : null,
+      access: req.isAuthenticated() ? wsAccess.modelAccess(row, wsAccess.actorOf(req)) : null,
       shared_in: manages ? wsAccess.sharedWorkspaceIdsOf(row.id) : undefined,
     },
   });
@@ -202,13 +194,13 @@ router.post('/', authFor('write'), (req, res) => {
 // Update model (dimensions, measures, joins, and optionally datasource)
 router.put('/:id', authFor('write'), (req, res) => {
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
-  if (!model) return res.status(404).json({ error: 'Model not found' });
+  if (!model || outOfScope(model, req)) return res.status(404).json({ error: 'Model not found' });
   if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
 
   const { name, description, selected_tables, table_positions, dimensions, measures, joins, rls, column_types, dateColumn, datasourceId, incrementalMonths } = req.body;
   if (rejectIfNameTaken('model', name, req, res, req.params.id)) return;
   // Row-level security decides who sees what: a workspace admin's call, not an editor's.
-  if (rls !== undefined && denyUnless(wsAccess.canManageModel(model, req.user), res, 'Only a workspace admin can change row-level security')) return;
+  if (rls !== undefined && denyUnless(wsAccess.canManageModel(model, wsAccess.actorOf(req)), res, 'Only a workspace admin can change row-level security')) return;
 
   // If caller is moving the model to a different datasource, verify they may use it
   if (datasourceId && datasourceId !== model.datasource_id) {
@@ -294,7 +286,7 @@ router.put('/:id', authFor('write'), (req, res) => {
 // expressions, no viewer should be able to read those wholesale.
 router.get('/:id/export', authFor('write'), (req, res) => {
   const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
-  if (!row) return res.status(404).json({ error: 'Model not found' });
+  if (!row || outOfScope(row, req)) return res.status(404).json({ error: 'Model not found' });
   if (!canWriteModel(row, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   const model = parseModel(row);
   const ds = db.prepare('SELECT name FROM datasources WHERE id = ?').get(model.datasource_id);
@@ -369,9 +361,8 @@ router.put('/:id/workspace', authFor('write'), (req, res) => {
   if (!model || !canReadModel(model, req.user, req)) return res.status(404).json({ error: 'Model not found' });
   const { workspaceId } = req.body || {};
   if (!workspaceId || !db.prepare('SELECT 1 FROM workspaces WHERE id = ?').get(workspaceId)) return res.status(400).json({ error: 'workspaceId is required' });
-  if (typeof cloudHooks.canWriteModel === 'function') return res.status(404).json({ error: 'Not available' });
-  if (!wsAccess.canManageModel(model, req.user)) return res.status(403).json({ error: 'Only a workspace admin can move this model' });
-  if (!wsAccess.isGlobalAdmin(req.user) && !wsAccess.WRITING_ROLES.has(wsAccess.workspaceRoleOf(workspaceId, req.user.id))) {
+  if (!wsAccess.canManageModel(model, wsAccess.actorOf(req))) return res.status(403).json({ error: 'Only a workspace admin can move this model' });
+  if (!wsAccess.WRITING_ROLES.has(wsAccess.workspaceRoleFor(workspaceId, wsAccess.actorOf(req)))) {
     return res.status(403).json({ error: 'You need to be an admin or editor of the destination workspace' });
   }
   db.transaction(() => {
@@ -387,8 +378,7 @@ router.put('/:id/workspace', authFor('write'), (req, res) => {
 router.get('/:id/shares', authFor('write'), (req, res) => {
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
   if (!model || !canReadModel(model, req.user, req)) return res.status(404).json({ error: 'Model not found' });
-  if (typeof cloudHooks.canWriteModel === 'function') return res.status(404).json({ error: 'Not available' });
-  if (!wsAccess.canManageModel(model, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  if (!wsAccess.canManageModel(model, wsAccess.actorOf(req))) return res.status(403).json({ error: 'Forbidden' });
   const ids = wsAccess.sharedWorkspaceIdsOf(model.id);
   const workspaces = ids.length
     ? db.prepare(`SELECT id, name FROM workspaces WHERE id IN (${ids.map(() => '?').join(', ')})`).all(...ids)
@@ -399,15 +389,14 @@ router.get('/:id/shares', authFor('write'), (req, res) => {
 router.put('/:id/shares', authFor('write'), (req, res) => {
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
   if (!model || !canReadModel(model, req.user, req)) return res.status(404).json({ error: 'Model not found' });
-  if (typeof cloudHooks.canWriteModel === 'function') return res.status(404).json({ error: 'Not available' });
-  if (!wsAccess.canManageModel(model, req.user)) return res.status(403).json({ error: 'Only a workspace admin can share this model' });
+  if (!wsAccess.canManageModel(model, wsAccess.actorOf(req))) return res.status(403).json({ error: 'Only a workspace admin can share this model' });
   const { workspaceIds } = req.body || {};
   if (!Array.isArray(workspaceIds) || workspaceIds.some((id) => typeof id !== 'string')) {
     return res.status(400).json({ error: 'workspaceIds must be a list of workspace ids' });
   }
   for (const wsId of workspaceIds) {
     if (!db.prepare('SELECT 1 FROM workspaces WHERE id = ?').get(wsId)) return res.status(400).json({ error: `Unknown workspace ${wsId}` });
-    if (!wsAccess.isGlobalAdmin(req.user) && !wsAccess.workspaceRoleOf(wsId, req.user.id)) {
+    if (!wsAccess.workspaceRoleFor(wsId, wsAccess.actorOf(req))) {
       return res.status(403).json({ error: 'You can only share a model with a workspace you belong to' });
     }
   }
@@ -419,7 +408,7 @@ router.put('/:id/shares', authFor('write'), (req, res) => {
 // Returns a list of broken references (missing tables, missing columns).
 router.get('/:id/validate', authFor('write'), async (req, res) => {
   const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
-  if (!row) return res.status(404).json({ error: 'Model not found' });
+  if (!row || outOfScope(row, req)) return res.status(404).json({ error: 'Model not found' });
   if (!canWriteModel(row, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   const model = parseModel(row);
 
@@ -530,9 +519,9 @@ router.get('/:id/validate', authFor('write'), async (req, res) => {
 // Delete model
 router.delete('/:id', authFor('write'), (req, res) => {
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
-  if (!model) return res.status(404).json({ error: 'Model not found' });
+  if (!model || outOfScope(model, req)) return res.status(404).json({ error: 'Model not found' });
   if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
-  if (denyUnless(wsAccess.canManageModel(model, req.user), res, 'Only a workspace admin can delete this model')) return;
+  if (denyUnless(wsAccess.canManageModel(model, wsAccess.actorOf(req)), res, 'Only a workspace admin can delete this model')) return;
 
   // Refuse deletion while any report still uses the model (id-scoped: a model
   // in use by anyone's report blocks deletion).
@@ -551,10 +540,10 @@ router.delete('/:id', authFor('write'), (req, res) => {
 // allowing the UI to look up rows beyond the 1000-row display cap.
 router.get('/:id/rls/rows', authFor('write'), async (req, res) => {
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
-  if (!model) return res.status(404).json({ error: 'Model not found' });
+  if (!model || outOfScope(model, req)) return res.status(404).json({ error: 'Model not found' });
   if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   // The values of the key column are rows of the source: read where a role was given.
-  if (denyUnless(wsAccess.canAccessModelData(model, req.user), res, 'Reading these values needs a role in the model\'s workspace')) return;
+  if (denyUnless(wsAccess.canAccessModelData(model, wsAccess.actorOf(req)), res, 'Reading these values needs a role in the model\'s workspace')) return;
 
   const { table, primaryKey, columns, search } = req.query;
   if (!table || !primaryKey) return res.status(400).json({ error: 'table and primaryKey are required' });
@@ -635,10 +624,10 @@ router.get('/:id/rls/rows', authFor('write'), async (req, res) => {
 // Returns: { ok, sampleSize, validCount, validRatio, invalidExamples: [...] }
 router.post('/:id/validate-column-type', authFor('write'), async (req, res) => {
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
-  if (!model) return res.status(404).json({ error: 'Model not found' });
+  if (!model || outOfScope(model, req)) return res.status(404).json({ error: 'Model not found' });
   if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   // The check samples values of the column: rows, read where a role was given.
-  if (denyUnless(wsAccess.canAccessModelData(model, req.user), res, 'Checking a column type reads its values: it needs a role in its workspace')) return;
+  if (denyUnless(wsAccess.canAccessModelData(model, wsAccess.actorOf(req)), res, 'Checking a column type reads its values: it needs a role in its workspace')) return;
 
   const { table, column, type, dateFormat } = req.body || {};
   if (!table || !column || !type) return res.status(400).json({ error: 'table, column and type are required' });
@@ -759,7 +748,7 @@ router.post('/:id/validate-column-type', authFor('write'), async (req, res) => {
 // Returns: { cardinality: '1'|'*', sampleSize, distinct }
 router.post('/:id/detect-cardinality', requireAuth, async (req, res) => {
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
-  if (!model) return res.status(404).json({ error: 'Model not found' });
+  if (!model || outOfScope(model, req)) return res.status(404).json({ error: 'Model not found' });
   if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   const { table, column } = req.body || {};
   if (!table || !column) return res.status(400).json({ error: 'table and column are required' });
@@ -1327,10 +1316,8 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   const isOwner = !isEmbed && req.isAuthenticated() && req.user.id === model.user_id;
   // The audience of a model is filtered; its creator and the admins of its
   // home workspace are not. The global admin is nobody special here
-  // (utils/workspaceAccess.js): no role, no rows. In cloud the org decides.
-  const isAdmin = !isEmbed && !isOwner && req.isAuthenticated() && (typeof cloudHooks.canWriteModel === 'function'
-    ? req.user.role === 'admin'
-    : wsAccess.bypassesRls(rawModel, req.user));
+  // (utils/workspaceAccess.js): no role, no rows.
+  const isAdmin = !isEmbed && !isOwner && req.isAuthenticated() && wsAccess.bypassesRls(rawModel, wsAccess.actorOf(req));
   const rlsApplies = rls && rls.enabled && rls.table && rls.primaryKey && !isOwner && !isAdmin;
   let allowedRlsKeys = null;
   if (rlsApplies) {

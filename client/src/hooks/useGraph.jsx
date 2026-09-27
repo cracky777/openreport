@@ -31,6 +31,9 @@ export function GraphProvider({ children }) {
   // Workspaces the global admin manages without holding a role in them —
   // openable, listed apart in the picker. Empty for everyone else.
   const [otherWorkspaces, setOtherWorkspaces] = useState([]);
+  // Whether the caller manages every workspace: the global admin, in the cloud
+  // the admin of the active organization. The server says so.
+  const [managesAll, setManagesAll] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // The active workspace is a context that spans the whole journey, not a
@@ -74,6 +77,7 @@ export function GraphProvider({ children }) {
     setWorkspaces(wsRes.data.workspaces || []);
     setPersonalWorkspace(wsRes.data.personalWorkspace || null);
     setOtherWorkspaces(wsRes.data.otherWorkspaces || []);
+    setManagesAll(!!wsRes.data.managesAll);
     setLoading(false);
   }, []);
 
@@ -104,7 +108,7 @@ export function GraphProvider({ children }) {
   const scopedDatasources = scoped.datasources;
   // The workspace new sources and models are created in.
   const currentWsKey = scoped.wsKey;
-  const isGlobalAdmin = user?.role === 'admin';
+  const isGlobalAdmin = managesAll;
   const currentWsRole = useMemo(
     () => roleInWorkspace({ selectedWs, workspaces, otherWorkspaces, isGlobalAdmin }),
     [selectedWs, workspaces, otherWorkspaces, isGlobalAdmin],

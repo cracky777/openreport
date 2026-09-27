@@ -13,24 +13,16 @@
 //   resolveQueryTimeoutMs(req)      — workspace/org-scoped query timeout
 //       override (falls back to the global admin setting when it returns
 //       nothing usable).
-//   canAccessReport(report, user, req) / canAccessModel(model, user, req)
-//       canWriteModel(model, user, req) / canReadModel(model, user, req)
-//       — the single authority for access. canAccessModel gates /query (owner /
-//       admin / via a report, incl. public — cross-tenant OK). canReadModel
-//       gates GET /:id metadata; cloud makes it stricter (org-membership only,
-//       no public-report path) so a public viewer can query but not enumerate
-//       the full model schema. OSS: canReadModel == canAccessModel. When set,
-//       the hook fully REPLACES the base logic (returns a boolean).
-//   canBuildOnModel(model, user, req) → bool — may the caller AUTHOR a report on
-//       this model. Distinct from canWriteModel on purpose: authoring never
-//       requires the right to edit the model. OSS: owner or global admin — the
-//       point is to exclude someone whose only route to the model is a stranger's
-//       shared report. Cloud: any member of the model's org, so an org viewer who
-//       is editor on a workspace can still author there.
-//   listModels(req) → array          — the models the request may list. OSS:
-//       the caller's own models. Cloud: org models + workspace-shared ones.
-//   canUseDatasource(datasourceId, req) → bool — may the caller bind this
-//       datasource to a model. OSS: they own it. Cloud: it's in their org.
+//   canAccessReport(report, user, req) — may the caller open a report. When
+//       set, the hook fully REPLACES the base logic (returns a boolean).
+//   workspaceActor(user, req) → actor — who decides on datasources and models
+//       (utils/workspaceAccess.js): the user as seen in the active organization,
+//       `{ id, role, orgId }`, role 'admin' for an organization admin. An actor
+//       with an orgId reaches that organization's rows only, so a request with
+//       no organization must carry an orgId that matches none. OSS: the user.
+//   personalWorkspaceOfRow(table, row) → wsId — the home given to a datasource
+//       or model that has none yet: its creator's personal workspace, in the
+//       row's organization in the cloud.
 //   onModelCreate(req, modelId)       — post-INSERT hook to stamp tenant columns
 //       (cloud: organization_id). No-op in OSS.
 //   resolveCacheTtlMs(req) → number|null — per-request result-cache TTL. Cloud
@@ -52,12 +44,8 @@ const cloudHooks = {
   authz: null,
   resolveQueryTimeoutMs: null,
   canAccessReport: null,
-  canAccessModel: null,
-  canWriteModel: null,
-  canReadModel: null,
-  canBuildOnModel: null,
-  listModels: null,
-  canUseDatasource: null,
+  workspaceActor: null,
+  personalWorkspaceOfRow: null,
   onModelCreate: null,
   resolveCacheTtlMs: null,
   canWriteReport: null,
@@ -69,12 +57,8 @@ const cloudHooks = {
   // (users paste a CDN/S3 URL). Returns true after sending its 403. OSS: no
   // hook → the upload proceeds.
   guardImageUpload: null,
-  // Datasources (org-scoped in cloud). listDatasources(req) → rows ;
-  // getDatasource(id, req) → full row|null (404 when null) ;
-  // onDatasourceCreate(req, id) → stamp organization_id ;
+  // Datasources. onDatasourceCreate(req, id) → stamp organization_id ;
   // countModelsUsingDatasource(req, id) → n (DELETE 409 guard).
-  listDatasources: null,
-  getDatasource: null,
   onDatasourceCreate: null,
   countModelsUsingDatasource: null,
   // File upload dedup + list (org-scoped in cloud). dedupUpload(req, filename)
