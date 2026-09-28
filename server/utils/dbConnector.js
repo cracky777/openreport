@@ -96,6 +96,40 @@ function withTimeout({ promise, cancel }, timeoutMs) {
   return { promise: wrapped, cancel };
 }
 
+// Declared foreign keys as [{ table, column, refTable, refColumn }], table names
+// spelled as getTables spells them (`name(schema, table)`). Rows carry one
+// column pair each, tagged with their constraint; a composite key relates rows
+// on several columns at once, which one join cannot say, so it is left out.
+function singleColumnKeys(rows, name) {
+  const byConstraint = new Map();
+  for (const r of rows) {
+    const k = `${r.cs || r.s}.${r.t}.${r.cn}`;
+    if (!byConstraint.has(k)) byConstraint.set(k, []);
+    byConstraint.get(k).push(r);
+  }
+  const out = [];
+  for (const group of byConstraint.values()) {
+    if (group.length !== 1) continue;
+    const r = group[0];
+    out.push({ table: name(r.s, r.t), column: r.c, refTable: name(r.rs, r.rt), refColumn: r.rc });
+  }
+  return out;
+}
+
+// The standard catalog (PostgreSQL, SQL Server): a referencing column and the
+// column of the key it points at, matched by position.
+const INFORMATION_SCHEMA_FKS = `
+  SELECT kcu.constraint_schema AS cs, kcu.constraint_name AS cn,
+    kcu.table_schema AS s, kcu.table_name AS t, kcu.column_name AS c,
+    rk.table_schema AS rs, rk.table_name AS rt, rk.column_name AS rc
+  FROM information_schema.referential_constraints rc
+  JOIN information_schema.key_column_usage kcu
+    ON kcu.constraint_schema = rc.constraint_schema AND kcu.constraint_name = rc.constraint_name
+  JOIN information_schema.key_column_usage rk
+    ON rk.constraint_schema = rc.unique_constraint_schema AND rk.constraint_name = rc.unique_constraint_name
+    AND rk.ordinal_position = kcu.position_in_unique_constraint
+`;
+
 function buildConnector(datasource) {
   const { db_type, host, port, db_name, db_user, extra_config } = datasource;
   // Credentials are encrypted at rest — decrypt here, at the single point of use.
@@ -224,6 +258,10 @@ function buildConnector(datasource) {
         `, [schema, table]);
         return result.rows;
       },
+      getForeignKeys: async () => {
+        const result = await pool.query(INFORMATION_SCHEMA_FKS);
+        return singleColumnKeys(result.rows, (sc, t) => (sc === 'public' ? t : `${sc}.${t}`));
+      },
       close: () => pool.end(),
     };
   }
@@ -297,6 +335,15 @@ function buildConnector(datasource) {
           WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position
         `, [db_name, tableName]);
         return rows;
+      },
+      getForeignKeys: async () => {
+        const [rows] = await getPool().query(`
+          SELECT constraint_name AS cn, table_name AS t, column_name AS c,
+            referenced_table_name AS rt, referenced_column_name AS rc
+          FROM information_schema.key_column_usage
+          WHERE table_schema = ? AND referenced_table_schema = ? AND referenced_table_name IS NOT NULL
+        `, [db_name, db_name]);
+        return singleColumnKeys(rows, (_sc, t) => t);
       },
       close: () => pool?.end(),
     };
@@ -389,6 +436,11 @@ function buildConnector(datasource) {
           .query(`SELECT COLUMN_NAME as column_name, DATA_TYPE as data_type, IS_NULLABLE as is_nullable
             FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = @schema AND TABLE_NAME = @table ORDER BY ORDINAL_POSITION`);
         return result.recordset;
+      },
+      getForeignKeys: async () => {
+        const pool = await getPool();
+        const result = await pool.request().query(INFORMATION_SCHEMA_FKS);
+        return singleColumnKeys(result.recordset, (sc, t) => (sc === 'dbo' ? t : `${sc}.${t}`));
       },
       close: async () => { if (poolPromise) { const p = await poolPromise; await p.close(); poolPromise = null; } },
     };
@@ -487,6 +539,22 @@ function buildConnector(datasource) {
           data_type: f.type.toLowerCase(),
           is_nullable: f.mode !== 'REQUIRED' ? 'YES' : 'NO',
         }));
+      },
+      // Constraints are table metadata: read on the tables asked for, never
+      // through a (billed) query. Only keys into this same dataset count.
+      getForeignKeys: async (tables) => {
+        const out = [];
+        for (const t of tables || []) {
+          const [metadata] = await datasetRef().table(t).getMetadata();
+          for (const fk of metadata.tableConstraints?.foreignKeys || []) {
+            const ref = fk.referencedTable || {};
+            if (ref.datasetId && ref.datasetId !== dataset) continue;
+            if ((fk.columnReferences || []).length !== 1) continue;
+            const [pair] = fk.columnReferences;
+            out.push({ table: t, column: pair.referencingColumn, refTable: ref.tableId, refColumn: pair.referencedColumn });
+          }
+        }
+        return out;
       },
       close: () => {},
     };
@@ -858,6 +926,13 @@ function buildConnector(datasource) {
           ORDER BY ordinal_position
         `, [schema, table]);
       },
+      getForeignKeys: async () => {
+        const rows = await run('SHOW IMPORTED KEYS IN DATABASE');
+        return singleColumnKeys(rows.map((r) => ({
+          cn: r.fk_name, s: r.fk_schema_name, t: r.fk_table_name, c: r.fk_column_name,
+          rs: r.pk_schema_name, rt: r.pk_table_name, rc: r.pk_column_name,
+        })), (sc, t) => (sc === 'PUBLIC' ? t : `${sc}.${t}`));
+      },
       close: async () => { if (pool) { await pool.drain(); await pool.clear(); pool = null; } },
     };
   }
@@ -932,6 +1007,16 @@ function buildConnector(datasource) {
         const db = await getDb();
         const rows = await db.all(`SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = ? ORDER BY ordinal_position`, tableName);
         return convertValues(rows);
+      },
+      getForeignKeys: async () => {
+        const db = await getDb();
+        const rows = await db.all(`
+          SELECT table_name, constraint_column_names, referenced_table, referenced_column_names
+          FROM duckdb_constraints() WHERE schema_name = 'main' AND constraint_type = 'FOREIGN KEY'
+        `);
+        return rows
+          .filter((r) => (r.constraint_column_names || []).length === 1 && (r.referenced_column_names || []).length === 1)
+          .map((r) => ({ table: r.table_name, column: r.constraint_column_names[0], refTable: r.referenced_table, refColumn: r.referenced_column_names[0] }));
       },
       close: () => { /* keep cached instance alive */ },
     };

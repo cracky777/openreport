@@ -12,6 +12,7 @@ const cloudHooks = require('../cloudHooks');
 const { rejectIfNameTaken } = require('../utils/nameUniqueness');
 const { blockListEnforced, hostIsBlocked, hostResolvesInternally } = require('../utils/ssrfGuard');
 const wsAccess = require('../utils/workspaceAccess');
+const { detectRelationships } = require('../utils/relationships');
 
 const router = express.Router();
 
@@ -376,6 +377,41 @@ router.get('/:id/tables', authFor('write'), async (req, res) => {
   } finally {
     conn?.close();
   }
+});
+
+// The joins a model's tables call for: the foreign keys the database declares
+// between them and, with `byName`, their key column names (utils/relationships.js).
+// Works on the editor's unsaved draft — tables, their columns, the joins
+// already drawn, the roles set — and changes nothing: the editor applies.
+// Names only, the same bar as listing the tables: no row is read.
+const isName = (v) => typeof v === 'string' && v.length > 0 && v.length <= 256;
+router.post('/:id/relationships', authFor('write'), async (req, res) => {
+  const source = getDatasource(req.params.id, req);
+  if (!source) return res.status(404).json({ error: 'Datasource not found' });
+  const { tables, columns = {}, joins = [], roles = {}, byName = false } = req.body || {};
+  const valid = Array.isArray(tables) && tables.length <= 500 && tables.every(isName)
+    && columns && typeof columns === 'object' && Object.values(columns).every((c) => Array.isArray(c) && c.every(isName))
+    && Array.isArray(joins) && joins.every((j) => j && ['from_table', 'from_column', 'to_table', 'to_column'].every((k) => isName(j[k])))
+    && roles && typeof roles === 'object' && Object.values(roles).every((r) => r === null || r === 'fact' || r === 'dimension');
+  if (!valid) return res.status(400).json({ error: "tables, columns, joins and roles are required in the model's shape" });
+
+  // A database that cannot say (no such catalog, no right to read it) still
+  // gets the name-based detection.
+  let foreignKeys = [];
+  let keysRead = false;
+  let conn;
+  try {
+    conn = createConnection(source);
+    if (typeof conn.getForeignKeys === 'function') {
+      foreignKeys = await conn.getForeignKeys(tables);
+      keysRead = true;
+    }
+  } catch { /* keys unreadable: names still apply */ } finally {
+    conn?.close();
+  }
+  const cleanRoles = Object.fromEntries(Object.entries(roles).filter(([, r]) => r));
+  const found = detectRelationships({ tables, columns, foreignKeys, joins, roles: cleanRoles, byName: !!byName });
+  res.json({ ...found, keysRead });
 });
 
 // List columns for a table

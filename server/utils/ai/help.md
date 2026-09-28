@@ -52,7 +52,7 @@
 - Who: an admin or editor of the open workspace. Where: Data Models stage → + New Model (or the + on a data source card). The model lands in the open workspace.
 1. Enter a Name, pick the Data Source, optional description → Create & Configure.
 2. Step 1. Tables: tick the tables you need → Next: Schema & Joins →.
-3. Step 2. Schema & Joins: drag from one column's dot to another table's column dot to create a join. Click a join's cardinality to toggle it; Remove join deletes it.
+3. Step 2. Schema & Joins: drag from one column's dot to another table's column dot to create a join. Click a join's cardinality to toggle it; Remove join deletes it. Tables added from a database arrive already joined by the foreign keys the database declares. The Detect relationships button (top-left of the diagram) also joins tables by key column names — customer_id, id_customer, FK_customer, CustomerID point at the customer (or customers, dim_customer) table's id — from fact to dimension tables, marks as fact or dimension the tables that had no role, and says what it left out: a join that would make a loop, a second path between two tables, or point at a fact table.
 4. Flag columns with the D (dimension) or M (measure) tag next to each column. Without flagged columns reports have nothing to show.
 5. Step 3. Dimensions & Measures: rename labels, set types and date formats, add calculated fields.
 6. Click Save (top-right). + New Report saves the model and opens a new report on it.

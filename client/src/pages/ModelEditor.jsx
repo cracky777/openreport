@@ -304,11 +304,60 @@ export default function ModelEditor() {
     load();
   }, [id, navigate, runValidation]);
 
+  // The joins the draft's tables call for (server: utils/relationships.js):
+  // the foreign keys the database declares and, with `byName`, key column
+  // names; fact → dimension, no loop, no second path. Applied to the draft —
+  // the joins added, and with `byName` the roles of tables that had none.
+  // Returns the server's answer for the caller to report.
+  const applyRelationships = useCallback(async (byName, columnsByTable) => {
+    const columns = Object.fromEntries(selectedTables.map((t) => [t, (columnsByTable[t] || []).map((c) => c.column_name)]));
+    const roles = Object.fromEntries(Object.entries(tablePositions).filter(([, p]) => p && p.tableType).map(([t, p]) => [t, p.tableType]));
+    const res = await api.post(`/datasources/${model.datasource_id}/relationships`, { tables: selectedTables, columns, joins, roles, byName });
+    const found = res.data;
+    if (found.joins.length) {
+      setJoins((prev) => [...prev, ...found.joins.map(({ reason: _r, ...j }) => j)]);
+    }
+    if (Object.keys(found.roles).length) {
+      setTablePositions((prev) => {
+        const next = { ...prev };
+        for (const [t, role] of Object.entries(found.roles)) {
+          if (!next[t]?.tableType) next[t] = { ...next[t], tableType: role };
+        }
+        return next;
+      });
+    }
+    return found;
+  }, [selectedTables, tablePositions, joins, model]);
+
+  const [detecting, setDetecting] = useState(false);
+  const detectRelationships = async () => {
+    setDetecting(true);
+    try {
+      const found = await applyRelationships(true, tableColumns);
+      const parts = [];
+      parts.push(found.joins.length
+        ? `${found.joins.length} relationship${found.joins.length > 1 ? 's' : ''} added`
+        : 'No new relationship found');
+      const roleCount = Object.keys(found.roles).length;
+      if (roleCount) parts.push(`${roleCount} table${roleCount > 1 ? 's' : ''} marked fact or dimension`);
+      if (found.skipped.length) {
+        parts.push(`skipped: ${found.skipped.map((j) => `${j.from_table} → ${j.to_table} (${j.why})`).join('; ')}`);
+      }
+      toast(parts.join(' · '), found.joins.length ? 'success' : 'info');
+    } catch (err) {
+      toast(err?.response?.data?.error || 'Could not detect the relationships');
+    } finally {
+      setDetecting(false);
+    }
+  };
+
   // When entering step 1, load columns for newly selected tables
   const enterStep1 = useCallback(async () => {
     const toLoad = selectedTables.filter((t) => !tableColumns[t]);
+    const loaded = { ...tableColumns };
     for (const t of toLoad) {
       const res = await api.get(`/datasources/${model.datasource_id}/tables/${t}/columns`);
+      loaded[t] = res.data.columns;
       setTableColumns((prev) => ({ ...prev, [t]: res.data.columns }));
       // A table arrives fully flagged. Leaving it blank made the user click
       // every column before anything could be built, on data they had just
@@ -323,7 +372,16 @@ export default function ModelEditor() {
     }
     setTablePositions((prev) => placeUnpositioned(prev, selectedTables));
     setStep(1);
-  }, [selectedTables, tableColumns, model]);
+    // New tables arrive joined as the database declares them.
+    if (toLoad.length) {
+      try {
+        const found = await applyRelationships(false, loaded);
+        if (found.joins.length) {
+          toast(`${found.joins.length} relationship${found.joins.length > 1 ? 's' : ''} added from the database's foreign keys`, 'success');
+        }
+      } catch { /* keys unreadable: the joins are drawn by hand or detected by name */ }
+    }
+  }, [selectedTables, tableColumns, model, applyRelationships]);
 
   const toggleTable = (tableName) => {
     setSelectedTables((prev) =>
@@ -894,6 +952,7 @@ export default function ModelEditor() {
           rls={rls} setRls={setRls}
           rlsDialogTable={rlsDialogTable} setRlsDialogTable={setRlsDialogTable}
           setSelectedTables={setSelectedTables} tableColumns={tableColumns}
+          onDetectRelationships={detectRelationships} detecting={detecting}
         />
       )}
 
