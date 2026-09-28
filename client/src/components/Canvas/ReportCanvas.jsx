@@ -5,6 +5,7 @@ import { getMergeGroups, groupSeams, groupRect, mergeCorners, mergeSpan, edgeMid
 import WidgetItem from './WidgetItem';
 import { stackedOrder, stackedHeight, STACK_BREAKPOINT, STACK_GAP } from '../../utils/stackedLayout';
 import { clampPos, clampDelta, clampRect, dragBounds, minSize } from '../../utils/pageBounds';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 
 // Inner padding of the stacked (small-screen) column.
 const STACK_PAD = 12;
@@ -88,6 +89,9 @@ export default function ReportCanvas({
   // already-merged widgets. Keyed by `seam-${groupIdx}-${seamIdx}`
   // so each seam in a multi-member group toggles independently.
   const [hoveredSeamKey, setHoveredSeamKey] = useState(null);
+  // The primary pointer is a finger (phone, tablet). Decides how a visual is
+  // picked up and resized — see WidgetItem; a desktop never takes this path.
+  const touch = useMediaQuery('(pointer: coarse)') && !readOnly;
 
   // Track container size for fit modes
   useEffect(() => {
@@ -274,6 +278,19 @@ export default function ReportCanvas({
       setTimeout(() => { justResizedRef.current = false; }, 0);
     };
 
+    // A finger sends touch events, not mouse ones: same geometry, read off the
+    // first touch point.
+    if (resizing.touch) {
+      const onTouchMove = (e) => { if (e.touches[0]) handleMouseMove(e.touches[0]); };
+      window.addEventListener('touchmove', onTouchMove);
+      window.addEventListener('touchend', handleMouseUp);
+      window.addEventListener('touchcancel', handleMouseUp);
+      return () => {
+        window.removeEventListener('touchmove', onTouchMove);
+        window.removeEventListener('touchend', handleMouseUp);
+        window.removeEventListener('touchcancel', handleMouseUp);
+      };
+    }
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
     return () => {
@@ -284,16 +301,21 @@ export default function ReportCanvas({
 
   const startResize = useCallback((e, id, dir = 'se') => {
     e.stopPropagation();
-    e.preventDefault();
+    // React listens to touchstart passively: a finger's grip stops the pan
+    // with `touch-action` instead, and a preventDefault here would only warn.
+    const touchPoint = e.touches?.[0];
+    if (!touchPoint) e.preventDefault();
+    const point = touchPoint || e;
     const item = layout.find((l) => l.i === id);
     if (!item) return;
     const { w: minW, h: minH } = minSize(widgets[id]?.type);
     setResizing({
       id, dir, minW, minH,
+      touch: !!touchPoint,
       startW: item.w || 400,
       startH: item.h || 300,
-      startX: e.clientX,
-      startY: e.clientY,
+      startX: point.clientX,
+      startY: point.clientY,
       startPosX: item.x || 0,
       startPosY: item.y || 0,
     });
@@ -650,6 +672,7 @@ export default function ReportCanvas({
               onDrag={handleDrag}
               onDragStop={handleDragStop}
               onStartResize={startResize}
+              touch={touch}
               onAutoHeight={handleAutoHeight}
               onLoadMore={onLoadMore}
               onWidgetUpdate={onWidgetUpdate}

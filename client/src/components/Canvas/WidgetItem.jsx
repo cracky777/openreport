@@ -104,6 +104,28 @@ const _hs13 = { position: 'absolute', top: -3, left: -3, width: 8, height: 8, cu
 const _hs14 = { position: 'absolute', top: -3, right: -3, width: 8, height: 8, cursor: 'ne-resize', zIndex: 11 };
 const _hs15 = { position: 'absolute', bottom: -3, left: -3, width: 8, height: 8, cursor: 'sw-resize', zIndex: 11 };
 const _hs16 = { position: 'absolute', bottom: -3, right: -3, width: 8, height: 8, cursor: 'se-resize', zIndex: 11 };
+
+// A finger's resize grip, sized in SCREEN pixels: the page is scaled to fit,
+// so the desktop's 8px handles shrink to ~3px on a phone — nothing a finger
+// can land on. `touch-action: none` hands the gesture to us at its start,
+// before the browser can read it as a pan.
+const TOUCH_GRIP = 28;
+const TOUCH_CORNERS = ['nw', 'ne', 'sw', 'se'];
+const _touchGrip = (dir, scale) => {
+  const size = TOUCH_GRIP / scale;
+  const off = -size / 2;
+  return {
+    position: 'absolute', width: size, height: size, zIndex: 11, touchAction: 'none',
+    top: dir[0] === 'n' ? off : undefined, bottom: dir[0] === 's' ? off : undefined,
+    left: dir[1] === 'w' ? off : undefined, right: dir[1] === 'e' ? off : undefined,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  };
+};
+const _touchGripDot = (scale) => ({
+  width: 14 / scale, height: 14 / scale, borderRadius: '50%', pointerEvents: 'none',
+  background: '#fff', border: `${2 / scale}px solid var(--accent-primary, #7c3aed)`,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+});
 const _hs17 = {
       position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 9999,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -147,7 +169,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, model, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, scale = 1, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners, mergeSpan, stacked, dragBounds }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, model, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, scale = 1, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners, mergeSpan, stacked, dragBounds, touch }) {
   const openBugReport = useBugReport();
   const nodeRef = useRef(null);
   const [showSql, setShowSql] = useState(false);
@@ -370,7 +392,11 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
         movedRef.current = !!from && (Math.abs(data.x - from.x) > 2 || Math.abs(data.y - from.y) > 2);
         onDragStop(item.i, data);
       }}
-      disabled={readOnly}
+      // On a touch screen a press on a visual is first a scroll or a tap:
+      // react-draggable cancels `touchstart`, which kills both the page scroll
+      // and the click that selects. So a finger only moves the visual it has
+      // already selected; until then the browser keeps the gesture.
+      disabled={readOnly || (touch && !isSelected)}
       cancel={dragCancel}
       grid={snapGrid}
       // The page is the only drop zone — the backdrop around it is not part of
@@ -702,7 +728,13 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
         </div>{/* end rotation wrapper */}
 
         {/* Resize handles — all edges and corners, only when selected */}
-        {!readOnly && isSelected && (
+        {!readOnly && isSelected && touch && TOUCH_CORNERS.map((dir) => (
+          <div key={dir} className="resize-handle" style={_touchGrip(dir, scale)}
+            onTouchStart={(e) => onStartResize(e, item.i, dir)}>
+            <div style={_touchGripDot(scale)} />
+          </div>
+        ))}
+        {!readOnly && isSelected && !touch && (
           <>
             {/* Edges */}
             <div className="resize-handle" onMouseDown={(e) => onStartResize(e, item.i, 'n')}
