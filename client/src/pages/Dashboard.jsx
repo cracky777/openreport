@@ -24,7 +24,7 @@ import DatasourceForm, { createModelAndNavigate } from '../components/Datasource
 import Portal from '../components/Portal/Portal';
 import Modal from '../components/Modal/Modal';
 import { useGraph } from '../hooks/graphContext';
-import { useJourneyFocus } from '../hooks/useJourneyFocus';
+import { useJourneyFocus, isDimmed, dimProps, DIMMED_CARD } from '../hooks/useJourneyFocus';
 import { groupByParent } from '../utils/groupByParent';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
 import CacheInspectorModal from '../components/CacheInspectorModal/CacheInspectorModal';
@@ -895,14 +895,12 @@ export default function Dashboard() {
 
   const wsName = selectedWs ? workspaces.find((w) => w.id === selectedWs)?.name || 'Workspace' : 'My Reports';
 
-  // Arrived by following a model's join: narrow the list to that model's
-  // reports. Lives in the URL so it is shareable and Back undoes it.
   // Reports follow their model's position in the column before them — the last
   // link of the chain that keeps the joins from crossing.
-  const visibleReports = useMemo(() => {
-    const scoped = focus.reportIds ? wsReports.filter((r) => focus.reportIds.has(r.id)) : wsReports;
-    return groupByParent(scoped, modelOrder, 'model_id');
-  }, [wsReports, focus.reportIds, modelOrder]);
+  const visibleReports = useMemo(
+    () => groupByParent(wsReports, modelOrder, 'model_id'),
+    [wsReports, modelOrder],
+  );
 
   return (
     <div style={_hs0}>
@@ -1172,15 +1170,6 @@ export default function Dashboard() {
                 <p style={emptySub}>Nobody has shared a report here yet.</p>
               )}
             </div>
-          ) : visibleReports.length === 0 ? (
-            // Reports exist, the filter just matches none of them. Offering to
-            // create one here would answer a question nobody asked — the way
-            // out is dropping the filter, as on the other two stages.
-            <div style={emptyState}>
-              <p style={emptyTitle}>Nothing here for this filter</p>
-              <p style={emptySub}>No report is built on it.</p>
-              <button className="btn-hover btn-hover-primary" onClick={focus.clear} style={primaryBtn}>Show every report</button>
-            </div>
           ) : (
             <div style={_hs67}>
               {visibleReports.map((report) => {
@@ -1190,8 +1179,14 @@ export default function Dashboard() {
                 // Shared into this workspace from its own: its editors here do
                 // everything but delete it; its model stays with its own workspace.
                 const canManageCard = canEdit && !report.shared;
-                const skin = report.is_public || menuOpen
-                  ? { ...cardStyle, ...(report.is_public ? publicCardAccent : null), ...(menuOpen ? cardMenuOpen : null) }
+                const dimmed = isDimmed(focus.reportIds, report.id);
+                const skin = report.is_public || menuOpen || dimmed
+                  ? {
+                    ...cardStyle,
+                    ...(report.is_public ? publicCardAccent : null),
+                    ...(menuOpen ? cardMenuOpen : null),
+                    ...(dimmed ? DIMMED_CARD : null),
+                  }
                   : cardStyle;
                 return (
                 <div key={report.id} style={joinRowStyle}>
@@ -1200,6 +1195,7 @@ export default function Dashboard() {
                   data-join-anchor={`reports:${report.id}`}
                   data-join-parent={report.model_id ? `models:${report.model_id}` : undefined}
                   data-join-parent-name={report.model_name || undefined}
+                  {...dimProps(dimmed)}
                   style={skin}
                 >
                   <div onClick={() => window.open(`/view/${report.id}`, '_blank')}

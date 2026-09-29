@@ -13,7 +13,7 @@ import DatasourceForm, { createModelAndNavigate } from '../components/Datasource
 import Portal from '../components/Portal/Portal';
 import Modal from '../components/Modal/Modal';
 import { useGraph } from '../hooks/graphContext';
-import { useJourneyFocus } from '../hooks/useJourneyFocus';
+import { useJourneyFocus, isDimmed, dimProps, DIMMED_CARD } from '../hooks/useJourneyFocus';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
 import JoinAdd from '../components/AppShell/JoinAdd';
 import SourceIcon from '../components/AppShell/SourceIcon';
@@ -115,14 +115,9 @@ export default function Datasources() {
   // The branch the journey is focused on, resolved once for all three stages.
   const focus = useJourneyFocus();
 
-  // Order comes from the graph so the three columns agree; filtering is all
-  // that is left to do here, and it preserves it.
-  const orderedDatasources = useMemo(() => (
-    focus.datasourceIds
-      ? graphOrderedDatasources.filter((d) => focus.datasourceIds.has(d.id))
-      : graphOrderedDatasources
-  ), [graphOrderedDatasources, focus.datasourceIds]);
   const [uploading, setUploading] = useState(false);
+  // Order comes from the graph so the three columns agree.
+  const orderedDatasources = graphOrderedDatasources;
   const [uploadProgress, setUploadProgress] = useState('');
   const [importOpts, setImportOpts] = useState(DEFAULT_IMPORT_OPTIONS);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -266,7 +261,6 @@ export default function Datasources() {
             {focus.active && (
               <FilterCrumb
                 label={focus.label}
-                verb={focus.stage === 'sources' ? 'Showing' : 'Following'}
                 onClear={focus.clear}
                 options={focus.options}
                 onPick={focus.pick}
@@ -336,27 +330,20 @@ export default function Datasources() {
         {loading ? (
           <div style={_hs6}>Loading...</div>
         ) : orderedDatasources.length === 0 && !showForm ? (
-          // A filter that matches nothing must say so, otherwise the column just
-          // looks broken — and the way out has to be one click away.
-          focus.active ? (
-            <div style={_hs7}>
-              <p style={_hs8}>Nothing here for this filter</p>
-              <button className="btn-hover btn-hover-primary" onClick={focus.clear} style={primaryBtn}>Show every data source</button>
-            </div>
-          ) : (
-            <div style={_hs7}>
-              <p style={_hs8}>No data sources configured</p>
-              {canManageHere && <button className="btn-hover btn-hover-primary" onClick={() => setShowForm(true)} style={primaryBtn}>Add your first data source</button>}
-            </div>
-          )
+          <div style={_hs7}>
+            <p style={_hs8}>No data sources configured</p>
+            {canManageHere && <button className="btn-hover btn-hover-primary" onClick={() => setShowForm(true)} style={primaryBtn}>Add your first data source</button>}
+          </div>
         ) : (
           <div style={_hs9}>
             {orderedDatasources.map((ds) => {
+              const dimmed = isDimmed(focus.datasourceIds, ds.id);
               // The source behind a model only shared here: its name, so the
               // relation stays drawn, and nothing to open — it is not shared.
               if (ds.notShared) return (
                 <div key={ds.id} style={joinRowStyle}>
-                  <div className="journey-card" data-join-anchor={`sources:${ds.id}`} style={lockedCardStyle}
+                  <div className="journey-card" data-join-anchor={`sources:${ds.id}`} {...dimProps(dimmed)}
+                    style={dimmed ? { ...lockedCardStyle, ...DIMMED_CARD } : lockedCardStyle}
                     title="The source of a data model shared into this workspace. It is not shared here: ask its workspace admin to share it to build models on it.">
                     <TbLock size={18} style={lockedIcon} />
                     <div style={_hs10}>
@@ -372,7 +359,8 @@ export default function Datasources() {
               const modelCount = modelsByDatasourceAll.get(ds.id) || 0;
               return (
                 <div key={ds.id} style={joinRowStyle}>
-                <div className="journey-card" data-join-anchor={`sources:${ds.id}`} style={dsCardStyle}>
+                <div className="journey-card" data-join-anchor={`sources:${ds.id}`} {...dimProps(dimmed)}
+                  style={dimmed ? { ...dsCardStyle, ...DIMMED_CARD } : dsCardStyle}>
                   <SourceIcon file={isUploadedFile} dbType={ds.db_type} />
                   <div style={_hs10}>
                     <div style={_hs11}>{ds.name}</div>

@@ -89,7 +89,7 @@ test('le filtre affiché se change sans être effacé', async ({ page }) => {
   // celui de l'étape en cours est atteignable, les autres sont dans une bande
   // inerte. Le test vise donc l'étape en cours, comme la souris.
   const actif = page.locator('[data-stage-panel][aria-current="page"]');
-  const crumb = actif.getByTitle('Filter on something else');
+  const crumb = actif.getByTitle('Highlight something else');
   await expect(crumb).toContainText(mods[0].name);
 
   // Le nom porte le choix : on ouvre, on prend une autre branche, et l'URL
@@ -97,5 +97,5 @@ test('le filtre affiché se change sans être effacé', async ({ page }) => {
   await crumb.click();
   await actif.getByRole('option', { name: mods[1].name, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`focus=models%3A${mods[1].id}`));
-  await expect(actif.getByTitle('Filter on something else')).toContainText(mods[1].name);
+  await expect(actif.getByTitle('Highlight something else')).toContainText(mods[1].name);
 });

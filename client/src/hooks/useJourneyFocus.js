@@ -2,7 +2,7 @@ import { useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useGraph } from './graphContext';
 
-// A filter picks a branch of the journey, not a row in one column.
+// A focus picks a branch of the journey, not a row in one column.
 //
 // Each stage used to narrow itself from its own query parameter, which left the
 // others showing everything: standing on a single datasource, the Models column
@@ -10,10 +10,8 @@ import { useGraph } from './graphContext';
 // list — then snapped to the top the moment the click landed and that column
 // finally filtered. The relation hadn't changed; only the row under it had.
 //
-// One focus, resolved here, gives every column the same slice: the datasource,
-// the models it feeds, and the reports built on those. The joins then link
-// neighbours that are already in their final place, and crossing a stage moves
-// nothing but the ribbon.
+// One focus, resolved here, marks the same branch in every column: the
+// datasource, the models it feeds, and the reports built on those.
 export function useJourneyFocus() {
   const { datasources, models, reports } = useGraph();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -77,8 +75,16 @@ export function useJourneyFocus() {
   return { ...resolved, clear, pick, options };
 }
 
-// Null sets, not empty ones: "no filter" and "a filter that matches nothing"
-// are different answers, and only the second should empty a column.
+// A focus highlights its branch, it does not hide the rest: every card keeps
+// its place — the joins and the column stay as the user knows them — and what
+// the branch does not reach is greyed out. The attribute tells the join layer
+// to grey the curves that run to such a card.
+export const isDimmed = (ids, id) => !!ids && !ids.has(id);
+export const DIMMED_CARD = { opacity: 0.35, filter: 'grayscale(1)' };
+export const dimProps = (dimmed) => (dimmed ? { 'data-journey-dim': '' } : {});
+
+// Null sets, not empty ones: "no focus" and "a focus that reaches nothing" are
+// different answers.
 const NONE = {
   active: false, stage: null, id: null, label: null,
   datasourceIds: null, modelIds: null, reportIds: null,

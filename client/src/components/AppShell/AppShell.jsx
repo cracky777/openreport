@@ -96,6 +96,64 @@ export default function AppShell({ step }) {
   // Each stage starts at its top, the way it did when each owned its scroll.
   useLayoutEffect(() => { if (viewportRef.current) viewportRef.current.scrollTop = 0; }, [step]);
 
+  // A highlight greys cards out without moving them, so its branch can sit far
+  // down a long column. Bring its first card into view — once per highlight or
+  // stage, never again while the user scrolls. The cards and their grey can
+  // land after this runs (the graph still loading), hence the wait for them;
+  // no greyed card means nothing to single out, so nothing to reveal yet.
+  const focusKey = new URLSearchParams(search).get('focus');
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!focusKey || !vp) return undefined;
+    const reveal = () => {
+      const panel = vp.querySelector('[data-stage-panel][aria-current="page"]');
+      if (!panel?.querySelector('[data-journey-dim]')) return false;
+      const card = panel.querySelector('[data-join-anchor]:not([data-journey-dim])');
+      if (!card) return false;
+      const v = vp.getBoundingClientRect();
+      const r = card.getBoundingClientRect();
+      if (r.top < v.top || r.bottom > v.bottom) {
+        vp.scrollTo({ top: vp.scrollTop + r.top - v.top - 24, behavior: 'smooth' });
+      }
+      return true;
+    };
+    if (reveal()) return undefined;
+    const mo = new MutationObserver(() => { if (reveal()) mo.disconnect(); });
+    mo.observe(vp, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-journey-dim'] });
+    const giveUp = setTimeout(() => mo.disconnect(), 3000);
+    return () => { mo.disconnect(); clearTimeout(giveUp); };
+  }, [focusKey, step]);
+
+  // A click anywhere else lets go of the highlight. What walks the journey
+  // keeps it: the names and counts on the joins (they set it), the crumb (it
+  // edits it), the stage switcher and the peeking columns (the same branch,
+  // seen from another stage).
+  // Where the click landed is read on the way down, before any handler runs: a
+  // crumb option picked is gone from the page by the time the click bubbles up.
+  // What to do is decided on the way up, after React's handlers, so a click
+  // that already navigated away — opening a model — has nothing left to clear.
+  useEffect(() => {
+    if (!focusKey) return undefined;
+    let keep = false;
+    const onDown = (e) => {
+      keep = !!e.target.closest?.('[data-join-layer] button, [data-keeps-highlight], [data-stage-panel][data-peek]');
+    };
+    const onUp = () => {
+      if (keep) return;
+      const params = new URLSearchParams(window.location.search);
+      if (!params.has('focus')) return;
+      params.delete('focus');
+      const rest = params.toString();
+      navigate(window.location.pathname + (rest ? `?${rest}` : ''));
+    };
+    document.addEventListener('click', onDown, true);
+    document.addEventListener('click', onUp);
+    return () => {
+      document.removeEventListener('click', onDown, true);
+      document.removeEventListener('click', onUp);
+    };
+  }, [focusKey, navigate]);
+
   // The active column is inset by PEEK on both sides, and that inset is exactly
   // what its neighbours show through.
   //
@@ -162,7 +220,7 @@ export default function AppShell({ step }) {
 
   // Following a join focuses the relation's parent and moves to the stage the
   // click points at. Both directions focus the same node — walking back up a
-  // join is the same branch seen from the other end, not a different filter.
+  // join is the same branch seen from the other end, not a different one.
   const follow = ({ dir, noun, id }) => {
     setOverview(false);
     const stage = noun === 'model' ? 'sources' : 'models';
@@ -216,7 +274,7 @@ export default function AppShell({ step }) {
           </div>
 
           {!compact && (
-            <div style={centerGroup}>
+            <div style={centerGroup} data-keeps-highlight="">
               {/* The overview is no stage: none shows as the current one. */}
               <StepNav current={overviewOn ? null : step} onGo={go} allowed={stepAllowed} />
               <button
@@ -368,7 +426,7 @@ export default function AppShell({ step }) {
         {/* Second row: the stage switcher gets the full width to itself, which
             is the only way three labelled stages fit on a phone. */}
         {compact && (
-          <div style={stepNavRowStyle}>
+          <div style={stepNavRowStyle} data-keeps-highlight="">
             <StepNav current={step} onGo={go} allowed={stepAllowed} compact />
           </div>
         )}

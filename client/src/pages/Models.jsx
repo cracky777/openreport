@@ -9,7 +9,7 @@ import IncrementalRefreshDialog from '../components/IncrementalRefreshDialog/Inc
 import { PrimaryButton, SecondaryButton, ImportButton } from '../components/PageHeader/PageHeader';
 import Modal from '../components/Modal/Modal';
 import { useGraph } from '../hooks/graphContext';
-import { useJourneyFocus } from '../hooks/useJourneyFocus';
+import { useJourneyFocus, isDimmed, dimProps, DIMMED_CARD } from '../hooks/useJourneyFocus';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
 import JoinAdd from '../components/AppShell/JoinAdd';
 import SourceIcon from '../components/AppShell/SourceIcon';
@@ -104,10 +104,8 @@ export default function Models() {
   const focus = useJourneyFocus();
 
   // Order comes from the graph — models sit in their source's block, which is
-  // what keeps the joins from crossing. Only the filter is local.
-  const orderedModels = useMemo(() => (
-    focus.modelIds ? graphOrderedModels.filter((m) => focus.modelIds.has(m.id)) : graphOrderedModels
-  ), [graphOrderedModels, focus.modelIds]);
+  // what keeps the joins from crossing.
+  const orderedModels = graphOrderedModels;
   // Which sources are uploaded files, so a model can say what it actually sits
   // on rather than making the user walk back a column to find out.
   // `extra_config` comes off the row as JSON text.
@@ -255,7 +253,6 @@ export default function Models() {
             {focus.active && (
               <FilterCrumb
                 label={focus.label}
-                verb={focus.stage === 'models' ? 'Showing' : 'Following'}
                 onClear={focus.clear}
                 options={focus.options}
                 onPick={focus.pick}
@@ -354,28 +351,19 @@ export default function Models() {
         {loading ? (
           <div style={_hs10}>Loading...</div>
         ) : orderedModels.length === 0 && !showForm ? (
-          // A filter that matches nothing must say so, otherwise the column just
-          // looks broken — and the way out has to be one click away.
-          focus.active ? (
-            <div style={_hs11}>
-              <p style={_hs12}>Nothing here for this filter</p>
-              <p style={_hs13}>No model is linked to it.</p>
-              <button className="btn-hover btn-hover-primary" onClick={focus.clear} style={primaryBtn}>Show every model</button>
-            </div>
-          ) : (
-            <div style={_hs11}>
-              <p style={_hs12}>No data models yet</p>
-              <p style={_hs13}>
-                Models define which tables, dimensions, and measures are available in your reports.
-              </p>
-              {canBuildHere && <button className="btn-hover btn-hover-primary" onClick={openForm} style={primaryBtn}>Create your first model</button>}
-            </div>
-          )
+          <div style={_hs11}>
+            <p style={_hs12}>No data models yet</p>
+            <p style={_hs13}>
+              Models define which tables, dimensions, and measures are available in your reports.
+            </p>
+            {canBuildHere && <button className="btn-hover btn-hover-primary" onClick={openForm} style={primaryBtn}>Create your first model</button>}
+          </div>
         ) : (
           <div style={_hs14}>
             {orderedModels.map((m) => {
               // Guard on the unscoped count: the server refuses while any report uses it.
               const reportCount = reportsByModelAll.get(m.id) || 0;
+              const dimmed = isDimmed(focus.modelIds, m.id);
               return (
               <div key={m.id} style={joinRowStyle}>
               <div
@@ -383,7 +371,8 @@ export default function Models() {
                 data-join-anchor={`models:${m.id}`}
                 data-join-parent={m.datasource_id ? `sources:${m.datasource_id}` : undefined}
                 data-join-parent-name={m.datasource_name || undefined}
-                style={cardMenu === m.id ? cardStyleMenuOpen : cardStyle}
+                {...dimProps(dimmed)}
+                style={{ ...(cardMenu === m.id ? cardStyleMenuOpen : cardStyle), ...(dimmed ? DIMMED_CARD : null) }}
               >
                 <SourceIcon file={fileDatasourceIds.has(m.datasource_id)} dbType={dbTypeByDatasource.get(m.datasource_id)} />
                 <div onClick={() => navigate(`/models/${m.id}`)} style={_hs15}>

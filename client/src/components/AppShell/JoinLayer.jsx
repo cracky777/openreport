@@ -64,7 +64,9 @@ export default function JoinLayer({ onFollow, overview = false }) {
         parentId: from.slice(from.indexOf(':') + 1),
         parentName: el.dataset.joinParentName,
         noun: to.startsWith('reports:') ? 'report' : 'model',
-        dim: false,
+        // A curve to or from a card outside the highlighted branch fades with it.
+        dim: el.hasAttribute('data-journey-dim')
+          || !!host.querySelector(`[data-join-anchor="${from.replace(/["\\]/g, '\\$&')}"][data-journey-dim]`),
       };
     });
 
@@ -150,7 +152,7 @@ export default function JoinLayer({ onFollow, overview = false }) {
       measure();
     });
     // A card whose parent changes keeps its node: watch the join attributes too.
-    mo.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-join-anchor', 'data-join-parent', 'data-join-parent-name'] });
+    mo.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-join-anchor', 'data-join-parent', 'data-join-parent-name', 'data-journey-dim'] });
     host.addEventListener('scroll', measure, true);
     return () => {
       ro.disconnect();

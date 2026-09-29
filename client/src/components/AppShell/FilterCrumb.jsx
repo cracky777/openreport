@@ -1,14 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
-import { TbX, TbFilter, TbChevronDown, TbCheck } from 'react-icons/tb';
+import { TbX, TbFocus2, TbChevronDown, TbCheck } from 'react-icons/tb';
 
-// Shows the cascade filter a stage arrived with — "following: election" — and
-// the way out of it. Without this the list looks arbitrarily short with no clue
-// why, which is the classic trap of a filter that lives only in the URL.
+// Shows the branch the journey highlights — "highlighting: election" — and the
+// way out of it. Without this the greyed cards look disabled with no clue why,
+// the classic trap of a state that lives only in the URL.
 //
 // Le nom est aussi le moyen d'en changer. Un filtre qu'on ne peut qu'effacer
 // oblige à repasser par la liste entière pour poser la même question sur la
 // branche d'à côté ; il se modifie donc là où il se lit.
-export default function FilterCrumb({ label, onClear, verb = 'Following', options = [], onPick }) {
+export default function FilterCrumb({ label, onClear, verb = 'Highlighting', options = [], onPick }) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef(null);
 
@@ -32,17 +32,17 @@ export default function FilterCrumb({ label, onClear, verb = 'Following', option
   const switchable = !!onPick && options.length > 1;
 
   return (
-    <div ref={boxRef} style={wrap}>
-      <TbFilter size={14} />
+    <div ref={boxRef} style={wrap} data-keeps-highlight="">
+      <TbFocus2 size={14} />
       {switchable ? (
-        <button onClick={() => setOpen((v) => !v)} style={pickBtn} title="Filter on something else">
+        <button onClick={() => setOpen((v) => !v)} style={pickBtn} title="Highlight something else">
           <span>{verb} <strong style={strong}>{label}</strong></span>
           <TbChevronDown size={12} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.12s' }} />
         </button>
       ) : (
         <span>{verb} <strong style={strong}>{label}</strong></span>
       )}
-      <button onClick={onClear} style={clearBtn} title="Show everything again">
+      <button onClick={onClear} style={clearBtn} title="Clear the highlight">
         <TbX size={13} />
       </button>
 

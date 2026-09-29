@@ -6,8 +6,8 @@
 // own parameter, not on the focus.
 const { test, expect } = require('@playwright/test');
 
-// The crumb that says a filter is on.
-const crumb = (page) => page.getByTitle('Show everything again');
+// The crumb that says a branch is highlighted.
+const crumb = (page) => page.getByTitle('Clear the highlight');
 
 test('the + on a model card opens a new report on it, unfiltered', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
