@@ -202,6 +202,15 @@ body {
   [data-journey-ribbon] { transition: none !important; }
 }
 
+/* The overview is for looking: a column is clicked as a whole to open its
+   stage, so the buttons inside it (create, edit, delete, menus) would only be
+   targets too small to hit at that scale. The joins' names and counts stay —
+   they are part of the picture — and so does the crumb, which says what is
+   highlighted. */
+[data-journey-ribbon][data-overview] [data-stage-panel] button:not([data-keeps-highlight] button) {
+  display: none !important;
+}
+
 /* A peeking neighbour is a glimpse, not a surface to work in: its scrollbar
    would otherwise land in the middle of the screen, next to the column that
    actually has focus. */

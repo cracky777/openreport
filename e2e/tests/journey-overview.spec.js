@@ -53,7 +53,40 @@ test('la vue d\'ensemble montre les trois étapes et leurs liaisons, puis rend l
   await expect(ribbon).toHaveCount(0);
   await expect(page.locator('header [aria-current="page"]')).toHaveCount(1);
   await page.getByRole('button', { name: 'Overview' }).click();
+
+  // Vue d'ensemble = regarder : aucun bouton dans les colonnes (créer, éditer,
+  // supprimer, menus), seulement les noms et compteurs des traits.
+  await expect(ribbon).toHaveCount(1);
+  const shownButtons = await page.evaluate(() => [...document.querySelectorAll('[data-stage-panel] button')]
+    .filter((b) => b.getBoundingClientRect().width > 0).map((b) => b.getAttribute('aria-label') || b.textContent.trim()));
+  expect(shownButtons).toEqual([]);
+
+  // Un clic sur une autre colonne y mène d'un saut : aucune image ne montre un
+  // glissement, ni l'étape d'avant (Data Models) entre le dézoom et la cible.
+  // Chaque image est relevée, pas un seul instant : le routeur apporte l'étape
+  // dans un rendu plus tardif, et c'est entre les deux que ça se voyait.
+  await page.evaluate(() => {
+    window.__frames = [];
+    const t0 = performance.now();
+    const tick = () => {
+      const r = document.querySelector('[data-journey-ribbon]');
+      const cur = document.querySelector('[data-stage-panel][aria-current="page"]');
+      window.__frames.push({ overview: r.hasAttribute('data-overview'), transition: r.style.transition, stage: cur && cur.getAttribute('aria-label') });
+      if (performance.now() - t0 < 800) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
   await page.locator('[data-stage-panel][aria-label="Data Sources"]').click({ position: { x: 20, y: 20 } });
   await expect(page).toHaveURL(/\/datasources/);
   await expect(page.locator('[data-journey-ribbon][data-overview]')).toHaveCount(0);
+  await page.waitForTimeout(900);
+  const frames = await page.evaluate(() => window.__frames);
+  expect(frames.some((f) => !f.overview), 'the overview closed').toBe(true);
+  for (const f of frames) {
+    expect(f.transition === 'none' || f.transition === '', 'no slide').toBe(true);
+    if (!f.overview) expect(f.stage, 'straight to the target').toBe('Data Sources');
+  }
+
+  // Hors vue d'ensemble, les boutons reviennent.
+  await expect(page.locator('[data-stage-panel][aria-current="page"] button').first()).toBeVisible();
 });

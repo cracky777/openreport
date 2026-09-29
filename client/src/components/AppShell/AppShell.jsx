@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { TbShield, TbBell, TbSparkles, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug, TbPlugConnected, TbZoomOut } from 'react-icons/tb';
+import { TbShield, TbBell, TbSparkles, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug, TbPlugConnected, TbEye } from 'react-icons/tb';
 import api from '../../utils/api';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
@@ -203,12 +203,24 @@ export default function AppShell({ step }) {
   // used to play the slide, as if the user had come from the stage before.
   // Decided while rendering, so the commit that moves the ribbon already
   // carries the transition.
+  // Leaving the overview for another stage is a jump, not a move: the whole
+  // journey is already on screen, and sliding out of it replays a zoom nobody
+  // asked for. The router brings the new stage in a later, lower-priority
+  // render; closing the overview right away showed the OLD stage for a frame
+  // in between, which read as an animation. So the overview stays up until the
+  // new stage is actually here, and both change in the same render.
   const [shownStep, setShownStep] = useState(step);
   const [sliding, setSliding] = useState(false);
+  const [jumpTo, setJumpTo] = useState(null);
   if (step !== shownStep) {
     setShownStep(step);
-    setSliding(true);
+    setSliding(!jumpTo);
+    if (jumpTo) { setJumpTo(null); setOverview(false); }
   }
+  const leaveOverview = (target) => {
+    if (overviewOn && target && target !== step) setJumpTo(target);
+    else setOverview(false);
+  };
   const endSlide = (e) => { if (e.target === e.currentTarget) setSliding(false); };
   // A move that changes nothing on screen fires no transitionend; left on,
   // the next settle would slide.
@@ -222,7 +234,10 @@ export default function AppShell({ step }) {
   // click points at. Both directions focus the same node — walking back up a
   // join is the same branch seen from the other end, not a different one.
   const follow = ({ dir, noun, id }) => {
-    setOverview(false);
+    const target = dir === 'down'
+      ? (noun === 'model' ? 'models' : 'reports')
+      : (noun === 'model' ? 'sources' : 'models');
+    leaveOverview(target);
     const stage = noun === 'model' ? 'sources' : 'models';
     const down = noun === 'model' ? '/models' : '/';
     const up = noun === 'model' ? '/datasources' : '/models';
@@ -233,7 +248,7 @@ export default function AppShell({ step }) {
   // stepping one stage over would silently drop it. The crumb, shown on every
   // stage while it is set, is the way out.
   const go = (key) => {
-    setOverview(false);
+    leaveOverview(key);
     const target = STEPS.find((s) => s.key === key);
     if (target) navigate(target.path + search);
   };
@@ -285,7 +300,7 @@ export default function AppShell({ step }) {
                 aria-label="Overview"
                 aria-pressed={overviewOn}
               >
-                <TbZoomOut size={16} />
+                <TbEye size={16} />
               </button>
             </div>
           )}
