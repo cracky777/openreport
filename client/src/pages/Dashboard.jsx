@@ -401,6 +401,8 @@ export default function Dashboard() {
 
       // 4. Create report with this model
       const reportRes = await api.post('/reports', {
+        // Blank until its first save: listed nowhere, dropped if left unsaved.
+        draft: true,
         title: newTitle || ds.name,
         // Only when we fell back to the datasource's name — a title the user
         // typed keeps its conflict error.
@@ -465,6 +467,8 @@ export default function Dashboard() {
     if (!newModelId) return;
     try {
       const res = await api.post('/reports', {
+        // Blank until its first save: listed nowhere, dropped if left unsaved.
+        draft: true,
         title: newTitle || 'Untitled Report', modelId: newModelId,
         ...(selectedWs ? { workspaceId: selectedWs } : {}),
         settings: { theme: availableThemes[themeResolved] ? { key: themeResolved, ...availableThemes[themeResolved] } : null },

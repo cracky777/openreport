@@ -11,6 +11,7 @@ import { autoFlagColumns } from '../utils/autoFlagColumns';
 import { toast } from '../components/Toast/toast';
 import { headerShellStyle, BackButton, PrimaryButton, SecondaryButton, headerBadgeStyle } from '../components/PageHeader/PageHeader';
 import { useTheme } from '../hooks/useTheme';
+import { useGraph } from '../hooks/graphContext';
 import ValidationBadge from '../components/ValidationBadge';
 import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
 import Step2DimensionsMeasures from './Step2DimensionsMeasures';
@@ -106,6 +107,9 @@ export default function ModelEditor() {
   const openBugReport = useBugReport();
   const { id } = useParams();
   const navigate = useNavigate();
+  // The workspace open in the header: a report created from here lands there,
+  // as it does from the Reports stage — not in the personal workspace.
+  const { selectedWs } = useGraph();
   const { resolved: themeResolved, themes: availableThemes } = useTheme();
 
   // Back means back. This editor is reached from a report card, from a model
@@ -673,6 +677,9 @@ export default function ModelEditor() {
         // nobody typed.
         autoTitle: true,
         modelId: id,
+        workspaceId: selectedWs || undefined,
+        // Blank until its first save: listed nowhere, dropped if left unsaved.
+        draft: true,
         // Inherit the user's current theme so the new report doesn't open
         // in the default light scheme when they're working in dark mode.
         settings: {

@@ -58,6 +58,9 @@ safeMigrate("ALTER TABLE reports ADD COLUMN live_mode INTEGER NOT NULL DEFAULT 0
 // bug when triggered from the workspace card). NULL = never rebuilt
 // since the column was added.
 safeMigrate("ALTER TABLE reports ADD COLUMN cache_built_at TEXT");
+// 1 until the report's first save: a report created and never saved is listed
+// nowhere, and deleted when its editor is left (utils/reportDrafts.js).
+safeMigrate("ALTER TABLE reports ADD COLUMN draft INTEGER NOT NULL DEFAULT 0");
 safeMigrate("ALTER TABLE datasources ADD COLUMN extra_config TEXT DEFAULT '{}'");
 safeMigrate("ALTER TABLE models ADD COLUMN date_column TEXT DEFAULT ''");
 safeMigrate("ALTER TABLE models ADD COLUMN rls TEXT NOT NULL DEFAULT '{}'");

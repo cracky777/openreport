@@ -21,6 +21,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const db = require('../db');
+const { withoutDrafts } = require('../utils/reportDrafts');
 const apiToken = require('../utils/apiToken');
 const { requireAuth } = require('../middleware/auth');
 const rollupBuilder = require('../utils/rollupBuilder');
@@ -64,10 +65,10 @@ router.get('/models', requireAuth, apiToken.requireScope('read'), (req, res) => 
 
 router.get('/reports', requireAuth, apiToken.requireScope('read'), (req, res) => {
   const rows = typeof cloudHooks.listReports === 'function'
-    ? cloudHooks.listReports(req)
+    ? withoutDrafts(cloudHooks.listReports(req))
     : db.prepare(`
       SELECT r.id, r.title, r.model_id, r.updated_at, r.cache_built_at
-      FROM reports r WHERE r.user_id = ? ORDER BY r.updated_at DESC
+      FROM reports r WHERE r.user_id = ? AND r.draft = 0 ORDER BY r.updated_at DESC
     `).all(req.user.id);
   res.json({ reports: rows.map((r) => ({ id: r.id, title: r.title, model_id: r.model_id, updated_at: r.updated_at, cache_built_at: r.cache_built_at })) });
 });

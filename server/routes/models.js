@@ -525,11 +525,13 @@ router.delete('/:id', authFor('write'), (req, res) => {
 
   // Refuse deletion while any report still uses the model (id-scoped: a model
   // in use by anyone's report blocks deletion).
-  const reportCount = db.prepare('SELECT COUNT(*) as count FROM reports WHERE model_id = ?').get(req.params.id);
+  // A draft does not count — nobody sees it — and goes with the model.
+  const reportCount = db.prepare('SELECT COUNT(*) as count FROM reports WHERE model_id = ? AND draft = 0').get(req.params.id);
   if (reportCount && reportCount.count > 0) {
     return res.status(409).json({ error: `This model is used by ${reportCount.count} report(s). Delete them first.` });
   }
 
+  db.prepare('DELETE FROM reports WHERE model_id = ? AND draft = 1').run(req.params.id);
   db.prepare('DELETE FROM models WHERE id = ?').run(req.params.id);
   res.json({ message: 'Model deleted' });
 });

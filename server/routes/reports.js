@@ -2,6 +2,7 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { authFor } = require('../middleware/auth');
 const db = require('../db');
+const { purgeStaleDrafts, withoutDrafts } = require('../utils/reportDrafts');
 const { ensurePersonalWorkspace } = require('../utils/personalWorkspace');
 const { getPublicSharingPolicy } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
@@ -255,7 +256,8 @@ function formulasChanged(beforeJson, afterJson) {
 function rejectIfReportTitleTaken(workspaceId, title, res, excludeId) {
   const t = typeof title === 'string' ? title.trim() : '';
   if (!t || t === 'Untitled Report' || !workspaceId) return false;
-  const sql = `SELECT id FROM reports WHERE workspace_id = ? AND title = ? COLLATE NOCASE${excludeId ? ' AND id != ?' : ''}`;
+  // A draft holds no name: nobody can see it, so nobody could tell why theirs was refused.
+  const sql = `SELECT id FROM reports WHERE workspace_id = ? AND title = ? COLLATE NOCASE AND draft = 0${excludeId ? ' AND id != ?' : ''}`;
   const args = excludeId ? [workspaceId, t, excludeId] : [workspaceId, t];
   if (db.prepare(sql).get(...args)) {
     res.status(409).json({ error: `A report named "${t}" already exists in this workspace.` });
@@ -276,7 +278,7 @@ function rejectIfReportTitleTaken(workspaceId, title, res, excludeId) {
 function uniqueReportTitle(workspaceId, title) {
   const base = typeof title === 'string' ? title.trim() : '';
   if (!base || !workspaceId) return base;
-  const taken = (t) => !!db.prepare('SELECT id FROM reports WHERE workspace_id = ? AND title = ? COLLATE NOCASE').get(workspaceId, t);
+  const taken = (t) => !!db.prepare('SELECT id FROM reports WHERE workspace_id = ? AND title = ? COLLATE NOCASE AND draft = 0').get(workspaceId, t);
   if (!taken(base)) return base;
   // Bounded: a workspace that somehow holds 999 of the same name gets the
   // plain title back and the usual uniqueness error, rather than a hung loop.
@@ -292,7 +294,7 @@ router.get('/', authFor('read'), (req, res) => {
   // Cloud scopes the list to the active org (cloudHooks.listReports); OSS lists
   // the caller's own reports. Both return the same row shape for the map below.
   const rows = typeof cloudHooks.listReports === 'function'
-    ? cloudHooks.listReports(req)
+    ? withoutDrafts(cloudHooks.listReports(req))
     : db.prepare(`
     SELECT r.id, r.title, r.model_id, r.workspace_id, r.is_public, r.live_mode, r.created_at, r.updated_at,
       m.name as model_name,
@@ -300,7 +302,7 @@ router.get('/', authFor('read'), (req, res) => {
     FROM reports r
     LEFT JOIN models m ON m.id = r.model_id
     LEFT JOIN datasources d ON d.id = m.datasource_id
-    WHERE r.user_id = ?
+    WHERE r.user_id = ? AND r.draft = 0
     ORDER BY r.updated_at DESC
   `).all(req.user.id);
   // Same shape as /workspaces/:id — surface fileSize for local (DuckDB) datasources.
@@ -328,7 +330,7 @@ router.get('/writable', authFor('read'), (req, res) => {
   const rows = db.prepare(`
     SELECT r.*, w.name AS workspace_name
     FROM reports r LEFT JOIN workspaces w ON w.id = r.workspace_id
-    WHERE r.model_id = ?
+    WHERE r.model_id = ? AND r.draft = 0
     ORDER BY r.updated_at DESC
   `).all(modelId);
   const reports = rows
@@ -576,7 +578,7 @@ router.post('/import', authFor('read'), (req, res) => {
 // Create report
 router.post('/', authFor('read'), (req, res) => {
   const id = uuidv4();
-  const { title, modelId, workspaceId, settings, autoTitle } = req.body;
+  const { title, modelId, workspaceId, settings, autoTitle, draft } = req.body;
 
   if (!modelId) {
     return res.status(400).json({ error: 'A data model is required' });
@@ -608,8 +610,11 @@ router.post('/', authFor('read'), (req, res) => {
   // A generated title is made unique; a typed one is defended.
   const finalTitle = autoTitle ? uniqueReportTitle(targetWs, title) : title;
   if (!autoTitle && rejectIfReportTitleTaken(targetWs, title, res)) return;
-  db.prepare('INSERT INTO reports (id, user_id, model_id, title, workspace_id, settings) VALUES (?, ?, ?, ?, ?, ?)').run(
-    id, req.user.id, modelId, finalTitle || 'Untitled Report', targetWs, initialSettings
+  // A blank report from the "New report" dialog is a draft until its first
+  // save; one that arrives with content (duplicate, import, the assistant) is not.
+  purgeStaleDrafts();
+  db.prepare('INSERT INTO reports (id, user_id, model_id, title, workspace_id, settings, draft) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+    id, req.user.id, modelId, finalTitle || 'Untitled Report', targetWs, initialSettings, draft === true ? 1 : 0
   );
   stampNewReport(req, id);
 
@@ -726,6 +731,7 @@ router.put('/:id', authFor('read'), (req, res) => {
       is_public = COALESCE(?, is_public),
       live_mode = COALESCE(?, live_mode),
       workspace_id = CASE WHEN ? = 1 THEN ? ELSE workspace_id END,
+      draft = CASE WHEN ? = 1 THEN 0 ELSE draft END,
       updated_at = datetime('now')
     WHERE id = ?
   `).run(
@@ -737,6 +743,8 @@ router.put('/:id', authFor('read'), (req, res) => {
     live_mode !== undefined ? (live_mode ? 1 : 0) : null,
     workspace_id !== undefined ? 1 : 0,
     workspace_id !== undefined ? workspace_id : null,
+    // Saving the content is what makes a draft a report.
+    isContentChange ? 1 : 0,
     req.params.id
   );
 
@@ -945,6 +953,17 @@ router.put('/:id/shares', authFor('read'), (req, res) => {
     for (const wsId of wanted) ins.run(wsId, report.id);
   })();
   res.json({ workspaceIds: wanted });
+});
+
+// Leaving the editor of a report never saved. Deletes a draft and nothing
+// else: a report saved meanwhile — in another tab — is no longer one, and
+// this is a no-op for it.
+router.delete('/:id/draft', authFor('read'), (req, res) => {
+  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  if (!report || !canAccessReport(report, req.user, req)) return res.status(404).json({ error: 'Report not found' });
+  if (!canWriteReport(report, req.user, req)) return res.status(403).json({ error: 'Access denied' });
+  const { changes } = db.prepare('DELETE FROM reports WHERE id = ? AND draft = 1').run(req.params.id);
+  res.json({ deleted: changes > 0 });
 });
 
 router.delete('/:id', authFor('read'), (req, res) => {

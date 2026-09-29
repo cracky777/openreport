@@ -32,13 +32,13 @@ function listWorkspaces(req) {
   if (typeof cloudHooks.listWorkspaces === 'function') return cloudHooks.listWorkspaces(req);
   const owned = db.prepare(`
     SELECT w.*, 'admin' as member_role,
-      (SELECT COUNT(*) FROM reports WHERE workspace_id = w.id) as report_count,
+      (SELECT COUNT(*) FROM reports WHERE workspace_id = w.id AND draft = 0) as report_count,
       (SELECT COUNT(*) FROM workspace_members WHERE workspace_id = w.id) + 1 as member_count
     FROM workspaces w WHERE w.owner_id = ?
   `).all(req.user.id);
   const shared = db.prepare(`
     SELECT w.*, wm.role as member_role,
-      (SELECT COUNT(*) FROM reports WHERE workspace_id = w.id) as report_count,
+      (SELECT COUNT(*) FROM reports WHERE workspace_id = w.id AND draft = 0) as report_count,
       (SELECT COUNT(*) FROM workspace_members WHERE workspace_id = w.id) + 1 as member_count
     FROM workspaces w
     JOIN workspace_members wm ON wm.workspace_id = w.id
@@ -115,7 +115,7 @@ router.get('/', authFor('org'), (req, res) => {
     const orgId = wsAccess.actorOf(req).orgId;
     others = db.prepare(`
       SELECT w.*, NULL as member_role,
-        (SELECT COUNT(*) FROM reports WHERE workspace_id = w.id) as report_count,
+        (SELECT COUNT(*) FROM reports WHERE workspace_id = w.id AND draft = 0) as report_count,
         (SELECT COUNT(*) FROM workspace_members WHERE workspace_id = w.id) + 1 as member_count
       FROM workspaces w WHERE w.is_personal = 0 ${orgId ? 'AND w.organization_id = ?' : ''} ORDER BY w.name
     `).all(...(orgId ? [orgId] : [])).filter((w) => !known.has(w.id));
@@ -158,7 +158,7 @@ router.get('/:id', authFor('org'), (req, res) => {
     FROM reports r
     LEFT JOIN models m ON m.id = r.model_id
     LEFT JOIN datasources d ON d.id = m.datasource_id
-    WHERE r.workspace_id = ?
+    WHERE r.workspace_id = ? AND r.draft = 0
     ORDER BY r.updated_at DESC
   `).all(req.params.id);
   // Reports shared into this workspace from elsewhere: listed read-only.
@@ -170,7 +170,7 @@ router.get('/:id', authFor('org'), (req, res) => {
     JOIN reports r ON r.id = wr.report_id
     LEFT JOIN models m ON m.id = r.model_id
     LEFT JOIN datasources d ON d.id = m.datasource_id
-    WHERE wr.workspace_id = ?
+    WHERE wr.workspace_id = ? AND r.draft = 0
     ORDER BY r.updated_at DESC
   `).all(req.params.id);
   reportsRaw.push(...sharedRaw);

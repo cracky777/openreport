@@ -22,6 +22,7 @@ export function useSaveAndDirtyTracking({
   savedSnapshotRef,
   setSaveMsg,
   setTitle,
+  onSaved,
 }) {
   const [saving, setSaving] = useState(false);
 
@@ -79,6 +80,7 @@ export function useSaveAndDirtyTracking({
         pages: pagesForSave,
       });
       savedSnapshotRef.current = buildSnapshot(title, settings, pagesForSave);
+      onSaved?.();
       setSaveMsg('Saved');
       setTimeout(() => setSaveMsg(null), 2000);
       return true;

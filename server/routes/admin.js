@@ -102,7 +102,7 @@ router.get('/inventory', requireAdmin, (req, res) => {
   const models = db.prepare(`
     SELECT m.id, m.name, m.created_at, m.updated_at, m.user_id, m.workspace_id, d.name AS datasource_name,
       u.email AS creator_email, u.display_name AS creator_name,
-      (SELECT COUNT(*) FROM reports r WHERE r.model_id = m.id) AS report_count
+      (SELECT COUNT(*) FROM reports r WHERE r.model_id = m.id AND r.draft = 0) AS report_count
     FROM models m
     LEFT JOIN datasources d ON d.id = m.datasource_id
     LEFT JOIN users u ON u.id = m.user_id
@@ -118,6 +118,7 @@ router.get('/inventory', requireAdmin, (req, res) => {
     FROM reports r
     LEFT JOIN models m ON m.id = r.model_id
     LEFT JOIN users u ON u.id = r.user_id
+    WHERE r.draft = 0
     ORDER BY r.title COLLATE NOCASE
   `).all().map((r) => ({
     id: r.id, name: r.title, modelName: r.model_name, createdAt: r.created_at, updatedAt: r.updated_at,

@@ -32,6 +32,7 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useIsCompact } from '../hooks/useMediaQuery';
 import { useAutoRefreshOnImport } from '../hooks/useAutoRefreshOnImport';
 import { useSaveAndDirtyTracking } from '../hooks/useSaveAndDirtyTracking';
+import { useDiscardDraftOnExit } from '../hooks/useDiscardDraftOnExit';
 import { useWidgetFetch } from '../hooks/useWidgetFetch';
 
 const _hs0 = { padding: 40, color: 'var(--text-disabled)' };
@@ -115,6 +116,8 @@ const LEGEND_CHART_TYPES = new Set(['bar', 'line', 'pie', 'scatter', 'combo']);
 export default function Editor() {
   const { id } = useParams();
   const navigate = useNavigate();
+  // A report never saved is not kept: leaving the editor drops it.
+  const draft = useDiscardDraftOnExit(id);
   const { getThemeVars, themes: availableThemes } = useTheme();
 
   const [report, setReport] = useState(null);
@@ -1484,6 +1487,7 @@ export default function Editor() {
       try {
         const res = await api.get(`/reports/${id}`);
         const r = res.data.report;
+        draft.markLoaded(r);
         setReport(r);
         setTitle(r.title);
         setSettings(r.settings || {});
@@ -1834,7 +1838,7 @@ export default function Editor() {
     confirmSaveAndLeave, confirmDiscardAndLeave, cancelLeave,
   } = useSaveAndDirtyTracking({
     id, pages, currentPageIdx, pagesDataRef, layout, widgets, title, settings,
-    savedSnapshotRef, setSaveMsg, setTitle,
+    savedSnapshotRef, setSaveMsg, setTitle, onSaved: draft.markSaved,
   });
 
   useAutoRefreshOnImport({ id, model, history, refreshing, handleRefresh, handleSave });
