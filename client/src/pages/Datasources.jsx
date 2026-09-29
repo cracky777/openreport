@@ -432,11 +432,12 @@ export default function Datasources() {
                     )}
                   </div>
                   {/* Hands the Models stage a source already chosen, the same
-                      way the model editor hands the wizard a model. */}
+                      way the model editor hands the wizard a model. No focus:
+                      creating is not following — only a click on a name filters. */}
                   {canBuildHere && (
                     <JoinAdd
                       title={`Add a data model on ${ds.name}`}
-                      onClick={() => navigate(`/models?focus=sources:${ds.id}&newModel=1&datasourceId=${ds.id}`)}
+                      onClick={() => navigate(`/models?newModel=1&datasourceId=${ds.id}`)}
                     />
                   )}
                 </div>

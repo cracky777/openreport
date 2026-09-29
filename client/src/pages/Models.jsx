@@ -478,11 +478,12 @@ export default function Models() {
                   )}
                 </div>
                 {/* Same parameters the model editor already sends when it
-                    bounces back into the new-report wizard. */}
+                    bounces back into the new-report wizard. No focus: creating
+                    is not following — only a click on a name filters. */}
                 {canBuildHere && (
                   <JoinAdd
                     title={`Add a report on ${m.name}`}
-                    onClick={() => navigate(`/?focus=models:${m.id}&newReport=1&modelId=${m.id}`)}
+                    onClick={() => navigate(`/?newReport=1&modelId=${m.id}`)}
                   />
                 )}
               </div>
