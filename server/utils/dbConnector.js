@@ -20,6 +20,11 @@ const _duckdbPromises = new Map();
 // this path, and it always picks one here.
 const DUCKDB_DIR = path.resolve(__dirname, '..', 'data', 'duckdb');
 
+function isManagedDuckDBPath(dbName) {
+  const resolved = path.resolve(dbName);
+  return resolved.startsWith(DUCKDB_DIR + path.sep);
+}
+
 function assertDuckDBPath(dbName) {
   if (!dbName) return ':memory:';
   const resolved = path.resolve(dbName);
@@ -1058,4 +1063,4 @@ function invalidateDatasource(id) {
   } catch { /* already closed */ }
 }
 
-module.exports = { createConnection, invalidateDatasource, closeAllDuckDB, closeDuckDBFile, adoptDuckDBInstance };
+module.exports = { createConnection, invalidateDatasource, closeAllDuckDB, closeDuckDBFile, adoptDuckDBInstance, isManagedDuckDBPath, DUCKDB_DIR };

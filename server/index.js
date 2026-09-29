@@ -303,6 +303,9 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Open Report running on http://0.0.0.0:${PORT}`);
+  // Files retired while Windows still held them: nothing is open yet.
+  try { require('./utils/duckdbFiles').retryPending(); }
+  catch (err) { console.warn('[duckdbFiles] retry failed:', err.message); }
   // Hot-load every enabled cache_warm schedule into node-cron now that
   // the HTTP server is up — the warmer fires queries against this same
   // server, so a tick before listen would deadlock on the first call.

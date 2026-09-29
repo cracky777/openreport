@@ -4,6 +4,25 @@ All notable changes to OpenReport are listed here. Versions follow
 [Semantic Versioning](https://semver.org/); each one is a git tag and a
 `ghcr.io/cracky777/openreport` image.
 
+## Unreleased
+
+- **Deleting an imported data source deletes its file.** The source's DuckDB
+  file used to stay on disk after the source was deleted, and so did the
+  previous version of a re-imported file when it could not be removed at once:
+  the data of deleted sources remained on the server. A file the system still
+  holds (Windows) is retried at the next start.
+
+  **Upgrading.** Files already left behind are not removed automatically. List
+  them, then delete them, with:
+
+  ```
+  docker compose exec openreport node server/scripts/cleanupOrphanDuckDB.js
+  docker compose exec openreport node server/scripts/cleanupOrphanDuckDB.js --delete
+  ```
+
+  (`node scripts/cleanupOrphanDuckDB.js` from `server/` outside Docker.) Only
+  files no source points at are touched, and none modified in the last hour.
+
 ## 0.3.0 — 2026-09-27
 
 - **Rights on data sources and data models, by workspace.** Each source and

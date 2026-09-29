@@ -132,6 +132,11 @@ safeMigrate(`CREATE TABLE IF NOT EXISTS workspace_datasources (
   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
   FOREIGN KEY (datasource_id) REFERENCES datasources(id) ON DELETE CASCADE
 )`);
+// A retired DuckDB file Windows would not let go of yet (utils/duckdbFiles.js).
+safeMigrate(`CREATE TABLE IF NOT EXISTS pending_file_deletions (
+  path TEXT PRIMARY KEY,
+  created_at TEXT DEFAULT (datetime('now'))
+)`);
 safeMigrate(`CREATE TABLE IF NOT EXISTS workspace_reports (
   workspace_id TEXT NOT NULL,
   report_id TEXT NOT NULL,

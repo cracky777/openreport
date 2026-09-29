@@ -4,6 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const { requireAdmin } = require('../middleware/auth');
 const aiFeedback = require('../utils/ai/feedback');
 const db = require('../db');
+const { retireDuckDBFile } = require('../utils/duckdbFiles');
 const authHooks = require('../hooks/auth');
 const {
   QUERY_TIMEOUT_MIN_MS,
@@ -198,8 +199,15 @@ router.post('/users', requireAdmin, async (req, res) => {
 // Delete user
 router.delete('/users/:id', requireAdmin, (req, res) => {
   if (req.params.id === req.user.id) return res.status(400).json({ error: 'Cannot delete yourself' });
+  // The user's sources go with them (ON DELETE CASCADE), and so must the files
+  // their imported ones are made of.
+  const files = db.prepare("SELECT db_name FROM datasources WHERE user_id = ? AND db_type = 'duckdb'")
+    .all(req.params.id).map((r) => r.db_name);
   db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
   destroySessionsForUser(req.params.id);
+  for (const f of files) {
+    retireDuckDBFile(f).catch((e) => console.warn('[admin] file of deleted user kept:', e.message));
+  }
   res.json({ message: 'User deleted' });
 });
 

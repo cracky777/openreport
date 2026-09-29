@@ -116,6 +116,13 @@ CREATE TABLE IF NOT EXISTS app_settings (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- A retired DuckDB file Windows would not let go of yet: retried until it goes
+-- (utils/duckdbFiles.js).
+CREATE TABLE IF NOT EXISTS pending_file_deletions (
+  path TEXT PRIMARY KEY,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Cron-triggered cache warm passes per report. Each row registers a
 -- `node-cron` job at boot (and on create/update via the scheduler's
 -- hot-reload). The runner fires the report's queries with bypassCache=1

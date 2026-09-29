@@ -3,6 +3,7 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { authFor } = require('../middleware/auth');
 const db = require('../db');
+const { retireDuckDBFile } = require('../utils/duckdbFiles');
 const { createConnection, invalidateDatasource } = require('../utils/dbConnector');
 const { PREVIEW, isAvailable, unavailableMessage } = require('../utils/connectorStatus');
 const queryCache = require('../utils/queryCache');
@@ -491,6 +492,9 @@ router.delete('/:id', authFor('write'), (req, res) => {
 
   db.prepare('DELETE FROM datasources WHERE id = ?').run(req.params.id);
   invalidateDatasource(req.params.id); // tear down the cached pool for the removed datasource
+  // An imported source's data lives in its file: deleting the source deletes it.
+  retireDuckDBFile(source.db_name)
+    .catch((e) => console.warn('[datasources] file of deleted source kept:', e.message));
   res.json({ message: 'Datasource deleted' });
 });
 

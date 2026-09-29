@@ -9,7 +9,8 @@ const uploadHooks = require('../hooks/upload');
 const cloudHooks = require('../cloudHooks');
 const wsAccess = require('../utils/workspaceAccess');
 const { nameTaken } = require('../utils/nameUniqueness');
-const { invalidateDatasource, closeDuckDBFile, adoptDuckDBInstance } = require('../utils/dbConnector');
+const { invalidateDatasource, adoptDuckDBInstance } = require('../utils/dbConnector');
+const { retireDuckDBFile } = require('../utils/duckdbFiles');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
 
@@ -433,15 +434,10 @@ router.put('/:id', authFor('write'), upload.single('file'), async (req, res) => 
       importedAt: new Date().toISOString(),
     }), req.params.id);
 
-    // Retire the previous file. Closing its instance is what lets Windows
-    // delete it; if it still refuses, the file is orphaned but harmless —
-    // nothing points at it any more.
+    // Retire the previous file. Windows may still hold it: it is then
+    // written down and retried (utils/duckdbFiles.js), never left behind.
     invalidateDatasource(req.params.id);
-    await closeDuckDBFile(oldPath);
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try { fs.rmSync(oldPath, { force: true }); fs.rmSync(`${oldPath}.wal`, { force: true }); break; }
-      catch { await new Promise((r) => setTimeout(r, 200)); }
-    }
+    await retireDuckDBFile(oldPath);
 
     // Every cached row and materialised rollup describes the previous file.
     queryCache.invalidateDatasource(req.params.id);
