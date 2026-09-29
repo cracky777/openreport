@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { TbShield, TbBell, TbSparkles, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug, TbPlugConnected } from 'react-icons/tb';
+import { TbShield, TbBell, TbSparkles, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug, TbPlugConnected, TbZoomOut } from 'react-icons/tb';
 import api from '../../utils/api';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
@@ -110,6 +110,34 @@ export default function AppShell({ step }) {
     : Math.max(MIN_COLUMN, viewportWidth - 2 * PEEK);
   const offset = peek - index * columnWidth;
 
+  // The overview: every stage at once, shrunk to fit the screen with its joins
+  // drawn, to see the whole journey — then a click on a column works in it.
+  // Columns are laid out narrower than a stage's own (cards reflow), so the
+  // shrink stays readable. Not on a phone: there is no room to shrink into.
+  const [overview, setOverview] = useState(false);
+  const overviewOn = overview && !compact;
+  const overviewScale = Math.min(1, viewportWidth / (OVERVIEW_COLUMN * visibleSteps.length));
+  const overviewInset = Math.max(0, (viewportWidth - OVERVIEW_COLUMN * visibleSteps.length * overviewScale) / 2);
+  // A scaled box keeps its layout height: the frame around the ribbon takes the
+  // shrunk height instead, so the page scrolls what shows and no more.
+  const ribbonRef = useRef(null);
+  const [ribbonHeight, setRibbonHeight] = useState(0);
+  useLayoutEffect(() => {
+    const el = ribbonRef.current;
+    if (!el) return undefined;
+    const read = () => setRibbonHeight(el.offsetHeight);
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!overviewOn) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setOverview(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [overviewOn]);
+
   // The ribbon slides only when the user moves from one stage to another in
   // this shell. Arriving from another page mounts the shell, and the ribbon
   // then settles several times on its own — the viewport gets measured, the
@@ -136,6 +164,7 @@ export default function AppShell({ step }) {
   // click points at. Both directions focus the same node — walking back up a
   // join is the same branch seen from the other end, not a different filter.
   const follow = ({ dir, noun, id }) => {
+    setOverview(false);
     const stage = noun === 'model' ? 'sources' : 'models';
     const down = noun === 'model' ? '/models' : '/';
     const up = noun === 'model' ? '/datasources' : '/models';
@@ -146,6 +175,7 @@ export default function AppShell({ step }) {
   // stepping one stage over would silently drop it. The crumb, shown on every
   // stage while it is set, is the way out.
   const go = (key) => {
+    setOverview(false);
     const target = STEPS.find((s) => s.key === key);
     if (target) navigate(target.path + search);
   };
@@ -185,7 +215,22 @@ export default function AppShell({ step }) {
             <WorkspacePicker canCreate={canEditOrg} />
           </div>
 
-          {!compact && <StepNav current={step} onGo={go} allowed={stepAllowed} />}
+          {!compact && (
+            <div style={centerGroup}>
+              {/* The overview is no stage: none shows as the current one. */}
+              <StepNav current={overviewOn ? null : step} onGo={go} allowed={stepAllowed} />
+              <button
+                type="button"
+                onClick={() => setOverview((v) => !v)}
+                style={overviewBtnStyle(overviewOn)}
+                title={overviewOn ? 'Back to the stage (Esc)' : 'Overview: sources, models and reports at once, with their joins'}
+                aria-label="Overview"
+                aria-pressed={overviewOn}
+              >
+                <TbZoomOut size={16} />
+              </button>
+            </div>
+          )}
 
           <nav style={rightGroup}>
           {/* Asking is building on a model: same roles as creating a report.
@@ -334,26 +379,31 @@ export default function AppShell({ step }) {
           run a curve from a card in one column to its target in the other. */}
       <div style={bodyRowStyle}>
       <div ref={viewportRef} style={viewportStyle} aria-live="polite">
+        <div style={overviewOn ? { height: ribbonHeight * overviewScale, overflow: 'hidden' } : undefined}>
         {/* JoinLayer lives on the ribbon, alongside the columns it links. It
             measures against its own parent, and that parent has to be the
             element the cards move with — measured against the still viewport,
             a sliding card would drift away from its curve on every frame. */}
         <div
+          ref={ribbonRef}
           data-journey-ribbon=""
+          data-overview={overviewOn ? '' : undefined}
           style={{
             ...ribbonStyle,
-            width: columnWidth * visibleSteps.length,
+            width: (overviewOn ? OVERVIEW_COLUMN : columnWidth) * visibleSteps.length,
             // A short stage still has to fill the screen; a tall one grows the
             // ribbon and, with it, the viewport's scrollbar.
-            minHeight: viewportHeight || undefined,
-            transform: `translateX(${offset}px)`,
+            minHeight: (overviewOn ? viewportHeight / overviewScale : viewportHeight) || undefined,
+            transform: overviewOn ? `translateX(${overviewInset}px) scale(${overviewScale})` : `translateX(${offset}px)`,
+            transformOrigin: '0 0',
             transition: sliding ? ribbonStyle.transition : 'none',
           }}
           onTransitionEnd={endSlide}
           onTransitionCancel={endSlide}
         >
           {visibleSteps.map((s) => {
-            const peeking = !compact && s.key !== step;
+            // In the overview every column is a way into its stage.
+            const peeking = !compact && (overviewOn || s.key !== step);
             return (
             <div
               key={s.key}
@@ -365,7 +415,7 @@ export default function AppShell({ step }) {
               title={peeking ? `Go to ${s.label}` : undefined}
               style={{
                 ...panelStyle,
-                width: columnWidth,
+                width: overviewOn ? OVERVIEW_COLUMN : columnWidth,
                 ...(peeking ? { cursor: 'pointer' } : null),
                 // Les trois colonnes font un seul ensemble : chacune se rend
                 // tout entière, et c'est la plus longue qui donne sa hauteur au
@@ -382,20 +432,20 @@ export default function AppShell({ step }) {
                 // moitié du parcours.
                 // Neighbours are legible enough to show where a join lands,
                 // quiet enough not to compete with the column in focus.
-                opacity: s.key === step ? 1 : 0.45,
+                opacity: overviewOn || s.key === step ? 1 : 0.45,
                 transition: sliding ? panelStyle.transition : 'none',
               }}
               data-stage-panel=""
               data-peek={s.key === step ? undefined : ''}
               aria-label={s.label}
-              aria-current={s.key === step ? 'page' : undefined}
+              aria-current={!overviewOn && s.key === step ? 'page' : undefined}
             >
               {/* Une carte dont quatre-vingt-seize pixels dépassent n'est pas
                   cliquable de façon fiable : viser son bouton de suppression
                   tient du hasard. La bande ne transmet donc plus le clic à ce
                   qu'elle montre — elle mène à l'étape, ce qui est la seule
                   chose qu'on puisse vouloir y faire. */}
-              <div style={peeking ? { ...stageBoxStyle, pointerEvents: 'none' } : stageBoxStyle}>
+              <div style={{ ...stageBoxStyle, ...(peeking ? { pointerEvents: 'none' } : null), ...(overviewOn ? overviewGutter : null) }}>
                 <Stage step={s.key} />
               </div>
             </div>
@@ -405,7 +455,8 @@ export default function AppShell({ step }) {
               shows one column at a time, so every curve would run to a card
               parked off-screen — drawing arrowheads, "+" affordances and target
               labels over the cards that are on screen. Nothing to link here. */}
-          {!compact && <JoinLayer onFollow={follow} />}
+          {!compact && <JoinLayer onFollow={follow} overview={overviewOn} />}
+        </div>
         </div>
       </div>
       {canAsk && <AskPanel open={askOpen} onToggle={() => setAskOpen((v) => !v)} onClose={() => setAskOpen(false)} compact={compact} />}
@@ -449,6 +500,7 @@ const stepNavRowStyle = {
   display: 'flex', justifyContent: 'center',
   overflowX: 'auto', scrollbarWidth: 'none',
 };
+const centerGroup = { display: 'flex', alignItems: 'center', gap: 6 };
 const leftGroup = { display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 };
 const rightGroup = { display: 'flex', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'flex-end' };
 const logoStyle = { height: 28 };
@@ -474,6 +526,11 @@ const PEEK = 96;
 // --stage-ms in index.css.
 const SLIDE_MS = 420;
 const MIN_COLUMN = 360;
+// Column width in the overview, before the shrink, and the gutter each column
+// keeps on both sides: the stages' cards fill their column, and a join's tally
+// and origin label need room between two columns.
+const OVERVIEW_COLUMN = 760;
+const overviewGutter = { padding: '0 72px' };
 // Relative, not absolute: the ribbon has to take the height of its tallest
 // column so the viewport has something to scroll. It stays the positioning
 // context for JoinLayer, which is why the curves scroll with the cards instead
@@ -511,6 +568,13 @@ const navBtnStyled = {
   transition: 'background 0.15s',
 };
 const ASK_OPEN_KEY = 'openreport.askOpen';
+function overviewBtnStyle(active) {
+  return {
+    ...navBtnStyled, padding: 6,
+    background: active ? 'var(--accent-primary-soft)' : 'transparent',
+    color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
+  };
+}
 
 function askBtnStyle(active, compact) {
   return {

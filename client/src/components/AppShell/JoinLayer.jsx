@@ -18,7 +18,9 @@ import { useState, useLayoutEffect, useRef, useCallback } from 'react';
 // now" — is precisely what a DOM query answers. The relations come from the
 // cards too: the Reports stage lists what the workspace shows (a teammate's
 // report, one shared into it), which no list held by the graph matches.
-export default function JoinLayer({ onFollow }) {
+// `overview`: the whole journey zoomed out — the curves and their tallies,
+// without the origin names at every target, which crowd a shrunk screen.
+export default function JoinLayer({ onFollow, overview = false }) {
   const [links, setLinks] = useState([]);
   const hostRef = useRef(null);
 
@@ -28,6 +30,10 @@ export default function JoinLayer({ onFollow }) {
     const host = hostRef.current?.parentElement;
     if (!host) return;
     const box = host.getBoundingClientRect();
+    // Rects are read on screen, curves drawn in the host's own units: the
+    // overview shrinks the ribbon (a CSS scale), and a curve measured on screen
+    // would be shrunk a second time.
+    const scale = host.offsetWidth ? box.width / host.offsetWidth : 1;
 
     const at = (key) => {
       const el = host.querySelector(`[data-join-anchor="${key.replace(/["\\]/g, '\\$&')}"]`);
@@ -42,9 +48,9 @@ export default function JoinLayer({ onFollow }) {
         if (r.bottom <= p.top || r.top >= p.bottom) return null;
       }
       return {
-        left: r.left - box.left,
-        right: r.right - box.left,
-        mid: r.top - box.top + r.height / 2,
+        left: (r.left - box.left) / scale,
+        right: (r.right - box.left) / scale,
+        mid: (r.top - box.top + r.height / 2) / scale,
       };
     };
 
@@ -111,7 +117,7 @@ export default function JoinLayer({ onFollow }) {
           dim: !live.has(edge.from),
         });
       }
-      if (edge.parentName && !origins.has(edge.to)) {
+      if (!overview && edge.parentName && !origins.has(edge.to)) {
         origins.add(edge.to);
         next.push({
           key: `origin:${edge.to}`,
@@ -123,7 +129,7 @@ export default function JoinLayer({ onFollow }) {
       }
     }
     setLinks(next);
-  }, []);
+  }, [overview]);
 
   useLayoutEffect(() => {
     measure();

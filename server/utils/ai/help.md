@@ -4,6 +4,7 @@
 - OpenReport works in three stages, left to right: Data Sources (connections) → Data Models (the fields people report on) → Reports.
 - The stage switcher in the top header shows Data Sources, Data Models and Reports. Viewers only see Reports; Data Sources and Data Models are for admins and editors.
 - Alt+← / Alt+→ moves between stages. On a wide screen you can also click the neighbouring column that peeks in at the edge.
+- Overview (magnifier icon right of the stage switcher, wide screens): shows Data Sources, Data Models and Reports side by side, zoomed out to fit the screen, with the joins between them. Click a column to open that stage; Esc or the same icon goes back.
 - Lines between cards show which model uses which source and which report uses which model. Following one filters the next stage; the filter crumb at the top clears it.
 - The workspace picker (folder icon, top-left, next to the logo) chooses between My Reports and the workspaces you belong to. Every stage follows it: Data Sources and Data Models show what lives in the open workspace (or is shared into it), Reports shows its reports. An app admin also sees, apart, the workspaces they hold no role in.
 - Top-right: your user menu (the account pill). It opens on Alerts (admins and editors), Admin (admins only), the theme, API tokens, Report a bug and Logout.
