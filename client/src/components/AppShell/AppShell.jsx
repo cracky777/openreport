@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { TbShield, TbBell, TbSparkles, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug, TbPlugConnected, TbEye } from 'react-icons/tb';
 import api from '../../utils/api';
 import { useAuth } from '../../hooks/useAuth';
+import { useGraph } from '../../hooks/graphContext';
 import { useTheme } from '../../hooks/useTheme';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useIsCompact } from '../../hooks/useMediaQuery';
@@ -31,6 +32,15 @@ export default function AppShell({ step }) {
   const { user, logout, instance } = useAuth();
   const { mode: themeMode, resolved: themeResolved, setMode: setThemeMode, themes: availableThemes } = useTheme();
   const logoSrc = themeResolved === 'dark' ? '/logo-dark.png' : '/logo.png';
+
+  // The journey's lists live above the router so that moving between stages
+  // does not refetch them. Coming back from an editor is another matter — a
+  // model saved or renamed, a report created or deleted: this shell was
+  // unmounted meanwhile, and what it would show is out of date. Mounting again
+  // is that return; the very first mount is the provider's own initial load.
+  const { refresh: refreshGraph, loading: graphLoading } = useGraph();
+  const firstLoadRef = useRef(graphLoading);
+  useEffect(() => { if (!firstLoadRef.current) refreshGraph(); }, [refreshGraph]);
 
   // Nav-level gates only. Stages that care about a specific workspace keep
   // their own usePermissions call — that one needs the selected workspace,
