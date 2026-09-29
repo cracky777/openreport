@@ -31,6 +31,16 @@ async function seed(page) {
 
 const panneau = (page, label) => page.locator(`[data-stage-panel][aria-label="${label}"]`);
 
+// Une hauteur où, à cette abscisse, la bande est bien ce qu'on touche : le nom
+// d'origine d'un trait peut s'y poser, et cliquer un nom suit le trait.
+const hauteurLibre = (page, x) => page.evaluate((px) => {
+  for (let y = 200; y < 880; y += 10) {
+    const e = document.elementFromPoint(px, y);
+    if (e && !e.closest('[data-join-layer] button') && e.closest('[data-stage-panel][data-peek]')) return y;
+  }
+  return null;
+}, x);
+
 test('cliquer la bande de gauche ou de droite mène à son étape', async ({ page }) => {
   await seed(page);
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -42,13 +52,23 @@ test('cliquer la bande de gauche ou de droite mène à son étape', async ({ pag
   // le geste décrit, pas un clic au centre d'un panneau qu'on aurait cherché.
   const gauche = await panneau(page, 'Data Sources').boundingBox();
   expect(gauche.x, 'la bande de gauche doit dépasser à gauche').toBeLessThan(0);
-  await page.mouse.click(4, 500);
+  const yg = await hauteurLibre(page, 4);
+  expect(yg, 'un point libre de la bande de gauche').not.toBeNull();
+  await page.mouse.click(4, yg);
   await page.waitForURL(/\/datasources/);
 
   await page.waitForTimeout(1200);
+  // Le bord droit du parcours, pas celui de la fenêtre : le rail de l'assistant
+  // s'y range dès que l'IA est disponible, et sa gouttière de défilement aussi.
+  const bord = await page.locator('[data-journey-ribbon]').evaluate((el) => {
+    const vp = el.parentElement;
+    return vp.getBoundingClientRect().left + vp.clientWidth;
+  });
   const droite = await panneau(page, 'Data Models').boundingBox();
-  expect(droite.x + droite.width, 'la bande de droite doit dépasser à droite').toBeGreaterThan(1440);
-  await page.mouse.click(1436, 500);
+  expect(droite.x + droite.width, 'la bande de droite doit dépasser à droite').toBeGreaterThan(bord);
+  const yd = await hauteurLibre(page, bord - 4);
+  expect(yd, 'un point libre de la bande de droite').not.toBeNull();
+  await page.mouse.click(bord - 4, yd);
   await page.waitForURL(/\/models/);
 });
 
