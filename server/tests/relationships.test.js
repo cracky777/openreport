@@ -117,9 +117,10 @@ describe('POST /datasources/:id/relationships', () => {
   const path = require('path');
   const request = require('supertest');
   const { buildApp, seedUser, db } = require('./helpers/testApp');
-  const { createConnection, closeDuckDBFile } = require('../utils/dbConnector');
+  const { createConnection, closeDuckDBFile, DUCKDB_DIR } = require('../utils/dbConnector');
   const app = buildApp();
-  const file = path.resolve(__dirname, '..', 'data', 'duckdb', `relationships-${process.pid}.duckdb`);
+  // The suite's own data dir, not server/data: one file per run used to pile up there.
+  const file = path.join(DUCKDB_DIR, `relationships-${process.pid}.duckdb`);
   let user;
   let dsId;
 

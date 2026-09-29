@@ -9,7 +9,7 @@ const uploadHooks = require('../hooks/upload');
 const cloudHooks = require('../cloudHooks');
 const wsAccess = require('../utils/workspaceAccess');
 const { nameTaken } = require('../utils/nameUniqueness');
-const { invalidateDatasource, adoptDuckDBInstance } = require('../utils/dbConnector');
+const { invalidateDatasource, adoptDuckDBInstance, DUCKDB_DIR } = require('../utils/dbConnector');
 const { retireDuckDBFile } = require('../utils/duckdbFiles');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
@@ -55,9 +55,9 @@ function targetWorkspaceFor(req, res) {
   return wsId;
 }
 
-// Ensure upload directories exist
-const uploadsDir = path.join(__dirname, '..', 'data', 'uploads');
-const duckdbDir = path.join(__dirname, '..', 'data', 'duckdb');
+// Ensure upload directories exist — under the data directory, like the DB.
+const uploadsDir = path.join(process.env.OPENREPORT_DATA_DIR || path.join(__dirname, '..', 'data'), 'uploads');
+const duckdbDir = DUCKDB_DIR;
 [uploadsDir, duckdbDir].forEach((d) => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
 
 // Database files: whole databases whose tables are copied in through an ATTACH.

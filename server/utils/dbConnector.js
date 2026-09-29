@@ -18,7 +18,10 @@ const _duckdbPromises = new Map();
 // path, and nothing stopped it from naming another user's cube — or any path the
 // process can write. The import pipeline is the only thing that should ever pick
 // this path, and it always picks one here.
-const DUCKDB_DIR = path.resolve(__dirname, '..', 'data', 'duckdb');
+// Under the data directory the metadata DB uses (OPENREPORT_DATA_DIR): the
+// test suites point it at a throwaway dir, and each run used to leave its
+// imported files in the real server/data/duckdb instead.
+const DUCKDB_DIR = path.resolve(process.env.OPENREPORT_DATA_DIR || path.join(__dirname, '..', 'data'), 'duckdb');
 
 function isManagedDuckDBPath(dbName) {
   const resolved = path.resolve(dbName);

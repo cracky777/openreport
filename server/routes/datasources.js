@@ -4,7 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const { authFor } = require('../middleware/auth');
 const db = require('../db');
 const { retireDuckDBFile } = require('../utils/duckdbFiles');
-const { createConnection, invalidateDatasource } = require('../utils/dbConnector');
+const { createConnection, invalidateDatasource, DUCKDB_DIR } = require('../utils/dbConnector');
 const { PREVIEW, isAvailable, unavailableMessage } = require('../utils/connectorStatus');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
@@ -252,7 +252,7 @@ router.post('/', authFor('write'), async (req, res) => {
   // gets a path derived from its own id, inside the managed directory.
   // ':memory:' stays available — it names no file.
   const storedDbName = dbType === 'duckdb' && dbName !== ':memory:'
-    ? path.join(__dirname, '..', 'data', 'duckdb', `${id}.duckdb`)
+    ? path.join(DUCKDB_DIR, `${id}.duckdb`)
     : dbName;
 
   db.prepare(`
