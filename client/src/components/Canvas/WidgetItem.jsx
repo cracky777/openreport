@@ -464,7 +464,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
         )}
         {widget.config?.title && (
           <div style={{
-            padding: '8px 12px 0', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)',
+            padding: '8px 12px 0', fontSize: 13, fontWeight: 600, color: widget.config?.titleColor || 'var(--text-secondary)',
             fontFamily: widget.config?.titleFontFamily ? fontStack(widget.config.titleFontFamily) : undefined,
           }}>
             {widget.config.title}

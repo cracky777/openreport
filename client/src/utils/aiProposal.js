@@ -191,7 +191,7 @@ export const DESIGN_KEYS = [
   'dataLabelBgOpacity', 'gridLineStyle', 'gridLineWidth', 'gridLineColor', 'xAxisLineColor', 'yAxisLineColor', 'secondaryYAxisLineColor', 'gaugeColor', 'gaugeTrackColor', 'gaugeThresholdColor',
   'gaugeOverColor', 'gaugeConditionalColor', 'gaugeValueColor', 'gaugeLabelColor', 'gaugeAxisColor',
   'slicerFontColor', 'slicerSelectedColor', 'slicerSelectedBg', 'shapeFill', 'shapeStroke', 'lineColor',
-  'mergeSeparatorColor', 'tableConfig', 'palette', 'legendTextColor',
+  'mergeSeparatorColor', 'tableConfig', 'palette', 'legendTextColor', 'titleColor',
 ];
 const DESIGN_KEY_SET = new Set(DESIGN_KEYS);
 const HEX = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;

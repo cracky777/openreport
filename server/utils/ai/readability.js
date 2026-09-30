@@ -34,6 +34,7 @@ const TEXT_KEYS = {
   slicerFontColor: 'text',
   labelColor: 'secondary',
   legendTextColor: 'secondary',
+  titleColor: 'secondary',
   xAxisLabelColor: 'secondary',
   yAxisLabelColor: 'secondary',
   secondaryYAxisLabelColor: 'secondary',

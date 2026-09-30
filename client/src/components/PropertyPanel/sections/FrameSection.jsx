@@ -1,5 +1,5 @@
 // Section 9 — Frame. The box around the visual, the same for all fifteen
-// widget types: the title's type, the border, the background, the shadow,
+// widget types: the title's type and color, the border, the background, the shadow,
 // the rotation, and the seam line of a merged block.
 import { Section, SubSection, Field, RangeInput, ColorInput } from '../controls';
 import FontPicker from '../../FontPicker/FontPicker';
@@ -18,6 +18,9 @@ export default function FrameSection({ ctx }) {
     <Section id="frame" title="Frame" sectionState={sections}>
       <Field label="Title font">
         <FontPicker value={cfg.titleFontFamily} onChange={(v) => updateConfig('titleFontFamily', v)} />
+      </Field>
+      <Field label="Title color">
+        <ColorInput value={cfg.titleColor || '#475569'} onChange={(v) => updateConfig('titleColor', v)} />
       </Field>
       <SubSection label="Border">
         <Field label="Show border">

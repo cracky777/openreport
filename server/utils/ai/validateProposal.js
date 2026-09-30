@@ -437,6 +437,7 @@ const DESIGN_CONFIG = {
   // in the old palette: every color a renderer actually reads is settable.
   // Names checked against the widgets — a key no renderer reads is not here.
   legendTextColor: color,
+  titleColor: color,
   xAxisLabelColor: color,
   yAxisLabelColor: color,
   secondaryYAxisLabelColor: color,

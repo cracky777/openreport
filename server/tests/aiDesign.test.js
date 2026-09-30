@@ -41,6 +41,15 @@ test.each([
   expect(errors[0]).toMatch(/ignored/);
 });
 
+// Asked for purple titles, the assistant used to answer that titles follow the
+// theme: the key did not exist, and its prompt said so.
+test('a title color is a look key like the others', () => {
+  const { ops, errors } = check([{ op: 'update_config', widgetId: 'w1', set: { titleColor: '#7C3AED' } }]);
+  expect(errors).toEqual([]);
+  expect(ops[0].set).toEqual({ titleColor: '#7C3AED' });
+  expect(check([{ op: 'update_config', widgetId: 'w1', set: { titleColor: 'purple' } }]).ops).toEqual([]);
+});
+
 test('an opacity written 0–1 is read as the percentage it meant', () => {
   const set = (v) => check([{ op: 'update_config', widgetId: 'w1', set: { dataLabelBgOpacity: v } }]).ops[0].set.dataLabelBgOpacity;
   expect(set(0.7)).toBeCloseTo(70);
