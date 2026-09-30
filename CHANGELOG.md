@@ -4,8 +4,35 @@ All notable changes to OpenReport are listed here. Versions follow
 [Semantic Versioning](https://semver.org/); each one is a git tag and a
 `ghcr.io/cracky777/openreport` image.
 
-## Unreleased
+## 0.4.0 — 2026-09-30
 
+- **A data model can read several imported files.** Each imported file is a
+  data source of its own; a model built on one can link others (Import a file
+  or Add a data source, in the model editor's Tables step) and join their
+  tables. A file used by several models is refreshed once. Imports run in a
+  separate process and the server opens imported files read-only.
+- **Relationship detection.** Tables added to a model arrive joined by the
+  foreign keys the database declares, and Detect relationships also joins them
+  by key column names (customer_id, id_customer, FK_customer…), from fact to
+  dimension tables, without loops. A join between columns of incompatible types
+  is flagged.
+- **Model editor: search a table's fields.** The magnifier at the left of a
+  table's FACT / DIM bar opens a search; D all / M all flag every match as a
+  dimension or a measure at once.
+- **AI assistant: take part of a proposal.** Each line of a card (a visual, a
+  design change, a join, a column…) can be unticked; only the ticked ones are
+  applied, and the assistant is told what was kept.
+- **Title color** for every visual (Frame › Title color), which the Design
+  assistant can now set too.
+- **Journey overview**: the three stages side by side with their links;
+  following a link highlights the branch instead of filtering the columns.
+- A new report is a draft until its first save: leaving the editor without
+  saving leaves no empty report behind, and a report created from the model
+  editor lands in the open workspace.
+- Reports shared into a workspace can be edited there by its editors and
+  admins (deleting stays with the report's own workspace).
+- The report editor's canvas works with a finger on phones and tablets.
+- Lists reload when coming back from an editor.
 - **Deleting an imported data source deletes its file.** The source's DuckDB
   file used to stay on disk after the source was deleted, and so did the
   previous version of a re-imported file when it could not be removed at once:
