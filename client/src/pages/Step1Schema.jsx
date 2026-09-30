@@ -25,7 +25,7 @@ export default function Step1Schema({
   joins, setJoins,
   dimensions, setDimensions,
   measures, setMeasures,
-  addDimension, addMeasure,
+  addDimension, addMeasure, flagMatches,
   modelId, datasourceId, linkedTables,
   isNumeric, isDateType,
   columnTypes, setColumnType,
@@ -38,7 +38,7 @@ export default function Step1Schema({
   return (
     <div style={_hs41}>
       <div style={_hs42}>
-        Drag column dots to create joins. Click D/M to mark dimensions/measures.
+        Drag column dots to create joins. Click D/M to mark dimensions/measures, or search a table's fields to mark them all at once.
         <button
           type="button"
           className="btn-hover"
@@ -60,6 +60,7 @@ export default function Step1Schema({
         onJoinsChange={setJoins}
         onAddDimension={addDimension}
         onAddMeasure={addMeasure}
+        onFlagColumns={flagMatches}
         modelId={modelId}
         datasourceId={datasourceId}
         linkedTables={linkedTables}

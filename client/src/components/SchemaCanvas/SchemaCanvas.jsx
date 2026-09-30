@@ -5,6 +5,7 @@ import { keyRank, sortColumns } from '../../utils/columnKeys';
 import ColumnTypePopover from './ColumnTypePopover';
 import ConfirmDialog from '../ConfirmDialog/ConfirmDialog';
 import { joinTypeMismatch } from '../../utils/joinTypes';
+import { matchColumns, allFlagged } from '../../utils/bulkFlag';
 
 const _hs0 = {
           position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
@@ -54,6 +55,7 @@ const _hs28 = { cursor: 'pointer' };
 const TABLE_WIDTH = 220;
 const HEADER_HEIGHT = 44;
 const TYPE_BAR_HEIGHT = 20;
+const SEARCH_HEIGHT = 26;
 const ROW_HEIGHT = 24;
 const COL_DOT_RADIUS = 6;
 const DEFAULT_MAX_VISIBLE = 8;
@@ -73,6 +75,7 @@ export default function SchemaCanvas({
   onJoinsChange,
   onAddDimension,
   onAddMeasure,
+  onFlagColumns, // (matches, 'dimension' | 'measure') => void — the D / M tags applied to a whole search
   modelId, // used by the cardinality auto-detect endpoint
   datasourceId,
   // Tables of a file the model links: { [name]: { sourceId, sourceName, table } }.
@@ -102,6 +105,20 @@ export default function SchemaCanvas({
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [collapsedTables, setCollapsedTables] = useState({});
+  // Each card's field search: { tableName: text }. A table is absent while
+  // its search is closed — the magnifier of the type bar opens it.
+  const [columnSearch, setColumnSearch] = useState({});
+  const searchOf = useCallback((tableName) => (columnSearch[tableName] || '').trim().toLowerCase(), [columnSearch]);
+  const toggleSearch = (tableName) => setColumnSearch((prev) => {
+    const next = { ...prev };
+    if (tableName in next) delete next[tableName]; else next[tableName] = '';
+    return next;
+  });
+  // Where a card's column rows start: under the header, the type bar and,
+  // when open, the search.
+  const rowsTop = useCallback((tableName) => (
+    HEADER_HEIGHT + TYPE_BAR_HEIGHT + (tableName in columnSearch ? SEARCH_HEIGHT : 0)
+  ), [columnSearch]);
   // Why the last link drawn was refused (a loop) or is suspect (types).
   const [linkWarning, setLinkWarning] = useState(null);
   const [tableCounts, setTableCounts] = useState({}); // { tableName: { count: number, loading: boolean } }
@@ -132,14 +149,15 @@ export default function SchemaCanvas({
 
   const tableNames = Object.keys(tables);
 
-  // Sorted columns per table
+  // Sorted columns per table, narrowed to the card's search
   const sortedTables = useMemo(() => {
     const result = {};
     for (const [name, cols] of Object.entries(tables)) {
-      result[name] = sortColumns(cols);
+      const q = searchOf(name);
+      result[name] = sortColumns(q ? cols.filter((c) => String(c.column_name || '').toLowerCase().includes(q)) : cols);
     }
     return result;
-  }, [tables]);
+  }, [tables, searchOf]);
 
   // Get visible columns for a table (respecting collapse)
   // The database type of a column, as the table list carries it.
@@ -150,12 +168,18 @@ export default function SchemaCanvas({
 
   const getVisibleColumns = useCallback((tableName) => {
     const cols = sortedTables[tableName] || [];
+    if (searchOf(tableName)) return cols; // a match hidden behind "show more" would look like none
     if (collapsedTables[tableName] === false) return cols; // explicitly expanded
     if (collapsedTables[tableName] === true || cols.length > DEFAULT_MAX_VISIBLE) {
       return cols.slice(0, DEFAULT_MAX_VISIBLE);
     }
     return cols;
-  }, [sortedTables, collapsedTables]);
+  }, [sortedTables, collapsedTables, searchOf]);
+
+  // Rows drawn on a card: a search matching nothing still gets one, to say so.
+  const rowCount = useCallback((tableName) => (
+    getVisibleColumns(tableName).length || (searchOf(tableName) ? 1 : 0)
+  ), [getVisibleColumns, searchOf]);
 
   const isExpanded = useCallback((tableName) => {
     const cols = sortedTables[tableName] || [];
@@ -164,8 +188,8 @@ export default function SchemaCanvas({
   }, [sortedTables, collapsedTables]);
 
   const hasMore = useCallback((tableName) => {
-    return (sortedTables[tableName] || []).length > DEFAULT_MAX_VISIBLE;
-  }, [sortedTables]);
+    return !searchOf(tableName) && (sortedTables[tableName] || []).length > DEFAULT_MAX_VISIBLE;
+  }, [sortedTables, searchOf]);
 
   const toggleExpand = (tableName) => {
     setCollapsedTables((prev) => ({ ...prev, [tableName]: prev[tableName] === false ? true : false }));
@@ -191,10 +215,10 @@ export default function SchemaCanvas({
       // Column might be hidden - use last visible row position
       colIndex = cols.length;
     }
-    const y = pos.y + HEADER_HEIGHT + TYPE_BAR_HEIGHT + colIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
+    const y = pos.y + rowsTop(tableName) + colIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
     const x = side === 'right' ? pos.x + TABLE_WIDTH : pos.x;
     return { x, y };
-  }, [positions, getVisibleColumns]);
+  }, [positions, getVisibleColumns, rowsTop]);
 
   // Table drag
   const handleTableMouseDown = (e, tableName) => {
@@ -516,10 +540,9 @@ export default function SchemaCanvas({
             const tableRects = {};
             for (const tableName of tableNames) {
               const pos = positions[tableName] || { x: 0, y: 0 };
-              const visibleCols = getVisibleColumns(tableName);
               const showToggle = hasMore(tableName);
               const toggleHeight = showToggle ? 24 : 0;
-              const tableHeight = HEADER_HEIGHT + TYPE_BAR_HEIGHT + visibleCols.length * ROW_HEIGHT + toggleHeight + 4;
+              const tableHeight = rowsTop(tableName) + rowCount(tableName) * ROW_HEIGHT + toggleHeight + 4;
               tableRects[tableName] = { x: pos.x, y: pos.y, width: TABLE_WIDTH, height: tableHeight };
             }
             // A join can reference a table not (yet) on the canvas — route
@@ -625,7 +648,11 @@ export default function SchemaCanvas({
             const showToggle = hasMore(tableName);
             const hiddenCount = allCols.length - visibleCols.length;
             const toggleHeight = showToggle ? 24 : 0;
-            const tableHeight = HEADER_HEIGHT + TYPE_BAR_HEIGHT + visibleCols.length * ROW_HEIGHT + toggleHeight + 4;
+            const top = rowsTop(tableName);
+            const searchOpen = tableName in columnSearch;
+            const tableHeight = top + rowCount(tableName) * ROW_HEIGHT + toggleHeight + 4;
+            const query = searchOf(tableName);
+            const matches = query ? matchColumns({ [tableName]: tables[tableName] }, query) : [];
             const tType = pos.tableType || null;
             const tColors = TABLE_TYPE_COLORS[tType];
             const headerColor = tColors ? tColors.header : '#1e293b';
@@ -714,6 +741,24 @@ export default function SchemaCanvas({
                   </text>
                 )}
 
+                {/* Magnifier, at the left end of the type bar: opens / closes the field search. */}
+                <g
+                  role="button"
+                  aria-label={`Search the fields of ${tableName}`}
+                  aria-pressed={searchOpen}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); toggleSearch(tableName); }}
+                  style={_hs22}
+                >
+                  <title>{searchOpen ? 'Close the field search' : 'Search the fields of this table'}</title>
+                  <rect x={6} y={HEADER_HEIGHT + 2} width={16} height={16} rx={4}
+                    fill={searchOpen ? '#7c3aed' : 'transparent'} fillOpacity={searchOpen ? 0.15 : 1} />
+                  <circle cx={13} cy={HEADER_HEIGHT + 9} r={3.5} fill="none"
+                    stroke={searchOpen ? '#7c3aed' : '#64748b'} strokeWidth={1.4} />
+                  <line x1={15.5} y1={HEADER_HEIGHT + 11.5} x2={18.5} y2={HEADER_HEIGHT + 14.5}
+                    stroke={searchOpen ? '#7c3aed' : '#64748b'} strokeWidth={1.6} strokeLinecap="round" />
+                </g>
+
                 {/* RLS badge — top-right of the type bar. Click opens the RLS configuration dialog. */}
                 {onOpenRLS && (
                   <g
@@ -738,9 +783,52 @@ export default function SchemaCanvas({
                   </g>
                 )}
 
+                {/* Field search — HTML in a foreignObject, so it is a real
+                    input; mousedown stays here instead of panning the canvas. */}
+                {searchOpen && (
+                  <foreignObject x={0} y={HEADER_HEIGHT + TYPE_BAR_HEIGHT} width={TABLE_WIDTH} height={SEARCH_HEIGHT}>
+                    <div style={searchRow} onMouseDown={(e) => e.stopPropagation()}>
+                      <input
+                        type="text"
+                        autoFocus
+                        value={columnSearch[tableName] || ''}
+                        onChange={(e) => setColumnSearch((prev) => ({ ...prev, [tableName]: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === 'Escape') toggleSearch(tableName); }}
+                        placeholder="Search fields…"
+                        aria-label={`Field search of ${tableName}`}
+                        style={searchInput}
+                      />
+                      {query && <span style={searchCount}>{matches.length}</span>}
+                      {onFlagColumns && matches.length > 0 && [['dimension', 'D', 'dimensions'], ['measure', 'M', 'measures']].map(([role, letter, plural]) => {
+                        const on = allFlagged({ dimensions, measures }, matches, role);
+                        return (
+                          <button
+                            key={role}
+                            type="button"
+                            onClick={() => onFlagColumns(matches, role)}
+                            aria-pressed={on}
+                            title={on
+                              ? `All ${matches.length} matching fields are ${plural} — click to unflag them`
+                              : `Flag the ${matches.length} matching fields as ${plural}`}
+                            style={flagAllBtn(ROLE_COLORS[role], on)}
+                          >
+                            {letter} all
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </foreignObject>
+                )}
+                {query && matches.length === 0 && (
+                  <text x={TABLE_WIDTH / 2} y={top + ROW_HEIGHT / 2 + 4} textAnchor="middle" fontSize={10} fill="#94a3b8"
+                    style={_hs14}>
+                    No matching field
+                  </text>
+                )}
+
                 {/* Columns */}
                 {visibleCols.map((col, ci) => {
-                  const cy = HEADER_HEIGHT + TYPE_BAR_HEIGHT + ci * ROW_HEIGHT + ROW_HEIGHT / 2;
+                  const cy = top + ci * ROW_HEIGHT + ROW_HEIGHT / 2;
                   const isDim = isDimension(tableName, col.column_name);
                   const isMeas = isMeasure(tableName, col.column_name);
                   // Effective type respects per-column overrides (columnTypes prop).
@@ -779,7 +867,7 @@ export default function SchemaCanvas({
                   return (
                     <g key={col.column_name}>
                       {(isDim || isMeas) && (
-                        <rect x={1} y={HEADER_HEIGHT + TYPE_BAR_HEIGHT + ci * ROW_HEIGHT} width={TABLE_WIDTH - 2} height={ROW_HEIGHT}
+                        <rect x={1} y={top + ci * ROW_HEIGHT} width={TABLE_WIDTH - 2} height={ROW_HEIGHT}
                           fill={isDim && isDate ? '#fef3c7' : isDim ? '#f5f3ff' : '#f0fdf4'} />
                       )}
                       {/* Key icon for id/pk/fk columns */}
@@ -868,7 +956,7 @@ export default function SchemaCanvas({
                   >
                     <rect
                       x={1}
-                      y={HEADER_HEIGHT + TYPE_BAR_HEIGHT + visibleCols.length * ROW_HEIGHT}
+                      y={top + visibleCols.length * ROW_HEIGHT}
                       width={TABLE_WIDTH - 2}
                       height={toggleHeight}
                       fill="#f8fafc"
@@ -876,7 +964,7 @@ export default function SchemaCanvas({
                     />
                     <text
                       x={TABLE_WIDTH / 2}
-                      y={HEADER_HEIGHT + TYPE_BAR_HEIGHT + visibleCols.length * ROW_HEIGHT + 16}
+                      y={top + visibleCols.length * ROW_HEIGHT + 16}
                       textAnchor="middle"
                       fontSize={10}
                       fill="#7c3aed"
@@ -905,6 +993,25 @@ export default function SchemaCanvas({
     </div>
   );
 }
+
+// Same colours as the D / M tags of the rows.
+const ROLE_COLORS = { dimension: '#7c3aed', measure: '#16a34a' };
+// The card is white in every theme, so its search is too.
+const searchRow = {
+  height: SEARCH_HEIGHT, boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 4,
+  padding: '3px 6px', borderBottom: '1px solid #e2e8f0', background: '#fff',
+};
+const searchInput = {
+  flex: 1, minWidth: 0, height: 19, boxSizing: 'border-box', padding: '0 6px',
+  fontSize: 11, color: '#334155', background: '#f8fafc',
+  border: '1px solid #e2e8f0', borderRadius: 4, outline: 'none', userSelect: 'text',
+};
+const searchCount = { fontSize: 10, color: '#94a3b8' };
+const flagAllBtn = (color, on) => ({
+  height: 19, padding: '0 5px', fontSize: 9, fontWeight: 700, borderRadius: 4, cursor: 'pointer',
+  border: `1px solid ${color}`, background: on ? color : '#fff', color: on ? '#fff' : color,
+  whiteSpace: 'nowrap',
+});
 
 const zoomBtn = {
   width: 28, height: 28, border: '1px solid var(--border-default)', borderRadius: 4,

@@ -8,6 +8,7 @@ import { useParams, useNavigate, useNavigationType, useSearchParams } from 'reac
 import Step1Schema from './Step1Schema';
 import api from '../utils/api';
 import { autoFlagColumns } from '../utils/autoFlagColumns';
+import { toggleRole } from '../utils/bulkFlag';
 import { toast } from '../components/Toast/toast';
 import { headerShellStyle, BackButton, PrimaryButton, SecondaryButton, headerBadgeStyle } from '../components/PageHeader/PageHeader';
 import { useTheme } from '../hooks/useTheme';
@@ -580,6 +581,15 @@ export default function ModelEditor() {
     setShowCalcDimension(false);
   };
 
+  // The D / M tags applied to every column a field search found.
+  const flagMatches = (matches, role) => {
+    const next = toggleRole({ dimensions, measures }, matches, role, {
+      typeOf: (table, column, dataType) => effectiveColumnType(table, column, dataType).type,
+    });
+    setDimensions(next.dimensions);
+    setMeasures(next.measures);
+  };
+
   const removeDimension = (dimName) => setDimensions((prev) => prev.filter((d) => d.name !== dimName));
   const removeMeasure = (measName) => setMeasures((prev) => prev.filter((m) => m.name !== measName));
 
@@ -1023,7 +1033,7 @@ export default function ModelEditor() {
           joins={joins} setJoins={setJoins}
           dimensions={dimensions} setDimensions={setDimensions}
           measures={measures} setMeasures={setMeasures}
-          addDimension={addDimension} addMeasure={addMeasure}
+          addDimension={addDimension} addMeasure={addMeasure} flagMatches={flagMatches}
           modelId={id} datasourceId={model?.datasource_id} linkedTables={linkedTables}
           isDateType={isDateType}
           columnTypes={columnTypes} setColumnType={setColumnType}
