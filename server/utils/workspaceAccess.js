@@ -139,7 +139,11 @@ function canReadDatasource(ds, user) {
   if (isGlobalAdmin(user) || isOwner(ds, user)) return true;
   if (WRITING_ROLES.has(workspaceRoleOf(datasourceHome(ds), user.id))) return true;
   if (WRITING_ROLES.has(datasourceSharedRole(ds, user))) return true;
-  const models = db.prepare('SELECT id, user_id, workspace_id FROM models WHERE datasource_id = ?').all(ds.id);
+  // The editors of a model reading it — as its own source or a linked one.
+  const models = db.prepare(`
+    SELECT id, user_id, workspace_id FROM models
+    WHERE datasource_id = ? OR id IN (SELECT model_id FROM model_datasources WHERE datasource_id = ?)
+  `).all(ds.id, ds.id);
   return models.some((m) => WRITING_ROLES.has(workspaceRoleOf(modelHome(m), user.id)));
 }
 
@@ -291,11 +295,18 @@ function listVisibleModels(user) {
     ${org.where}
     ORDER BY m.updated_at DESC
   `).all(...org.params);
+  // The files each model links next to its own source (utils/modelSources.js):
+  // the journey draws those relations too.
+  const linked = new Map();
+  for (const l of db.prepare('SELECT model_id, datasource_id FROM model_datasources ORDER BY created_at').all()) {
+    if (!linked.has(l.model_id)) linked.set(l.model_id, []);
+    linked.get(l.model_id).push(l.datasource_id);
+  }
   const out = [];
   for (const m of rows) {
     const access = modelAccess(m, user);
     if (!access) continue;
-    out.push({ ...m, workspace_id: modelHome(m), access, shared_in: sharedWorkspaceIdsOf(m.id) });
+    out.push({ ...m, workspace_id: modelHome(m), access, shared_in: sharedWorkspaceIdsOf(m.id), linked_datasource_ids: linked.get(m.id) || [] });
   }
   return out;
 }

@@ -18,7 +18,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useWorkspaceData } from '../hooks/useWorkspaceData';
 import { useCardCacheWarming } from '../hooks/useCardCacheWarming';
 import { TopbarSwitcher, UserMenuExtras } from '../cloud';
-import { PrimaryButton, ImportMenuButton, OpenReportMark, PowerBiMark } from '../components/PageHeader/PageHeader';
+import { PrimaryButton, ImportMenuButton, OpenReportMark, PowerBiMark, RefreshButton } from '../components/PageHeader/PageHeader';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
 
 import Portal from '../components/Portal/Portal';
@@ -418,6 +418,9 @@ export default function Dashboard() {
       navigate(`/edit/${reportRes.data.report.id}`);
     } catch (err) {
       setUploadError(err.response?.data?.error || err.message);
+      // The chain can stop after the upload (model or report refused, proxy
+      // timeout): the source then exists on the server and must be on screen.
+      refreshGraph();
     } finally {
       setUploadingFile(false);
       if (createFileRef.current) createFileRef.current.value = '';
@@ -920,29 +923,32 @@ export default function Dashboard() {
                   options={focus.options} onPick={focus.pick} />
               )}
             </div>
-            {canEdit && (
-              <div style={_hs24}>
-                <input
-                  ref={importFileRef}
-                  type="file"
-                  accept=".json,application/json"
-                  style={_hs25}
-                  onChange={handleImportFile}
-                />
-                <ImportMenuButton title="Import a report from another tool or from an Open Report file" items={[
-                  { key: 'openreport', icon: <OpenReportMark />, label: 'Open Report', hint: '.openreport.json', title: 'Import a report exported from Open Report',
-                    onClick: () => { setImportError(''); importFileRef.current?.click(); } },
-                  { key: 'powerbi', icon: <PowerBiMark />, label: 'Power BI', hint: '.pbit template', title: 'Rebuild a Power BI template as a model and a report',
-                    onClick: () => setShowPbit(true) },
-                  { key: 'looker', icon: <TbChartInfographic size={16} />, label: 'Looker Studio', hint: 'Coming soon', disabled: true },
-                ]}>
-                  Import
-                </ImportMenuButton>
-                {/* Wrapped: openCreate takes a source mode, and passing it straight
-                    as a handler would hand it the click event instead. */}
-                <PrimaryButton onClick={() => openCreate()}>+ New Report</PrimaryButton>
-              </div>
-            )}
+            <div style={_hs24}>
+              {canEdit && (
+                <>
+                  <input
+                    ref={importFileRef}
+                    type="file"
+                    accept=".json,application/json"
+                    style={_hs25}
+                    onChange={handleImportFile}
+                  />
+                  <ImportMenuButton title="Import a report from another tool or from an Open Report file" items={[
+                    { key: 'openreport', icon: <OpenReportMark />, label: 'Open Report', hint: '.openreport.json', title: 'Import a report exported from Open Report',
+                      onClick: () => { setImportError(''); importFileRef.current?.click(); } },
+                    { key: 'powerbi', icon: <PowerBiMark />, label: 'Power BI', hint: '.pbit template', title: 'Rebuild a Power BI template as a model and a report',
+                      onClick: () => setShowPbit(true) },
+                    { key: 'looker', icon: <TbChartInfographic size={16} />, label: 'Looker Studio', hint: 'Coming soon', disabled: true },
+                  ]}>
+                    Import
+                  </ImportMenuButton>
+                  {/* Wrapped: openCreate takes a source mode, and passing it straight
+                      as a handler would hand it the click event instead. */}
+                  <PrimaryButton onClick={() => openCreate()}>+ New Report</PrimaryButton>
+                </>
+              )}
+              <RefreshButton onClick={refreshGraph} />
+            </div>
           </div>
 
           {showPbit && (

@@ -26,7 +26,7 @@ export default function Step1Schema({
   dimensions, setDimensions,
   measures, setMeasures,
   addDimension, addMeasure,
-  modelId, datasourceId,
+  modelId, datasourceId, linkedTables,
   isNumeric, isDateType,
   columnTypes, setColumnType,
   validateColumnType, validatingColumn, validationResults,
@@ -62,6 +62,7 @@ export default function Step1Schema({
         onAddMeasure={addMeasure}
         modelId={modelId}
         datasourceId={datasourceId}
+        linkedTables={linkedTables}
         isNumeric={isNumeric}
         isDateType={isDateType}
         columnTypes={columnTypes}

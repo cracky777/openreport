@@ -2,7 +2,6 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth, authFor } = require('../middleware/auth');
 const db = require('../db');
-const { createConnection } = require('../utils/dbConnector');
 const {
   resolveIntervalColumns,
   extractColumnRefsFromExpression,
@@ -36,6 +35,8 @@ const {
 const { buildScalarClause } = require('../utils/sqlBuilder/filterClause');
 const { buildMultiFactBody } = require('../utils/sqlBuilder/multiFact');
 const { buildFromClause } = require('../utils/sqlBuilder/fromClause');
+const { joinTypeMismatch } = require('../utils/joinTypes');
+const { isFileSource, linkedSourcesOf, aliasFor, sourceIdsOf, connectionForModel } = require('../utils/modelSources');
 const { buildTopNOrderLimit } = require('../utils/sqlBuilder/orderLimit');
 const { dimensionTables, expressionTables, dimensionAggregate, fanOutTables } = require('../utils/sqlBuilder/dimensionTables');
 const { normalizeRows } = require('../utils/rowNormalize');
@@ -167,6 +168,7 @@ router.get('/:id', (req, res, next) => {
       workspace_id: wsAccess.modelHome(row),
       access: req.isAuthenticated() ? wsAccess.modelAccess(row, wsAccess.actorOf(req)) : null,
       shared_in: manages ? wsAccess.sharedWorkspaceIdsOf(row.id) : undefined,
+      linked_datasources: linkedSourcesOf(row.id).map((l) => ({ id: l.datasource_id, name: l.name, alias: l.alias })),
     },
   });
 });
@@ -205,6 +207,13 @@ router.put('/:id', authFor('write'), (req, res) => {
   // If caller is moving the model to a different datasource, verify they may use it
   if (datasourceId && datasourceId !== model.datasource_id) {
     if (!datasourceUsable(datasourceId, req)) return res.status(404).json({ error: 'Target datasource not found' });
+    // A model combining files keeps a file as its own source, and not one it already links.
+    const linked = linkedSourcesOf(model.id);
+    if (linked.length) {
+      const target = db.prepare('SELECT db_type, extra_config FROM datasources WHERE id = ?').get(datasourceId);
+      if (!isFileSource(target)) return res.status(400).json({ error: 'This model combines imported files: its source must be an imported file too.' });
+      if (linked.some((l) => l.datasource_id === datasourceId)) return res.status(409).json({ error: 'This source is already linked to the model.' });
+    }
   }
 
   db.prepare(`
@@ -290,7 +299,7 @@ router.get('/:id/export', authFor('write'), (req, res) => {
   if (!canWriteModel(row, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   const model = parseModel(row);
   const ds = db.prepare('SELECT name FROM datasources WHERE id = ?').get(model.datasource_id);
-  const text = modelYaml.modelToYaml(model, ds ? ds.name : null);
+  const text = modelYaml.modelToYaml(model, ds ? ds.name : null, linkedSourcesOf(model.id));
   const fileName = `${String(model.name || 'model').replace(/[^\w.-]+/g, '_')}.model.yaml`;
   res.setHeader('Content-Type', 'text/yaml; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
@@ -328,6 +337,21 @@ router.post('/import', authFor('write'), (req, res) => {
       needsDatasource: true,
     });
   }
+  // The files the model links, found by name like its own source, each under
+  // the alias its tables carry. All of them or no model: a missing one would
+  // leave tables that exist nowhere.
+  const links = [];
+  if (fields.linkedSources.length) {
+    const own = db.prepare('SELECT db_type, extra_config FROM datasources WHERE id = ?').get(dsId);
+    if (!isFileSource(own)) return res.status(400).json({ error: 'This model combines imported files: its source must be an imported file too.' });
+    for (const l of fields.linkedSources) {
+      const found = db.prepare('SELECT id, db_type, extra_config FROM datasources WHERE name = ?').all(l.datasourceName)
+        .find((c) => isFileSource(c) && c.id !== dsId && datasourceUsable(c.id, req));
+      if (!found) return res.status(400).json({ error: `Imported file "${l.datasourceName}" not found — import it first, then import the model again.` });
+      if (links.some((x) => x.alias === l.alias || x.id === found.id)) return res.status(400).json({ error: `"${l.datasourceName}" is linked twice` });
+      links.push({ id: found.id, alias: l.alias });
+    }
+  }
   if (rejectIfNameTaken('model', fields.name, req, res)) return;
   const targetWs = targetWorkspaceForModel(req, res, dsId);
   if (!targetWs) return;
@@ -349,6 +373,8 @@ router.post('/import', authFor('write'), (req, res) => {
     targetWs
   );
   if (typeof cloudHooks.onModelCreate === 'function') cloudHooks.onModelCreate(req, id);
+  const link = db.prepare('INSERT INTO model_datasources (model_id, datasource_id, alias) VALUES (?, ?, ?)');
+  for (const l of links) link.run(id, l.id, l.alias);
 
   const created = parseModel(db.prepare('SELECT * FROM models WHERE id = ?').get(id));
   res.status(201).json({ model: { ...created, dateColumn: created.date_column || null } });
@@ -404,6 +430,44 @@ router.put('/:id/shares', authFor('write'), (req, res) => {
   res.json({ workspaceIds: saved });
 });
 
+// The tables the model can pick from, across its sources: its own source's
+// under their names, a linked file's as `alias__table` — read through the
+// connection its queries use, so the editor lists exactly what a query sees.
+router.get('/:id/tables', authFor('write'), async (req, res) => {
+  const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
+  if (!row || outOfScope(row, req)) return res.status(404).json({ error: 'Model not found' });
+  if (!canWriteModel(row, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
+  const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(row.datasource_id);
+  if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
+  const linked = linkedSourcesOf(row.id);
+  try {
+    const names = await connectionForModel(row, datasource).getTables();
+    const tables = names.map((name) => {
+      const link = linked.find((l) => name.startsWith(`${l.alias}__`));
+      return link
+        ? { name, table: name.slice(link.alias.length + 2), sourceId: link.datasource_id, sourceName: link.name }
+        : { name, table: name, sourceId: datasource.id, sourceName: datasource.name };
+    });
+    res.json({ tables });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Columns of one of the model's tables (same connection as above).
+router.get('/:id/tables/:table/columns', authFor('write'), async (req, res) => {
+  const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
+  if (!row || outOfScope(row, req)) return res.status(404).json({ error: 'Model not found' });
+  if (!canWriteModel(row, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
+  const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(row.datasource_id);
+  if (!datasource) return res.status(404).json({ error: 'Datasource not found' });
+  try {
+    res.json({ columns: await connectionForModel(row, datasource).getColumns(req.params.table) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Validate model references against the current datasource schema.
 // Returns a list of broken references (missing tables, missing columns).
 router.get('/:id/validate', authFor('write'), async (req, res) => {
@@ -420,19 +484,24 @@ router.get('/:id/validate', authFor('write'), async (req, res) => {
   let conn;
   const issues = [];
   try {
-    conn = createConnection(source);
+    conn = connectionForModel(model, source);
     const availableTables = new Set(await conn.getTables());
     const columnsCache = new Map();
+    // Column name → database type; null when the table cannot be read.
     const getCols = async (tableName) => {
       if (columnsCache.has(tableName)) return columnsCache.get(tableName);
       if (!availableTables.has(tableName)) { columnsCache.set(tableName, null); return null; }
       try {
         const cols = await conn.getColumns(tableName);
-        const set = columnNameSet(cols);
-        columnsCache.set(tableName, set);
-        return set;
-      } catch (e) {
-        columnsCache.set(tableName, null);
+        const types = new Map([...columnNameSet(cols)].map((name) => [name, null]));
+        for (const c of cols || []) {
+          const name = c?.column_name ?? c?.name ?? c?.Name ?? c?.COLUMN_NAME;
+          if (name) types.set(name, c.data_type ?? c.type ?? c.DATA_TYPE ?? null);
+        }
+        columnsCache.set(tableName, types);
+        return types;
+      } catch {
+        columnsCache.set(tableName, null); // unreadable: reported as a missing table
         return null;
       }
     };
@@ -478,21 +547,29 @@ router.get('/:id/validate', authFor('write'), async (req, res) => {
       }
     }
 
-    // Check joins
+    // Check joins. Two shapes: { from_table, from_column, to_table, to_column }
+    // today, { left: { table, column }, right } in older models.
     for (const j of joins) {
-      const check = async (side, pos) => {
-        if (!side || !side.table) return;
-        const cols = await getCols(side.table);
+      const ends = j.from_table
+        ? [{ table: j.from_table, column: j.from_column, side: 'from' }, { table: j.to_table, column: j.to_column, side: 'to' }]
+        : [{ ...j.left, side: 'left' }, { ...j.right, side: 'right' }];
+      const name = ends.map((e) => `${e.table || '?'}.${e.column || '?'}`).join(' ↔ ');
+      const types = [];
+      for (const end of ends) {
+        if (!end.table) continue;
+        const cols = await getCols(end.table);
         if (cols === null) {
-          issues.push({ kind: 'join', name: `${j.left?.table || '?'} ↔ ${j.right?.table || '?'}`, table: side.table, column: side.column, issue: 'missing_table', side: pos });
-          return;
+          issues.push({ kind: 'join', name, table: end.table, column: end.column, issue: 'missing_table', side: end.side });
+        } else if (end.column && !cols.has(end.column)) {
+          issues.push({ kind: 'join', name, table: end.table, column: end.column, issue: 'missing_column', side: end.side });
+        } else {
+          types.push(cols.get(end.column));
         }
-        if (side.column && !cols.has(side.column)) {
-          issues.push({ kind: 'join', name: `${j.left?.table || '?'} ↔ ${j.right?.table || '?'}`, table: side.table, column: side.column, issue: 'missing_column', side: pos });
-        }
-      };
-      await check(j.left, 'left');
-      await check(j.right, 'right');
+      }
+      // A text column matched with a number fails on the first row — say so
+      // here rather than in the report that runs it.
+      const mismatch = types.length === 2 && joinTypeMismatch(types[0], types[1]);
+      if (mismatch) issues.push({ kind: 'join', name, issue: 'type_mismatch', fromType: mismatch.from, toType: mismatch.to });
     }
 
     // Check date column
@@ -514,6 +591,45 @@ router.get('/:id/validate', authFor('write'), async (req, res) => {
   } finally {
     conn?.close?.();
   }
+});
+
+// Link another imported file to the model: its tables join the model as
+// `alias__table`, next to those of the model's own source — which must be an
+// imported file too, as only files combine (utils/modelSources.js). Same bar as
+// building a model on a source: the caller reads it.
+router.post('/:id/datasources', authFor('write'), (req, res) => {
+  const model = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
+  if (!model || outOfScope(model, req)) return res.status(404).json({ error: 'Model not found' });
+  if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
+  const { datasourceId } = req.body || {};
+  if (typeof datasourceId !== 'string' || !datasourceUsable(datasourceId, req)) return res.status(404).json({ error: 'Datasource not found' });
+
+  const own = db.prepare('SELECT db_type, extra_config FROM datasources WHERE id = ?').get(model.datasource_id);
+  const other = db.prepare('SELECT id, name, db_type, extra_config FROM datasources WHERE id = ?').get(datasourceId);
+  if (!isFileSource(own) || !isFileSource(other)) return res.status(400).json({ error: 'Only imported files can be combined in one model.' });
+  if (datasourceId === model.datasource_id || linkedSourcesOf(model.id).some((l) => l.datasource_id === datasourceId)) {
+    return res.status(409).json({ error: 'This source is already part of the model.' });
+  }
+  const alias = aliasFor(model.id, other.name);
+  db.prepare('INSERT INTO model_datasources (model_id, datasource_id, alias) VALUES (?, ?, ?)').run(model.id, datasourceId, alias);
+  res.status(201).json({ datasource: { id: other.id, name: other.name, alias } });
+});
+
+// Unlink a source. Refused while the model still holds one of its tables:
+// every report built on them would break.
+router.delete('/:id/datasources/:datasourceId', authFor('write'), (req, res) => {
+  const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
+  if (!row || outOfScope(row, req)) return res.status(404).json({ error: 'Model not found' });
+  if (!canWriteModel(row, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
+  const link = linkedSourcesOf(row.id).find((l) => l.datasource_id === req.params.datasourceId);
+  if (!link) return res.status(404).json({ error: 'This source is not linked to the model' });
+  const prefix = `${link.alias}__`;
+  if (parseModel(row).selected_tables.some((t) => t.startsWith(prefix))) {
+    return res.status(409).json({ error: `Remove the tables of ${link.name} from the model first.` });
+  }
+  db.prepare('DELETE FROM model_datasources WHERE model_id = ? AND datasource_id = ?').run(row.id, link.datasource_id);
+  queryCache.invalidateModel(row.id);
+  res.json({ ok: true });
 });
 
 // Delete model
@@ -557,7 +673,7 @@ router.get('/:id/rls/rows', authFor('write'), async (req, res) => {
   // Column names are validated against the actual table schema to prevent injection.
   let conn;
   try {
-    conn = createConnection(datasource);
+    conn = connectionForModel(model, datasource);
     const cols = await conn.getColumns(table);
     const colSet = columnNameSet(cols);
 
@@ -650,7 +766,7 @@ router.post('/:id/validate-column-type', authFor('write'), async (req, res) => {
   // protects against SQL injection via the column name.
   let conn;
   try {
-    conn = createConnection(datasource);
+    conn = connectionForModel(model, datasource);
     const cols = await conn.getColumns(table);
     const colSet = columnNameSet(cols);
     if (!colSet.has(column)) return res.status(400).json({ error: `Column "${column}" not found in table` });
@@ -760,7 +876,7 @@ router.post('/:id/detect-cardinality', requireAuth, async (req, res) => {
 
   let conn;
   try {
-    conn = createConnection(datasource);
+    conn = connectionForModel(model, datasource);
     // Defensive: column must exist on the table (also blocks SQL injection
     // through the column name since we splice it into the query string).
     const cols = await conn.getColumns(table);
@@ -1161,7 +1277,10 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     // The probe reads the source catalog. The planner never looks at
     // column types, so a cacheOnly request loses nothing by skipping it.
     if (intervalProbe.length && !cacheOnly) {
-      const intervalSet = await resolveIntervalColumns(datasource, intervalProbe);
+      const intervalSet = await resolveIntervalColumns(datasource, intervalProbe, {
+        connect: () => connectionForModel(model, datasource),
+        scope: sourceIdsOf(model).join(','),
+      });
       for (const key of intervalSet) {
         // Force type='interval' but preserve any other fields the user set
         // on the entry (e.g. format hints).
@@ -2330,6 +2449,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   };
   const cacheOpts = {
     datasourceId: datasource.id,
+    datasourceIds: sourceIdsOf(model),
     modelId: model.id,
     sql,
     rlsContext: rlsContextForCache,
@@ -2388,7 +2508,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   let registeredQueryId = null;
   try {
     __mark('DB phase start (createConnection + execute)');
-    conn = createConnection(datasource);
+    conn = connectionForModel(model, datasource);
     // When the client supplies a queryId AND the connector exposes a
     // cancellable variant, register the cancel callback so a sibling
     // /cancel-query call can abort the in-flight DB query. Otherwise fall

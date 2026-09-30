@@ -26,9 +26,10 @@ const singular = (w) => {
   return w;
 };
 
-// What a table is about: "sales.dim_customers" → "customer".
+// What a table is about: "sales.dim_customers" → "customer". A table of a
+// file linked to the model ("ventes__dim_customers") is about the same thing.
 function tableBase(table) {
-  const bare = String(table).split('.').pop().toLowerCase().replace(TABLE_AFFIXES, '');
+  const bare = String(table).split('.').pop().split('__').pop().toLowerCase().replace(TABLE_AFFIXES, '');
   const ws = words(bare);
   if (!ws.length) return '';
   ws[ws.length - 1] = singular(ws[ws.length - 1]);

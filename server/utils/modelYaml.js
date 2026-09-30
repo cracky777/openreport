@@ -18,12 +18,16 @@ const FORMAT_VERSION = 1;
 // upload can't stall the parser.
 const MAX_YAML_BYTES = 1024 * 1024;
 
-function modelToYaml(model, datasourceName) {
+// `linkedSources`: [{ alias, name }] — the files a model links next to its own
+// source (utils/modelSources.js). Their tables are named `alias__table` in the
+// document, so the alias travels with them.
+function modelToYaml(model, datasourceName, linkedSources = []) {
   const doc = {
     [FORMAT_KEY]: FORMAT_VERSION,
     name: model.name,
     description: model.description || '',
     datasource: datasourceName || null,
+    ...(linkedSources.length ? { linked_sources: linkedSources.map((l) => ({ alias: l.alias, datasource: l.name })) } : {}),
     date_column: model.date_column || null,
     incremental_months: model.incremental_months || null,
     tables: model.selected_tables || [],
@@ -120,10 +124,18 @@ function yamlToModelFields(text) {
   if (doc.date_column != null && typeof doc.date_column !== 'string') {
     throw new Error('"date_column" must be a string');
   }
+  const linked = doc.linked_sources ?? [];
+  // An alias is written into table names and SQL: an identifier, never "__".
+  const validLink = (l) => isPlainObject(l) && typeof l.datasource === 'string'
+    && typeof l.alias === 'string' && /^[a-z][a-z0-9_]*$/.test(l.alias) && !l.alias.includes('__');
+  if (!Array.isArray(linked) || !linked.every(validLink)) {
+    throw new Error('"linked_sources" must be a list of { alias, datasource }');
+  }
   return {
     name: doc.name.trim(),
     description: typeof doc.description === 'string' ? doc.description : '',
     datasourceName: typeof doc.datasource === 'string' ? doc.datasource : null,
+    linkedSources: linked.map((l) => ({ alias: l.alias, datasourceName: l.datasource })),
     selected_tables: doc.tables || [],
     dimensions: doc.dimensions || [],
     measures: doc.measures || [],

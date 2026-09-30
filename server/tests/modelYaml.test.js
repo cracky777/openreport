@@ -189,3 +189,51 @@ describe('alias expansion', () => {
     expect(fields.measures[0].expression).toBe('COUNT(*) * 2');
   });
 });
+
+// A model reading several imported files names its linked sources — and the
+// alias its `alias__table` tables carry — so the document imports whole.
+describe('linked sources', () => {
+  jest.setTimeout(60000);
+  const as = (uid) => (r) => r.set('x-test-user', uid);
+  const upload = async (uid, name) => {
+    const res = await request(app).post('/api/upload').use(as(uid)).attach('file', Buffer.from('id\n1\n'), name);
+    return res.body.datasource.id;
+  };
+
+  test('export names them with their alias; import links them back under it', async () => {
+    const u = seedUser({ role: 'editor' });
+    const own = await upload(u, 'yaml_orders.csv');
+    const other = await upload(u, 'yaml_customers.csv');
+    const created = await request(app).post('/api/models').use(as(u)).send({ name: 'yaml-multi', datasourceId: own });
+    const modelId = created.body.model.id;
+    await request(app).post(`/api/models/${modelId}/datasources`).use(as(u)).send({ datasourceId: other });
+    db.prepare("UPDATE model_datasources SET alias = 'clients' WHERE model_id = ?").run(modelId);
+
+    const exported = await request(app).get(`/api/models/${modelId}/export`).use(as(u));
+    expect(yamlToModelFields(exported.text).linkedSources).toEqual([{ alias: 'clients', datasourceName: 'yaml_customers' }]);
+
+    const doc = exported.text.replace('name: yaml-multi', 'name: yaml-multi-copy');
+    const imported = await request(app).post('/api/models/import').use(as(u)).send({ yaml: doc });
+    expect(imported.status).toBe(201);
+    const got = await request(app).get(`/api/models/${imported.body.model.id}`).use(as(u));
+    expect(got.body.model.linked_datasources).toEqual([{ id: other, name: 'yaml_customers', alias: 'clients' }]);
+  });
+
+  test('a linked source that cannot be found refuses the whole import', async () => {
+    const u = seedUser({ role: 'editor' });
+    await upload(u, 'yaml_lonely.csv');
+    const doc = ['openreport_model: 1', 'name: yaml-missing', 'datasource: yaml_lonely',
+      'linked_sources:', '  - alias: gone', '    datasource: nowhere', 'tables: []'].join('\n');
+    const res = await request(app).post('/api/models/import').use(as(u)).send({ yaml: doc });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/nowhere/);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM models WHERE name = 'yaml-missing'").get().n).toBe(0);
+  });
+
+  test('an alias that is no identifier is refused', () => {
+    for (const alias of ['Bad Alias', 'a__b', '1st', "x'; DROP"]) {
+      const doc = ['openreport_model: 1', 'name: M', 'datasource: d', 'linked_sources:', `  - alias: "${alias}"`, '    datasource: other'].join('\n');
+      expect(() => yamlToModelFields(doc)).toThrow(/linked_sources/);
+    }
+  });
+});

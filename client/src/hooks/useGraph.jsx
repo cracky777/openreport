@@ -129,7 +129,14 @@ export function GraphProvider({ children }) {
 
   // Unscoped tallies: deletion is refused server-side as soon as *any* child
   // exists, whatever workspace it belongs to, so the guard must count them all.
-  const modelsByDatasourceAll = useMemo(() => countBy(models, 'datasource_id'), [models]);
+  // A model reading several files counts on each of them.
+  const modelsByDatasourceAll = useMemo(() => {
+    const out = new Map();
+    for (const m of models) {
+      for (const id of [m.datasource_id, ...(m.linked_datasource_ids || [])]) out.set(id, (out.get(id) || 0) + 1);
+    }
+    return out;
+  }, [models]);
   const reportsByModelAll = useMemo(() => countBy(reports, 'model_id'), [reports]);
 
 

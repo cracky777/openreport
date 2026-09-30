@@ -36,30 +36,102 @@ function assertDuckDBPath(dbName) {
   return resolved;
 }
 
-// Hand an already-open DuckDB instance to the query path.
-//
-// A path this process has opened cannot be opened a second time — not even
-// after close(). The import pipeline has to open its file with external access
-// enabled (it reads a CSV), so if it then let go, the next query would find the
-// path poisoned. It gives us the live instance instead, having first turned
-// external access off for good — that setting is one-way, which is what makes
-// this safe: the query path inherits a handle it could not re-open, already
-// unable to read the server's filesystem.
-function adoptDuckDBInstance(dbPath, instance) {
-  _duckdbPromises.delete(dbPath);
-  _duckdbInstances.set(dbPath, instance);
+// Close and forget ONE DuckDB file. Used when a datasource stops pointing at a
+// path (every import writes a new one): the old instance would otherwise hold
+// the handle until process exit.
+async function closeDuckDBFile(dbPath) {
+  const resolved = path.resolve(dbPath);
+  const db = _duckdbInstances.get(resolved);
+  _duckdbInstances.delete(resolved);
+  _duckdbPromises.delete(resolved);
+  if (db) { try { await db.close(); } catch { /* already gone */ } }
+  // The models' instances holding the file go with it.
+  for (const [key, entry] of _combined) {
+    if (!entry.paths.includes(resolved)) continue;
+    _combined.delete(key);
+    try { await (await entry.promise).close(); } catch { /* never opened, or already gone */ }
+  }
 }
 
-// Close and forget ONE DuckDB file. Used when a datasource stops pointing at a
-// path (a re-imported file gets a new one): the old instance would otherwise
-// hold the handle until process exit, and on Windows that keeps the obsolete
-// file undeletable.
-async function closeDuckDBFile(dbPath) {
-  const db = _duckdbInstances.get(dbPath);
-  _duckdbInstances.delete(dbPath);
-  _duckdbPromises.delete(dbPath);
-  if (!db) return;
-  try { await db.close(); } catch { /* already gone */ }
+// The instance serving a DuckDB datasource, opened on first use.
+// - Read-only: imports write new files in a child process (utils/fileImport.js),
+//   and a read-only file can be opened by several instances at once.
+// - External access off, for good: the user query path (POST
+//   /datasources/:id/query) only reads tables already materialised in the file,
+//   never the server FS — read_text/read_csv/read_parquet/glob in a SELECT fail.
+function servedDuckDB(dbName) {
+  const dbPath = assertDuckDBPath(dbName);
+  if (_duckdbInstances.has(dbPath)) return Promise.resolve(_duckdbInstances.get(dbPath));
+  if (!_duckdbPromises.has(dbPath)) {
+    const duckdb = require('duckdb-async');
+    // ':memory:' names no file — and DuckDB crashes the process (segfault)
+    // when asked for an in-memory database in read-only mode.
+    const opened = dbPath === ':memory:' ? duckdb.Database.create(dbPath) : duckdb.Database.create(dbPath, duckdb.OPEN_READONLY);
+    const p = opened.then(async (db) => {
+      try { await db.run('SET enable_external_access=false'); } catch (err) { await db.close(); throw err; }
+      _duckdbInstances.set(dbPath, db);
+      _duckdbPromises.delete(dbPath);
+      return db;
+    }).catch((err) => {
+      _duckdbPromises.delete(dbPath);
+      throw err;
+    });
+    _duckdbPromises.set(dbPath, p);
+  }
+  return _duckdbPromises.get(dbPath);
+}
+
+// A model reading several imported files: an in-memory instance attaching
+// each file read-only — which DuckDB allows next to the sources' own instances
+// — under an internal name, and one view per table: the model's own source's
+// tables under their names, a linked source's as `alias__table`. One
+// identifier per table, so a sheet called Feuil1 in two files never makes an
+// ambiguous reference (imported names never hold "__": fileImport.js folds
+// underscores). Locked down like any served instance. Keyed by every file it
+// holds: a refreshed source is a new file, hence a new instance —
+// closeDuckDBFile retires the old one.
+const _combined = new Map(); // key → { paths, promise }
+
+function combinedDuckDB(ownName, linked) {
+  const files = [
+    { prefix: '', file: assertDuckDBPath(ownName) },
+    ...linked.map((l) => ({ prefix: `${l.alias}__`, file: assertDuckDBPath(l.db_name) })),
+  ];
+  const key = JSON.stringify(files.map((f) => [f.prefix, f.file]));
+  if (!_combined.has(key)) {
+    const duckdb = require('duckdb-async');
+    const q = (ident) => `"${String(ident).replace(/"/g, '""')}"`;
+    const promise = duckdb.Database.create(':memory:').then(async (db) => {
+      try {
+        for (const [i, { prefix, file }] of files.entries()) {
+          // Aliases are made identifiers (utils/modelSources.js); checked again
+          // here, where they become part of view names.
+          if (prefix && !/^[a-z][a-z0-9_]*__$/.test(prefix)) throw new Error(`Invalid source alias: ${prefix}`);
+          const catalog = `__src${i}`;
+          await db.run(`ATTACH '${file.split(path.sep).join('/').replace(/'/g, "''")}' AS ${catalog} (READ_ONLY)`);
+          const tables = await db.all(`SELECT table_name FROM duckdb_tables() WHERE database_name = '${catalog}' AND schema_name = 'main'`);
+          for (const { table_name: t } of tables) {
+            await db.run(`CREATE VIEW main.${q(prefix + t)} AS SELECT * FROM ${catalog}.main.${q(t)}`);
+          }
+        }
+        await db.run('SET enable_external_access=false');
+      } catch (err) {
+        await db.close();
+        throw err;
+      }
+      return db;
+    });
+    promise.catch(() => _combined.delete(key));
+    _combined.set(key, { paths: files.map((f) => f.file), promise });
+  }
+  return _combined.get(key).promise;
+}
+
+// The connector of a model that links other files; the plain source
+// connector when it links none.
+function createModelConnection(datasource, linked) {
+  if (!linked || !linked.length) return createConnection(datasource);
+  return duckDbConnector(() => combinedDuckDB(datasource.db_name, linked));
 }
 
 async function closeAllDuckDB(log = () => {}) {
@@ -69,6 +141,10 @@ async function closeAllDuckDB(log = () => {}) {
   }
   _duckdbInstances.clear();
   _duckdbPromises.clear();
+  for (const [key, entry] of _combined) {
+    try { await (await entry.promise).close(); log(`closed model instance ${key}`); } catch { /* never opened */ }
+  }
+  _combined.clear();
 }
 
 // Wrap a `{ promise, cancel }` pair with a timeout safety net so we always
@@ -946,91 +1022,79 @@ function buildConnector(datasource) {
   }
 
   // ─── DuckDB ───
-  if (db_type === 'duckdb') {
-    const duckdb = require('duckdb-async');
-    const dbPath = assertDuckDBPath(db_name);
-    const getDb = async () => {
-      if (_duckdbInstances.has(dbPath)) return _duckdbInstances.get(dbPath);
-      if (!_duckdbPromises.has(dbPath)) {
-        // Open with external filesystem access disabled: the user query path
-        // (POST /datasources/:id/query) only reads tables already materialised
-        // in this .duckdb file, never the server FS. This blocks arbitrary file
-        // reads via read_text/read_csv/read_parquet/glob in a SELECT. The import
-        // pipeline uses its own separate instance (fileUpload.js) and is untouched.
-        const p = duckdb.Database.create(dbPath, { enable_external_access: 'false' }).then((db) => {
-          _duckdbInstances.set(dbPath, db);
-          _duckdbPromises.delete(dbPath);
-          return db;
-        }).catch((err) => {
-          _duckdbPromises.delete(dbPath);
-          throw err;
-        });
-        _duckdbPromises.set(dbPath, p);
-      }
-      return _duckdbPromises.get(dbPath);
-    };
-    // Convert BigInt to Number and Date to ISO string in all results
-    const convertValues = (rows) => rows.map((r) => {
-      const obj = {};
-      for (const [k, v] of Object.entries(r)) {
-        if (typeof v === 'bigint') obj[k] = Number(v);
-        else if (v instanceof Date) obj[k] = v.toISOString().split('T')[0];
-        else obj[k] = v;
-      }
-      return obj;
-    });
-    // Cancellable variant — duckdb-async exposes interrupt() at the database
-    // level which aborts any pending query on shared connections. Best-effort
-    // since the interrupt is global (no per-request isolation).
-    const queryCancellable = (q, opts = {}) => {
-      const timeoutMs = Number(opts.timeoutMs) || 0;
-      let canceled = false;
-      let db = null;
-      const promise = (async () => {
-        db = await getDb();
-        if (canceled) throw new Error('Query canceled');
-        return convertValues(await db.all(q));
-      })();
-      const cancel = async () => {
-        if (canceled) return;
-        canceled = true;
-        try { if (db && typeof db.interrupt === 'function') db.interrupt(); }
-        catch (e) { console.warn('[duckdb cancel]', e.message); }
-      };
-      // DuckDB has no native statement timeout — the withTimeout wrapper
-      // is what actually enforces the deadline by calling interrupt().
-      return withTimeout({ promise, cancel }, timeoutMs);
-    };
-    return {
-      query: async (q) => { const db = await getDb(); return convertValues(await db.all(q)); },
-      queryCancellable,
-      executeDDL: async (q) => { const db = await getDb(); await db.run(q); },
-      testConnection: async () => { const db = await getDb(); await db.all('SELECT 1'); return true; },
-      getTables: async () => {
-        const db = await getDb();
-        const rows = await db.all("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main' AND table_type = 'BASE TABLE' ORDER BY table_name");
-        return rows.map((r) => r.table_name);
-      },
-      getColumns: async (tableName) => {
-        const db = await getDb();
-        const rows = await db.all(`SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = ? ORDER BY ordinal_position`, tableName);
-        return convertValues(rows);
-      },
-      getForeignKeys: async () => {
-        const db = await getDb();
-        const rows = await db.all(`
-          SELECT table_name, constraint_column_names, referenced_table, referenced_column_names
-          FROM duckdb_constraints() WHERE schema_name = 'main' AND constraint_type = 'FOREIGN KEY'
-        `);
-        return rows
-          .filter((r) => (r.constraint_column_names || []).length === 1 && (r.referenced_column_names || []).length === 1)
-          .map((r) => ({ table: r.table_name, column: r.constraint_column_names[0], refTable: r.referenced_table, refColumn: r.referenced_column_names[0] }));
-      },
-      close: () => { /* keep cached instance alive */ },
-    };
-  }
+  if (db_type === 'duckdb') return duckDbConnector(() => servedDuckDB(db_name));
 
   throw new Error(`Unsupported database type: ${db_type}`);
+}
+
+// A connector over a DuckDB instance: a source's own (servedDuckDB) or a
+// model's combining several files (combinedDuckDB). Either way its tables are
+// the relations of its main schema, named with one identifier.
+function duckDbConnector(getDb) {
+  // Convert BigInt to Number and Date to ISO string in all results
+  const convertValues = (rows) => rows.map((r) => {
+    const obj = {};
+    for (const [k, v] of Object.entries(r)) {
+      if (typeof v === 'bigint') obj[k] = Number(v);
+      else if (v instanceof Date) obj[k] = v.toISOString().split('T')[0];
+      else obj[k] = v;
+    }
+    return obj;
+  });
+  // Cancellable variant — duckdb-async exposes interrupt() at the database
+  // level which aborts any pending query on shared connections. Best-effort
+  // since the interrupt is global (no per-request isolation).
+  const queryCancellable = (q, opts = {}) => {
+    const timeoutMs = Number(opts.timeoutMs) || 0;
+    let canceled = false;
+    let db = null;
+    const promise = (async () => {
+      db = await getDb();
+      if (canceled) throw new Error('Query canceled');
+      return convertValues(await db.all(q));
+    })();
+    const cancel = async () => {
+      if (canceled) return;
+      canceled = true;
+      try { if (db && typeof db.interrupt === 'function') db.interrupt(); }
+      catch (e) { console.warn('[duckdb cancel]', e.message); }
+    };
+    // DuckDB has no native statement timeout — the withTimeout wrapper
+    // is what actually enforces the deadline by calling interrupt().
+    return withTimeout({ promise, cancel }, timeoutMs);
+  };
+  return {
+    query: async (q) => { const db = await getDb(); return convertValues(await db.all(q)); },
+    queryCancellable,
+    testConnection: async () => { const db = await getDb(); await db.all('SELECT 1'); return true; },
+    getTables: async () => {
+      const db = await getDb();
+      const rows = await db.all(`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_catalog = current_database() AND table_schema = 'main'
+        ORDER BY table_name`);
+      return rows.map((r) => r.table_name);
+    },
+    getColumns: async (tableName) => {
+      const db = await getDb();
+      const rows = await db.all(`
+        SELECT column_name, data_type, is_nullable FROM information_schema.columns
+        WHERE table_catalog = current_database() AND table_schema = 'main' AND table_name = ?
+        ORDER BY ordinal_position`, tableName);
+      return convertValues(rows);
+    },
+    getForeignKeys: async () => {
+      const db = await getDb();
+      const rows = await db.all(`
+        SELECT table_name, constraint_column_names, referenced_table, referenced_column_names
+        FROM duckdb_constraints() WHERE database_name = current_database() AND schema_name = 'main' AND constraint_type = 'FOREIGN KEY'
+      `);
+      return rows
+        .filter((r) => (r.constraint_column_names || []).length === 1 && (r.referenced_column_names || []).length === 1)
+        .map((r) => ({ table: r.table_name, column: r.constraint_column_names[0], refTable: r.referenced_table, refColumn: r.referenced_column_names[0] }));
+    },
+    close: () => { /* keep cached instance alive */ },
+  };
 }
 
 // Connector cache — pg/mysql/mssql pools are expensive to spin up, and a single
@@ -1066,4 +1130,4 @@ function invalidateDatasource(id) {
   } catch { /* already closed */ }
 }
 
-module.exports = { createConnection, invalidateDatasource, closeAllDuckDB, closeDuckDBFile, adoptDuckDBInstance, isManagedDuckDBPath, DUCKDB_DIR };
+module.exports = { createConnection, createModelConnection, invalidateDatasource, closeAllDuckDB, closeDuckDBFile, isManagedDuckDBPath, DUCKDB_DIR };

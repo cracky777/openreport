@@ -2,6 +2,10 @@
 // DuckDB's read_csv. We probe the two most observable ones — a ';' separator and
 // header on/off — via the shape of the resulting datasource.
 const request = require('supertest');
+
+// Every import runs in a child process (utils/fileImport.js): under a full
+// parallel run, the default 5 s is short.
+jest.setTimeout(30000);
 const XLSX = require('xlsx');
 const { buildApp, seedUser } = require('./helpers/testApp');
 
@@ -38,14 +42,27 @@ describe('File import parse options', () => {
   });
 
   test('full auto: a Latin-1 + semicolon file imports with no options at all', async () => {
-    // 'coût' in Latin-1 has byte 0xFB (invalid UTF-8) → the UTF-8 attempt fails
-    // and the Latin-1 fallback kicks in, while the delimiter is sniffed as ';'.
+    // 'coût' in Latin-1 has byte 0xFB (invalid UTF-8) → the file is read as
+    // Latin-1, while the delimiter is sniffed as ';'.
     const u = seedUser({ role: 'editor' });
     const res = await request(app).post('/api/upload').use(as(u))
       .attach('file', Buffer.from('ville;coût\nParis;12\nLyon;9\n', 'latin1'), 'fr.csv');
     expect(res.status).toBe(201);
     expect(res.body.datasource.rowCount).toBe(2);
     expect(res.body.datasource.columns.length).toBe(2);
+  });
+
+  // Trying UTF-8 on a Latin-1 file and retrying on failure crashed the import
+  // (a native access violation in DuckDB) about one time in six — and before
+  // imports ran in a child process, the server with it. The encoding is now
+  // told from the bytes: a batch of imports at once must all land.
+  test('a Latin-1 file never takes the import down', async () => {
+    const u = seedUser({ role: 'editor' });
+    const statuses = await Promise.all(Array.from({ length: 40 }, (_, i) => request(app).post('/api/upload').use(as(u))
+      .field('name', `latin-${i}`)
+      .attach('file', Buffer.from('ville;coût\nParis;12\nLyon;9\n', 'latin1'), `fr_${i}.csv`)
+      .then((res) => res.status)));
+    expect(statuses).toEqual(Array(40).fill(201));
   });
 
   test('semicolon delimiter, header on (default) → first row becomes the column names', async () => {

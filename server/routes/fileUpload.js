@@ -9,20 +9,13 @@ const uploadHooks = require('../hooks/upload');
 const cloudHooks = require('../cloudHooks');
 const wsAccess = require('../utils/workspaceAccess');
 const { nameTaken } = require('../utils/nameUniqueness');
-const { invalidateDatasource, adoptDuckDBInstance, DUCKDB_DIR } = require('../utils/dbConnector');
+const { invalidateDatasource, DUCKDB_DIR } = require('../utils/dbConnector');
 const { retireDuckDBFile } = require('../utils/duckdbFiles');
+const { buildDatabaseInChild, ACCEPTED_EXTS } = require('../utils/fileImport');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
 
 const router = express.Router();
-
-// Whitelisted CSV parse options. The client sends opaque tokens; we map them
-// here to safe DuckDB fragments so nothing user-supplied is ever interpolated
-// raw into the import SQL. An unknown token falls back to auto-detection.
-const CSV_DELIMS = { comma: ',', semicolon: ';', tab: '\t', pipe: '|' };
-const CSV_DECIMALS = { point: '.', comma: ',' };
-const CSV_ENCODINGS = { utf8: 'utf-8', latin1: 'latin-1' };
-const CSV_DATEFORMATS = { dmy_slash: '%d/%m/%Y', mdy_slash: '%m/%d/%Y', iso: '%Y-%m-%d' };
 
 // Access scoping (cloud org-scopes these; OSS scopes by owner).
 function dedupUpload(req, originalFilename) {
@@ -60,15 +53,6 @@ const uploadsDir = path.join(process.env.OPENREPORT_DATA_DIR || path.join(__dirn
 const duckdbDir = DUCKDB_DIR;
 [uploadsDir, duckdbDir].forEach((d) => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
 
-// Database files: whole databases whose tables are copied in through an ATTACH.
-// SQLite travels under several extensions and `.db` is also a generic suffix,
-// so the magic header is checked at import time rather than trusting the name.
-// DuckDB files carry "DUCK" after an 8-byte checksum.
-const SQLITE_EXTS = ['.db', '.sqlite', '.sqlite3'];
-const DUCKDB_EXTS = ['.duckdb', '.ddb'];
-const SQLITE_MAGIC = { offset: 0, bytes: 'SQLite format 3\0' };
-const DUCKDB_MAGIC = { offset: 8, bytes: 'DUCK' };
-
 // Multer config — accept CSV, Excel, Parquet, JSON, SQLite, DuckDB
 const storage = multer.diskStorage({
   destination: uploadsDir,
@@ -79,183 +63,11 @@ const upload = multer({
   storage,
   limits: { fileSize: 500 * 1024 * 1024 }, // 500MB max
   fileFilter: (req, file, cb) => {
-    const allowed = ['.csv', '.xlsx', '.xls', '.parquet', '.json', '.tsv', ...SQLITE_EXTS, ...DUCKDB_EXTS];
     const ext = path.extname(file.originalname).toLowerCase();
-    if (allowed.includes(ext)) cb(null, true);
-    else cb(new Error(`Unsupported file type: ${ext}. Allowed: ${allowed.join(', ')}`));
+    if (ACCEPTED_EXTS.includes(ext)) cb(null, true);
+    else cb(new Error(`Unsupported file type: ${ext}. Allowed: ${ACCEPTED_EXTS.join(', ')}`));
   },
 });
-
-function hasMagic(filePath, { offset, bytes }) {
-  const fd = fs.openSync(filePath, 'r');
-  try {
-    const head = Buffer.alloc(bytes.length);
-    const n = fs.readSync(fd, head, 0, head.length, offset);
-    return n === head.length && head.toString('latin1') === bytes;
-  } finally {
-    fs.closeSync(fd);
-  }
-}
-
-// Copy every user table of a database file into the instance's own tables, one
-// DuckDB table per source table. Views are left out: they may reference
-// functions DuckDB lacks (SQLite) or other attached databases, and the model
-// layer is where derived tables belong anyway. Tables outside `main` keep
-// their schema as a prefix so two same-named tables cannot collide.
-async function copyAttachedTables({ dbInstance, filePath, attachOptions, uniqueTableName, describeTable }) {
-  const q = (ident) => `"${ident.replace(/"/g, '""')}"`;
-  await dbInstance.run(`ATTACH '${filePath}' AS src (${attachOptions})`);
-  try {
-    const rows = await dbInstance.all(
-      "SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name = 'src' AND NOT internal ORDER BY schema_name, table_name"
-    );
-    const found = rows.filter((r) => !r.table_name.startsWith('sqlite_'));
-    if (!found.length) throw new Error('The database file contains no tables');
-    const tables = [];
-    for (const { schema_name: schema, table_name: table } of found) {
-      const t = uniqueTableName(schema === 'main' ? table : `${schema}_${table}`);
-      await dbInstance.run(`CREATE TABLE "${t}" AS SELECT * FROM src.${q(schema)}.${q(table)}`);
-      tables.push(await describeTable(t));
-    }
-    return tables;
-  } finally {
-    // The imported file is deleted right after; a lingering ATTACH would keep
-    // it open on Windows and the datasource must not depend on it.
-    try { await dbInstance.run('DETACH src'); } catch { /* the import error, if any, is the one to report */ }
-  }
-}
-
-// The sqlite extension is a core DuckDB extension but is not bundled with the
-// binary: LOAD succeeds once it sits in the extension directory, and the first
-// import on a fresh install needs one INSTALL — which needs network. When both
-// fail the error names the cause, since DuckDB's own message only says the
-// extension could not be found.
-async function loadSqliteExtension(dbInstance) {
-  try { await dbInstance.run('LOAD sqlite'); return; } catch { /* not installed yet — try INSTALL */ }
-  try {
-    await dbInstance.run('INSTALL sqlite');
-    await dbInstance.run('LOAD sqlite');
-  } catch (err) {
-    throw new Error(`SQLite import needs the DuckDB "sqlite" extension, which could not be installed (network required on first use): ${err.message}`);
-  }
-}
-
-// Import an uploaded file into the tables of an already-open DuckDB instance.
-//
-// Shared by the create and the replace routes on purpose: the parsing rules are
-// the contract between a file and its tables, and letting "first import" drift
-// from "same file, new data" would make a refresh silently reshape the model
-// built on it.
-//
-// The caller owns the instance. Reopening a DuckDB file this process has opened
-// before does not work — not even after close() — so everything a route needs
-// to do to a database has to go through one handle.
-async function importTables({ dbInstance, file, ext, body, tableNamer }) {
-  {
-    // Import based on file type. Each imported unit becomes a DuckDB table; a
-    // spreadsheet can yield several (one per selected sheet), a flat file one.
-    const filePath = file.path.replace(/\\/g, '/'); // DuckDB needs forward slashes
-    const tables = []; // { tableName, rowCount, columns }
-    const usedTableNames = new Set();
-    const uniqueTableName = (base) => {
-      const s = tableNamer ? tableNamer(sanitizeTableName(base)) : sanitizeTableName(base);
-      let candidate = s, i = 2;
-      while (usedTableNames.has(candidate)) candidate = `${s}_${i++}`;
-      usedTableNames.add(candidate);
-      return candidate;
-    };
-    const describeTable = async (t) => {
-      const cnt = await dbInstance.all(`SELECT COUNT(*) as cnt FROM "${t}"`);
-      const cols = await dbInstance.all(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${t}' ORDER BY ordinal_position`);
-      return { tableName: t, rowCount: Number(cnt[0]?.cnt || 0), columns: cols };
-    };
-
-    // CSV/TSV import handled inline so we can fall back to Latin-1 if UTF-8 fails.
-    // Many real-world CSVs (e.g. FAOSTAT, exports from Excel) are Windows-1252 / Latin-1
-    // and DuckDB returns garbled errors when it tries to parse them as UTF-8.
-    if (ext === '.csv' || ext === '.tsv') {
-      const t = uniqueTableName(path.basename(file.originalname, ext));
-      // Resolve parse options from the whitelisted tokens; absent tokens keep
-      // DuckDB's auto-detection.
-      const delim = CSV_DELIMS[body.delimiter];  // undefined = auto-detect
-      const header = body.hasHeader === 'false' ? 'false' : 'true';
-      const decimal = CSV_DECIMALS[body.decimalSeparator];
-      const dateformat = CSV_DATEFORMATS[body.dateFormat];
-      const chosenEnc = CSV_ENCODINGS[body.encoding];
-
-      const optList = [`header=${header}`, 'sample_size=-1'];
-      // Only pin the delimiter when explicitly chosen — forcing delim=',' makes
-      // the sniffer fail on ';'/tab files ("Delimiter Candidates: ','"). Leaving
-      // it out lets DuckDB try all candidates; .tsv keeps a tab prior.
-      if (delim) optList.push(`delim='${delim}'`);
-      else if (ext === '.tsv') optList.push(`delim='\t'`);
-      if (decimal) optList.push(`decimal_separator='${decimal}'`);
-      if (dateformat) optList.push(`dateformat='${dateformat}'`);
-      const buildSQL = (encoding) =>
-        `CREATE TABLE "${t}" AS SELECT * FROM read_csv_auto('${filePath}', ${optList.join(', ')}${encoding ? `, encoding='${encoding}'` : ''})`;
-
-      if (chosenEnc) {
-        await dbInstance.run(buildSQL(chosenEnc));        // explicit encoding → no fallback
-      } else {
-        try {
-          await dbInstance.run(buildSQL());               // try UTF-8 (default) first
-        } catch (firstErr) {
-          try { await dbInstance.run(`DROP TABLE IF EXISTS "${t}"`); } catch { /* ignore */ }
-          try {
-            await dbInstance.run(buildSQL('latin-1'));    // retry with Latin-1
-          } catch {
-            throw firstErr;                               // surface the original UTF-8 error
-          }
-        }
-      }
-      tables.push(await describeTable(t));
-    } else if (ext === '.xlsx' || ext === '.xls') {
-      // A workbook can hold several sheets — import each selected one as its own
-      // table. The client sends the chosen sheet names as a JSON array; absent
-      // or invalid → the first sheet only (backward compatible). The header flag
-      // applies here too (first spreadsheet row as column names, or not).
-      const XLSX = require('xlsx');
-      const workbook = XLSX.readFile(file.path);
-      const header = body.hasHeader === 'false' ? 'false' : 'true';
-      let wanted;
-      try { wanted = JSON.parse(body.sheets || '[]'); } catch { wanted = []; }
-      if (!Array.isArray(wanted)) wanted = [];
-      wanted = wanted.filter((s) => workbook.SheetNames.includes(s));
-      if (!wanted.length) wanted = [workbook.SheetNames[0]];
-      for (const sheetName of wanted) {
-        const csvContent = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
-        const csvPath = `${file.path}.${uuidv4()}.csv`; // unique temp per sheet
-        fs.writeFileSync(csvPath, csvContent, 'utf-8');
-        const csvPathFwd = csvPath.replace(/\\/g, '/');
-        const t = uniqueTableName(sheetName);
-        await dbInstance.run(`CREATE TABLE "${t}" AS SELECT * FROM read_csv_auto('${csvPathFwd}', header=${header}, sample_size=-1)`);
-        try { fs.unlinkSync(csvPath); } catch { /* ignore */ }
-        tables.push(await describeTable(t));
-      }
-    } else if (ext === '.parquet') {
-      const t = uniqueTableName(path.basename(file.originalname, ext));
-      await dbInstance.run(`CREATE TABLE "${t}" AS SELECT * FROM read_parquet('${filePath}')`);
-      tables.push(await describeTable(t));
-    } else if (ext === '.json') {
-      const t = uniqueTableName(path.basename(file.originalname, ext));
-      await dbInstance.run(`CREATE TABLE "${t}" AS SELECT * FROM read_json_auto('${filePath}')`);
-      tables.push(await describeTable(t));
-    } else if (SQLITE_EXTS.includes(ext)) {
-      // Copied through the sqlite extension so declared column types survive.
-      if (!hasMagic(file.path, SQLITE_MAGIC)) throw new Error(`${file.originalname} is not a SQLite database`);
-      await loadSqliteExtension(dbInstance);
-      tables.push(...await copyAttachedTables({ dbInstance, filePath, attachOptions: 'TYPE SQLITE, READ_ONLY', uniqueTableName, describeTable }));
-    } else if (DUCKDB_EXTS.includes(ext)) {
-      // Copied rather than adopted as-is: the datasource file must be one this
-      // process created and holds open, with external access switched off.
-      if (!hasMagic(file.path, DUCKDB_MAGIC)) throw new Error(`${file.originalname} is not a DuckDB database`);
-      tables.push(...await copyAttachedTables({ dbInstance, filePath, attachOptions: 'READ_ONLY', uniqueTableName, describeTable }));
-    } else {
-      throw new Error(`Unsupported file type: ${ext}`);
-    }
-    return tables;
-  }
-}
 
 // Upload file → import into DuckDB → create datasource
 router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
@@ -296,34 +108,23 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
   }
 
   const dsId = uuidv4();
-  const duckdbPath = path.join(duckdbDir, `${dsId}.duckdb`);
+  const duckdbPath = versionPath(dsId);
 
   try {
-    const duckdb = require('duckdb-async');
-    const dbInstance = await duckdb.Database.create(duckdbPath);
-    let tables;
-    try {
-      tables = await importTables({ dbInstance, file, ext, body: req.body });
-    } finally {
-      await dbInstance.close();
-    }
+    const tables = await buildDatabaseInChild({ outPath: duckdbPath, file: { path: file.path, originalname: file.originalname }, ext, body: req.body });
     const primary = tables[0];
-
-    // Clean up uploaded file (data is now in DuckDB)
-    try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+    dropUpload(file);
 
     // Create datasource entry
     db.prepare(`
       INSERT INTO datasources (id, user_id, name, db_type, host, port, db_name, db_user, db_password, extra_config, workspace_id)
       VALUES (?, ?, ?, 'duckdb', '', 0, ?, '', '', ?, ?)
-    `).run(dsId, req.user.id, name, duckdbPath, JSON.stringify({
+    `).run(dsId, req.user.id, name, duckdbPath, JSON.stringify(extraFromFiles({}, [{
       sourceFile: file.originalname,
-      tableName: primary.tableName,   // first table — kept for single-table callers
-      rowCount: primary.rowCount,
-      tables: tables.map((t) => ({ tableName: t.tableName, rowCount: t.rowCount })),
       fileSize: file.size,            // bytes — used by cloud quota enforcement
       importedAt: new Date().toISOString(),
-    }), targetWs);
+      tables: tables.map((t) => ({ tableName: t.tableName, rowCount: t.rowCount })),
+    }])), targetWs);
     stampNewDatasource(req, dsId);
 
     res.status(201).json({
@@ -340,12 +141,10 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
       },
     });
   } catch (err) {
-    // Cleanup on error
-    try { fs.unlinkSync(file.path); } catch { /* ignore */ }
-    // Wait a bit for file handle release on Windows
-    await new Promise((r) => setTimeout(r, 200));
-    try { fs.unlinkSync(duckdbPath); } catch { /* ignore */ }
-    try { fs.unlinkSync(duckdbPath + '.wal'); } catch { /* ignore */ }
+    // The child removed its half-written file; a file it completed is only
+    // left behind when the datasource row could not be written.
+    dropUpload(file);
+    fs.rmSync(duckdbPath, { force: true });
     // Sanitize error message: DuckDB sometimes embeds raw bytes from a malformed file,
     // which renders as gibberish (e.g. "Invalid Error: p���d"). Strip non-printable
     // chars and cap the length so the client gets a readable message.
@@ -355,94 +154,93 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
   }
 });
 
-// Re-import a file into an EXISTING imported datasource: same id, same name,
-// fresh data. Creating a second datasource instead would orphan every model and
-// report already built on this one — refreshing in place is the whole point.
-router.put('/:id', authFor('write'), upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+// The uploaded file is only a vehicle: gone once imported or refused. On
+// Windows DuckDB may still hold it for a moment; the upload dir is scratch.
+function dropUpload(file) {
+  try { fs.unlinkSync(file.path); } catch { /* still held — left to the scratch dir */ }
+}
+
+// The files an imported source is made of. A source imported before it could
+// hold several is one file, and every table of the source is that file's.
+function filesOf(extra) {
+  if (Array.isArray(extra.files) && extra.files.length) return extra.files;
+  const tables = Array.isArray(extra.tables) && extra.tables.length
+    ? extra.tables.map((t) => ({ tableName: t.tableName, rowCount: t.rowCount }))
+    : (extra.tableName ? [{ tableName: extra.tableName, rowCount: extra.rowCount }] : []);
+  return [{ sourceFile: extra.sourceFile, fileSize: extra.fileSize, importedAt: extra.importedAt, tables }];
+}
+
+// The source-wide fields every reader of extra_config already knows — the
+// first table for single-table callers, the full list, the total size the
+// cloud quota adds up — derived from the file list so they cannot disagree.
+function extraFromFiles(extra, files) {
+  const tables = files.flatMap((f) => f.tables);
+  return {
+    ...extra,
+    files,
+    sourceFile: files[0].sourceFile,
+    tableName: tables[0].tableName,
+    rowCount: tables[0].rowCount,
+    tables,
+    fileSize: files.reduce((sum, f) => sum + (Number(f.fileSize) || 0), 0),
+    importedAt: new Date().toISOString(),
+  };
+}
+
+// Every import writes a new file: the one the served instances hold stays
+// untouched until the datasource points elsewhere.
+function versionPath(dsId) {
+  return path.join(duckdbDir, `${dsId}-${uuidv4().slice(0, 8)}.duckdb`);
+}
+
+// Write a new version of an imported source with newer data for one of its
+// files (`replacing`, an index): the tables of its other files — a source
+// imported before "one file, one source" can hold several — are copied from
+// the current version.
+//
+// Same id, same name: creating a second datasource instead would orphan every
+// model and report already built on this one.
+async function refreshFile(req, res, ds, extra, files, replacing) {
   const file = req.file;
-  const dropUpload = () => { try { fs.unlinkSync(file.path); } catch { /* ignore */ } };
-
-  const ds = getDatasource(req.params.id, req);
-  if (!ds) { dropUpload(); return res.status(404).json({ error: 'Datasource not found' }); }
-  if (!wsAccess.canManageDatasource(ds, wsAccess.actorOf(req))) {
-    dropUpload();
-    return res.status(403).json({ error: 'Only a workspace admin can replace this data source' });
-  }
-
-  let extra = {};
-  try { extra = JSON.parse(ds.extra_config || '{}'); } catch { /* malformed row — rejected just below */ }
-  if (ds.db_type !== 'duckdb' || !extra.sourceFile) {
-    dropUpload();
-    return res.status(400).json({ error: 'This datasource is a live connection, not an imported file.' });
-  }
-
-  // Same per-plan quota checks as a first import — a replacement can weigh more
-  // than what it replaces.
-  const veto = await uploadHooks.runChecks(req, file);
-  if (veto) { dropUpload(); return res.status(413).json({ error: veto }); }
-
   const ext = path.extname(file.originalname).toLowerCase();
-  const previous = Array.isArray(extra.tables) && extra.tables.length
-    ? extra.tables.map((t) => t.tableName)
-    : (extra.tableName ? [extra.tableName] : []);
-
-  // A brand-new file, and the datasource is pointed at it once the import
-  // succeeded. Importing into the live one is not an option: the query path
-  // holds it open with external access disabled (so it cannot read a CSV), and
-  // DuckDB refuses to reopen a path this process has already opened — even
-  // after close(). A fresh path sidesteps both, and leaves the previous data
-  // serving reports until the very last moment.
+  const keptTables = files.filter((_, i) => i !== replacing).flatMap((f) => f.tables.map((t) => t.tableName));
+  const previous = files[replacing].tables.map((t) => t.tableName);
   const oldPath = ds.db_name;
-  const newPath = path.join(duckdbDir, `${req.params.id}-${uuidv4().slice(0, 8)}.duckdb`);
-
-  const duckdb = require('duckdb-async');
-  const dbInstance = await duckdb.Database.create(newPath);
+  const newPath = versionPath(ds.id);
 
   try {
-    const tables = await importTables({ dbInstance, file, ext, body: req.body });
-    dropUpload();
+    const tables = await buildDatabaseInChild({
+      outPath: newPath,
+      file: { path: file.path, originalname: file.originalname },
+      ext,
+      body: req.body,
+      keep: { fromPath: oldPath, tables: keptTables },
+      renameSingleTo: previous.length === 1 ? previous[0] : null,
+    });
+    dropUpload(file);
 
-    // Models address tables by name. A monthly export whose filename carries
-    // the month arrives under a new name and would silently break every model
-    // built on it — so when the old shape leaves no ambiguity, the name the
-    // model already knows is kept. Renamed through the handle that just created
-    // it, since reopening is exactly what does not work here.
-    if (previous.length === 1 && tables.length === 1 && tables[0].tableName !== previous[0]) {
-      if (previous[0].includes('"')) throw new Error(`Invalid table name: ${previous[0]}`);
-      await dbInstance.run(`ALTER TABLE "${tables[0].tableName}" RENAME TO "${previous[0]}"`);
-      tables[0].tableName = previous[0];
-    }
-
-    // Shut external access off — irreversibly, which is the point — and hand
-    // the live instance to the query path rather than closing it. Closing would
-    // strand the new path: this process has opened it, and DuckDB will not open
-    // it again. See adoptDuckDBInstance.
-    await dbInstance.run('SET enable_external_access=false');
-    adoptDuckDBInstance(newPath, dbInstance);
-
-    const primary = tables[0];
-    // One statement: the datasource must never name a file whose contents it
-    // no longer describes.
-    db.prepare('UPDATE datasources SET db_name = ?, extra_config = ? WHERE id = ?').run(newPath, JSON.stringify({
-      ...extra,
+    const entry = {
       sourceFile: file.originalname,
-      tableName: primary.tableName,
-      rowCount: primary.rowCount,
-      tables: tables.map((t) => ({ tableName: t.tableName, rowCount: t.rowCount })),
       fileSize: file.size,
       importedAt: new Date().toISOString(),
-    }), req.params.id);
+      tables: tables.map((t) => ({ tableName: t.tableName, rowCount: t.rowCount })),
+    };
+    const nextFiles = files.map((f, i) => (i === replacing ? entry : f));
+    // One statement: the datasource must never name a file whose contents it
+    // no longer describes.
+    db.prepare('UPDATE datasources SET db_name = ?, extra_config = ? WHERE id = ?')
+      .run(newPath, JSON.stringify(extraFromFiles(extra, nextFiles)), ds.id);
 
-    // Retire the previous file. Windows may still hold it: it is then
-    // written down and retried (utils/duckdbFiles.js), never left behind.
-    invalidateDatasource(req.params.id);
+    // Retire the previous version. Queries already running on it finish; a
+    // file Windows will not delete yet is orphaned but harmless — nothing
+    // points at it any more.
+    invalidateDatasource(ds.id);
     await retireDuckDBFile(oldPath);
 
-    // Every cached row and materialised rollup describes the previous file.
-    queryCache.invalidateDatasource(req.params.id);
-    rollupBuilder.dropAllRollupsForDatasource({ datasourceId: req.params.id, orgId: req.organizationId || null })
-      .catch((e) => console.warn('[rollup] invalidate on file replace failed:', e.message));
+    // Cached rows and materialised rollups were computed on the previous data.
+    queryCache.invalidateDatasource(ds.id);
+    rollupBuilder.dropAllRollupsForDatasource({ datasourceId: ds.id, orgId: req.organizationId || null })
+      .catch((e) => console.warn('[rollup] invalidate on file import failed:', e.message));
 
     // Tables the model may no longer resolve. The model editor flags broken
     // references already, but the user deserves to hear it at the moment they
@@ -450,23 +248,51 @@ router.put('/:id', authFor('write'), upload.single('file'), async (req, res) => 
     const arrived = new Set(tables.map((t) => t.tableName));
     res.json({
       datasource: {
-        id: req.params.id, name: ds.name, db_type: 'duckdb',
+        id: ds.id, name: ds.name, db_type: 'duckdb',
         sourceFile: file.originalname,
-        tableName: primary.tableName, rowCount: primary.rowCount, tables,
+        tableName: tables[0].tableName, rowCount: tables[0].rowCount,
+        tables,                          // this file's tables, with their columns
+        files: nextFiles,
       },
       missingTables: previous.filter((t) => !arrived.has(t)),
     });
   } catch (err) {
-    dropUpload();
-    // The datasource still points at the old file, which was never touched.
-    // All there is to undo is the half-written new one.
-    try { await dbInstance.close(); } catch { /* already closed */ }
-    await new Promise((r) => setTimeout(r, 200));
-    try { fs.rmSync(newPath, { force: true }); } catch { /* orphan, harmless */ }
-    try { fs.rmSync(`${newPath}.wal`, { force: true }); } catch { /* ignore */ }
+    // The datasource still points at the previous version, never touched.
+    dropUpload(file);
     const rawMsg = String(err && err.message ? err.message : err);
     res.status(500).json({ error: `Import failed: ${rawMsg.replace(/[^\x20-\x7E\r\n\t]/g, '?').slice(0, 500)}` });
   }
+}
+
+// Refresh one file of an imported source with new data. A source made of
+// several files names the one to replace (`sourceFile`); a single-file source
+// needs no name.
+router.put('/:id', authFor('write'), upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  const ds = getDatasource(req.params.id, req);
+  if (!ds) { dropUpload(req.file); return res.status(404).json({ error: 'Datasource not found' }); }
+  if (!wsAccess.canManageDatasource(ds, wsAccess.actorOf(req))) {
+    dropUpload(req.file);
+    return res.status(403).json({ error: 'Only a workspace admin can replace this data source' });
+  }
+  let extra = {};
+  try { extra = JSON.parse(ds.extra_config || '{}'); } catch { /* malformed row — rejected just below */ }
+  if (ds.db_type !== 'duckdb' || !extra.sourceFile) {
+    dropUpload(req.file);
+    return res.status(400).json({ error: 'This datasource is a live connection, not an imported file.' });
+  }
+  // Same per-plan quota checks as a first import — a replacement can weigh
+  // more than what it replaces.
+  const veto = await uploadHooks.runChecks(req, req.file);
+  if (veto) { dropUpload(req.file); return res.status(413).json({ error: veto }); }
+
+  const files = filesOf(extra);
+  const replacing = files.length === 1 ? 0 : files.findIndex((f) => f.sourceFile === req.body.sourceFile);
+  if (replacing < 0) {
+    dropUpload(req.file);
+    return res.status(400).json({ error: 'Pick the file of this source to refresh.' });
+  }
+  await refreshFile(req, res, ds, extra, files, replacing);
 });
 
 // List uploaded file datasources
@@ -479,13 +305,5 @@ router.get('/', authFor('read'), (req, res) => {
     })),
   });
 });
-
-function sanitizeTableName(name) {
-  return name
-    .replace(/[^a-zA-Z0-9_]/g, '_')
-    .replace(/^_+/, '')
-    .replace(/_+/g, '_')
-    .substring(0, 64) || 'data';
-}
 
 module.exports = router;

@@ -41,7 +41,11 @@ const _schemaCache = new Map();
  * @param {Array<{table:string, column:string}>} cols
  * @returns {Promise<Set<string>>}  set of `"table.column"` that are interval
  */
-async function resolveIntervalColumns(datasource, cols) {
+// A model combining files names linked tables that only its own instance
+// knows: `connect` opens the connection its query runs on, and `scope` (every
+// source it reads) keys the cache in place of the datasource id.
+async function resolveIntervalColumns(datasource, cols, { connect, scope: modelScope } = {}) {
+  const scope = modelScope || datasource?.id;
   const out = new Set();
   if (!datasource || !capabilities(datasource.db_type).extractEpoch) return out;
 
@@ -49,18 +53,18 @@ async function resolveIntervalColumns(datasource, cols) {
   const wantTables = new Set();
   for (const c of cols) {
     if (!c || !c.table || !c.column) continue;
-    const ck = `${datasource.id}::${c.table}`;
+    const ck = `${scope}::${c.table}`;
     if (!_schemaCache.has(ck)) wantTables.add(c.table);
   }
 
   if (wantTables.size > 0) {
-    let conn;
+    let introspect;
     try {
-      conn = createConnection(datasource);
+      introspect = connect ? connect() : createConnection(datasource);
       for (const table of wantTables) {
-        const ck = `${datasource.id}::${table}`;
+        const ck = `${scope}::${table}`;
         try {
-          const rows = await conn.getColumns(table);
+          const rows = await introspect.getColumns(table);
           // Only cache when we actually got rows back. Empty results (and
           // outright failures, see catch below) leave the cache slot
           // unset so the NEXT /query retries — a transient PG hiccup at
@@ -88,13 +92,13 @@ async function resolveIntervalColumns(datasource, cols) {
     } catch (e) {
       console.warn('[columnType] connection failed -', e.message);
     } finally {
-      try { conn?.close(); } catch { /* throwaway pool */ }
+      try { introspect?.close(); } catch { /* throwaway pool */ }
     }
   }
 
   for (const c of cols) {
     if (!c || !c.table || !c.column) continue;
-    const m = _schemaCache.get(`${datasource.id}::${c.table}`);
+    const m = _schemaCache.get(`${scope}::${c.table}`);
     if (m && m.get(String(c.column)) === 'interval') {
       out.add(`${c.table}.${c.column}`);
     }

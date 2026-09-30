@@ -132,6 +132,17 @@ safeMigrate(`CREATE TABLE IF NOT EXISTS workspace_datasources (
   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
   FOREIGN KEY (datasource_id) REFERENCES datasources(id) ON DELETE CASCADE
 )`);
+safeMigrate(`CREATE TABLE IF NOT EXISTS model_datasources (
+  model_id TEXT NOT NULL,
+  datasource_id TEXT NOT NULL,
+  alias TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (model_id, datasource_id),
+  UNIQUE (model_id, alias),
+  FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE,
+  FOREIGN KEY (datasource_id) REFERENCES datasources(id) ON DELETE CASCADE
+)`);
+safeMigrate('CREATE INDEX IF NOT EXISTS idx_model_datasources_ds ON model_datasources(datasource_id)');
 // A retired DuckDB file Windows would not let go of yet (utils/duckdbFiles.js).
 safeMigrate(`CREATE TABLE IF NOT EXISTS pending_file_deletions (
   path TEXT PRIMARY KEY,

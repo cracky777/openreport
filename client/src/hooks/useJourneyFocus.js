@@ -28,7 +28,7 @@ export function useJourneyFocus() {
     if (stage === 'sources') {
       const ds = datasources.find((d) => d.id === id);
       if (!ds) return NONE;
-      const modelIds = idSet(models.filter((m) => m.datasource_id === id));
+      const modelIds = idSet(models.filter((m) => m.datasource_id === id || (m.linked_datasource_ids || []).includes(id)));
       return {
         active: true, stage, id, label: ds.name,
         datasourceIds: new Set([id]),
@@ -42,7 +42,7 @@ export function useJourneyFocus() {
       if (!model) return NONE;
       return {
         active: true, stage, id, label: model.name,
-        datasourceIds: new Set(model.datasource_id ? [model.datasource_id] : []),
+        datasourceIds: new Set([...(model.datasource_id ? [model.datasource_id] : []), ...(model.linked_datasource_ids || [])]),
         modelIds: new Set([id]),
         reportIds: idSet(reports.filter((r) => r.model_id === id)),
       };

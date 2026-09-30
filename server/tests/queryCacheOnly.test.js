@@ -1,10 +1,12 @@
 // `cacheOnly` is the promise the AI assistant rests on: a request carrying it
 // is answered from the rollup store or not at all. Every assertion here counts
-// calls to createConnection rather than checking for a crash — the interval
+// the ways to a source (createConnection, and createModelConnection that a
+// model's queries go through) rather than checking for a crash — the interval
 // probe swallows its own errors, so a throwing mock alone would prove nothing.
 jest.mock('../utils/dbConnector', () => ({
   ...jest.requireActual('../utils/dbConnector'),
   createConnection: jest.fn(() => { throw new Error('source must not be reached'); }),
+  createModelConnection: jest.fn(() => { throw new Error('source must not be reached'); }),
 }));
 jest.mock('../utils/rollupPlanner', () => ({
   tryServeFromRollup: jest.fn(),
@@ -12,7 +14,8 @@ jest.mock('../utils/rollupPlanner', () => ({
 }));
 
 const request = require('supertest');
-const { createConnection } = require('../utils/dbConnector');
+const { createConnection, createModelConnection } = require('../utils/dbConnector');
+const sourceReached = () => createConnection.mock.calls.length + createModelConnection.mock.calls.length;
 const rollupPlanner = require('../utils/rollupPlanner');
 const { clearSchemaCache } = require('../utils/columnTypeResolver');
 const { buildApp, seedUser, seedDatasource, seedModel, seedReport } = require('./helpers/testApp');
@@ -38,6 +41,7 @@ describe('/models/:id/query with cacheOnly', () => {
 
   beforeEach(() => {
     createConnection.mockClear();
+    createModelConnection.mockClear();
     rollupPlanner.tryServeFromRollup.mockReset();
     rollupPlanner.tryServeSlicerDistinct.mockReset();
     rollupPlanner.tryServeFromRollup.mockResolvedValue({ hit: false, reason: 'no-rollup:items' });
@@ -49,7 +53,7 @@ describe('/models/:id/query with cacheOnly', () => {
 
   test('control: without cacheOnly a planner MISS reaches the source', async () => {
     await query(BODY);
-    expect(createConnection).toHaveBeenCalled();
+    expect(sourceReached()).toBeGreaterThan(0);
   });
 
   test('a MISS returns the miss shape and never opens a connection', async () => {
@@ -60,14 +64,14 @@ describe('/models/:id/query with cacheOnly', () => {
       rowCount: 0,
       _cache: { hit: false, cacheOnly: true, reason: 'no-rollup:items' },
     });
-    expect(createConnection).not.toHaveBeenCalled();
+    expect(sourceReached()).toBe(0);
   });
 
   test('a slicer-distinct MISS is held back too', async () => {
     const res = await query({ dimensionNames: ['items.label'], measureNames: [], distinct: true, cacheOnly: true });
     expect(res.status).toBe(200);
     expect(res.body._cache).toEqual({ hit: false, cacheOnly: true, reason: 'no-rollup:items' });
-    expect(createConnection).not.toHaveBeenCalled();
+    expect(sourceReached()).toBe(0);
   });
 
   test.each([
@@ -80,7 +84,7 @@ describe('/models/:id/query with cacheOnly', () => {
     expect(res.body._cache.cacheOnly).toBe(true);
     expect(res.body.sql).toBeUndefined();
     expect(rollupPlanner.tryServeFromRollup).toHaveBeenCalledTimes(1);
-    expect(createConnection).not.toHaveBeenCalled();
+    expect(sourceReached()).toBe(0);
   });
 
   test('a HIT returns the rollup rows', async () => {
@@ -91,12 +95,12 @@ describe('/models/:id/query with cacheOnly', () => {
     expect(res.status).toBe(200);
     expect(res.body.rows).toEqual([{ label: 'a', amt: 3 }]);
     expect(res.body._cache.fromRollup).toBe('r_x_g1');
-    expect(createConnection).not.toHaveBeenCalled();
+    expect(sourceReached()).toBe(0);
   });
 
   test('only the literal boolean arms the flag', async () => {
     await query({ ...BODY, cacheOnly: 'true' });
-    expect(createConnection).toHaveBeenCalled();
+    expect(sourceReached()).toBeGreaterThan(0);
   });
 });
 
@@ -115,6 +119,7 @@ describe('cacheOnly for an RLS-restricted viewer', () => {
     });
     seedReport({ userId: owner, modelId: model, isPublic: 1 });
     createConnection.mockClear();
+    createModelConnection.mockClear();
     rollupPlanner.tryServeFromRollup.mockReset();
     rollupPlanner.tryServeFromRollup.mockResolvedValue({ hit: false, reason: 'rls-restricted' });
 
@@ -124,6 +129,6 @@ describe('cacheOnly for an RLS-restricted viewer', () => {
     expect(res.status).toBe(200);
     expect(res.body._cache).toEqual({ hit: false, cacheOnly: true, reason: 'rls-restricted' });
     expect(rollupPlanner.tryServeFromRollup.mock.calls[0][0].rlsApplies).toBe(true);
-    expect(createConnection).not.toHaveBeenCalled();
+    expect(sourceReached()).toBe(0);
   });
 });

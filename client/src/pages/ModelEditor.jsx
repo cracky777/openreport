@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useBugReport } from '../components/BugReport/BugReportProvider';
 import { TbBug, TbSparkles } from 'react-icons/tb';
 import ModelAssistant from '../components/ModelAssistant/ModelAssistant';
@@ -16,6 +16,8 @@ import ValidationBadge from '../components/ValidationBadge';
 import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
 import Step2DimensionsMeasures from './Step2DimensionsMeasures';
 import Step0Tables from './Step0Tables';
+import FileImportDialog from '../components/FileImportDialog/FileImportDialog';
+import { sourceFiles, FILE_IMPORT_ACCEPT } from '../utils/sourceFiles';
 import {
   isNumeric, isDateType, getColumnType, readOverride, writeOverride,
 } from '../utils/modelEditorHelpers';
@@ -132,6 +134,9 @@ export default function ModelEditor() {
   const [pendingDsChange, setPendingDsChange] = useState(null); // datasource id awaiting confirmation
   const [saveWarnings, setSaveWarnings] = useState(null);       // advisory lines shown before saving
   const [allTables, setAllTables] = useState([]);
+  // Where each pickable table comes from: { name, table, sourceId, sourceName }.
+  // A linked file's tables are named `alias__table` (server utils/modelSources.js).
+  const [tableInfo, setTableInfo] = useState([]);
   const [selectedTables, setSelectedTables] = useState([]);
   const [tableColumns, setTableColumns] = useState({});
   const [tablePositions, setTablePositions] = useState({});
@@ -169,6 +174,24 @@ export default function ModelEditor() {
   const [showDsChange, setShowDsChange] = useState(false);
   const [allDatasources, setAllDatasources] = useState([]);
   const [switchingDs, setSwitchingDs] = useState(false);
+
+  // Tables and columns are read through the model, not its source: a model
+  // that links other files sees theirs too, under the names its queries use.
+  const columnsUrl = useCallback((table) => `/models/${id}/tables/${encodeURIComponent(table)}/columns`, [id]);
+  const loadModelTables = useCallback(async () => {
+    setTablesLoading(true);
+    try {
+      const res = await api.get(`/models/${id}/tables`);
+      const tables = res.data.tables || [];
+      setTableInfo(tables);
+      setAllTables(tables.map((t) => t.name));
+      setTablesError(null);
+    } catch (err) {
+      setTablesError(err.response?.data?.error || 'Failed to load tables from database');
+    } finally {
+      setTablesLoading(false);
+    }
+  }, [id]);
 
   const runValidation = useCallback(async () => {
     if (!id) return;
@@ -221,19 +244,12 @@ export default function ModelEditor() {
       // Reload datasource meta
       const dsRes = await api.get(`/datasources/${m.datasource_id}`);
       setDatasource(dsRes.data.datasource);
-      // Reload available tables from new datasource (for the UI pickers)
-      try {
-        const tablesRes = await api.get(`/datasources/${dsRes.data.datasource.id}/tables`);
-        setAllTables(tablesRes.data.tables || []);
-        setTablesError(null);
-      } catch (err) {
-        setTablesError(err?.response?.data?.error || 'Failed to load tables from database');
-      }
+      await loadModelTables();
       // Refresh columns for each selected table. Keep previous columns as a visual fallback
       // when the table still exists — only drop them if the table is outright gone.
       for (const t of (m.selected_tables || [])) {
         try {
-          const colRes = await api.get(`/datasources/${dsRes.data.datasource.id}/tables/${t}/columns`);
+          const colRes = await api.get(columnsUrl(t));
           setTableColumns((prev) => ({ ...prev, [t]: colRes.data.columns }));
         } catch {
           // Table missing in new datasource — drop its columns (validation will flag it)
@@ -269,17 +285,7 @@ export default function ModelEditor() {
         const dsRes = await api.get(`/datasources/${m.datasource_id}`);
         setDatasource(dsRes.data.datasource);
 
-        // Load tables
-        setTablesLoading(true);
-        try {
-          const tablesRes = await api.get(`/datasources/${dsRes.data.datasource.id}/tables`);
-          setAllTables(tablesRes.data.tables || []);
-        } catch (err) {
-          console.error('Failed to load tables:', err);
-          setTablesError(err.response?.data?.error || 'Failed to load tables from database');
-        } finally {
-          setTablesLoading(false);
-        }
+        await loadModelTables();
 
         // If model already has selected tables, jump to step 1. A model that
         // was never laid out (an imported one) has no positions: without these
@@ -289,7 +295,7 @@ export default function ModelEditor() {
           setStep(1);
           for (const t of m.selected_tables) {
             try {
-              const colRes = await api.get(`/datasources/${dsRes.data.datasource.id}/tables/${t}/columns`);
+              const colRes = await api.get(columnsUrl(t));
               setTableColumns((prev) => ({ ...prev, [t]: colRes.data.columns }));
             } catch (err) {
               console.error(`Failed to load columns for ${t}:`, err);
@@ -306,7 +312,7 @@ export default function ModelEditor() {
       }
     };
     load();
-  }, [id, navigate, runValidation]);
+  }, [id, navigate, runValidation, loadModelTables, columnsUrl]);
 
   // The joins the draft's tables call for (server: utils/relationships.js):
   // the foreign keys the database declares and, with `byName`, key column
@@ -360,7 +366,7 @@ export default function ModelEditor() {
     const toLoad = selectedTables.filter((t) => !tableColumns[t]);
     const loaded = { ...tableColumns };
     for (const t of toLoad) {
-      const res = await api.get(`/datasources/${model.datasource_id}/tables/${t}/columns`);
+      const res = await api.get(columnsUrl(t));
       loaded[t] = res.data.columns;
       setTableColumns((prev) => ({ ...prev, [t]: res.data.columns }));
       // A table arrives fully flagged. Leaving it blank made the user click
@@ -385,7 +391,55 @@ export default function ModelEditor() {
         }
       } catch { /* keys unreadable: the joins are drawn by hand or detected by name */ }
     }
-  }, [selectedTables, tableColumns, model, applyRelationships]);
+  }, [selectedTables, tableColumns, applyRelationships, columnsUrl]);
+
+  // A model on an imported file can read other files: each is a data source of
+  // its own, linked here — a new file becomes a new source. Their tables join
+  // the list; a new file's come in ticked, the user added it to use it.
+  const addFileRef = useRef(null);
+  const [fileToAdd, setFileToAdd] = useState(null);
+  const [fileSources, setFileSources] = useState([]);
+  const linked = model?.linked_datasources || [];
+  const canLinkSources = ['manage', 'edit'].includes(model?.access) && sourceFiles(datasource).length > 0;
+  useEffect(() => {
+    if (!canLinkSources) return undefined;
+    let live = true;
+    api.get('/datasources').then((res) => {
+      if (live) setFileSources((res.data.datasources || []).filter((d) => sourceFiles(d).length > 0));
+    }).catch(() => { /* the picker just stays empty */ });
+    return () => { live = false; };
+  }, [canLinkSources, linked.length]);
+  const linkable = fileSources.filter((d) => d.id !== model?.datasource_id && !linked.some((l) => l.id === d.id));
+  const linkedTables = useMemo(() => Object.fromEntries(
+    tableInfo.filter((t) => t.sourceId !== model?.datasource_id).map((t) => [t.name, t]),
+  ), [tableInfo, model?.datasource_id]);
+
+  const linkSource = async (datasourceId, tickTables = []) => {
+    try {
+      const res = await api.post(`/models/${id}/datasources`, { datasourceId });
+      const { alias } = res.data.datasource;
+      setModel((m) => ({ ...m, linked_datasources: [...(m.linked_datasources || []), res.data.datasource] }));
+      await loadModelTables();
+      const ticked = tickTables.map((t) => `${alias}__${t}`);
+      setSelectedTables((prev) => [...prev, ...ticked.filter((t) => !prev.includes(t))]);
+      toast(`${res.data.datasource.name} added to the model`, 'success');
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not add this source');
+    }
+  };
+  const handleFileImported = async (data) => {
+    setFileToAdd(null);
+    await linkSource(data.datasource.id, (data.datasource.tables || []).map((t) => t.tableName));
+  };
+  const unlinkSource = async (source) => {
+    try {
+      await api.delete(`/models/${id}/datasources/${source.id}`);
+      setModel((m) => ({ ...m, linked_datasources: (m.linked_datasources || []).filter((l) => l.id !== source.id) }));
+      await loadModelTables();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not remove this source');
+    }
+  };
 
   const toggleTable = (tableName) => {
     setSelectedTables((prev) =>
@@ -875,6 +929,23 @@ export default function ModelEditor() {
           tablesLoading={tablesLoading} tablesError={tablesError}
           filteredTables={filteredTables} selectedTables={selectedTables}
           toggleTable={toggleTable} enterStep1={enterStep1}
+          tableInfo={tableInfo}
+          sources={canLinkSources ? {
+            own: datasource, linked, linkable,
+            onImportFile: () => addFileRef.current?.click(),
+            onLink: (dsId) => linkSource(dsId),
+            onUnlink: unlinkSource,
+          } : null}
+        />
+      )}
+      <input
+        ref={addFileRef} type="file" accept={FILE_IMPORT_ACCEPT} style={{ display: 'none' }}
+        onChange={(e) => { setFileToAdd(e.target.files?.[0] || null); e.target.value = ''; }}
+      />
+      {fileToAdd && model && (
+        <FileImportDialog
+          file={fileToAdd} mode="create" workspaceId={model.workspace_id}
+          onDone={handleFileImported} onCancel={() => setFileToAdd(null)}
         />
       )}
 
@@ -888,7 +959,7 @@ export default function ModelEditor() {
               {brokenRefs.length} broken reference{brokenRefs.length > 1 ? 's' : ''} detected
             </div>
             <div style={_hs34}>
-              Some tables or columns used by this model are no longer present in the datasource. Queries using them will fail. Review and fix them below.
+              Some tables, columns or joins of this model no longer match the datasource. Queries using them will fail. Review and fix them below.
             </div>
             <ul style={_hs35}>
               {brokenRefs.slice(0, 6).map((r, i) => (
@@ -897,7 +968,8 @@ export default function ModelEditor() {
                   {r.label ? `"${r.label}" ` : r.name ? `"${r.name}" ` : ''}
                   — {r.issue === 'missing_table' ? `table "${r.table}" not found` :
                      r.issue === 'missing_column' ? `column "${r.column}" missing in "${r.table}"` :
-                     r.issue === 'no_table' ? 'has no table reference' : r.issue}
+                     r.issue === 'no_table' ? 'has no table reference' :
+                     r.issue === 'type_mismatch' ? `links a ${r.fromType} column to a ${r.toType} column — link the key columns instead` : r.issue}
                 </li>
               ))}
               {brokenRefs.length > 6 && <li>…and {brokenRefs.length - 6} more</li>}
@@ -952,7 +1024,7 @@ export default function ModelEditor() {
           dimensions={dimensions} setDimensions={setDimensions}
           measures={measures} setMeasures={setMeasures}
           addDimension={addDimension} addMeasure={addMeasure}
-          modelId={id} datasourceId={model?.datasource_id}
+          modelId={id} datasourceId={model?.datasource_id} linkedTables={linkedTables}
           isDateType={isDateType}
           columnTypes={columnTypes} setColumnType={setColumnType}
           validateColumnType={validateColumnType} validatingColumn={validatingColumn} validationResults={validationResults}

@@ -117,7 +117,7 @@ describe('POST /datasources/:id/relationships', () => {
   const path = require('path');
   const request = require('supertest');
   const { buildApp, seedUser, db } = require('./helpers/testApp');
-  const { createConnection, closeDuckDBFile, DUCKDB_DIR } = require('../utils/dbConnector');
+  const { closeDuckDBFile, DUCKDB_DIR } = require('../utils/dbConnector');
   const app = buildApp();
   // The suite's own data dir, not server/data: one file per run used to pile up there.
   const file = path.join(DUCKDB_DIR, `relationships-${process.pid}.duckdb`);
@@ -130,10 +130,20 @@ describe('POST /datasources/:id/relationships', () => {
     dsId = `rel-${process.pid}`;
     db.prepare("INSERT INTO datasources (id, user_id, name, db_type, host, port, db_name, db_user, db_password, extra_config) VALUES (?,?,?,'duckdb','',0,?,'','','{}')")
       .run(dsId, user, 'rel', file);
-    const conn = createConnection(db.prepare('SELECT * FROM datasources WHERE id = ?').get(dsId));
-    await conn.executeDDL('CREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR)');
-    await conn.executeDDL('CREATE TABLE orders (id INTEGER, buyer INTEGER REFERENCES customers(id), product_id INTEGER)');
-    await conn.executeDDL('CREATE TABLE products (id INTEGER, label VARCHAR)');
+    // Written by another process, as every source file is: the server opens
+    // them read-only (utils/fileImport.js).
+    const ddl = [
+      'CREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR)',
+      'CREATE TABLE orders (id INTEGER, buyer INTEGER REFERENCES customers(id), product_id INTEGER)',
+      'CREATE TABLE products (id INTEGER, label VARCHAR)',
+    ];
+    require('child_process').execFileSync(process.execPath, ['-e', `
+      const duckdb = require(${JSON.stringify(require.resolve('duckdb-async'))});
+      (async () => {
+        const d = await duckdb.Database.create(${JSON.stringify(file)});
+        for (const sql of ${JSON.stringify(ddl)}) await d.run(sql);
+        await d.close();
+      })();`]);
   });
   afterAll(async () => {
     await closeDuckDBFile(file);

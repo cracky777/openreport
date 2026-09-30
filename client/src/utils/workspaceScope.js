@@ -18,7 +18,8 @@ const livesIn = (row, wsKey) => !!wsKey
 export function scopeResources({ datasources, models, selectedWs, personalWorkspaceId }) {
   const wsKey = selectedWs || personalWorkspaceId || null;
   const scopedModels = (models || []).filter((m) => livesIn(m, wsKey));
-  const modelSources = new Set(scopedModels.filter((m) => m.workspace_id === wsKey).map((m) => m.datasource_id));
+  const modelSources = new Set(scopedModels.filter((m) => m.workspace_id === wsKey)
+    .flatMap((m) => [m.datasource_id, ...(m.linked_datasource_ids || [])]));
   const scopedSources = (datasources || []).filter((d) => livesIn(d, wsKey) || modelSources.has(d.id));
   const onScreen = new Set(scopedSources.map((d) => d.id));
   for (const m of scopedModels) {

@@ -32,6 +32,13 @@ describe('scopeResources', () => {
     // A model is created on what lives here or is shared here, not on d3.
     expect(buildableSources(r.datasources, TEAM).map((d) => d.id)).toEqual(['d2', 'd4']);
   });
+  it('a model reading several files brings each of them on screen', () => {
+    const linked = [{ id: 'd6', user_id: 'u3', workspace_id: OTHER }];
+    const withLink = [{ id: 'm6', user_id: ME, workspace_id: TEAM, datasource_id: 'd2', linked_datasource_ids: ['d6'], shared_in: [] }];
+    const r = scopeResources({ datasources: [...datasources, ...linked], models: withLink, selectedWs: TEAM, personalWorkspaceId: PERSONAL, userId: ME });
+    expect(r.datasources.map((d) => d.id)).toContain('d6');
+  });
+
   it('My Reports is the personal workspace only, not what one created in a team', () => {
     const r = scopeResources({ datasources, models, selectedWs: null, personalWorkspaceId: PERSONAL, userId: ME });
     expect(r.models.map((m) => m.id)).toEqual(['m1']);

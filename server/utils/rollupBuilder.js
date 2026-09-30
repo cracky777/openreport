@@ -27,6 +27,7 @@ const { prepareGlobalRulesForWidget } = require('./reportFilterRules');
 const { shiftWidgetFiltersForN1 } = require('./comparePeriod');
 const { componentPlanForMeasures, factsForMeasure, effectiveMeasureName } = require('./measureType');
 const { safeParse } = require('../db/modelRow');
+const { modelIdsUsing } = require('./modelSources');
 
 // Build-fetch row cap. 0 (default) = uncapped — /query emits no LIMIT for
 // builder requests, because a truncated rollup re-aggregates into silently
@@ -1044,7 +1045,8 @@ async function _buildRollupsForModelInner({ modelId, internalUserId, orgId, log 
   const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(model.datasource_id);
   if (!datasource) throw new Error(`Datasource not found for model: ${modelId}`);
 
-  const storageMode = datasource.rollup_storage === 'source' ? 'source' : 'duckdb';
+  // A file source is served read-only: its rollups can only live in the cache store.
+  const storageMode = datasource.rollup_storage === 'source' && datasource.db_type !== 'duckdb' ? 'source' : 'duckdb';
 
   const { plan, measures } = planRollupsForModel(modelId);
   if (plan.length === 0) {
@@ -1285,11 +1287,11 @@ async function dropAllRollups({ modelId, orgId }) {
 // Drop every rollup for every model on a datasource — called when the
 // datasource connection params change (the materialised data may now
 // point at a different DB / schema).
+// Every model reading the source — as its own or a linked one — cached rows of it.
 async function dropAllRollupsForDatasource({ datasourceId, orgId }) {
-  const models = db.prepare('SELECT id FROM models WHERE datasource_id = ?').all(datasourceId);
   let total = 0;
-  for (const m of models) {
-    const r = await dropAllRollups({ modelId: m.id, orgId });
+  for (const modelId of modelIdsUsing(datasourceId)) {
+    const r = await dropAllRollups({ modelId, orgId });
     total += r.droppedCount;
   }
   return { droppedCount: total };

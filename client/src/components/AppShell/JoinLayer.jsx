@@ -12,7 +12,8 @@ import { useState, useLayoutEffect, useRef, useCallback } from 'react';
 // a relation to something the user chose to hide must not be drawn.
 //
 // Cards announce themselves with `data-join-anchor="<stage>:<id>"`, and the
-// card they hang from with `data-join-parent` (+ `data-join-parent-name`);
+// card they hang from with `data-join-parent` (+ `data-join-parent-name`) —
+// plus, for a model reading several files, the others in `data-join-also`;
 // the layer reads the DOM rather than a ref registry, because the cards live in
 // three separate page components and the question — "what is on screen right
 // now" — is precisely what a DOM query answers. The relations come from the
@@ -54,20 +55,21 @@ export default function JoinLayer({ onFollow, overview = false }) {
       };
     };
 
-    // Every card on screen that hangs from another one.
-    const edges = [...host.querySelectorAll('[data-join-anchor][data-join-parent]')].map((el) => {
-      const from = el.dataset.joinParent;
+    // Every card on screen that hangs from another one — or from several. The
+    // origin name is the first parent's: one label per card.
+    const edges = [...host.querySelectorAll('[data-join-anchor][data-join-parent]')].flatMap((el) => {
       const to = el.dataset.joinAnchor;
-      return {
+      const parents = [el.dataset.joinParent, ...(el.dataset.joinAlso ? el.dataset.joinAlso.split(' ') : [])];
+      return parents.map((from, i) => ({
         from,
         to,
         parentId: from.slice(from.indexOf(':') + 1),
-        parentName: el.dataset.joinParentName,
+        parentName: i === 0 ? el.dataset.joinParentName : undefined,
         noun: to.startsWith('reports:') ? 'report' : 'model',
         // A curve to or from a card outside the highlighted branch fades with it.
         dim: el.hasAttribute('data-journey-dim')
           || !!host.querySelector(`[data-join-anchor="${from.replace(/["\\]/g, '\\$&')}"][data-journey-dim]`),
-      };
+      }));
     });
 
     // Both ends must be on screen. Every stage is mounted, so a missing card
@@ -152,7 +154,7 @@ export default function JoinLayer({ onFollow, overview = false }) {
       measure();
     });
     // A card whose parent changes keeps its node: watch the join attributes too.
-    mo.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-join-anchor', 'data-join-parent', 'data-join-parent-name', 'data-journey-dim'] });
+    mo.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-join-anchor', 'data-join-parent', 'data-join-parent-name', 'data-join-also', 'data-journey-dim'] });
     host.addEventListener('scroll', measure, true);
     return () => {
       ro.disconnect();

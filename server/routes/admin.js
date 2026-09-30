@@ -92,7 +92,9 @@ router.get('/inventory', requireAdmin, (req, res) => {
   const datasources = db.prepare(`
     SELECT d.id, d.name, d.db_type, d.created_at, d.user_id, d.workspace_id,
       u.email AS creator_email, u.display_name AS creator_name,
-      (SELECT COUNT(*) FROM models m WHERE m.datasource_id = d.id) AS model_count
+      -- A model linking the file counts too: it blocks the deletion just the same.
+      (SELECT COUNT(*) FROM (SELECT id FROM models WHERE datasource_id = d.id
+        UNION SELECT model_id FROM model_datasources WHERE datasource_id = d.id)) AS model_count
     FROM datasources d LEFT JOIN users u ON u.id = d.user_id
     ORDER BY d.name COLLATE NOCASE
   `).all().map((d) => ({
@@ -102,6 +104,8 @@ router.get('/inventory', requireAdmin, (req, res) => {
 
   const models = db.prepare(`
     SELECT m.id, m.name, m.created_at, m.updated_at, m.user_id, m.workspace_id, d.name AS datasource_name,
+      (SELECT GROUP_CONCAT(ld.name, ', ') FROM model_datasources md JOIN datasources ld ON ld.id = md.datasource_id
+        WHERE md.model_id = m.id) AS linked_names,
       u.email AS creator_email, u.display_name AS creator_name,
       (SELECT COUNT(*) FROM reports r WHERE r.model_id = m.id AND r.draft = 0) AS report_count
     FROM models m
@@ -109,7 +113,8 @@ router.get('/inventory', requireAdmin, (req, res) => {
     LEFT JOIN users u ON u.id = m.user_id
     ORDER BY m.name COLLATE NOCASE
   `).all().map((m) => ({
-    id: m.id, name: m.name, datasourceName: m.datasource_name, createdAt: m.created_at, updatedAt: m.updated_at,
+    id: m.id, name: m.name, createdAt: m.created_at, updatedAt: m.updated_at,
+    datasourceName: m.linked_names ? `${m.datasource_name} + ${m.linked_names}` : m.datasource_name,
     reportCount: m.report_count, creator: creator(m), workspace: ws(m.workspace_id), sharedIn: modelShares.get(m.id) || [],
   }));
 

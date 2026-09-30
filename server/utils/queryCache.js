@@ -49,7 +49,7 @@ const cache = new LRUCache({
     if (!meta) return;
     keyMeta.delete(key);
     indexDel(indexByModel, meta.modelId, key);
-    indexDel(indexByDatasource, meta.datasourceId, key);
+    for (const id of meta.datasourceIds) indexDel(indexByDatasource, id, key);
     indexDel(indexByOrg, meta.orgId, key);
   },
 });
@@ -78,9 +78,13 @@ function indexAdd(map, id, key) {
   set.add(key);
 }
 
-function buildKey({ datasourceId, sql, rlsContext }) {
+// `datasourceIds`: every source a model combining files reads. Part of the key
+// — the same SQL means other rows under another set of files — only when
+// there are several, so a single-source entry keeps the key it always had.
+function buildKey({ datasourceId, datasourceIds, sql, rlsContext }) {
   const h = crypto.createHash('sha256');
   h.update(String(datasourceId || ''));
+  if (datasourceIds && datasourceIds.length > 1) h.update(`|${datasourceIds.join(',')}`);
   h.update('\0');
   h.update(String(sql || ''));
   h.update('\0');
@@ -127,11 +131,12 @@ function set(opts, payload) {
   // the old index entries), so the re-add must come last.
   keyMeta.set(key, {
     modelId: opts.modelId || null,
-    datasourceId: opts.datasourceId || null,
+    // Refreshing any of them makes the entry stale.
+    datasourceIds: opts.datasourceIds || (opts.datasourceId ? [opts.datasourceId] : []),
     orgId: opts.orgId || null,
   });
   if (opts.modelId) indexAdd(indexByModel, opts.modelId, key);
-  if (opts.datasourceId) indexAdd(indexByDatasource, opts.datasourceId, key);
+  for (const id of keyMeta.get(key).datasourceIds) indexAdd(indexByDatasource, id, key);
   if (opts.orgId) indexAdd(indexByOrg, opts.orgId, key);
 }
 

@@ -4,6 +4,7 @@ import { routeJoin, bezierAt } from '../../utils/joinRouting';
 import { keyRank, sortColumns } from '../../utils/columnKeys';
 import ColumnTypePopover from './ColumnTypePopover';
 import ConfirmDialog from '../ConfirmDialog/ConfirmDialog';
+import { joinTypeMismatch } from '../../utils/joinTypes';
 
 const _hs0 = {
           position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
@@ -74,6 +75,10 @@ export default function SchemaCanvas({
   onAddMeasure,
   modelId, // used by the cardinality auto-detect endpoint
   datasourceId,
+  // Tables of a file the model links: { [name]: { sourceId, sourceName, table } }.
+  // They are named `alias__table` in the model; the card shows the table under
+  // its source's name, and counts its rows in that source.
+  linkedTables = {},
   isDateType,
   rlsTable, // the table currently flagged as the RLS table (if any)
   onOpenRLS, // (tableName) => void — opens the RLS dialog for that table
@@ -97,21 +102,25 @@ export default function SchemaCanvas({
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [collapsedTables, setCollapsedTables] = useState({});
-  const [cycleWarning, setCycleWarning] = useState(null);
+  // Why the last link drawn was refused (a loop) or is suspect (types).
+  const [linkWarning, setLinkWarning] = useState(null);
   const [tableCounts, setTableCounts] = useState({}); // { tableName: { count: number, loading: boolean } }
   // The SVG node can only raise the question — the dialog answering it is a
   // Portal, since a <button> has no business inside <svg>.
   const [pendingRemove, setPendingRemove] = useState(null);
 
   const fetchTableCount = useCallback(async (tableName) => {
-    if (!datasourceId) return;
+    const linked = linkedTables[tableName];
+    const sourceId = linked ? linked.sourceId : datasourceId;
+    const physical = linked ? linked.table : tableName;
+    if (!sourceId) return;
     setTableCounts((prev) => ({ ...prev, [tableName]: { ...prev[tableName], loading: true } }));
     try {
       // Quote table name for schema.table format
-      const quoted = tableName.includes('.')
-        ? tableName.split('.').map((p) => `"${p}"`).join('.')
-        : `"${tableName}"`;
-      const res = await api.post(`/datasources/${datasourceId}/query`, {
+      const quoted = physical.includes('.')
+        ? physical.split('.').map((p) => `"${p}"`).join('.')
+        : `"${physical}"`;
+      const res = await api.post(`/datasources/${sourceId}/query`, {
         sql: `SELECT COUNT(*) AS cnt FROM ${quoted}`,
       });
       const cnt = res.data.rows?.[0]?.cnt ?? res.data.rows?.[0]?.count ?? '?';
@@ -119,7 +128,7 @@ export default function SchemaCanvas({
     } catch {
       setTableCounts((prev) => ({ ...prev, [tableName]: { count: '?', loading: false } }));
     }
-  }, [datasourceId]);
+  }, [datasourceId, linkedTables]);
 
   const tableNames = Object.keys(tables);
 
@@ -133,6 +142,12 @@ export default function SchemaCanvas({
   }, [tables]);
 
   // Get visible columns for a table (respecting collapse)
+  // The database type of a column, as the table list carries it.
+  const columnType = useCallback(
+    (table, column) => (tables[table] || []).find((c) => c.column_name === column)?.data_type,
+    [tables],
+  );
+
   const getVisibleColumns = useCallback((tableName) => {
     const cols = sortedTables[tableName] || [];
     if (collapsedTables[tableName] === false) return cols; // explicitly expanded
@@ -300,14 +315,21 @@ export default function SchemaCanvas({
           );
           if (!exists) {
             if (wouldCreateCycle(linkDrag.fromTable, bestMatch.table, joins)) {
-              setCycleWarning(`Impossible de relier ${linkDrag.fromTable} → ${bestMatch.table} : cela créerait une boucle de relations.`);
-              setTimeout(() => setCycleWarning(null), 4000);
+              setLinkWarning(`Cannot link ${linkDrag.fromTable} → ${bestMatch.table}: it would make a loop of relations.`);
+              setTimeout(() => setLinkWarning(null), 4000);
             } else {
               // Optimistic create with the star-schema default cardinality
               // (*:1). The auto-detect runs in the background and overrides
               // each side from the sample.
               const fromTbl = linkDrag.fromTable, fromCol = linkDrag.fromColumn;
               const toTbl = bestMatch.table, toCol = bestMatch.column;
+              // Kept — the user may know better on a lenient engine — but said
+              // now: on most, the first report on this join fails.
+              const mismatch = joinTypeMismatch(columnType(fromTbl, fromCol), columnType(toTbl, toCol));
+              if (mismatch) {
+                setLinkWarning(`${fromTbl}.${fromCol} (${mismatch.from}) and ${toTbl}.${toCol} (${mismatch.to}) do not match: most databases cannot compare them. Link the key columns of both tables instead.`);
+                setTimeout(() => setLinkWarning(null), 10000);
+              }
               onJoinsChange([...joins, {
                 from_table: fromTbl, from_column: fromCol,
                 to_table: toTbl, to_column: toCol,
@@ -346,7 +368,7 @@ export default function SchemaCanvas({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [draggingTable, dragOffset, linkDrag, panning, panStart, pan, zoom, positions, joins, tables, getVisibleColumns, getColumnPos, onPositionsChange, onJoinsChange, screenToSvg]);
+  }, [draggingTable, dragOffset, linkDrag, panning, panStart, pan, zoom, positions, joins, tables, getVisibleColumns, getColumnPos, onPositionsChange, onJoinsChange, screenToSvg, columnType]);
 
   // Toggle a cardinality marker (1 ↔ *) on one end of a join. The SQL
   // JOIN keyword (LEFT/INNER) is derived server-side from cardinality, so
@@ -446,12 +468,11 @@ export default function SchemaCanvas({
         />
       )}
 
-      {/* Cycle warning */}
-      {cycleWarning && (
+      {linkWarning && (
         <div style={_hs0}>
           <span style={_hs1}>!</span>
-          <span style={_hs2}>{cycleWarning}</span>
-          <button className="btn-hover btn-hover-danger" onClick={() => setCycleWarning(null)} style={_hs3}>x</button>
+          <span style={_hs2}>{linkWarning}</span>
+          <button className="btn-hover btn-hover-danger" onClick={() => setLinkWarning(null)} style={_hs3}>x</button>
         </div>
       )}
 
@@ -538,6 +559,8 @@ export default function SchemaCanvas({
               const isManyToMany = cardinality.from === '*' && cardinality.to === '*';
               const isOneToOne = cardinality.from === '1' && cardinality.to === '1';
               const color = isManyToMany ? '#dc2626' : isOneToOne ? '#0891b2' : '#7c3aed';
+              // Columns of different kinds: dashed amber, the reason on hover.
+              const mismatch = joinTypeMismatch(columnType(join.from_table, join.from_column), columnType(join.to_table, join.to_column));
 
               // Anchor the cardinality markers along the curve, just inside
               // each table edge: t=0.08 from start, t=0.92 from end (close
@@ -566,8 +589,11 @@ export default function SchemaCanvas({
                 <g key={`join-${i}`}>
                   <path
                     d={pathD}
-                    fill="none" stroke={color} strokeWidth={2}
-                  />
+                    fill="none" stroke={mismatch ? '#d97706' : color} strokeWidth={2}
+                    strokeDasharray={mismatch ? '6 4' : undefined}
+                  >
+                    {mismatch && <title>{`Types do not match: ${mismatch.from} ↔ ${mismatch.to}. Most databases cannot compare them.`}</title>}
+                  </path>
                   {renderMarker(fromMarkerX, fromMarkerY, cardinality.from, 'from')}
                   {renderMarker(toMarkerX, toMarkerY, cardinality.to, 'to')}
                   {/* Delete button — kept at the curve apex */}
@@ -623,16 +649,16 @@ export default function SchemaCanvas({
                     <rect x={8} y={0} width={TABLE_WIDTH - 36} height={HEADER_HEIGHT} />
                   </clipPath>
                 </defs>
-                {/* Schema name (small, above table name) */}
-                {tableName.includes('.') && (
+                {/* Schema — or linked source — name (small, above table name) */}
+                {(linkedTables[tableName] || tableName.includes('.')) && (
                   <text x={10} y={15} fontSize={9} fill="#94a3b8" fontWeight={400} style={_hs12}>
-                    {tableName.split('.').slice(0, -1).join('.')}
+                    {linkedTables[tableName]?.sourceName ?? tableName.split('.').slice(0, -1).join('.')}
                   </text>
                 )}
                 {/* Table name (truncated with clipPath) */}
                 <g clipPath={`url(#clip-header-${tableName.replace(/[^a-zA-Z0-9]/g, '_')})`}>
-                  <text x={10} y={tableName.includes('.') ? 30 : 28} fontSize={12} fill="#fff" fontWeight={600} style={_hs13}>
-                    {tableName.includes('.') ? tableName.split('.').pop() : tableName}
+                  <text x={10} y={linkedTables[tableName] || tableName.includes('.') ? 30 : 28} fontSize={12} fill="#fff" fontWeight={600} style={_hs13}>
+                    {linkedTables[tableName]?.table ?? (tableName.includes('.') ? tableName.split('.').pop() : tableName)}
                   </text>
                 </g>
                 {/* Row count + refresh — aligned with schema name */}

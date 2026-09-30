@@ -14,6 +14,7 @@ const { rejectIfNameTaken } = require('../utils/nameUniqueness');
 const { blockListEnforced, hostIsBlocked, hostResolvesInternally } = require('../utils/ssrfGuard');
 const wsAccess = require('../utils/workspaceAccess');
 const { detectRelationships } = require('../utils/relationships');
+const { modelIdsUsing } = require('../utils/modelSources');
 
 const router = express.Router();
 
@@ -32,10 +33,11 @@ function listDatasources(req) {
 function stampNewDatasource(req, id) {
   if (typeof cloudHooks.onDatasourceCreate === 'function') cloudHooks.onDatasourceCreate(req, id);
 }
-// Every model on the source blocks its deletion, whoever built it.
+// Every model reading the source blocks its deletion, whoever built it — as
+// its own source or a linked one.
 function countModelsUsingDatasource(req, id) {
   if (typeof cloudHooks.countModelsUsingDatasource === 'function') return cloudHooks.countModelsUsingDatasource(req, id);
-  return db.prepare('SELECT COUNT(*) as count FROM models WHERE datasource_id = ?').get(id).count;
+  return modelIdsUsing(id).length;
 }
 // Sends the 403 itself and returns true when denied.
 function denyUnless(allowed, res, message) {
@@ -77,7 +79,7 @@ function mergeExtraConfig(incoming, storedRaw) {
 // blacklist: the same blob carries the BigQuery service-account key, and a
 // field added later must be withheld until someone decides it is safe.
 const PUBLIC_EXTRA_KEYS = [
-  'sourceFile', 'tableName', 'tables', 'rowCount', 'fileSize', 'importedAt',
+  'sourceFile', 'tableName', 'tables', 'rowCount', 'fileSize', 'importedAt', 'files',
   // Connection settings, not secrets — and the edit form has to be able to send
   // them back unchanged. Withholding them blanked the dataset on every save.
   'dataset', 'location', 'projectId', 'allowSelfSignedCert',
@@ -120,7 +122,7 @@ router.get('/:id', authFor('write'), (req, res) => {
   if (!s) {
     return res.status(404).json({ error: 'Datasource not found' });
   }
-  res.json({ datasource: { id: s.id, name: s.name, db_type: s.db_type, host: s.host, port: s.port, db_name: s.db_name, db_user: s.db_user, created_at: s.created_at, workspace_id: wsAccess.datasourceHome(s), access: wsAccess.datasourceAccess(s, wsAccess.actorOf(req)), shared_in: wsAccess.sharedWorkspaceIdsOfDatasource(s.id) } });
+  res.json({ datasource: { id: s.id, name: s.name, db_type: s.db_type, host: s.host, port: s.port, db_name: s.db_name, db_user: s.db_user, created_at: s.created_at, extra_config: publicExtraConfig(s.extra_config), workspace_id: wsAccess.datasourceHome(s), access: wsAccess.datasourceAccess(s, wsAccess.actorOf(req)), shared_in: wsAccess.sharedWorkspaceIdsOfDatasource(s.id) } });
 });
 
 // The workspaces a source is shared into: their editors see its tables and

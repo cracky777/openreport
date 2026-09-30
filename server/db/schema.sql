@@ -85,6 +85,20 @@ CREATE TABLE IF NOT EXISTS workspace_members (
 );
 -- workspace member role: 'admin' | 'editor' | 'viewer'
 
+-- A file source a model reads beyond its own (models.datasource_id): its
+-- tables are named `alias__table` in the model (utils/modelSources.js).
+CREATE TABLE IF NOT EXISTS model_datasources (
+  model_id TEXT NOT NULL,
+  datasource_id TEXT NOT NULL,
+  alias TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (model_id, datasource_id),
+  UNIQUE (model_id, alias),
+  FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE,
+  FOREIGN KEY (datasource_id) REFERENCES datasources(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_model_datasources_ds ON model_datasources(datasource_id);
+
 -- A data source shared into a workspace other than its home: its editors see
 -- the tables and build models on it, nobody there holds its credentials.
 CREATE TABLE IF NOT EXISTS workspace_datasources (

@@ -2,12 +2,12 @@ import { useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
-import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
-import { readSheetNames } from '../utils/readSheetNames';
+import FileImportDialog from '../components/FileImportDialog/FileImportDialog';
+import { sourceFiles, FILE_IMPORT_ACCEPT } from '../utils/sourceFiles';
 import { TbUpload, TbArrowsRightLeft, TbShare, TbLock } from 'react-icons/tb';
 import { EditIcon, ICON_SIZE } from '../components/actionIcons';
 import { cardActionBtn } from '../components/dashboardModalStyles';
-import { PrimaryButton, SecondaryButton, ImportButton } from '../components/PageHeader/PageHeader';
+import { PrimaryButton, SecondaryButton, ImportButton, RefreshButton } from '../components/PageHeader/PageHeader';
 import { DatasourcesHeader } from '../cloud';
 import DatasourceForm, { createModelAndNavigate } from '../components/DatasourceForm/DatasourceForm';
 import Portal from '../components/Portal/Portal';
@@ -33,10 +33,9 @@ const _hs1 = {
   alignItems: 'center', gap: 8, marginBottom: 20,
 };
 const crumbSlot = { justifySelf: 'start' };
-const replaceNote = {
-  fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted)',
-  background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
-  borderRadius: 6, padding: '8px 10px', margin: '10px 0 4px',
+const importedBanner = {
+  padding: '10px 16px', marginBottom: 16, borderRadius: 6, fontSize: 13,
+  background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0',
 };
 const actionGroup = { display: 'flex', alignItems: 'center', gap: 8 };
 const _hs2 = { display: 'none' };
@@ -115,15 +114,11 @@ export default function Datasources() {
   // The branch the journey is focused on, resolved once for all three stages.
   const focus = useJourneyFocus();
 
-  const [uploading, setUploading] = useState(false);
   // Order comes from the graph so the three columns agree.
   const orderedDatasources = graphOrderedDatasources;
   const [uploadProgress, setUploadProgress] = useState('');
-  const [importOpts, setImportOpts] = useState(DEFAULT_IMPORT_OPTIONS);
   const [selectedFile, setSelectedFile] = useState(null);
-  // Set while the picker is refreshing an existing source rather than creating one.
-  const [replaceTarget, setReplaceTarget] = useState(null);
-  const [sheetNames, setSheetNames] = useState([]);
+  const [pickFor, setPickFor] = useState({ mode: 'create', target: null });
   const fileInputRef = useRef(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -188,69 +183,37 @@ export default function Datasources() {
     }
   };
 
-  // Record the pick only — the import options appear next; the upload waits for
-  // the Import button so those options can be set first.
-  const handleFileSelected = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setSelectedFile(file);
-    setImportOpts(DEFAULT_IMPORT_OPTIONS);
-    setSheetNames([]);
-    setUploadProgress('');
-    if (fileInputRef.current) fileInputRef.current.value = ''; // allow re-picking the same file
-    if (importKind(file.name) === 'excel') {
-      const names = await readSheetNames(file);
-      setSheetNames(names);
-      setImportOpts((o) => ({ ...o, sheets: names })); // default: import every sheet
-    }
-  };
-
-  // Refreshing an existing source reuses the whole picker: same options, same
-  // dialog. Only the endpoint differs — and with it whether models and reports
-  // built on this source survive.
-  const startReplace = (ds) => {
-    setReplaceTarget(ds);
+  // What the next picked file is for: a new source, or newer data for one of
+  // an existing source's files. Set before the OS dialog opens.
+  const pickFile = (mode, target = null) => {
+    setPickFor({ mode, target });
     fileInputRef.current?.click();
   };
 
-  const cancelFilePick = () => {
-    setSelectedFile(null);
-    setReplaceTarget(null);
+  // Record the pick only — the dialog asks for the import options next.
+  const handleFileSelected = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSelectedFile(file);
+    setUploadProgress('');
+    e.target.value = ''; // allow re-picking the same file
   };
 
-  const handleFileUpload = async () => {
-    const file = selectedFile;
-    if (!file) return;
-    setUploading(true);
-    setUploadProgress(`Uploading ${file.name}...`);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('name', file.name.replace(/\.[^.]+$/, ''));
-      if (!replaceTarget && currentWsKey) formData.append('workspaceId', currentWsKey);
-      appendImportOptions(formData, importOpts);
-      const headers = { 'Content-Type': 'multipart/form-data' };
-      const res = replaceTarget
-        ? await api.put(`/upload/${replaceTarget.id}`, formData, { headers })
-        : await api.post('/upload', formData, { headers });
-      const rows = res.data.datasource.rowCount?.toLocaleString() || '?';
-      setUploadProgress(replaceTarget
-        ? `${replaceTarget.name} refreshed — ${rows} rows from ${file.name}`
-        : `Imported ${rows} rows from ${file.name}`);
-      // Tables the new file didn't bring back. Said now, while the cause is
-      // still on screen, rather than at the next model open.
-      const missing = res.data.missingTables || [];
-      if (missing.length) {
-        toast(`Models using ${missing.join(', ')} will need fixing — the new file has no such table.`);
-      }
-      cancelFilePick();
-      loadDatasources();
-      setTimeout(() => setUploadProgress(''), 5000);
-    } catch (err) {
-      setUploadProgress(`Error: ${err.response?.data?.error || err.message}`);
-    } finally {
-      setUploading(false);
+  const handleImported = (data) => {
+    const { mode, target } = pickFor;
+    const rows = data.datasource.rowCount?.toLocaleString() || '?';
+    setUploadProgress(mode === 'refresh'
+      ? `${target.name} refreshed — ${rows} rows from ${selectedFile.name}`
+      : `Imported ${rows} rows from ${selectedFile.name}`);
+    // Tables the new file didn't bring back. Said now, while the cause is
+    // still on screen, rather than at the next model open.
+    const missing = data.missingTables || [];
+    if (missing.length) {
+      toast(`Models using ${missing.join(', ')} will need fixing — the new file has no such table.`);
     }
+    setSelectedFile(null);
+    loadDatasources();
+    setTimeout(() => setUploadProgress(''), 5000);
   };
 
   return (
@@ -268,51 +231,24 @@ export default function Datasources() {
             )}
           </div>
           <div style={actionGroup}>
-            <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv,.db,.sqlite,.sqlite3,.duckdb,.ddb"
+            <input ref={fileInputRef} type="file" accept={FILE_IMPORT_ACCEPT}
               style={_hs2} onChange={handleFileSelected} />
-            {/* Clears the refresh target: the OS dialog can be dismissed, which
-                would otherwise leave the next pick aimed at a source. */}
             {canManageHere && (
               <>
-                <ImportButton onClick={() => { setReplaceTarget(null); fileInputRef.current?.click(); }} disabled={uploading}>
-                  {uploading ? 'Uploading...' : 'Import file'}
-                </ImportButton>
+                <ImportButton onClick={() => pickFile('create')}>Import file</ImportButton>
                 <PrimaryButton onClick={() => { setEditingId(null); setEditingValues(null); setShowForm(true); }}>+ New Connection</PrimaryButton>
               </>
             )}
+            <RefreshButton onClick={loadDatasources} />
           </div>
         </div>
         {DatasourcesHeader && <DatasourcesHeader />}
-        {uploadProgress && (
-          <div style={{
-            padding: '10px 16px', marginBottom: 16, borderRadius: 6, fontSize: 13,
-            background: uploadProgress.startsWith('Error') ? 'var(--state-danger-soft)' : '#f0fdf4',
-            color: uploadProgress.startsWith('Error') ? '#dc2626' : '#16a34a',
-            border: `1px solid ${uploadProgress.startsWith('Error') ? '#fca5a5' : '#bbf7d0'}`,
-          }}>
-            {uploadProgress}
-          </div>
-        )}
+        {uploadProgress && <div style={importedBanner}>{uploadProgress}</div>}
         {selectedFile && (
-          <Modal onClose={uploading ? undefined : cancelFilePick} width={560}>
-            <h2 style={_hs5}>{replaceTarget ? `Refresh ${replaceTarget.name}` : 'Import file'}</h2>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
-              Selected: <strong style={{ color: 'var(--text-primary)' }}>{selectedFile.name}</strong>
-            </div>
-            {replaceTarget && (
-              <div style={replaceNote}>
-                Replaces the data behind this source. Models and reports built on it are kept —
-                but a column the new file no longer carries will show up as a broken reference.
-              </div>
-            )}
-            <ImportOptions value={importOpts} onChange={setImportOpts} kind={importKind(selectedFile.name)} sheetNames={sheetNames} />
-            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-              <PrimaryButton onClick={handleFileUpload} disabled={uploading || (importKind(selectedFile.name) === 'excel' && sheetNames.length > 0 && !(importOpts.sheets && importOpts.sheets.length))}>
-                {uploading ? (replaceTarget ? 'Refreshing...' : 'Importing...') : (replaceTarget ? 'Refresh data' : 'Import')}
-              </PrimaryButton>
-              <SecondaryButton onClick={cancelFilePick} disabled={uploading}>Cancel</SecondaryButton>
-            </div>
-          </Modal>
+          <FileImportDialog
+            file={selectedFile} mode={pickFor.mode} target={pickFor.target} workspaceId={currentWsKey}
+            onDone={handleImported} onFailed={loadDatasources} onCancel={() => setSelectedFile(null)}
+          />
         )}
         {showForm && (
           <Modal onClose={handleCancel} width={620}>
@@ -355,6 +291,7 @@ export default function Datasources() {
               );
               const extra = ds.extra_config ? (typeof ds.extra_config === 'string' ? JSON.parse(ds.extra_config) : ds.extra_config) : {};
               const isUploadedFile = !!extra.sourceFile;
+              const files = sourceFiles(ds);
               // Guard on the unscoped count: the server refuses while any model uses it.
               const modelCount = modelsByDatasourceAll.get(ds.id) || 0;
               return (
@@ -367,6 +304,7 @@ export default function Datasources() {
                     <div style={_hs12}>
                       {(() => {
                         const dbLabel = DB_TYPE_LABELS[ds.db_type] || ds.db_type.toUpperCase();
+                        if (files.length > 1) return `${dbLabel} — ${files.length} files: ${files.map((f) => f.sourceFile).join(', ')}`;
                         if (extra.sourceFile) return `${dbLabel} — ${extra.sourceFile} (${extra.rowCount?.toLocaleString() || '?'} rows)`;
                         if (ds.db_type === 'bigquery' || ds.db_type === 'duckdb' || ds.db_type === 'snowflake') return `${dbLabel} — ${ds.db_name}`;
                         return `${dbLabel} — ${ds.host}:${ds.port}/${ds.db_name}`;
@@ -386,9 +324,8 @@ export default function Datasources() {
                       // data that goes stale. Same id, so everything downstream
                       // survives the refresh.
                       <button
-                        onClick={() => startReplace(ds)}
-                        disabled={uploading}
-                        title={`Import a newer ${extra.sourceFile || 'file'} into this source`}
+                        onClick={() => pickFile('refresh', ds)}
+                        title={files.length > 1 ? 'Import newer data for one of the files of this source' : `Import a newer ${extra.sourceFile} into this source`}
                         {...cardActionBtn('muted')}
                       >
                         <TbUpload size={16} />

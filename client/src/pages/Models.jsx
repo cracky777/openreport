@@ -6,7 +6,7 @@ import { TbRefresh, TbLoader2, TbClock, TbDownload, TbArrowsRightLeft, TbShare, 
 import { EditIcon, ICON_SIZE } from '../components/actionIcons';
 import { cardActionBtn } from '../components/dashboardModalStyles';
 import IncrementalRefreshDialog from '../components/IncrementalRefreshDialog/IncrementalRefreshDialog';
-import { PrimaryButton, SecondaryButton, ImportButton } from '../components/PageHeader/PageHeader';
+import { PrimaryButton, SecondaryButton, ImportButton, RefreshButton } from '../components/PageHeader/PageHeader';
 import Modal from '../components/Modal/Modal';
 import { useGraph } from '../hooks/graphContext';
 import { useJourneyFocus, isDimmed, dimProps, DIMMED_CARD } from '../hooks/useJourneyFocus';
@@ -16,6 +16,8 @@ import SourceIcon from '../components/AppShell/SourceIcon';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 import { MoveToWorkspaceModal, ShareWithWorkspacesModal } from '../components/WorkspaceTargets/WorkspaceTargets';
 import { canBuildWithRole, buildableSources } from '../utils/workspaceScope';
+import FileImportDialog from '../components/FileImportDialog/FileImportDialog';
+import { sourceFiles, FILE_IMPORT_ACCEPT } from '../utils/sourceFiles';
 
 // Fills the stage slot AppShell gives it; the shell owns the viewport height.
 const _hs0 = { flex: 1, overflow: 'auto', backgroundColor: 'var(--bg-app)' };
@@ -33,6 +35,17 @@ const _hs3 = { fontSize: 16, fontWeight: 600, marginBottom: 16 };
 const _hs4 = { marginBottom: 12 };
 const _hs5 = { marginBottom: 12 };
 const _hs6 = { fontSize: 12, color: 'var(--state-danger)', marginTop: 4 };
+const alsoBox = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 12 };
+const alsoLabel = { color: 'var(--text-muted)' };
+const alsoChip = {
+  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 12,
+  background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', color: 'var(--text-primary)',
+};
+const alsoRemove = { border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, lineHeight: 1 };
+const alsoSelect = {
+  fontSize: 12, padding: '2px 6px', borderRadius: 6, maxWidth: 200,
+  border: '1px solid var(--border-default)', background: 'var(--bg-input)', color: 'var(--text-primary)',
+};
 const _hs7 = { color: 'var(--accent-primary)', background: 'transparent', border: '1px solid transparent', cursor: 'pointer', fontSize: 12, padding: '2px 6px', borderRadius: 4 };
 const _hs8 = { marginBottom: 16 };
 const _hs9 = { display: 'flex', gap: 8, justifyContent: 'flex-end' };
@@ -160,14 +173,43 @@ export default function Models() {
     setSearchParams(rest, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  // A model on an imported file can read other files too — sources of their
+  // own, picked here or imported on the spot — and joins tables across them.
+  const addFileRef = useRef(null);
+  const [fileToAdd, setFileToAdd] = useState(null);
+  const [alsoIds, setAlsoIds] = useState([]);
+  const isFile = (ds) => sourceFiles(ds).length > 0;
+  const chosenSource = sourcesHere.find((d) => d.id === form.datasourceId);
+  const combines = isFile(chosenSource);
+  const also = alsoIds.filter((dsId) => dsId !== form.datasourceId);
+  const alsoOffered = sourcesHere.filter((d) => isFile(d) && d.id !== form.datasourceId && !also.includes(d.id));
+  const nameOf = (dsId) => datasources.find((d) => d.id === dsId)?.name || 'Imported file';
+  const handleFileImported = (data) => {
+    setFileToAdd(null);
+    setAlsoIds((ids) => (ids.includes(data.datasource.id) ? ids : [...ids, data.datasource.id]));
+    refresh();
+  };
+
   const handleCreate = async () => {
     if (!form.name || !form.datasourceId) return;
+    let modelId;
     try {
       const res = await api.post('/models', currentWsKey ? { ...form, workspaceId: currentWsKey } : form);
-      navigate(`/models/${res.data.model.id}`);
+      modelId = res.data.model.id;
     } catch (err) {
       toast(err.response?.data?.error || 'Failed to create model');
+      return;
     }
+    // The model exists: a source that cannot be linked is said, and the rest go on.
+    for (const datasourceId of combines ? also : []) {
+      try {
+        await api.post(`/models/${modelId}/datasources`, { datasourceId });
+      } catch (err) {
+        toast(err.response?.data?.error || `Could not add ${nameOf(datasourceId)} to the model`);
+      }
+    }
+    setAlsoIds([]);
+    navigate(`/models/${modelId}`);
   };
 
   const refreshModelCache = async (m) => {
@@ -268,6 +310,7 @@ export default function Models() {
                 <PrimaryButton onClick={openForm}>+ New Model</PrimaryButton>
               </>
             )}
+            <RefreshButton onClick={refresh} />
           </div>
           <input
             ref={importInputRef} type="file" accept=".yaml,.yml" style={{ display: 'none' }}
@@ -299,6 +342,12 @@ export default function Models() {
             </div>
           </Modal>
         )}
+        {fileToAdd && (
+          <FileImportDialog
+            file={fileToAdd} mode="create" workspaceId={currentWsKey}
+            onDone={handleFileImported} onFailed={refresh} onCancel={() => setFileToAdd(null)}
+          />
+        )}
         {showForm && (
           <Modal onClose={() => setShowForm(false)} width={520}>
             <h2 style={_hs3}>New Data Model</h2>
@@ -323,6 +372,32 @@ export default function Models() {
                   <option key={ds.id} value={ds.id}>{ds.name} ({ds.db_type})</option>
                 ))}
               </select>
+              {combines && (
+                <div style={alsoBox}>
+                  <span style={alsoLabel}>Also use:</span>
+                  {also.map((dsId) => (
+                    <span key={dsId} style={alsoChip}>
+                      {nameOf(dsId)}
+                      <button onClick={() => setAlsoIds((ids) => ids.filter((x) => x !== dsId))} style={alsoRemove}
+                        title={`Do not use ${nameOf(dsId)}`} aria-label={`Do not use ${nameOf(dsId)}`}>×</button>
+                    </span>
+                  ))}
+                  {alsoOffered.length > 0 && (
+                    <select aria-label="Also use a data source" value="" style={alsoSelect}
+                      onChange={(e) => { const v = e.target.value; if (v) setAlsoIds((ids) => [...ids, v]); }}>
+                      <option value="">Add a data source…</option>
+                      {alsoOffered.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </select>
+                  )}
+                  <button className="btn-hover btn-hover-accent" onClick={() => addFileRef.current?.click()} style={_hs7}>
+                    + Import a file
+                  </button>
+                </div>
+              )}
+              <input
+                ref={addFileRef} type="file" accept={FILE_IMPORT_ACCEPT} style={{ display: 'none' }}
+                onChange={(e) => { setFileToAdd(e.target.files?.[0] || null); e.target.value = ''; }}
+              />
               {sourcesHere.length === 0 && (
                 <p style={_hs6}>
                   No data sources configured.{' '}
@@ -371,6 +446,7 @@ export default function Models() {
                 data-join-anchor={`models:${m.id}`}
                 data-join-parent={m.datasource_id ? `sources:${m.datasource_id}` : undefined}
                 data-join-parent-name={m.datasource_name || undefined}
+                data-join-also={m.linked_datasource_ids?.length ? m.linked_datasource_ids.map((id) => `sources:${id}`).join(' ') : undefined}
                 {...dimProps(dimmed)}
                 style={{ ...(cardMenu === m.id ? cardStyleMenuOpen : cardStyle), ...(dimmed ? DIMMED_CARD : null) }}
               >

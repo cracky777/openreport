@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
-import { TbArrowLeft, TbUpload, TbChevronDown } from 'react-icons/tb';
+import { TbArrowLeft, TbUpload, TbChevronDown, TbRefresh } from 'react-icons/tb';
 
 // Shared page header styles matching the editor toolbar design language.
 
@@ -148,6 +148,26 @@ export function ImportButton({ children, onClick, disabled, title, style }) {
 // shows in compact mode): it reads on both themes at icon size.
 export function OpenReportMark({ size = 16 }) {
   return <img src="/favicon.png" alt="" aria-hidden="true" style={{ height: size, width: 'auto', display: 'block' }} />;
+}
+
+// Re-reads the journey from the server. The lists load once per session, so
+// anything created behind the page's back — another tab, a colleague, an
+// import whose response never made it back — stays invisible until then.
+// `onClick` returns a promise; the glyph spins until it settles.
+const iconOnlyBtn = { padding: '7px 9px' };
+
+export function RefreshButton({ onClick }) {
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try { await onClick(); } finally { setBusy(false); }
+  };
+  return (
+    // The title is the button's only name: no label, the glyph says it.
+    <PrimaryButton onClick={run} disabled={busy} title="Refresh" style={iconOnlyBtn}>
+      <TbRefresh size={16} className={busy ? 'spin' : undefined} />
+    </PrimaryButton>
+  );
 }
 
 // Simple Icons no longer ships Microsoft marks, so the Power BI glyph is drawn

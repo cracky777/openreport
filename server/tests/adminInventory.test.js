@@ -46,3 +46,18 @@ test('the global admin deletes anything, leaves first: a model under a report an
   expect((await del(`/api/datasources/${ds}`)).status).toBe(200);
   expect(db.prepare('SELECT COUNT(*) AS n FROM datasources WHERE id = ?').get(ds).n).toBe(0);
 });
+
+test('a file a model links counts as used, and the model lists every source it reads', async () => {
+  const admin = seedUser({ role: 'admin' });
+  const maker = seedUser({ role: 'editor' });
+  const own = seedDatasource({ userId: maker });
+  const linked = seedDatasource({ userId: maker });
+  db.prepare("UPDATE datasources SET name = 'orders' WHERE id = ?").run(own);
+  db.prepare("UPDATE datasources SET name = 'customers' WHERE id = ?").run(linked);
+  const model = seedModel({ userId: maker, datasourceId: own });
+  db.prepare("INSERT INTO model_datasources (model_id, datasource_id, alias) VALUES (?, ?, 'customers')").run(model, linked);
+
+  const res = await request(app).get('/api/admin/inventory').set('x-test-user', admin);
+  expect(res.body.datasources.find((x) => x.id === linked).modelCount).toBe(1);
+  expect(res.body.models.find((x) => x.id === model).datasourceName).toBe('orders + customers');
+});
