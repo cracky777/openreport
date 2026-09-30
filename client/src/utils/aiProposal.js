@@ -162,8 +162,13 @@ export function samplePreviewData(dataBinding, effectiveModel) {
  * nothing to refer to. `outcome` is what the author did with the card.
  */
 export function describeProposal(proposal, outcome) {
+  // Applied in part: the model is told only what was kept.
+  if (outcome && typeof outcome === 'object') return describeProposal(outcome.kept, 'partial');
   if (proposal.kind === 'model') return describeModelProposal(proposal, outcome);
-  const status = { applied: 'applied by the user', reverted: 'applied by the user', dismissed: 'dismissed by the user' }[outcome] || 'not applied yet';
+  const status = {
+    applied: 'applied by the user', reverted: 'applied by the user', dismissed: 'dismissed by the user',
+    partial: 'partly applied by the user — only what follows was kept, the rest turned down',
+  }[outcome] || 'not applied yet';
   let what = '';
   if (proposal.kind === 'design') {
     what = `${proposal.ops.length} design change(s): ${String(proposal.summary || '').slice(0, 200)}`;
@@ -327,6 +332,32 @@ export function applyDesignProposal(proposal, { layout, widgets, settings, pageW
     }
   }
   return { layout: nextLayout, widgets: nextWidgets, settings: nextSettings, applied, skipped };
+}
+
+// Past this many moves, a card shows a whole-page arrangement as one line.
+export const MAX_LISTED_MOVES = 2;
+
+/**
+ * The line of a design card an operation belongs to, which the author may
+ * untick: a palette, the readability fixes and a whole-page arrangement are
+ * one decision each, any other operation is its own.
+ */
+export function designChoice(op, index, moveCount) {
+  if (op.fromScheme) return 'scheme';
+  if (op.fromReadability) return 'readability';
+  if (op.op === 'move' && moveCount > MAX_LISTED_MOVES) return 'layout';
+  return `op${index}`;
+}
+
+/** The proposal without the lines the author unticked (`dropped`, a Set of choice keys). */
+export function keepChoices(proposal, dropped) {
+  if (!dropped.size) return proposal;
+  if (proposal.kind === 'design') {
+    const moveCount = proposal.ops.filter((op) => op.op === 'move').length;
+    return { ...proposal, ops: proposal.ops.filter((op, i) => !dropped.has(designChoice(op, i, moveCount))) };
+  }
+  if (proposal.kind === 'widgets') return { ...proposal, widgets: proposal.widgets.filter((_, i) => !dropped.has(`w${i}`)) };
+  return proposal;
 }
 
 /**

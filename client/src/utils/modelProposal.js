@@ -49,9 +49,30 @@ export function applyModelProposal(state, proposal, { typeOf, dataTypeOf }) {
   return { joins, dimensions, measures, tablePositions };
 }
 
+/**
+ * The proposal without the lines the author unticked (`dropped`, a Set of the
+ * keys the card gives them: join0, remove0, role:<table>, field0, measure0, positions).
+ */
+export function keepModelChoices(proposal, dropped) {
+  if (!dropped.size) return proposal;
+  const keep = (list, prefix) => (list || []).filter((_, i) => !dropped.has(`${prefix}${i}`));
+  return {
+    ...proposal,
+    joins: keep(proposal.joins, 'join'),
+    removeJoins: keep(proposal.removeJoins, 'remove'),
+    tableRoles: Object.fromEntries(Object.entries(proposal.tableRoles || {}).filter(([t]) => !dropped.has(`role:${t}`))),
+    fields: keep(proposal.fields, 'field'),
+    measures: keep(proposal.measures, 'measure'),
+    positions: dropped.has('positions') ? null : proposal.positions,
+  };
+}
+
 /** The proposal in one line, for the conversation the next turn carries back. */
 export function describeModelProposal(proposal, outcome) {
-  const status = outcome === 'applied' ? 'applied by the user' : outcome === 'dismissed' ? 'dismissed by the user' : 'not applied yet';
+  const status = {
+    applied: 'applied by the user', dismissed: 'dismissed by the user',
+    partial: 'partly applied by the user — only what follows was kept, the rest turned down',
+  }[outcome] || 'not applied yet';
   const parts = [
     ...(proposal.joins || []).map((j) => `join ${j.from_table}.${j.from_column} → ${j.to_table}.${j.to_column}`),
     ...(proposal.removeJoins || []).map((j) => `remove join ${j.from_table}.${j.from_column} → ${j.to_table}.${j.to_column}`),

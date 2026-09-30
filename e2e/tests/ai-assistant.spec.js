@@ -96,6 +96,46 @@ test('a design proposal restyles in one undo step and hands back a way out of th
   }
 });
 
+// The author may take part of a proposal: an unticked line is not applied, and
+// the next turn tells the model what was kept.
+test('an unticked line of a proposal is left out, and the model hears it', async ({ page }) => {
+  const provider = await startScriptedProvider(designScript);
+  try {
+    await page.request.put('/api/admin/settings/ai', {
+      data: { provider: 'openai-compat', baseUrl: provider.url, model: 'scripted', enabled: true, dataSharing: 'schema' },
+    });
+    const { tableReportId } = ids();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/edit/${tableReportId}`);
+    await page.locator('.widget-content').first().waitFor();
+    const reportTheme = page.locator('[data-theme]').filter({ has: page.locator('.widget-content') }).last();
+    const themeBefore = await reportTheme.getAttribute('data-theme');
+
+    await page.getByRole('button', { name: 'AI assistant' }).click();
+    await page.getByRole('tab', { name: 'Design' }).click();
+    await page.getByPlaceholder('Describe the look you want…').fill('Name the table and switch to the dark theme');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.getByRole('button', { name: 'Apply 2 changes' })).toBeVisible({ timeout: 20000 });
+
+    // The second line is the theme switch.
+    await page.getByRole('checkbox', { name: 'Leave this change out' }).nth(1).uncheck();
+    await page.getByRole('button', { name: 'Apply 1 change' }).click();
+    await expect(reportTheme.getByText('Renamed by the assistant').first()).toBeVisible();
+    await expect(reportTheme).toHaveAttribute('data-theme', themeBefore);
+    await expect(page.getByRole('button', { name: 'Revert theme' })).toHaveCount(0);
+
+    await page.getByPlaceholder('Describe the look you want…').fill('Thanks');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect.poll(() => provider.requests.length, { timeout: 20000 }).toBeGreaterThan(2);
+    const history = JSON.stringify(provider.requests[provider.requests.length - 1].messages);
+    expect(history).toContain('partly applied by the user');
+    expect(history).toContain('1 design change(s)');
+  } finally {
+    await page.request.put('/api/admin/settings/ai', { data: { enabled: false } });
+    provider.server.close();
+  }
+});
+
 // Writes a small SVG visual. No network in it: the lint would refuse it, and
 // the point here is the path a legitimate one takes.
 const VISUAL_JS = `

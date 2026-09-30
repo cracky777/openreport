@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyWidgetsProposal, applyDesignProposal, applyVisualProposal, samplePreviewData, buildPageContext, unknownFields, describeProposal, describeShaping,
+  keepChoices, designChoice,
 } from './aiProposal';
 
 const widgetTypes = {
@@ -372,5 +373,40 @@ describe('what a proposal keeps of the data', () => {
     const gone = { ...binding, widgetFilters: [{ field: 'items.region', isMeasure: false, op: 'in', value: '', values: ['N'] }] };
     expect(unknownFields({ dataBinding: gone }, effectiveModel)).toEqual(['items.region']);
     expect(unknownFields({ dataBinding: binding }, effectiveModel)).toEqual([]);
+  });
+});
+
+describe('unticking lines of a card', () => {
+  const moves = [1, 2, 3].map((n) => ({ op: 'move', widgetId: `w${n}`, x: 0, y: 0, w: 10, h: 10 }));
+  const design = {
+    kind: 'design', summary: 's',
+    ops: [
+      { op: 'update_config', widgetId: 'w1', set: { titleColor: '#7c3aed' } },
+      { op: 'update_config', widgetId: 'w2', set: { palette: ['#111111'] }, fromScheme: true },
+      { op: 'update_config', widgetId: 'w3', set: { palette: ['#222222'] }, fromScheme: true },
+      ...moves,
+    ],
+  };
+
+  it('a palette and a whole-page arrangement are one line each', () => {
+    expect(design.ops.map((op, i) => designChoice(op, i, 3))).toEqual(['op0', 'scheme', 'scheme', 'layout', 'layout', 'layout']);
+    // Two moves or fewer are listed one by one.
+    expect(designChoice(moves[0], 3, 2)).toBe('op3');
+  });
+
+  it('leaves out every operation of an unticked line, and nothing else', () => {
+    expect(keepChoices(design, new Set())).toBe(design);
+    expect(keepChoices(design, new Set(['scheme', 'layout'])).ops).toEqual([design.ops[0]]);
+    expect(keepChoices(design, new Set(['op0'])).ops).toHaveLength(5);
+  });
+
+  it('leaves out an unticked visual', () => {
+    const widgets = { kind: 'widgets', widgets: [{ type: 'bar' }, { type: 'pie' }, { type: 'line' }] };
+    expect(keepChoices(widgets, new Set(['w1'])).widgets.map((w) => w.type)).toEqual(['bar', 'line']);
+  });
+
+  it('the next turn hears only what was kept, and that the rest was turned down', () => {
+    const kept = keepChoices(design, new Set(['scheme', 'layout']));
+    expect(describeProposal(design, { status: 'partial', kept })).toBe('[Proposed — partly applied by the user — only what follows was kept, the rest turned down: 1 design change(s): s]');
   });
 });

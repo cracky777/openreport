@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { TbCheck, TbPlus, TbPalette, TbArrowsMove, TbStack2, TbBrush, TbArrowBackUp, TbPuzzle, TbBulb, TbEye } from 'react-icons/tb';
 import { WIDGET_TYPES, CustomVisualWidget } from '../Widgets';
-import { samplePreviewData, describeShaping } from '../../utils/aiProposal';
+import { samplePreviewData, describeShaping, MAX_LISTED_MOVES, designChoice, keepChoices } from '../../utils/aiProposal';
 import WidgetPreview from './WidgetPreview';
 
 const cardStyle = {
@@ -32,6 +32,9 @@ const quietBtn = {
   background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer',
 };
 const doneStyle = { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-muted)' };
+// Each line of a card with several can be unticked: it is then left out.
+const choiceStyle = { flexShrink: 0, margin: '2px 0 0', accentColor: 'var(--accent-primary)', cursor: 'pointer' };
+const droppedStyle = { opacity: 0.45 };
 const swatchStyle = (c) => ({
   display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: c,
   border: '1px solid var(--border-default)', marginRight: 3, verticalAlign: 'middle',
@@ -51,7 +54,6 @@ function fieldLabels(binding, model) {
   return [...new Set(names)].map(label).join(' · ');
 }
 
-const MAX_LISTED_MOVES = 2;
 const OP_ICONS = { update_config: TbPalette, move: TbArrowsMove, z_order: TbStack2, report_settings: TbBrush };
 
 function describeValue(key, v) {
@@ -66,7 +68,17 @@ function describeValue(key, v) {
   return String(v);
 }
 
-function DesignOp({ op, titleOf }) {
+// The checkbox of a line, shown only while the card is open and has more than
+// one line to choose from.
+function Choice({ choice }) {
+  if (!choice) return null;
+  return (
+    <input type="checkbox" style={choiceStyle} checked={choice.kept} onChange={choice.toggle}
+      aria-label={choice.kept ? 'Leave this change out' : 'Keep this change'} title={choice.kept ? 'Untick to leave this out' : 'Tick to apply this too'} />
+  );
+}
+
+function DesignOp({ op, titleOf, choice }) {
   const Icon = OP_ICONS[op.op] || TbPalette;
   let what;
   if (op.op === 'move') what = `Move to ${op.x}, ${op.y} — ${op.w} × ${op.h}`;
@@ -77,7 +89,8 @@ function DesignOp({ op, titleOf }) {
     ));
   }
   return (
-    <div style={rowStyle}>
+    <div style={{ ...rowStyle, ...(choice && !choice.kept ? droppedStyle : null) }}>
+      <Choice choice={choice} />
       <Icon size={15} style={iconStyle} />
       <div style={{ minWidth: 0 }}>
         <div style={titleStyle}>{op.op === 'report_settings' ? 'Report' : titleOf(op.widgetId)}</div>
@@ -139,16 +152,20 @@ export default function ProposalCard({ proposal, model, widgets, reportId, setti
   // cannot reach (report settings live outside the undo stack).
   const [outcome, setOutcome] = useState(null);
   const [busy, setBusy] = useState(false);
+  // The lines the author unticked, by choice key (see designChoice).
+  const [dropped, setDropped] = useState(() => new Set());
 
   if (state === 'dismissed') return <div style={doneStyle}>Proposal dismissed</div>;
 
   const apply = async () => {
     setBusy(true);
-    const result = await onApply(proposal);
+    const result = await onApply(kept);
     setBusy(false);
     if (!result) return;
     setOutcome(result);
-    setState('applied');
+    // Kept in part, the next turn tells the model what was turned down.
+    setCardState('applied');
+    onOutcome?.(dropped.size ? { status: 'partial', kept } : 'applied');
   };
   const revertSettings = () => {
     outcome.revertSettings();
@@ -158,17 +175,31 @@ export default function ProposalCard({ proposal, model, widgets, reportId, setti
   const isDesign = proposal.kind === 'design';
   const isVisual = proposal.kind === 'customVisual';
   const titleOf = (id) => widgets?.[id]?.config?.title || WIDGET_TYPES[widgets?.[id]?.type]?.label || 'Widget';
-  const count = isDesign ? proposal.ops.length : (proposal.widgets || []).length;
   // A whole-page arrangement is one decision, not twelve: past a few, the
   // moves read as a single line and the pixel detail stays out of the card.
   const moves = isDesign ? proposal.ops.filter((op) => op.op === 'move') : [];
+  const kept = keepChoices(proposal, dropped);
+  const count = isDesign ? kept.ops.length : (kept.widgets || []).length;
+  const lineCount = isDesign
+    ? new Set(proposal.ops.map((op, i) => designChoice(op, i, moves.length))).size
+    : (proposal.widgets || []).length;
+  const choiceFor = (key) => (state === 'open' && lineCount > 1 ? {
+    kept: !dropped.has(key),
+    toggle: () => setDropped((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    }),
+  } : null);
+  const nothingKept = !isVisual && !count;
+  const faded = (key) => (dropped.has(key) ? droppedStyle : null);
   // Same for a palette: one rule applied to the page, shown as one line.
   const schemeOps = isDesign ? proposal.ops.filter((op) => op.fromScheme) : [];
   const schemeColors = schemeOps.find((op) => op.set?.palette)?.set.palette || [];
   // Colors the server put right so the result can be read (a theme switch
   // strands every hex fixed under the old theme): one line, not a list of hexes.
   const readabilityOps = isDesign ? proposal.ops.filter((op) => op.fromReadability) : [];
-  const listedOps = (proposal.ops || []).filter((op) => !op.fromScheme && !op.fromReadability && !(op.op === 'move' && moves.length > MAX_LISTED_MOVES));
+  const listedOps = (proposal.ops || []).map((op, i) => ({ op, key: designChoice(op, i, moves.length) })).filter(({ key }) => key.startsWith('op'));
   let applyLabel = count > 1 ? `Add ${count} visuals` : 'Add visual';
   if (isDesign) applyLabel = `Apply ${count} change${count > 1 ? 's' : ''}`;
   if (isVisual) applyLabel = 'Add to library & insert';
@@ -185,7 +216,8 @@ export default function ProposalCard({ proposal, model, widgets, reportId, setti
       {isVisual && state === 'open' ? <VisualPreview proposal={proposal} model={model} /> : null}
       {isVisual && state !== 'open' ? <div style={titleStyle}>{proposal.manifest.name}</div> : null}
       {isDesign && moves.length > MAX_LISTED_MOVES ? (
-        <div style={rowStyle}>
+        <div style={{ ...rowStyle, ...faded('layout') }}>
+          <Choice choice={choiceFor('layout')} />
           <TbArrowsMove size={15} style={iconStyle} />
           <div style={{ minWidth: 0 }}>
             <div style={titleStyle}>New page layout</div>
@@ -194,7 +226,8 @@ export default function ProposalCard({ proposal, model, widgets, reportId, setti
         </div>
       ) : null}
       {schemeOps.length > 0 ? (
-        <div style={rowStyle}>
+        <div style={{ ...rowStyle, ...faded('scheme') }}>
+          <Choice choice={choiceFor('scheme')} />
           <TbPalette size={15} style={iconStyle} />
           <div style={{ minWidth: 0 }}>
             <div style={titleStyle}>Color rule: {proposal.colorScheme}</div>
@@ -206,7 +239,8 @@ export default function ProposalCard({ proposal, model, widgets, reportId, setti
         </div>
       ) : null}
       {readabilityOps.length > 0 ? (
-        <div style={rowStyle}>
+        <div style={{ ...rowStyle, ...faded('readability') }}>
+          <Choice choice={choiceFor('readability')} />
           <TbEye size={15} style={iconStyle} />
           <div style={{ minWidth: 0 }}>
             <div style={titleStyle}>Readability</div>
@@ -215,12 +249,13 @@ export default function ProposalCard({ proposal, model, widgets, reportId, setti
         </div>
       ) : null}
       {isDesign
-        ? listedOps.map((op, i) => <DesignOp key={i} op={op} titleOf={titleOf} />)
+        ? listedOps.map(({ op, key }) => <DesignOp key={key} op={op} titleOf={titleOf} choice={choiceFor(key)} />)
         : (proposal.widgets || []).map((w, i) => {
           const Icon = WIDGET_TYPES[w.type]?.icon || TbPlus;
           return (
-            <div key={i} style={widgetBlockStyle}>
+            <div key={i} style={{ ...widgetBlockStyle, ...faded(`w${i}`) }}>
               <div style={rowStyle}>
+                <Choice choice={choiceFor(`w${i}`)} />
                 <Icon size={16} style={iconStyle} />
                 <div style={{ minWidth: 0 }}>
                   <div style={titleStyle}>{w.config?.title || WIDGET_TYPES[w.type]?.label || w.type}</div>
@@ -231,14 +266,15 @@ export default function ProposalCard({ proposal, model, widgets, reportId, setti
               </div>
               {/* Once applied the visual is on the page: a second copy here
                   would only keep a query alive for nothing. */}
-              {state === 'open' && WIDGET_TYPES[w.type] ? <WidgetPreview widget={w} model={model} reportId={reportId} settings={settings} /> : null}
+              {state === 'open' && !dropped.has(`w${i}`) && WIDGET_TYPES[w.type] ? <WidgetPreview widget={w} model={model} reportId={reportId} settings={settings} /> : null}
             </div>
           );
         })}
       {state === 'open' ? (
         <div style={actionsStyle}>
           <button style={quietBtn} onClick={() => setState('dismissed')} disabled={busy}>Dismiss</button>
-          <button style={{ ...applyBtn, opacity: busy ? 0.6 : 1 }} onClick={apply} disabled={busy}>
+          <button style={{ ...applyBtn, opacity: busy || nothingKept ? 0.6 : 1 }} onClick={apply} disabled={busy || nothingKept}
+            title={nothingKept ? 'Tick at least one change to apply' : undefined}>
             {isDesign ? <TbCheck size={13} /> : <TbPlus size={13} />} {applyLabel}
           </button>
         </div>

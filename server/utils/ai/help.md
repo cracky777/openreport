@@ -60,7 +60,7 @@
 5. Step 3. Dimensions & Measures: rename labels, set types and date formats, add calculated fields.
 6. Click Save (top-right). + New Report saves the model and opens a new report on it.
 - The datasource badge in the header lets you switch the model to another data source (Change datasource); broken references are listed with a Re-check button.
-- The model assistant (sparkles button in the model editor header, for the model's owner or an admin, when the AI assistant is available) can propose the joins, which columns are dimensions or measures, new measures (sum, average, count, distinct count, min, max of a column), which tables are facts or dimensions, and arrange the diagram. Review the card, click Apply, then Save the model. It does not write SQL: calculated fields stay manual.
+- The model assistant (sparkles button in the model editor header, for the model's owner or an admin, when the AI assistant is available) can propose the joins, which columns are dimensions or measures, new measures (sum, average, count, distinct count, min, max of a column), which tables are facts or dimensions, and arrange the diagram. Review the card, untick any line you do not want, click Apply, then Save the model. It does not write SQL: calculated fields stay manual.
 - On a model card: Edit model, Refresh the cache and Delete model; More actions (⋮) holds Incremental cache refresh, Export data model (a .model.yaml file), Share (with other workspaces) and Move to workspace; the + adds a report on it. What shows follows your role: an editor edits and exports, a workspace admin has everything, a model shared into the workspace (badge "shared") offers only the +.
 
 ## fields — Dimensions, measures and calculated fields
@@ -246,7 +246,7 @@
 ## ai-editor — The AI assistant in the report editor
 - Who: people who can edit the report, when the assistant is available to them and the report has a data model. Where: editor toolbar → AI assistant (sparkles).
 - Two modes: Visuals (ask a business question; it proposes visuals) and Design (describe the look; it proposes layout, colour or theme changes).
-- It never changes the report by itself: each proposal is a card with Add visual / Add N visuals, or Apply N changes, and Dismiss. An applied proposal is one undo step (Ctrl+Z); a theme change has its own Revert button.
+- It never changes the report by itself: each proposal is a card with Add visual / Add N visuals, or Apply N changes, and Dismiss. When a card has several lines (visuals, changes), untick the ones you do not want: only the ticked ones are applied, and the assistant is told what you kept. An applied proposal is one undo step (Ctrl+Z); a theme change has its own Revert button.
 - In a workspace report it can also write a new custom visual, previewed sandboxed on sample data (Review the code); only a workspace admin can Add to library & insert.
 - New conversation starts over; Stop cancels an answer.
 - It does not change the data model (joins, dimension / measure flags, model measures, fact / dimension tables). The model assistant of the model editor does: the assistant offers an Open model assistant card to the model's owner or an admin.

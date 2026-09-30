@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { applyModelProposal, describeModelProposal } from './modelProposal';
+import { applyModelProposal, describeModelProposal, keepModelChoices } from './modelProposal';
+import { describeProposal } from './aiProposal';
 
 const columns = {
   typeOf: (t, c) => (c === 'ordered_at' ? 'date' : 'string'),
@@ -49,5 +50,30 @@ describe('applyModelProposal', () => {
 
   it('reads back as one line for the next turn', () => {
     expect(describeModelProposal(proposal, 'applied')).toMatch(/^\[Proposed — applied by the user: join orders\.customer_id → customers\.id; remove join .*; orders is a fact; .*measure count\(orders\.id\); tables arranged\]$/);
+  });
+});
+
+describe('unticking lines of a model card', () => {
+  const proposal = {
+    kind: 'model',
+    joins: [{ from_table: 'orders', from_column: 'customer_id', to_table: 'customers', to_column: 'id' }, { from_table: 'orders', from_column: 'product_id', to_table: 'products', to_column: 'id' }],
+    tableRoles: { orders: 'fact', customers: 'dimension' },
+    fields: [{ table: 'orders', column: 'amount', as: 'measure' }],
+    measures: [],
+    positions: { orders: { x: 0, y: 0 } },
+  };
+
+  it('keeps every line that stays ticked', () => {
+    const kept = keepModelChoices(proposal, new Set(['join0', 'role:customers', 'positions']));
+    expect(kept.joins).toEqual([proposal.joins[1]]);
+    expect(kept.tableRoles).toEqual({ orders: 'fact' });
+    expect(kept.fields).toEqual(proposal.fields);
+    expect(kept.positions).toBeNull();
+    expect(keepModelChoices(proposal, new Set())).toBe(proposal);
+  });
+
+  it('the next turn hears only what was kept', () => {
+    const kept = keepModelChoices(proposal, new Set(['join0', 'field0', 'positions', 'role:orders', 'role:customers']));
+    expect(describeProposal(proposal, { status: 'partial', kept })).toBe('[Proposed — partly applied by the user — only what follows was kept, the rest turned down: join orders.product_id → products.id]');
   });
 });
