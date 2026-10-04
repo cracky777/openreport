@@ -162,7 +162,22 @@ function WidgetTooltip({ text, show }) {
   );
 }
 
-export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, onRebuildCache, cacheWarming = false, cacheWarmPct = 0, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions, onOpenReportFilters, reportFilterCount = 0, reportFilterBarVisible = false, aiEnabled = false, aiOpen = false, onToggleAi, visualsNonce = 0, onShowTour }) {
+// A menu entry that is what the selected visual is: marked like its button.
+const currentItem = (on) => (on ? { background: 'var(--accent-primary-soft)', fontWeight: 600 } : null);
+
+// The palette button a visual was made from, as Power BI shows it: selecting a
+// visual lights its button up (and its variant in the button's menu).
+// Objects (text, image, shapes) share one button, custom visuals another.
+const OBJECT_TYPES = new Set(['text', 'image', 'shape']);
+function paletteKeyOf(visual) {
+  if (!visual) return null;
+  if (visual.type === 'pivotTable') return 'table';
+  if (OBJECT_TYPES.has(visual.type)) return 'objects';
+  if (visual.type === 'customVisual') return 'customVisuals';
+  return visual.type;
+}
+
+export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, onRebuildCache, cacheWarming = false, cacheWarmPct = 0, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions, onOpenReportFilters, reportFilterCount = 0, reportFilterBarVisible = false, aiEnabled = false, aiOpen = false, onToggleAi, visualsNonce = 0, onShowTour, selectedVisual }) {
   const navigate = useNavigate();
   // Wrapped, this toolbar was taking 233px of an 844px screen — more than a
   // quarter of the phone, most of it the widget palette you need once per
@@ -171,6 +186,9 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
   const compact = useIsCompact();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState(null); // 'bar' | 'line' | 'refresh' | null
+  const currentKey = paletteKeyOf(selectedVisual);
+  const isCurrentObject = (st) => currentKey === 'objects' && st.type === selectedVisual.type
+    && (st.type !== 'shape' || st.config.shape === (selectedVisual.shape || 'square'));
   const [hoverKey, setHoverKey] = useState(null);
   const hoverTimerRef = useRef(null);
   const [previewPrompt, setPreviewPrompt] = useState(false);
@@ -392,6 +410,10 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             {gi > 0 && <div style={_hs11} />}
             {group.items.map(([type, { label, icon: Icon, hasSubTypes }]) => {
               const iconColor = type === 'filter' ? 'var(--accent-cyan)' : 'var(--accent-primary)';
+              const current = currentKey === type;
+              // The variant the selected visual is, so its menu entry is marked too
+              // (a widget with no sub-type is drawn as the first, the widget's default).
+              const currentVariant = current ? (selectedVisual.subType || SUB_TYPE_MENUS[type]?.[0].value || selectedVisual.type) : null;
               return (
                 <div key={type} style={_hs12}
                   onMouseEnter={() => { if (hasSubTypes) setOpenMenu(type); }}
@@ -399,11 +421,12 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                 >
                   <button
                     aria-label={`Add ${label}`}
+                    aria-pressed={current}
                     onClick={() => { if (!hasSubTypes) onAddWidget(type); }}
-                    style={widgetBtnStyle(openMenu === type, iconColor)}
+                    style={widgetBtnStyle(openMenu === type, iconColor, current)}
                     onMouseEnter={(e) => {
                       scheduleHover(type);
-                      if (openMenu !== type) {
+                      if (openMenu !== type && !current) {
                         e.currentTarget.style.background = 'var(--bg-panel)';
                         e.currentTarget.style.boxShadow = 'var(--shadow-md)';
                         e.currentTarget.style.transform = 'translateY(-1px)';
@@ -411,7 +434,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                     }}
                     onMouseLeave={(e) => {
                       clearHover();
-                      if (openMenu !== type) {
+                      if (openMenu !== type && !current) {
                         e.currentTarget.style.background = 'transparent';
                         e.currentTarget.style.boxShadow = 'none';
                         e.currentTarget.style.transform = 'translateY(0)';
@@ -432,9 +455,10 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                       {SUB_TYPE_MENUS[type].map((st) => {
                         const StIcon = st.icon;
                         return (
-                          <button key={st.value} onClick={() => handleAddWithSubType(type, st.value)} style={dropdownItem}
+                          <button key={st.value} onClick={() => handleAddWithSubType(type, st.value)}
+                            style={{ ...dropdownItem, ...currentItem(currentVariant === st.value) }}
                             onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
+                            onMouseLeave={(e) => { e.currentTarget.style.background = currentVariant === st.value ? 'var(--accent-primary-soft)' : 'var(--bg-panel)'; }}>
                             <StIcon size={14} color={iconColor} style={_hs15} />{st.label}
                           </button>
                         );
@@ -446,9 +470,10 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                       {TABLE_SUB_TYPES.map((st) => {
                         const StIcon = st.icon;
                         return (
-                          <button key={st.value} onClick={() => { onAddWidget(st.value); setOpenMenu(null); }} style={dropdownItem}
+                          <button key={st.value} onClick={() => { onAddWidget(st.value); setOpenMenu(null); }}
+                            style={{ ...dropdownItem, ...currentItem(currentVariant === st.value) }}
                             onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
+                            onMouseLeave={(e) => { e.currentTarget.style.background = currentVariant === st.value ? 'var(--accent-primary-soft)' : 'var(--bg-panel)'; }}>
                             <StIcon size={14} color={iconColor} style={_hs16} />{st.label}
                           </button>
                         );
@@ -457,9 +482,9 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                   )}
                   {openMenu === type && type === 'filter' && (
                     <div style={dropdownStyle}><div style={dropdownInner}>
-                      <button onClick={() => { onAddWidget('filter'); setOpenMenu(null); }} style={dropdownItem}
+                      <button onClick={() => { onAddWidget('filter'); setOpenMenu(null); }} style={{ ...dropdownItem, ...currentItem(current) }}
                         onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                        onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
+                        onMouseLeave={(e) => { e.currentTarget.style.background = current ? 'var(--accent-primary-soft)' : 'var(--bg-panel)'; }}>
                         <TbFilter size={14} color={iconColor} style={_hs17} />Visual Filter
                       </button>
                       <button onClick={() => { onOpenReportFilters?.(); setOpenMenu(null); }} style={dropdownItem}
@@ -492,10 +517,11 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           <button
             aria-label="Shapes"
             title="Shapes"
-            style={widgetBtnStyle(openMenu === 'objects', 'var(--text-muted)')}
+            aria-pressed={currentKey === 'objects'}
+            style={widgetBtnStyle(openMenu === 'objects', currentKey === 'objects' ? 'var(--accent-primary)' : 'var(--text-muted)', currentKey === 'objects')}
             onMouseEnter={(e) => {
               scheduleHover('objects');
-              if (openMenu !== 'objects') {
+              if (openMenu !== 'objects' && currentKey !== 'objects') {
                 e.currentTarget.style.background = 'var(--bg-panel)';
                 e.currentTarget.style.boxShadow = 'var(--shadow-md)';
                 e.currentTarget.style.transform = 'translateY(-1px)';
@@ -503,7 +529,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             }}
             onMouseLeave={(e) => {
               clearHover();
-              if (openMenu !== 'objects') {
+              if (openMenu !== 'objects' && currentKey !== 'objects') {
                 e.currentTarget.style.background = 'transparent';
                 e.currentTarget.style.boxShadow = 'none';
                 e.currentTarget.style.transform = 'translateY(0)';
@@ -519,9 +545,10 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
               {OBJECT_SUB_TYPES.map((st) => {
                 const StIcon = st.icon;
                 return (
-                  <button key={st.value} onClick={() => { onAddWidget(st.type, null, st.config, st.size); setOpenMenu(null); }} style={dropdownItem}
+                  <button key={st.value} onClick={() => { onAddWidget(st.type, null, st.config, st.size); setOpenMenu(null); }}
+                    style={{ ...dropdownItem, ...currentItem(isCurrentObject(st)) }}
                     onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-panel)'}>
+                    onMouseLeave={(e) => { e.currentTarget.style.background = isCurrentObject(st) ? 'var(--accent-primary-soft)' : 'var(--bg-panel)'; }}>
                     <StIcon size={14} color="var(--text-muted)" style={_hs23} />{st.label}
                   </button>
                 );
@@ -541,10 +568,11 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
               <button
             aria-label="Custom visuals"
             title="Custom visuals"
-                style={widgetBtnStyle(openMenu === 'customVisuals', 'var(--accent-primary)')}
+                aria-pressed={currentKey === 'customVisuals'}
+                style={widgetBtnStyle(openMenu === 'customVisuals', 'var(--accent-primary)', currentKey === 'customVisuals')}
                 onMouseEnter={(e) => {
                   scheduleHover('customVisuals');
-                  if (openMenu !== 'customVisuals') {
+                  if (openMenu !== 'customVisuals' && currentKey !== 'customVisuals') {
                     e.currentTarget.style.background = 'var(--bg-panel)';
                     e.currentTarget.style.boxShadow = 'var(--shadow-md)';
                     e.currentTarget.style.transform = 'translateY(-1px)';
@@ -552,7 +580,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
                 }}
                 onMouseLeave={(e) => {
                   clearHover();
-                  if (openMenu !== 'customVisuals') {
+                  if (openMenu !== 'customVisuals' && currentKey !== 'customVisuals') {
                     e.currentTarget.style.background = 'transparent';
                     e.currentTarget.style.boxShadow = 'none';
                     e.currentTarget.style.transform = 'translateY(0)';
@@ -983,13 +1011,15 @@ const dropdownItem = {
 };
 
 // Pill-style button inside the grouped widget toolbar — larger icon, subtle hover elevation
-function widgetBtnStyle(active, iconColor) {
+// `current`: the selected visual is of this type — tinted and ringed, so it
+// reads apart from a button whose menu is merely open.
+function widgetBtnStyle(active, iconColor, current = false) {
   return {
     padding: '6px 10px', border: 'none',
-    borderRadius: 8, background: active ? 'var(--bg-panel)' : 'transparent',
+    borderRadius: 8, background: current ? 'var(--accent-primary-soft)' : (active ? 'var(--bg-panel)' : 'transparent'),
     cursor: 'pointer', display: 'flex', alignItems: 'center',
     transition: 'background 0.15s, box-shadow 0.15s, transform 0.15s',
-    boxShadow: active ? `var(--shadow-md), inset 0 0 0 1px ${iconColor}40` : 'none',
+    boxShadow: current ? `inset 0 0 0 1.5px ${iconColor}` : (active ? `var(--shadow-md), inset 0 0 0 1px ${iconColor}40` : 'none'),
   };
 }
 

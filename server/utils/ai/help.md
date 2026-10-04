@@ -98,6 +98,7 @@
 ## editor — The report editor toolbar
 - Left: Back, Undo, Redo, the report title (click to rename).
 - Middle: the widget palette — Bar Chart, Line Chart, Combo Chart, Pie Chart, TreeMap, Scatter Chart; Table (and Pivot Table), Scorecard, Gauge; Filter; Shapes (Text, Image, Line, Square, Round, Arrow); Custom visuals (workspace reports only).
+- Which type a visual is: select it — its palette button is outlined, and in that button's sub-menu its variant (e.g. Stacked Bar) is highlighted. With the visual selected, clicking another palette type turns it into that type and keeps its fields.
 - Right: Refresh data (Live query or Cache), Edit interactions, Report settings, Show me around (question mark), Export, Preview, Save. The AI assistant (when available) is the Assistant bar docked on the right edge of the editor, as on the Data Sources / Data Models / Reports screens; on a phone, the sparkles button of the toolbar.
 - The tutorial of the editor points at where to add a visual, your fields, + Measure and + Dimension, the page, the assistant and Save; Show me around (question mark in the toolbar) plays it again.
 - Right-hand panels: the property panel of the selected visual, and the Data panel with the model's Dimensions and Measures (collapsible).

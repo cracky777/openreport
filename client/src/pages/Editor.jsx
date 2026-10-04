@@ -1940,6 +1940,11 @@ export default function Editor() {
         onToggleAi={() => setAssistantOpen(!aiOpen)}
         onShowTour={compact ? undefined : tour.start}
         visualsNonce={visualsNonce}
+        selectedVisual={selectedWidget && widgets[selectedWidget] ? {
+          type: widgets[selectedWidget].type,
+          subType: widgets[selectedWidget].config?.subType,
+          shape: widgets[selectedWidget].config?.shape,
+        } : null}
         onOpenReportFilters={() => setReportFilterBarOpen((v) => !v)}
         reportFilterCount={liveReportFilterCount != null
           ? liveReportFilterCount
