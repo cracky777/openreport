@@ -23,7 +23,7 @@ const effType = (model, d) => {
 };
 
 const dimOf = (model, name) => (model?.dimensions || []).find((x) => x.name === name);
-const isDateDim = (model, name) => {
+export const isDateDim = (model, name) => {
   const d = dimOf(model, name);
   return !!d && effType(model, d) === 'date';
 };
@@ -119,7 +119,19 @@ function targetsFor({ widget, fieldName, fieldType, model }) {
 
     case 'scorecard': {
       const value = singleMeasure('Value');
-      if (!isDim || !isDateDim(model, fieldName)) return list([value]);
+      if (!isDim) return list([value]);
+      const date = isDateDim(model, fieldName);
+      // A dimension next to a figure asks for the figure broken down by it:
+      // the scorecard becomes a chart of it — a trend for a date, bars
+      // otherwise — keeping its measure. Its old data has the wrong shape.
+      const chart = meas.length ? {
+        zone: date ? 'Axis — as a line chart' : 'Axis — as a bar chart',
+        type: date ? 'line' : 'bar',
+        binding: { selectedDimensions: [fieldName] },
+        config: { ...(widget.config || {}), showLegend: widget.config?.showLegend ?? true },
+        resetData: true,
+      } : null;
+      if (!date) return list(chart ? [chart, value] : [value]);
       // A date is what a scorecard compares periods on; the value stays a
       // choice away. A comparison nobody asked to see is a comparison that
       // looks broken: the first date dim turns the percentage on, as the
@@ -130,7 +142,7 @@ function targetsFor({ widget, fieldName, fieldType, model }) {
           ? undefined
           : { ...(widget.config || {}), showN1Percent: widget.config?.showN1Percent ?? true },
       };
-      return list([compare, value]);
+      return list(chart ? [compare, chart, value] : [compare, value]);
     }
 
     case 'gauge': {

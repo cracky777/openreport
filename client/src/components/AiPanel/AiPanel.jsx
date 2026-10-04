@@ -101,8 +101,9 @@ const SHARING = {
 /**
  * @param {boolean} open    wide screens: the panel, or its bar docked on the right edge
  * @param {function} onOpen the bar was clicked
+ * @param {{text: string, at: number}} ask  a question asked from the canvas ("Suggest"), once per `at`
  */
-export default function AiPanel({ reportId, model, widgets, settings, status, onStatusChange, getPageContext, onApplyProposal, onClose, onResizeStart, onResizeEnd, initialRequest = '', open = true, onOpen }) {
+export default function AiPanel({ reportId, model, widgets, settings, status, onStatusChange, getPageContext, onApplyProposal, onClose, onResizeStart, onResizeEnd, initialRequest = '', open = true, onOpen, ask }) {
   const [dragging, setDragging] = useState(false);
   const { width, handleProps } = useResizableWidth({
     storageKey: 'openreport.aiPanelWidth', defaultWidth: 300, min: 260, max: 520,
@@ -148,6 +149,15 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
       setDraft(initialRequest);
     }
   }, [initialRequest, status.enabled, status.reason]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const askedAtRef = useRef(0);
+  useEffect(() => {
+    if (!ask || askedAtRef.current === ask.at || !status.enabled || loading) return;
+    askedAtRef.current = ask.at;
+    // A question about which visual to make: the Visuals mode answers it.
+    setMode('visuals');
+    send(ask.text, { mode: 'visuals' });
+  }, [ask, status.enabled, loading, send]);
 
   const onKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {

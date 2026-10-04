@@ -162,3 +162,23 @@ describe('a text takes a field in its Measures well', () => {
     expect(got.data.text).toBe('#sales');
   });
 });
+
+describe('a scorecard broken down by a dimension', () => {
+  const card = w('scorecard', { selectedMeasures: ['Sales'] });
+
+  test('becomes a bar chart of it, keeping its measure', () => {
+    const plan = drop(card, 'Country', 'dimension');
+    expect(plan).toMatchObject({ zone: 'Axis — as a bar chart', type: 'bar', binding: { selectedDimensions: ['Country'] }, resetData: true });
+    expect(plan.config.showLegend).toBe(true);
+  });
+
+  test('a date still compares periods first; the trend is a choice away', () => {
+    const zones = dropTargets({ widget: card, fieldName: 'Date', fieldType: 'dimension', model: MODEL }).map((t) => t.zone);
+    expect(zones).toEqual(['Compare with', 'Axis — as a line chart', 'Value']);
+    expect(planFieldDrop({ widget: card, fieldName: 'Date', fieldType: 'dimension', model: MODEL, zone: 'Axis — as a line chart' }).type).toBe('line');
+  });
+
+  test('an empty scorecard has nothing to break down', () => {
+    expect(drop(w('scorecard'), 'Country', 'dimension').zone).toBe('Value');
+  });
+});

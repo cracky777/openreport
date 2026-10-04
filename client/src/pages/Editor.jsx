@@ -29,6 +29,7 @@ import { applyWidgetsProposal, applyDesignProposal, applyVisualProposal, buildPa
 import { CHART_COLORS } from '../utils/chartPalette';
 import AiPanel from '../components/AiPanel/AiPanel';
 import { DOCK_SLIDE_MS } from '../components/SlidingDock/dockTiming';
+import { visualForField, showAsChoices } from '../utils/fieldVisuals';
 import Tour from '../components/Tour/Tour';
 import { useAuth } from '../hooks/useAuth';
 import { useFirstVisitTour } from '../hooks/useFirstVisitTour';
@@ -1326,6 +1327,14 @@ export default function Editor() {
   const [arrivedWithAssistant] = useState(() => new URLSearchParams(window.location.search).has('assistant'));
   const tour = useFirstVisitTour('editor', user?.id, !loading && !compact && !arrivedWithAssistant);
 
+  // "Suggest" on a visual just made from a field: the assistant is asked
+  // which visual fits its fields.
+  const [aiAsk, setAiAsk] = useState(null);
+  const fieldLabel = useCallback((name) => {
+    const f = [...(effectiveModel?.dimensions || []), ...(effectiveModel?.measures || [])].find((x) => x.name === name);
+    return f?.label || name;
+  }, [effectiveModel]);
+
   // Created from the empty Reports stage with a description (`?assistant=1`):
   // the assistant opens on the report once it is loaded, with that request.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1680,6 +1689,26 @@ export default function Editor() {
 
     setSelectedWidget(widgetId);
   }, [selectedWidget, widgets, setWidgets, setLayoutAndWidgets]);
+
+  // A field dropped on an empty spot of the page: the visual it makes, right
+  // there (utils/fieldVisuals), selected — and marked fresh, so its "Show as"
+  // bar offers the other shapes until something else is selected.
+  const [freshWidget, setFreshWidget] = useState(null);
+  const handleCreateFromField = useCallback(({ fieldName, fieldType, x, y, w, h }) => {
+    const plan = visualForField({ fieldName, fieldType });
+    if (!plan) return;
+    const widgetId = uuidv4();
+    setLayoutAndWidgets(
+      (prevLayout) => [...prevLayout, { i: widgetId, x, y, w, h, z: topZ(prevLayout) }],
+      (prevWidgets) => ({ ...prevWidgets, [widgetId]: { type: plan.type, data: {}, config: {}, dataBinding: plan.binding } }),
+    );
+    setSelectedWidget(widgetId);
+    setFreshWidget(widgetId);
+  }, [setLayoutAndWidgets]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (freshWidget && selectedWidget !== freshWidget) setFreshWidget(null);
+  }, [selectedWidget, freshWidget]);
 
   const handleUpdateWidget = useCallback((widgetId, updatedWidget) => {
     setWidgets((prev) => {
@@ -2036,6 +2065,20 @@ export default function Editor() {
               onLayoutChange={setLayout}
               onLayoutChangeLive={setLayoutLive}
               onSelectWidget={setSelectedWidget}
+              onCreateFromField={handleCreateFromField}
+              showAs={freshWidget && widgets[freshWidget] ? {
+                widgetId: freshWidget,
+                choices: showAsChoices({ widget: widgets[freshWidget], model: effectiveModel }),
+                current: widgets[freshWidget].type,
+                // With the visual selected, adding a type turns it into that type, fields kept.
+                onPick: (type) => handleAddWidget(type),
+                onSuggest: aiAvailable && report?.model_id ? () => {
+                  const b = widgets[freshWidget].dataBinding || {};
+                  const names = [...(b.selectedDimensions || []), ...(b.selectedMeasures || [])].map(fieldLabel);
+                  setAssistantOpen(true);
+                  setAiAsk({ text: `Which visual best shows ${names.join(' and ')}? Propose it.`, at: Date.now() });
+                } : undefined,
+              } : null}
               settings={settings}
               onLoadMore={handleLoadMore}
               onWidgetUpdate={handleUpdateWidget}
@@ -2154,6 +2197,7 @@ export default function Editor() {
             onOpen={() => setAssistantOpen(true)}
             onClose={() => setAssistantOpen(false)}
             initialRequest={assistantRequest}
+            ask={aiAsk}
             onResizeStart={pinCanvas}
             onResizeEnd={unpinCanvas}
           />

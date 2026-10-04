@@ -124,7 +124,7 @@ test('a visual with no well for the field says so instead of guessing', async ({
   await expect(page.getByText('No slot for this field')).toHaveCount(0);
 });
 
-test('a dimension dropped on a scorecard becomes the max of its column', async ({ page }) => {
+test("a dimension aimed at a scorecard's Value becomes the max of its column", async ({ page }) => {
   const { reportId } = ids();
   const asked = [];
   await page.route('**/api/models/*/query', (route) => {
@@ -137,11 +137,15 @@ test('a dimension dropped on a scorecard becomes the max of its column', async (
   await expect(card).toBeVisible();
   await page.waitForTimeout(1500);
 
-  // A plain string column has no period to compare on, but it can be read as
-  // a measure of itself: the visual announces its Value well and takes it.
+  // A plain string column has no period to compare on. Dropped as is, it turns
+  // the scorecard into a chart of it (field-drop-on-page.spec.js); aimed at the
+  // Value well the overlay offers, it is read as a measure of itself instead.
   await grab(page, F.SPARE_DIM_LABEL);
   await moveOver(page, card);
-  await expect(page.getByText('Value', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Axis — as a bar chart').first()).toBeVisible();
+  const value = page.getByText('Value', { exact: true }).first();
+  const v = await value.boundingBox();
+  await page.mouse.move(Math.round(v.x + v.width / 2), Math.round(v.y + v.height / 2), { steps: 4 });
   await page.mouse.up();
   await page.waitForTimeout(1200);
   expect(asked.some((q) => (q.measureNames || []).includes(`${F.SPARE_DIM}@@agg:max`))).toBe(true);

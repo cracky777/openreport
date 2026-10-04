@@ -169,7 +169,7 @@ function buildShadowCSS(s) {
   return `${inset}${x}px ${y}px ${s.blur ?? 10}px ${s.spread ?? 2}px ${s.color || 'rgba(0,0,0,0.15)'}`;
 }
 
-const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, model, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, scale = 1, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners, mergeSpan, stacked, dragBounds, touch }) {
+const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly, onSelect, onDrag, onDragStop, onStartResize, onAutoHeight, onLoadMore, onWidgetUpdate, model, onSlicerFilter, onSlicerSearch, onCrossFilter, onDrillUp, onDrillReset, crossHighlight, snapGrid, scale = 1, reportFilters, editInteractionsActive, isExcludedFromSource, onToggleCrossFilter, onCancelFetch, onRefreshWidget, mergeCorners, mergeSpan, stacked, dragBounds, touch, onFieldOver }) {
   const openBugReport = useBugReport();
   const nodeRef = useRef(null);
   const [showSql, setShowSql] = useState(false);
@@ -330,6 +330,12 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
     const next = { ...widget, dataBinding: { ...(widget.dataBinding || {}), ...plan.binding } };
     if (plan.config) next.config = plan.config;
     if (plan.data) next.data = { ...(widget.data || {}), ...plan.data };
+    // The drop changed what the visual is (a scorecard broken down by a
+    // dimension becomes a chart): a new type, and data to fetch afresh.
+    if (plan.type) {
+      next.type = plan.type;
+      next.data = {};
+    }
     onWidgetUpdate(item.i, next);
     // The field landed somewhere the user cannot see from the canvas; select
     // the visual so the panel shows which well took it, ready to be changed.
@@ -342,6 +348,8 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
     onDragEnter: (e) => {
       if (!currentFieldDrag()) return;
       e.preventDefault();
+      // The page's "new visual" frame gives way: this visual takes the field.
+      onFieldOver?.();
       dragDepth.current += 1;
       if (dragDepth.current === 1) setDropPlan(previewDrop());
     },
@@ -349,6 +357,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
       if (!currentFieldDrag()) return;
       // Without this the browser refuses the drop and plays the "no" cursor.
       e.preventDefault();
+      onFieldOver?.();
       e.dataTransfer.dropEffect = dropPlan?.refused ? 'none' : 'copy';
     },
     onDragLeave: () => {

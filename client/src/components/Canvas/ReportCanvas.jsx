@@ -1,5 +1,7 @@
 import { useRef, useState, useEffect, useCallback, useMemo, Fragment } from 'react';
-import { TbMagnet, TbMagnetOff, TbMinus, TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp } from 'react-icons/tb';
+import { TbMagnet, TbMagnetOff, TbMinus, TbLayersSubtract, TbLayersLinked, TbArrowBigDown, TbArrowBigUp, TbSparkles } from 'react-icons/tb';
+import { currentFieldDrag } from '../../utils/fieldDrag';
+import { visualForField } from '../../utils/fieldVisuals';
 import { WIDGET_TYPES } from '../Widgets';
 import { getMergeGroups, groupSeams, groupRect, mergeCorners, mergeSpan, edgeMidpoint, groupBorderCss } from '../../utils/mergeFrames';
 import WidgetItem from './WidgetItem';
@@ -70,6 +72,12 @@ export default function ReportCanvas({
   // -side Puppeteer renderer can capture just the report canvas at its
   // native dimensions.
   printMode,
+  // A field dropped on an empty spot of the page: ({ fieldName, fieldType,
+  // x, y, w, h }) in page pixels — the editor makes the visual there.
+  onCreateFromField,
+  // The "Show as" bar of a visual just made from a field:
+  // { widgetId, choices: [{ type, label }], current, onPick(type), onSuggest? }.
+  showAs,
 }) {
   const [resizing, setResizing] = useState(null);
   const justResizedRef = useRef(false);
@@ -130,6 +138,52 @@ export default function ReportCanvas({
 
   const gridSize = (settings.snapToGrid ?? true) ? (settings.gridSize || 20) : 1;
   const snap = useCallback((v) => Math.round(v / gridSize) * gridSize, [gridSize]);
+
+  // ── A field dropped on an empty spot of the page ────────────────────────
+  // While it is in the air, a dashed frame says what will appear and where
+  // (centred on the pointer, snapped, inside the page). Over a visual the
+  // visual's own drop takes over (WidgetItem), and the frame goes. "Over a
+  // visual" is read from the layout, not from the event's target: during a
+  // drag the browser may hit-test the frame itself, pointer-events or not.
+  const [ghost, setGhost] = useState(null);
+  const clearGhost = useCallback(() => setGhost(null), []);
+  useEffect(() => {
+    if (!ghost) return undefined;
+    const clear = () => setGhost(null);
+    window.addEventListener('dragend', clear);
+    return () => window.removeEventListener('dragend', clear);
+  }, [ghost]);
+  const pageDrop = !readOnly && onCreateFromField ? {
+    onDragOver: (e) => {
+      const payload = currentFieldDrag();
+      const plan = payload && visualForField(payload);
+      if (!plan) return;
+      const r = e.currentTarget.getBoundingClientRect();
+      const px = (e.clientX - r.left) / scale;
+      const py = (e.clientY - r.top) / scale;
+      const overVisual = layout.some((it) => widgets[it.i]
+        && px >= (it.x || 0) && px <= (it.x || 0) + (it.w || 0) && py >= (it.y || 0) && py <= (it.y || 0) + (it.h || 0));
+      if (overVisual) { setGhost(null); return; }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      const size = WIDGET_TYPES[plan.type]?.defaultSize || { w: 24, h: 16 };
+      const w = Math.min(size.w > 100 ? size.w : size.w * 20, pageWidth);
+      const h = Math.min(size.h > 100 ? size.h : size.h * 20, canvasHeight);
+      const x = Math.max(0, Math.min(snap(px - w / 2), pageWidth - w));
+      const y = Math.max(0, Math.min(snap(py - h / 2), canvasHeight - h));
+      setGhost((g) => (g && g.x === x && g.y === y ? g : { x, y, w, h, label: plan.type === 'scorecard' ? 'New scorecard' : 'New table' }));
+    },
+    onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setGhost(null); },
+    onDrop: (e) => {
+      const fieldName = e.dataTransfer.getData('application/field-name');
+      const fieldType = e.dataTransfer.getData('application/field-type');
+      const g = ghost;
+      setGhost(null);
+      if (!fieldName || !g) return;
+      e.preventDefault();
+      onCreateFromField({ fieldName, fieldType, x: g.x, y: g.y, w: g.w, h: g.h });
+    },
+  } : {};
   // The grid react-draggable enforces is in SCREEN pixels — it quantises the
   // raw pointer delta, before the scale is divided out. Handed the page-pixel
   // grid it snapped a scaled-down canvas to cells larger than its own, and the
@@ -619,7 +673,13 @@ export default function ReportCanvas({
             border: (settings.showBorder ?? true) ? undefined : 'none',
             position: 'relative',
           }}
+          {...pageDrop}
         >
+        {ghost && (
+          <div style={{ ...ghostStyle, left: ghost.x, top: ghost.y, width: ghost.w, height: ghost.h }} aria-hidden="true">
+            {ghost.label}
+          </div>
+        )}
         {/* Grid overlay */}
         {settings.showGrid && !readOnly && (
           <div style={{
@@ -665,6 +725,7 @@ export default function ReportCanvas({
             <Fragment key={item.i}>
             <WidgetItem
               item={item}
+              onFieldOver={clearGhost}
               widget={widget}
               isSelected={selectedWidget === item.i}
               readOnly={readOnly}
@@ -744,6 +805,33 @@ export default function ReportCanvas({
           );
         })()}
 
+        {/* "Show as", under a visual just made from a field: the other
+            shapes its fields fit, the likeliest first, one click each. */}
+        {!readOnly && !editInteractions && showAs && showAs.widgetId === selectedWidget && showAs.choices.length > 0 && (() => {
+          const sel = layout.find((l) => l.i === selectedWidget);
+          if (!sel) return null;
+          const BAR_H = 30;
+          const below = (sel.y || 0) + (sel.h || 0) + 8;
+          const top = below + BAR_H <= canvasHeight ? below : (sel.y || 0) + (sel.h || 0) - BAR_H - 6;
+          return (
+            <div role="toolbar" aria-label="Show as" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}
+              style={{ ...zOrderBar, ...showAsBar, top, left: (sel.x || 0) + (sel.w || 0) / 2 }}>
+              <span style={showAsLabel}>Show as</span>
+              {showAs.choices.map((c) => (
+                <button key={c.type} className="btn-hover" onClick={() => showAs.onPick(c.type)}
+                  aria-pressed={c.type === showAs.current} style={showAsBtn(c.type === showAs.current)}>
+                  {c.label}
+                </button>
+              ))}
+              {showAs.onSuggest && (
+                <button className="btn-hover" onClick={showAs.onSuggest} style={showAsSuggest} title="Ask the assistant which visual fits these fields">
+                  <TbSparkles size={12} /> Suggest
+                </button>
+              )}
+            </div>
+          );
+        })()}
+
         {mergeMagnets.map((mag) => {
           const isHovered = hoveredMagnetId === mag.id;
           // Trigger zone — 12px thick (6 on each side of the seam),
@@ -815,6 +903,24 @@ const zOrderBar = {
   display: 'flex', gap: 2, padding: 3, zIndex: 500,
   background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
   borderRadius: 6, boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+};
+const ghostStyle = {
+  position: 'absolute', zIndex: 450, pointerEvents: 'none', boxSizing: 'border-box',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  fontSize: 14, fontWeight: 600, color: 'var(--accent-primary)',
+  border: '2px dashed var(--accent-primary)', borderRadius: 8, background: 'var(--accent-primary-soft)',
+};
+const showAsBar = { alignItems: 'center', gap: 3, padding: '3px 4px', whiteSpace: 'nowrap' };
+const showAsLabel = { fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', padding: '0 6px 0 4px' };
+const showAsBtn = (active) => ({
+  height: 22, padding: '0 8px', fontSize: 11.5, fontWeight: active ? 700 : 500, borderRadius: 4, cursor: 'pointer',
+  border: 'none', background: active ? 'var(--accent-primary-soft)' : 'transparent',
+  color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
+});
+const showAsSuggest = {
+  display: 'inline-flex', alignItems: 'center', gap: 4, height: 22, padding: '0 8px', marginLeft: 2,
+  fontSize: 11.5, fontWeight: 600, borderRadius: 4, cursor: 'pointer',
+  border: '1px solid var(--accent-primary)', background: 'var(--bg-panel)', color: 'var(--accent-primary)',
 };
 const zOrderBtn = {
   width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center',
