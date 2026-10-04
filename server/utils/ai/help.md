@@ -64,7 +64,7 @@
 5. Step 3. Dimensions & Measures: rename labels, set types and date formats, add calculated fields.
 6. Click Save (top-right). + New Report saves the model and opens a new report on it.
 - The datasource badge in the header lets you switch the model to another data source (Change datasource); broken references are listed with a Re-check button.
-- The model assistant (sparkles button in the model editor header, for the model's owner or an admin, when the AI assistant is available) can propose the tables of the source the model needs (it reads their column names, never their rows), the joins, which columns are dimensions or measures, new measures (sum, average, count, distinct count, min, max of a column), which tables are facts or dimensions, and arrange the diagram. Review the card, untick any line you do not want, click Apply, then Save the model. A card that adds tables adds only them: once they are loaded (columns flagged, joins the database declares drawn), the assistant goes on by itself with the joins, table roles and fields. It does not write SQL: calculated fields stay manual.
+- The model assistant (the Assistant bar docked on the right edge of the model editor — on a phone, the sparkles button of its header — for the model's owner or an admin, when the AI assistant is available) can propose the tables of the source the model needs (it reads their column names, never their rows), the joins, which columns are dimensions or measures, new measures (sum, average, count, distinct count, min, max of a column), which tables are facts or dimensions, and arrange the diagram. Review the card, untick any line you do not want, click Apply, then Save the model. A card that adds tables adds only them: once they are loaded (columns flagged, joins the database declares drawn), the assistant goes on by itself with the joins, table roles and fields. It does not write SQL: calculated fields stay manual.
 - On a model card: Edit model, Refresh the cache and Delete model; More actions (⋮) holds Incremental cache refresh, Export data model (a .model.yaml file), Share (with other workspaces) and Move to workspace; the + adds a report on it. What shows follows your role: an editor edits and exports, a workspace admin has everything, a model shared into the workspace (badge "shared") offers only the +.
 
 ## fields — Dimensions, measures and calculated fields
@@ -98,7 +98,7 @@
 ## editor — The report editor toolbar
 - Left: Back, Undo, Redo, the report title (click to rename).
 - Middle: the widget palette — Bar Chart, Line Chart, Combo Chart, Pie Chart, TreeMap, Scatter Chart; Table (and Pivot Table), Scorecard, Gauge; Filter; Shapes (Text, Image, Line, Square, Round, Arrow); Custom visuals (workspace reports only).
-- Right: Refresh data (Live query or Cache), Edit interactions, AI assistant (when available), Report settings, Show me around (question mark), Export, Preview, Save.
+- Right: Refresh data (Live query or Cache), Edit interactions, Report settings, Show me around (question mark), Export, Preview, Save. The AI assistant (when available) is the Assistant bar docked on the right edge of the editor, as on the Data Sources / Data Models / Reports screens; on a phone, the sparkles button of the toolbar.
 - The tutorial of the editor points at where to add a visual, your fields, + Measure and + Dimension, the page, the assistant and Save; Show me around (question mark in the toolbar) plays it again.
 - Right-hand panels: the property panel of the selected visual, and the Data panel with the model's Dimensions and Measures (collapsible).
 - Shortcuts: Ctrl+Z undo, Ctrl+Y or Ctrl+Shift+Z redo, Ctrl+C / Ctrl+V copy-paste a widget, Delete removes the selected widget, arrow keys nudge it (Shift = ten steps).
@@ -250,7 +250,7 @@
 - Admin → AI also shows answers users rated (thumbs up/down).
 
 ## ai-editor — The AI assistant in the report editor
-- Who: people who can edit the report, when the assistant is available to them and the report has a data model. Where: editor toolbar → AI assistant (sparkles).
+- Who: people who can edit the report, when the assistant is available to them and the report has a data model. Where: the Assistant bar docked on the right edge of the editor (click it to open the panel; the Data panel folds while it is open). On a phone: the sparkles button of the toolbar.
 - Two modes: Visuals (ask a business question; it proposes visuals) and Design (describe the look; it proposes layout, colour or theme changes).
 - It never changes the report by itself: each proposal is a card with Add visual / Add N visuals, or Apply N changes, and Dismiss. When a card has several lines (visuals, changes), untick the ones you do not want: only the ticked ones are applied, and the assistant is told what you kept. An applied proposal is one undo step (Ctrl+Z); a theme change has its own Revert button.
 - In a workspace report it can also write a new custom visual, previewed sandboxed on sample data (Review the code); only a workspace admin can Add to library & insert.

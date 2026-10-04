@@ -211,6 +211,12 @@ body {
   display: none !important;
 }
 
+/* Same for "What do you need?": a box to type in has no place in a picture of
+   the journey. */
+[data-journey-ribbon][data-overview] [data-describe-report] {
+  display: none !important;
+}
+
 /* A peeking neighbour is a glimpse, not a surface to work in: its scrollbar
    would otherwise land in the middle of the screen, next to the column that
    actually has focus. */

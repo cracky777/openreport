@@ -28,6 +28,7 @@ import { findFreeSlot, topZ } from '../utils/pageBounds';
 import { applyWidgetsProposal, applyDesignProposal, applyVisualProposal, buildPageContext } from '../utils/aiProposal';
 import { CHART_COLORS } from '../utils/chartPalette';
 import AiPanel from '../components/AiPanel/AiPanel';
+import { DOCK_SLIDE_MS } from '../components/SlidingDock/dockTiming';
 import Tour from '../components/Tour/Tour';
 import { useAuth } from '../hooks/useAuth';
 import { useFirstVisitTour } from '../hooks/useFirstVisitTour';
@@ -1316,7 +1317,7 @@ export default function Editor() {
     setAiOpen(open);
     // On a phone the panels are tabs of one sheet: nothing to make room for.
     setDataCollapsed(open && !compact);
-    setTimeout(unpinCanvas, 230);
+    setTimeout(unpinCanvas, DOCK_SLIDE_MS + 30);
   }, [pinCanvas, unpinCanvas, compact]);
 
   // The tour, on a wide screen. Not when the editor opens with the assistant
@@ -1903,7 +1904,9 @@ export default function Editor() {
         canUndo={history.canUndo}
         canRedo={history.canRedo}
         onOpenSettings={() => setShowSettings(true)}
-        aiEnabled={aiAvailable && !!report?.model_id}
+        // On a wide screen the assistant is the bar docked on the right edge,
+        // as on the journey; a phone keeps the toolbar button (no room for it).
+        aiEnabled={compact && aiAvailable && !!report?.model_id}
         aiOpen={aiOpen}
         onToggleAi={() => setAssistantOpen(!aiOpen)}
         onShowTour={compact ? undefined : tour.start}
@@ -2133,9 +2136,10 @@ export default function Editor() {
           onCollapsedChange={setDataCollapsed}
         />
         </div>
-        {/* Desktop: a column opened from the toolbar. Phone: a third sheet tab,
-            kept mounted like its neighbours so the conversation survives a switch. */}
-        {aiAvailable && (compact || aiOpen) && (
+        {/* Desktop: a column opened from the bar docked on the right edge. Phone:
+            a third sheet tab, kept mounted like its neighbours so the
+            conversation survives a switch. */}
+        {aiAvailable && !!report?.model_id && (
           <div style={compact ? sheetPaneStyle(sheetTab === 'ai') : panelsPassthroughStyle}>
           <AiPanel
             reportId={id}
@@ -2146,6 +2150,8 @@ export default function Editor() {
             onStatusChange={refreshAiStatus}
             getPageContext={getAiPageContext}
             onApplyProposal={handleApplyAiProposal}
+            open={aiOpen}
+            onOpen={() => setAssistantOpen(true)}
             onClose={() => setAssistantOpen(false)}
             initialRequest={assistantRequest}
             onResizeStart={pinCanvas}

@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { TbSparkles, TbSend, TbPlayerStop, TbX, TbRefresh, TbChartBar, TbPalette, TbSettings } from 'react-icons/tb';
+import { TbSparkles, TbChevronsRight, TbSend, TbPlayerStop, TbRefresh, TbChartBar, TbPalette, TbSettings } from 'react-icons/tb';
+import SlidingDock from '../SlidingDock/SlidingDock';
+import AssistantStrip from '../Ask/AssistantStrip';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
 import { useIsCompact } from '../../hooks/useMediaQuery';
 import { useAiChat } from '../../hooks/useAiChat';
@@ -9,17 +11,26 @@ import AssistantText from './AssistantText';
 import PersonalProvider from './PersonalProvider';
 import Suggestions from './Suggestions';
 
+// Border-box: its dock (SlidingDock) is exactly `width` wide, padding included.
 const panelStyle = {
   backgroundColor: 'var(--bg-panel-alt)', borderLeft: '1px solid var(--border-default)',
-  padding: 12, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative',
+  padding: 12, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative', boxSizing: 'border-box',
 };
 const headerStyle = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
   marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid var(--border-default)',
 };
+// The same title as the Assistant panel of the journey (Ask/AskPanel): one
+// assistant, one face, whichever screen it is opened from.
 const headerTitleStyle = {
-  display: 'inline-flex', alignItems: 'center', gap: 6,
-  fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.04em', textTransform: 'uppercase',
+  display: 'inline-flex', alignItems: 'center', gap: 10,
+  fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em',
+};
+const badgeStyle = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  width: 26, height: 26, borderRadius: 8, color: '#fff',
+  background: 'linear-gradient(135deg, var(--accent-primary) 0%, #c026d3 100%)',
+  boxShadow: '0 2px 6px rgba(124, 58, 237, 0.30)',
 };
 const headerActionsStyle = { display: 'flex', gap: 4 };
 const iconBtn = {
@@ -87,8 +98,17 @@ const SHARING = {
   schema: 'Schema only — no data is shared. Field names are sent to your AI provider.',
 };
 
-export default function AiPanel({ reportId, model, widgets, settings, status, onStatusChange, getPageContext, onApplyProposal, onClose, onResizeStart, onResizeEnd, initialRequest = '' }) {
-  const { width, handleProps } = useResizableWidth({ storageKey: 'openreport.aiPanelWidth', defaultWidth: 300, min: 260, max: 520, onDragStart: onResizeStart, onDragEnd: onResizeEnd });
+/**
+ * @param {boolean} open    wide screens: the panel, or its bar docked on the right edge
+ * @param {function} onOpen the bar was clicked
+ */
+export default function AiPanel({ reportId, model, widgets, settings, status, onStatusChange, getPageContext, onApplyProposal, onClose, onResizeStart, onResizeEnd, initialRequest = '', open = true, onOpen }) {
+  const [dragging, setDragging] = useState(false);
+  const { width, handleProps } = useResizableWidth({
+    storageKey: 'openreport.aiPanelWidth', defaultWidth: 300, min: 260, max: 520,
+    onDragStart: () => { setDragging(true); onResizeStart?.(); },
+    onDragEnd: () => { setDragging(false); onResizeEnd?.(); },
+  });
   const compact = useIsCompact();
   const getExtraBody = useCallback(() => ({ pageContext: getPageContext() }), [getPageContext]);
   const { messages, loading, send, cancel, reset, setOutcome } = useAiChat(`/ai/reports/${reportId}/chat`, getExtraBody);
@@ -140,11 +160,11 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
     ? { ...panelStyle, width: '100%', borderLeft: 'none', height: '100%' }
     : { ...panelStyle, width, maxWidth: width };
 
-  return (
+  const panel = (
     <div style={style}>
       {!compact && <div {...handleProps} />}
       <div style={headerStyle}>
-        <span style={headerTitleStyle} title={SHARING[dataSharing] || SHARING.schema}><TbSparkles size={14} color="var(--accent-primary)" /> Assistant</span>
+        <span style={headerTitleStyle} title={SHARING[dataSharing] || SHARING.schema}><span style={badgeStyle}><TbSparkles size={15} /></span> Assistant</span>
         <span style={headerActionsStyle}>
           {status.source === 'personal' && (
             <button style={iconBtn} onClick={() => setEditingProvider((v) => !v)} title="Your AI provider" aria-label="Your AI provider"><TbSettings size={13} /></button>
@@ -153,7 +173,7 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
             <button style={iconBtn} onClick={reset} title="New conversation" aria-label="New conversation"><TbRefresh size={13} /></button>
           )}
           {!compact && (
-            <button style={iconBtn} onClick={onClose} title="Close assistant" aria-label="Close assistant"><TbX size={13} /></button>
+            <button style={iconBtn} onClick={onClose} title="Collapse assistant" aria-label="Close assistant"><TbChevronsRight size={14} /></button>
           )}
         </span>
       </div>
@@ -220,5 +240,14 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
       </div>
       </div>
     </div>
+  );
+  // A phone shows it as a tab of the bottom sheet; a wide screen docks it on
+  // the right edge, sliding between its bar and the panel.
+  if (compact) return panel;
+  return (
+    <SlidingDock open={open} width={width} dragging={dragging}
+      bar={<AssistantStrip onOpen={onOpen} tour="ai" />}>
+      {panel}
+    </SlidingDock>
   );
 }

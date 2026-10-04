@@ -4,6 +4,7 @@ import { TbSparkles, TbArrowUp, TbPlayerStopFilled, TbX, TbPlus, TbSettings, TbC
 import api from '../../utils/api';
 import { toast } from '../Toast/toast';
 import { useAiChat } from '../../hooks/useAiChat';
+import AssistantStrip from './AssistantStrip';
 import { useGraph } from '../../hooks/graphContext';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
 import AssistantText from '../AiPanel/AssistantText';
@@ -184,11 +185,7 @@ export default function AskPanel({ open, onToggle, onClose, compact, mode: asked
   return (
     <>
     {!compact && !open && (
-      <button type="button" onClick={onToggle} style={stripStyle} aria-label="Assistant" aria-expanded={false} title="Open the assistant" data-tour="home-assistant">
-        <span style={stripChevronStyle}><TbChevronsLeft size={14} /></span>
-        <TbSparkles size={14} color="var(--accent-primary)" />
-        <span style={stripLabelStyle}>Assistant</span>
-      </button>
+      <AssistantStrip onOpen={onToggle} tour="home-assistant" />
     )}
     <aside style={outer} aria-label="Assistant" aria-hidden={!open} inert={!open}>
       <div style={compact ? { ...panelStyle, width: '100%' } : { ...panelStyle, width }}>
@@ -346,21 +343,6 @@ export default function AskPanel({ open, onToggle, onClose, compact, mode: asked
 }
 
 // Folded, the panel is the strip the report editor's Data panel folds into.
-const stripStyle = {
-  flexShrink: 0, width: 34, height: '100%', boxSizing: 'border-box', padding: '10px 8px',
-  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', gap: 10,
-  border: 'none', borderLeft: '1px solid var(--border-default)', borderRadius: 0, overflow: 'hidden', cursor: 'pointer',
-  background: 'var(--bg-panel-alt)', fontFamily: 'inherit',
-};
-const stripChevronStyle = {
-  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-  width: 22, height: 22, background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
-  borderRadius: 6, color: 'var(--text-muted)',
-};
-const stripLabelStyle = {
-  fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em',
-  textTransform: 'uppercase', writingMode: 'vertical-rl', textOrientation: 'mixed',
-};
 const foldBtn = {
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   width: 24, height: 24, color: 'var(--text-muted)',

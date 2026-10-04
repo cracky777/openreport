@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useIsCompact } from '../../hooks/useMediaQuery';
 import DataPanel from '../DataPanel/DataPanel';
 import { TbChevronsLeft, TbChevronsRight, TbDatabase } from 'react-icons/tb';
@@ -6,6 +6,8 @@ import { EditIcon, ICON_SIZE } from '../actionIcons';
 import { inputBase } from '../formTokens';
 import ConfirmDeleteButton from '../ConfirmDeleteButton/ConfirmDeleteButton';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
+import SlidingDock from '../SlidingDock/SlidingDock';
+import { DOCK_SLIDE_MS } from '../SlidingDock/dockTiming';
 import { getWidgetDisplayInfo } from '../../utils/widgetDisplay';
 import { parseTimeVariant, makeTimeVariant, variantDateDim } from '../../utils/timeIntelligence';
 import { AGG_OPTIONS } from '../../utils/aggregations';
@@ -71,10 +73,25 @@ const useSectionState = (open) => {
 };
 
 // Left column: widget configuration (always present, collapsible)
-export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model, onResizeStart, onResizeEnd, onRefreshWidget }) {
-  const sections = useSectionState(!!widgetId && !!widget);
-  const { width, handleProps } = useResizableWidth({ storageKey: 'openreport.configPanelWidth', defaultWidth: 210, min: 180, max: 480, onDragStart: onResizeStart, onDragEnd: onResizeEnd });
+export function WidgetConfigPanel({ widgetId: selectedId, widget: selectedWidget, onUpdate, onDelete, model, onResizeStart, onResizeEnd, onRefreshWidget }) {
+  const open = !!selectedId && !!selectedWidget;
+  const sections = useSectionState(open);
+  const [dragging, setDragging] = useState(false);
+  const { width, handleProps } = useResizableWidth({
+    storageKey: 'openreport.configPanelWidth', defaultWidth: 210, min: 180, max: 480,
+    onDragStart: () => { setDragging(true); onResizeStart?.(); },
+    onDragEnd: () => { setDragging(false); onResizeEnd?.(); },
+  });
   const compact = useIsCompact();
+  // On a wide screen the panel slides out when the selection goes: it keeps
+  // showing the last visual meanwhile, rather than going blank as it leaves.
+  const [last, setLast] = useState(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (open) setLast({ id: selectedId, widget: selectedWidget });
+  }, [open, selectedId, selectedWidget]);
+  const widgetId = open ? selectedId : last?.id;
+  const widget = open ? selectedWidget : last?.widget;
   // Column scope of the table settings and measure scope of the pivot's —
   // shared by the sections that show them, so they agree on it.
   const [selectedCol, setSelectedCol] = useState(null);
@@ -85,8 +102,9 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
 
   // Nothing selected, nothing to configure — so no panel, not a panel saying
   // there is nothing to configure (and no collapse machinery either: the
-  // panel appearing only with a selection IS the collapse).
-  if (!widgetId || !widget) return null;
+  // panel appearing only with a selection IS the collapse). A wide screen
+  // keeps its (folded) dock, so that the first selection slides it in.
+  if (!widgetId || !widget) return compact ? null : <SlidingDock open={false} width={width} />;
 
   const updateConfig = (key, value) => {
     onUpdate(widgetId, { ...widget, config: { ...widget.config, [key]: value } });
@@ -381,9 +399,9 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
   };
   const dataWidget = hasData(widget.type);
 
-  return (
+  const panel = (
     <div style={dynamicConfigStyle}>
-      <div {...handleProps} />
+      {!compact && <div {...handleProps} />}
       {/* Widget title — first element of the panel on purpose: it names the
           visual, so it reads as the panel's own heading rather than one form
           field among the sections. Its type is set under Frame. */}
@@ -435,6 +453,8 @@ export function WidgetConfigPanel({ widgetId, widget, onUpdate, onDelete, model,
       <FrameSection ctx={ctx} />
     </div>
   );
+  if (compact) return panel;
+  return <SlidingDock open={open} width={width} dragging={dragging}>{panel}</SlidingDock>;
 }
 
 // Right column: model dimensions & measures (always visible, collapsible)
@@ -445,7 +465,12 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onS
   const [own, setOwn] = useState(false);
   const collapsed = controlled ?? own;
   const setCollapsed = onCollapsedChange || setOwn;
-  const { width, handleProps } = useResizableWidth({ storageKey: 'openreport.dataPanelWidth', defaultWidth: 220, min: 200, max: 480, onDragStart: onResizeStart, onDragEnd: onResizeEnd });
+  const [dragging, setDragging] = useState(false);
+  const { width, handleProps } = useResizableWidth({
+    storageKey: 'openreport.dataPanelWidth', defaultWidth: 220, min: 200, max: 480,
+    onDragStart: () => { setDragging(true); onResizeStart?.(); },
+    onDragEnd: () => { setDragging(false); onResizeEnd?.(); },
+  });
   const compact = useIsCompact();
   const dynamicDataStyle = compact
     ? { ...dataPanelStyle, width: '100%', maxWidth: 'none', borderLeft: 'none', position: 'relative',
@@ -458,7 +483,7 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onS
   const toggleCollapsed = (val) => {
     onResizeStart?.();
     setCollapsed(val);
-    setTimeout(() => onResizeEnd?.(), PANEL_COLLAPSE_TRANSITION_MS + 30);
+    setTimeout(() => onResizeEnd?.(), DOCK_SLIDE_MS + 30);
   };
 
   // Mounted once, used by both branches. The panel owns the ONLY fetch loop
@@ -472,7 +497,9 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onS
     <DataPanel widgetId={widgetId} widget={widget} onUpdate={onUpdate} onUpdateSilent={onUpdateSilent} onSetWidgetLoading={onSetWidgetLoading} model={model} onModelUpdate={onModelUpdate} settings={settings} onSettingsChange={onSettingsChange} reportFilters={reportFilters} refreshNonce={refreshNonce} reportId={reportId} cacheBuiltAt={cacheBuiltAt} />
   );
 
-  if (collapsed) {
+  // A phone shows the panel as a tab of the bottom sheet: folding there is
+  // a plain swap. A wide screen slides it (SlidingDock), below.
+  if (compact && collapsed) {
     return (
       <>
         <div style={collapsedPanelStyle} onClick={() => toggleCollapsed(false)} title="Open data panel">
@@ -485,9 +512,9 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onS
     );
   }
 
-  return (
+  const panel = (
     <div style={dynamicDataStyle}>
-      <div {...handleProps} />
+      {!compact && <div {...handleProps} />}
       <div style={panelHeader}>
         <span style={{ ...panelHeaderTitle, minWidth: 0, flex: 1 }}>
           <TbDatabase size={14} color="var(--accent-cyan)" style={_hs35} />
@@ -520,6 +547,19 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onS
       {dataPanel}
     </div>
   );
+  if (compact) return panel;
+  return (
+    <SlidingDock open={!collapsed} width={width} dragging={dragging}
+      bar={(
+        <div style={collapsedPanelStyle} onClick={() => toggleCollapsed(false)} title="Open data panel">
+          <span style={collapsedChevronStyle}><TbChevronsLeft size={14} /></span>
+          <TbDatabase size={14} color="var(--accent-cyan)" />
+          <span style={collapsedLabelStyle}>Data</span>
+        </div>
+      )}>
+      {panel}
+    </SlidingDock>
+  );
 }
 
 // Takes no room and shows nothing — the collapsed panel still runs.
@@ -539,7 +579,6 @@ const ruleLabelStyle = {
   fontWeight: 500,
 };
 
-const PANEL_COLLAPSE_TRANSITION_MS = 200;
 
 const configPanelStyle = {
   width: 210, maxWidth: 210, backgroundColor: 'var(--bg-panel-alt)', borderLeft: '1px solid var(--border-default)',
@@ -549,15 +588,15 @@ const configPanelStyle = {
   // shifts every control sideways.
   scrollbarGutter: 'stable',
   scrollbarWidth: 'thin',
-  transition: `width ${PANEL_COLLAPSE_TRANSITION_MS}ms ease, max-width ${PANEL_COLLAPSE_TRANSITION_MS}ms ease`,
+  // Border-box: its dock (SlidingDock) is exactly `width` wide, padding included.
+  boxSizing: 'border-box',
 };
 
 const collapsedPanelStyle = {
   backgroundColor: 'var(--bg-panel-alt)', borderLeft: '1px solid var(--border-default)',
   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start',
   flexShrink: 0, overflow: 'hidden', cursor: 'pointer',
-  padding: '10px 8px', gap: 10, width: 34, maxWidth: 34,
-  transition: `width ${PANEL_COLLAPSE_TRANSITION_MS}ms ease, max-width ${PANEL_COLLAPSE_TRANSITION_MS}ms ease`,
+  padding: '10px 8px', gap: 10, width: 34, maxWidth: 34, height: '100%', boxSizing: 'border-box',
 };
 
 const collapsedChevronStyle = {
@@ -591,10 +630,10 @@ const chevronBtn = {
   transition: 'background 0.12s, border-color 0.12s, color 0.12s',
 };
 
+// No transition of its own: folding and opening slide in its SlidingDock.
 const dataPanelStyle = {
   width: 220, maxWidth: 220, backgroundColor: 'var(--bg-panel-alt)', borderLeft: '1px solid var(--border-default)',
-  padding: 12, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-  transition: `width ${PANEL_COLLAPSE_TRANSITION_MS}ms ease, max-width ${PANEL_COLLAPSE_TRANSITION_MS}ms ease`,
+  padding: 12, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxSizing: 'border-box',
 };
 
 const headerStyle = {

@@ -192,9 +192,10 @@ test('on a wide desktop the editor toolbar is still one row', async ({ page }) =
   await page.goto(`/edit/${reportId}`);
   await expect(page.getByRole('button', { name: /^Save/ })).toBeVisible();
   expect(await editorToolbarHeight(page)).toBeLessThanOrEqual(70);
-  // The palette is laid out flat, with no toggle to hide it, and the side
-  // panels sit beside the canvas rather than in a sheet.
-  await expect(page.locator('button[aria-expanded]')).toHaveCount(0);
+  // The palette is laid out flat, with no toggle to hide it (the assistant's
+  // bar on the right edge is no part of the toolbar), and the side panels sit
+  // beside the canvas rather than in a sheet.
+  await expect(page.locator('#root > div > div').first().locator('button[aria-expanded]')).toHaveCount(0);
   await expect(page.locator('[data-editor-sheet]')).toHaveCount(0);
 });
 

@@ -64,7 +64,7 @@ test('a design proposal restyles in one undo step and hands back a way out of th
     const themeBefore = await reportTheme.getAttribute('data-theme');
     expect(themeBefore).not.toBe('dark');
 
-    await page.getByRole('button', { name: 'AI assistant' }).click();
+    await page.getByRole('button', { name: 'Assistant', exact: true }).click();
     await page.getByRole('tab', { name: 'Design' }).click();
     // The request names the theme: a theme switch is only accepted when asked for.
     await page.getByPlaceholder('Describe the look you want…').fill('Name the table and switch to the dark theme');
@@ -111,7 +111,7 @@ test('an unticked line of a proposal is left out, and the model hears it', async
     const reportTheme = page.locator('[data-theme]').filter({ has: page.locator('.widget-content') }).last();
     const themeBefore = await reportTheme.getAttribute('data-theme');
 
-    await page.getByRole('button', { name: 'AI assistant' }).click();
+    await page.getByRole('button', { name: 'Assistant', exact: true }).click();
     await page.getByRole('tab', { name: 'Design' }).click();
     await page.getByPlaceholder('Describe the look you want…').fill('Name the table and switch to the dark theme');
     await page.getByRole('button', { name: 'Send' }).click();
@@ -192,7 +192,7 @@ test('a generated visual is previewed with the network shut, then joins the libr
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`/edit/${rep.report.id}`);
-    await page.getByRole('button', { name: 'AI assistant' }).click();
+    await page.getByRole('button', { name: 'Assistant', exact: true }).click();
     await page.getByPlaceholder('Ask a business question…').fill('Draw something no chart can');
     await page.getByRole('button', { name: 'Send' }).click();
 
@@ -246,7 +246,7 @@ test('a question becomes a proposal, applied in one undoable step, on cached dat
     // The assistant takes the Data panel's place; the author may still bring
     // Data back by hand, and it stays.
     await expect(page.getByTitle('Collapse panel')).toBeVisible();
-    await page.getByRole('button', { name: 'AI assistant' }).click();
+    await page.getByRole('button', { name: 'Assistant', exact: true }).click();
     await expect(page.getByTitle('Open data panel')).toBeVisible();
     await page.getByTitle('Open data panel').click();
     await expect(page.getByTitle('Collapse panel')).toBeVisible();
@@ -308,7 +308,7 @@ test('without an instance provider, a user plugs in their own and the assistant 
     await page.goto(`/edit/${tableReportId}`);
     await page.locator('.widget-content').first().waitFor();
 
-    await page.getByRole('button', { name: 'AI assistant' }).click();
+    await page.getByRole('button', { name: 'Assistant', exact: true }).click();
     await expect(page.getByText('Your AI provider')).toBeVisible();
     await expect(page.getByPlaceholder('Ask a business question…')).toBeHidden();
 
@@ -335,6 +335,33 @@ test('without an instance provider, a user plugs in their own and the assistant 
     expect((await (await page.request.get('/api/ai/status')).json()).reason).toBe('setup');
   } finally {
     await page.request.delete('/api/ai/personal');
+    await page.request.put('/api/admin/settings/ai', { data: { enabled: false } });
+    provider.server.close();
+  }
+});
+// One place for the assistant on every screen: the bar docked on the right
+// edge. In the report editor it replaces the toolbar's sparkles button (kept on
+// a phone); in the model editor, the header's.
+test('in both editors the assistant is the bar docked on the right edge', async ({ page }) => {
+  const provider = await startScriptedProvider();
+  try {
+    await page.request.put('/api/admin/settings/ai', {
+      data: { provider: 'openai-compat', baseUrl: provider.url, model: 'scripted', enabled: true, dataSharing: 'schema' },
+    });
+    const { reportId, modelId } = ids();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/edit/${reportId}`);
+    await page.locator('.widget-content').first().waitFor();
+    await expect(page.getByRole('button', { name: 'AI assistant' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Assistant', exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'Visuals' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Assistant', exact: true })).toHaveCount(0);
+
+    await page.goto(`/models/${modelId}`);
+    await expect(page.getByRole('button', { name: 'Model assistant' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Assistant', exact: true }).click();
+    await expect(page.getByRole('complementary', { name: 'Model assistant' })).toBeVisible();
+  } finally {
     await page.request.put('/api/admin/settings/ai', { data: { enabled: false } });
     provider.server.close();
   }

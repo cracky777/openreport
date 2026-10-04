@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { TbSparkles, TbArrowUp, TbPlayerStopFilled, TbX, TbPlus, TbSettings } from 'react-icons/tb';
+import { TbSparkles, TbArrowUp, TbPlayerStopFilled, TbChevronsRight, TbPlus, TbSettings } from 'react-icons/tb';
 import { useAiChat } from '../../hooks/useAiChat';
 import AssistantText from '../AiPanel/AssistantText';
 import PersonalProvider from '../AiPanel/PersonalProvider';
@@ -86,7 +86,7 @@ export default function ModelAssistant({ open, onClose, top, modelId, getDraft, 
           <button style={iconBtn} onClick={() => setEditingProvider((v) => !v)} title="Your AI provider" aria-label="Your AI provider"><TbSettings size={16} /></button>
         )}
         <button style={iconBtn} onClick={reset} disabled={!messages.length} title="New conversation" aria-label="New conversation"><TbPlus size={16} /></button>
-        <button style={iconBtn} onClick={onClose} title="Close" aria-label="Close model assistant"><TbX size={16} /></button>
+        <button style={foldBtn} onClick={onClose} title="Collapse assistant" aria-label="Close model assistant"><TbChevronsRight size={14} /></button>
       </header>
 
       {showProvider ? (
@@ -159,6 +159,12 @@ const titleStyle = { flex: 1, fontSize: 14, fontWeight: 700, color: 'var(--text-
 const iconBtn = {
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, padding: 0, flexShrink: 0,
   border: 'none', borderRadius: 8, background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer',
+};
+// The fold of every side panel (Data, the assistants): chevrons, framed.
+const foldBtn = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  width: 24, height: 24, padding: 0, color: 'var(--text-muted)',
+  background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer',
 };
 const providerStyle = { flex: 1, minHeight: 0, overflowY: 'auto', padding: 16 };
 const threadStyle = { flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 14px 8px', display: 'flex', flexDirection: 'column', gap: 14 };

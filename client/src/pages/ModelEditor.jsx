@@ -5,6 +5,7 @@ import ModelAssistant from '../components/ModelAssistant/ModelAssistant';
 import { applyModelProposal } from '../utils/modelProposal';
 import { takeHandOver, peekHandOver, handOver } from '../utils/assistantHandoff';
 import Tour from '../components/Tour/Tour';
+import AssistantStrip from '../components/Ask/AssistantStrip';
 import { useAuth } from '../hooks/useAuth';
 import { useFirstVisitTour } from '../hooks/useFirstVisitTour';
 import { useIsCompact } from '../hooks/useMediaQuery';
@@ -82,6 +83,8 @@ const _hs40 = { fontSize: 12, lineHeight: 1.5 };
 const STEPS = ['Tables', 'Schema & Joins', 'Dimensions & Measures'];
 // A tour anchor around a header button that takes no data attribute of its own.
 const tourAnchor = { display: 'inline-flex' };
+// components/Ask/AssistantStrip's width.
+const STRIP_WIDTH = 34;
 // The model editor's tour (components/Tour), from its first screen. Wording
 // follows the user guide (server/utils/ai/help.md, models / fields).
 const MODEL_TOUR = [
@@ -650,7 +653,7 @@ export default function ModelEditor() {
   // the page shows "Loading model…" first: measured again once it is there, or
   // the panel starts at the top and covers the header's buttons.
   useEffect(() => {
-    if (assistantOpen && headerRef.current) setAssistantTop(headerRef.current.getBoundingClientRect().bottom);
+    if (headerRef.current) setAssistantTop(headerRef.current.getBoundingClientRect().bottom);
   }, [assistantOpen, loading]);
 
   const dataTypeOf = useCallback((table, column) => (tableColumns[table] || []).find((c) => c.column_name === column)?.data_type, [tableColumns]);
@@ -825,8 +828,13 @@ export default function ModelEditor() {
     ? allTables.filter((t) => t.toLowerCase().includes(tableSearch.toLowerCase()))
     : allTables;
 
+  // The bar docked on the right edge (assistant closed) keeps its width off the
+  // steps' content, or it would sit on the schema's zoom controls. The header
+  // runs above it, full width.
+  const stripShown = aiAvailable && !compact && !assistantOpen;
+
   return (
-    <div style={_hs1}>
+    <div style={stripShown ? { ..._hs1, paddingRight: STRIP_WIDTH } : _hs1}>
       {pendingDsChange && (
         <ConfirmDialog
           title="Change the datasource for this model?"
@@ -846,7 +854,7 @@ export default function ModelEditor() {
         />
       )}
       {/* Header */}
-      <header ref={headerRef} style={headerShellStyle}>
+      <header ref={headerRef} style={stripShown ? { ...headerShellStyle, marginRight: -STRIP_WIDTH } : headerShellStyle}>
         <BackButton onClick={goBack} />
         <input
           type="text" value={name} onChange={(e) => setName(e.target.value)}
@@ -896,7 +904,8 @@ export default function ModelEditor() {
         </div>
         {/* Même raison que dans la barre de l'éditeur de rapport : cet écran a
             son propre en-tête et ne passe pas par AppShell. */}
-        {aiAvailable && (
+        {/* A phone has no room for the bar docked on the right edge. */}
+        {aiAvailable && compact && (
           <button
             type="button"
             aria-label="Model assistant"
@@ -1085,6 +1094,12 @@ export default function ModelEditor() {
         </div>
       )}
 
+      {/* Closed, the assistant is the bar docked on the right edge, as on the
+          journey and in the report editor; open, the panel takes its place. */}
+      {stripShown && (
+        <AssistantStrip onOpen={() => setAssistantOpen(true)} tour="model-assistant"
+          style={{ position: 'fixed', right: 0, top: assistantTop, bottom: 0, height: 'auto', zIndex: 140 }} />
+      )}
       {aiAvailable && (
         <ModelAssistant
           open={assistantOpen}

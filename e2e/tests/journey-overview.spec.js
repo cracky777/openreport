@@ -111,3 +111,27 @@ test("un viewer sans rapport partagé n'a pas de vue d'ensemble, et sait qui peu
     await ctx.close();
   }
 });
+
+// La vue d'ensemble est une image du parcours : « What do you need? » s'y efface.
+test("la vue d'ensemble masque « What do you need? »", async ({ page, request }) => {
+  const F = require('../fixtures');
+  const provider = await F.startScriptedProvider(() => ({ name: 'read_help', arguments: { topics: ['reports'] } }));
+  const name = `Vide ${Date.now()}`;
+  const ws = (await (await request.post('/api/workspaces', { data: { name } })).json()).workspace;
+  try {
+    await page.request.put('/api/admin/settings/ai', {
+      data: { provider: 'openai-compat', baseUrl: provider.url, model: 'scripted', enabled: true, dataSharing: 'schema' },
+    });
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await page.goto('/');
+    await page.locator('header').getByRole('button', { name: 'My Reports' }).click();
+    await page.getByRole('button', { name }).first().click();
+    await expect(page.getByText('What do you need?').last()).toBeVisible();
+    await page.getByRole('button', { name: 'Overview' }).click();
+    await expect(page.getByText('What do you need?')).toBeHidden();
+  } finally {
+    await request.delete(`/api/workspaces/${ws.id}`);
+    await page.request.put('/api/admin/settings/ai', { data: { enabled: false } });
+    provider.server.close();
+  }
+});

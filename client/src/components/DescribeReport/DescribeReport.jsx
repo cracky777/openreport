@@ -18,7 +18,7 @@ export default function DescribeReport({ onSubmit }) {
   };
 
   return (
-    <div style={wrapStyle} data-tour="home-ask">
+    <div style={wrapStyle} data-tour="home-ask" data-describe-report="">
       <h2 style={titleStyle}><TbSparkles size={20} color="var(--accent-primary)" /> What do you need?</h2>
       <div style={composerStyle(focused)}>
         <textarea
