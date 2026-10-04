@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { TbChevronDown } from 'react-icons/tb';
 import { v4 as uuidv4 } from 'uuid';
 import ReportCanvas from '../components/Canvas/ReportCanvas';
@@ -28,6 +28,10 @@ import { findFreeSlot, topZ } from '../utils/pageBounds';
 import { applyWidgetsProposal, applyDesignProposal, applyVisualProposal, buildPageContext } from '../utils/aiProposal';
 import { CHART_COLORS } from '../utils/chartPalette';
 import AiPanel from '../components/AiPanel/AiPanel';
+import Tour from '../components/Tour/Tour';
+import { useAuth } from '../hooks/useAuth';
+import { useFirstVisitTour } from '../hooks/useFirstVisitTour';
+import { takeHandOver } from '../utils/assistantHandoff';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useIsCompact } from '../hooks/useMediaQuery';
 import { useAutoRefreshOnImport } from '../hooks/useAutoRefreshOnImport';
@@ -113,11 +117,24 @@ const _hs10 = {
 // their look, and the widgets themselves still fall back to hidden.
 const LEGEND_CHART_TYPES = new Set(['bar', 'line', 'pie', 'scatter', 'combo']);
 
+// The editor's tour (components/Tour): where each thing is. Wording follows the
+// user guide (server/utils/ai/help.md, editor / visuals / fields).
+const EDITOR_TOUR = [
+  { target: 'palette', title: 'Add a visual', text: 'Pick a chart, a table, a scorecard or a filter here. The ones with ▼ open more kinds. The visual lands on the page.' },
+  { target: 'fields', title: 'Your fields', text: 'Dimensions are what you group or filter by (text, dates…); measures are the numbers. Drag one onto a visual, or into its field wells.' },
+  { target: 'new-measure', title: 'Create a measure', text: '+ Measure adds a measure to this report: a sum, an average, a count… of a column, or your own SQL.' },
+  { target: 'new-dimension', title: 'Create a dimension', text: '+ Dimension adds a field of your own to group by, written in SQL. Promote to model shares it with every report on the model.' },
+  { target: 'canvas', title: 'Your page', text: 'Move and resize visuals here. Click one to configure it: its panel opens on the right, with its fields, filters, colors and labels.' },
+  { target: 'ai', title: 'Or ask the assistant', text: 'Describe what you want to see, or the look you want: it proposes visuals and changes, and you apply them.' },
+  { target: 'save', title: 'Save', text: 'Save your report. Until its first save, a new report is a draft: leaving without saving drops it.' },
+];
+
 export default function Editor() {
   const { id } = useParams();
   const navigate = useNavigate();
   // A report never saved is not kept: leaving the editor drops it.
   const draft = useDiscardDraftOnExit(id);
+  const { user } = useAuth();
   const { getThemeVars, themes: availableThemes } = useTheme();
 
   const [report, setReport] = useState(null);
@@ -1302,6 +1319,28 @@ export default function Editor() {
     setTimeout(unpinCanvas, 230);
   }, [pinCanvas, unpinCanvas, compact]);
 
+  // The tour, on a wide screen. Not when the editor opens with the assistant
+  // already asked (`?assistant=`): the user is in the middle of something.
+  // "Show me around" replays it.
+  const [arrivedWithAssistant] = useState(() => new URLSearchParams(window.location.search).has('assistant'));
+  const tour = useFirstVisitTour('editor', user?.id, !loading && !compact && !arrivedWithAssistant);
+
+  // Created from the empty Reports stage with a description (`?assistant=1`):
+  // the assistant opens on the report once it is loaded, with that request.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [assistantRequest, setAssistantRequest] = useState('');
+  useEffect(() => {
+    if (loading || searchParams.get('assistant') !== '1') return;
+    // Read once: a second run (StrictMode) finds nothing and must not clear it.
+    const request = takeHandOver('report', id);
+    if (request) setAssistantRequest(request);
+    setAssistantOpen(true);
+    if (compact) { setSheetOpen(true); setSheetTab('ai'); }
+    const rest = new URLSearchParams(searchParams);
+    rest.delete('assistant');
+    setSearchParams(rest, { replace: true });
+  }, [loading, searchParams, setSearchParams, id, setAssistantOpen, compact]);
+
   // Read at send time through a ref: the panel must describe the page as it
   // is now, without re-rendering on every drag tick.
   const pageStateRef = useRef(null);
@@ -1867,6 +1906,7 @@ export default function Editor() {
         aiEnabled={aiAvailable && !!report?.model_id}
         aiOpen={aiOpen}
         onToggleAi={() => setAssistantOpen(!aiOpen)}
+        onShowTour={compact ? undefined : tour.start}
         visualsNonce={visualsNonce}
         onOpenReportFilters={() => setReportFilterBarOpen((v) => !v)}
         reportFilterCount={liveReportFilterCount != null
@@ -1967,6 +2007,7 @@ export default function Editor() {
           />
           <div
             ref={canvasWrapperRef}
+            data-tour="canvas"
             style={pinnedRect
               ? {
                   // Take the canvas out of flex flow during the column animation so it neither
@@ -2106,6 +2147,7 @@ export default function Editor() {
             getPageContext={getAiPageContext}
             onApplyProposal={handleApplyAiProposal}
             onClose={() => setAssistantOpen(false)}
+            initialRequest={assistantRequest}
             onResizeStart={pinCanvas}
             onResizeEnd={unpinCanvas}
           />
@@ -2114,6 +2156,7 @@ export default function Editor() {
         </div>
       </div>
 
+      {tour.open && <Tour steps={EDITOR_TOUR} onClose={tour.close} />}
       {showSettings && (
         <SettingsPanel
           settings={settings}

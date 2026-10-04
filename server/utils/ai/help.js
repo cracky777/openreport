@@ -39,6 +39,11 @@ function sections() {
   return loaded;
 }
 
+/** The whole guide, for the /help page: each section without its heading line. */
+function helpSections() {
+  return sections().map(({ id, title, body }) => ({ id, title, body: body.split('\n').slice(1).join('\n').trim() }));
+}
+
 /** @returns {{id: string, title: string}[]} */
 function helpTopics() {
   return sections().map(({ id, title }) => ({ id, title }));
@@ -52,4 +57,4 @@ function readHelp(ids) {
   return { help: found.map((s) => s.body).join('\n\n').slice(0, MAX_ANSWER_CHARS) };
 }
 
-module.exports = { helpTopics, readHelp, parseHelp, MAX_TOPICS };
+module.exports = { helpTopics, helpSections, readHelp, parseHelp, MAX_TOPICS };

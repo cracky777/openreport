@@ -90,3 +90,24 @@ test('la vue d\'ensemble montre les trois étapes et leurs liaisons, puis rend l
   // Hors vue d'ensemble, les boutons reviennent.
   await expect(page.locator('[data-stage-panel][aria-current="page"] button').first()).toBeVisible();
 });
+
+// Un viewer n'a qu'une étape, Reports : pas de parcours à survoler, donc pas de
+// vue d'ensemble — et un Reports vide dit où apparaîtront les rapports partagés
+// et qui peut les partager.
+test("un viewer sans rapport partagé n'a pas de vue d'ensemble, et sait qui peut lui en partager", async ({ page, browser, baseURL }) => {
+  const email = `viewer-empty-${Date.now()}@open-report.local`;
+  const created = await page.request.post('/api/admin/users', { data: { email, password: 'Password-1234!', displayName: 'Empty viewer', role: 'viewer' } });
+  expect(created.status()).toBe(201);
+  const ctx = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
+  try {
+    const viewer = await ctx.newPage();
+    await viewer.setViewportSize({ width: 1440, height: 900 });
+    expect((await viewer.request.post('/api/auth/login', { data: { email, password: 'Password-1234!' } })).ok()).toBeTruthy();
+    await viewer.goto('/');
+    await expect(viewer.getByText('No report to show yet')).toBeVisible();
+    await expect(viewer.getByText('Reports shared with you will appear here. Ask an admin to add you to a workspace.')).toBeVisible();
+    await expect(viewer.getByRole('button', { name: 'Overview' })).toHaveCount(0);
+  } finally {
+    await ctx.close();
+  }
+});

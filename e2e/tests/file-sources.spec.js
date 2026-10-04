@@ -88,3 +88,23 @@ test('the new-model form combines files, and the journey draws both relations', 
   await page.goto('/models');
   await expect(page.locator(`[data-join-anchor="models:${model.id}"]`)).toHaveAttribute('data-join-also', `sources:${customers.id}`);
 });
+
+// "File" is the first connector of + New Connection, and the one it opens on:
+// a drop zone instead of connection fields, and the file goes through the usual
+// import — then on to a model, as a new connection does. Another type brings
+// the connection fields back.
+test('+ New Connection opens on File, which imports a file instead of connecting', async ({ page }) => {
+  await page.goto('/datasources');
+  await stage(page).getByRole('button', { name: '+ New Connection' }).click();
+  const types = page.getByRole('radiogroup', { name: 'Database type' });
+  await expect(types.getByRole('radio').first()).toHaveAccessibleName(/File$/);
+  await expect(types.getByRole('radio', { name: /File$/ })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByText('Host', { exact: true })).toHaveCount(0);
+  await types.getByRole('radio', { name: /^PostgreSQL/ }).click();
+  await expect(page.getByText('Host', { exact: true })).toBeVisible();
+  await types.getByRole('radio', { name: /File$/ }).click();
+
+  await page.getByLabel('File to import').setInputFiles(csv(`connector-file-${Date.now()}.csv`));
+  await page.getByRole('dialog').getByRole('button', { name: 'Import', exact: true }).click();
+  await page.waitForURL(/\/models\//);
+});

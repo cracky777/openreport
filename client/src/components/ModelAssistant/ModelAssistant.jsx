@@ -4,8 +4,17 @@ import { useAiChat } from '../../hooks/useAiChat';
 import AssistantText from '../AiPanel/AssistantText';
 import PersonalProvider from '../AiPanel/PersonalProvider';
 import ModelProposalCard from './ModelProposalCard';
+import Suggestions from '../AiPanel/Suggestions';
 
 const MAX_INPUT_HEIGHT = 120;
+const hasTables = (draft) => Object.keys(draft.tables).length > 0 || draft.available.length > 0;
+// Sent for the author once the tables a card added are loaded: joins and
+// fields on them can only be proposed, and checked, when their columns are known.
+const CONTINUE = 'The tables are in the model now. Go on with my request: joins, table roles and fields.';
+const SUGGESTIONS = [
+  { label: 'Try', items: ['Pick the tables I need for sales by customer', 'Join the tables and flag the dimensions and measures', 'Arrange the diagram'] },
+  { label: 'Learn the tool', items: ['What is the difference between a dimension and a measure?', 'How do I restrict rows by user (row-level security)?'] },
+];
 
 /**
  * The assistant of the model editor, in a panel on its right: joins, which
@@ -14,15 +23,39 @@ const MAX_INPUT_HEIGHT = 120;
  *
  * @param {number} top          where the panel starts (under the editor's header)
  * @param {function} getDraft   () => the draft sent with each question
- * @param {function} onApply    (proposal) => boolean
+ * @param {function} onApply    async (proposal) => boolean
+ * @param {boolean} sendInitial  send `initialRequest` rather than leave it in the box
  */
-export default function ModelAssistant({ open, onClose, top, modelId, getDraft, onApply, status, onStatusChange, initialRequest = '' }) {
+export default function ModelAssistant({ open, onClose, top, modelId, getDraft, onApply, status, onStatusChange, initialRequest = '', sendInitial = false }) {
   const getExtraBody = useCallback(() => ({ draft: getDraft() }), [getDraft]);
   const { messages, loading, send, cancel, reset, setOutcome } = useAiChat(`/ai/models/${modelId}/model-chat`, getExtraBody);
   // A request handed over by another assistant waits in the box: the author
-  // reads it and sends it.
-  const [draft, setDraft] = useState(initialRequest);
-  useEffect(() => { if (initialRequest) setDraft(initialRequest); }, [initialRequest]);
+  // reads it and sends it. One described on the empty Reports stage was sent
+  // already, by the button that said so: it is asked right away, once the
+  // source's tables are listed (a new model has nothing else to show).
+  const [draft, setDraft] = useState(sendInitial ? '' : initialRequest);
+  const sentInitialRef = useRef(false);
+  useEffect(() => {
+    if (!initialRequest) return;
+    if (!sendInitial) { setDraft(initialRequest); return; }
+    if (sentInitialRef.current || !status?.enabled || !hasTables(getDraft())) return;
+    sentInitialRef.current = true;
+    send(initialRequest);
+  }, [initialRequest, sendInitial, status?.enabled, getDraft, send]);
+  // A card that added tables: ask again once they are loaded.
+  const [pendingTables, setPendingTables] = useState(null);
+  const applyProposal = useCallback(async (proposal) => {
+    const ok = await onApply(proposal);
+    if (ok && proposal.addTables?.length) setPendingTables(proposal.addTables);
+    return ok;
+  }, [onApply]);
+  useEffect(() => {
+    if (!pendingTables || loading) return;
+    const { tables } = getDraft();
+    if (!pendingTables.every((t) => tables[t])) return;
+    setPendingTables(null);
+    send(CONTINUE);
+  }, [pendingTables, loading, getDraft, send]);
   const [editingProvider, setEditingProvider] = useState(false);
   const threadRef = useRef(null);
   const inputRef = useRef(null);
@@ -36,8 +69,8 @@ export default function ModelAssistant({ open, onClose, top, modelId, getDraft, 
   const needsSetup = status?.reason === 'setup';
   const showProvider = (needsSetup || editingProvider) && !!status?.personal;
 
-  const submit = async () => {
-    const question = draft.trim();
+  const submit = async (text) => {
+    const question = (text ?? draft).trim();
     if (!question || loading) return;
     setDraft('');
     if (inputRef.current) inputRef.current.style.height = 'auto';
@@ -72,6 +105,7 @@ export default function ModelAssistant({ open, onClose, top, modelId, getDraft, 
               <div style={emptyStyle}>
                 <span style={{ ...badgeStyle, width: 40, height: 40, borderRadius: 13 }}><TbSparkles size={22} /></span>
                 <div style={emptyTitleStyle}>What should the model look like?</div>
+                <Suggestions groups={SUGGESTIONS} onPick={submit} disabled={loading} />
               </div>
             )}
             {messages.map((m, i) => (m.role === 'user' ? (
@@ -80,7 +114,7 @@ export default function ModelAssistant({ open, onClose, top, modelId, getDraft, 
               <div key={i} style={assistantBody}>
                 {m.text ? <AssistantText style={assistantText} text={m.text} /> : null}
                 {(m.proposals || []).map((p, j) => (
-                  <ModelProposalCard key={j} proposal={p} onApply={onApply} onOutcome={(outcome) => setOutcome(i, j, outcome)} />
+                  <ModelProposalCard key={j} proposal={p} onApply={applyProposal} onOutcome={(outcome) => setOutcome(i, j, outcome)} />
                 ))}
               </div>
             )))}
@@ -101,7 +135,7 @@ export default function ModelAssistant({ open, onClose, top, modelId, getDraft, 
             {loading ? (
               <button style={sendBtn(true)} onClick={cancel} title="Stop" aria-label="Stop"><TbPlayerStopFilled size={14} /></button>
             ) : (
-              <button style={sendBtn(!!draft.trim())} onClick={submit} disabled={!draft.trim()} title="Send" aria-label="Send"><TbArrowUp size={17} /></button>
+              <button style={sendBtn(!!draft.trim())} onClick={() => submit()} disabled={!draft.trim()} title="Send" aria-label="Send"><TbArrowUp size={17} /></button>
             )}
           </div>
         </>

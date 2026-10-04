@@ -1,7 +1,10 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { TbShield, TbBell, TbSparkles, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug, TbPlugConnected, TbEye } from 'react-icons/tb';
+import { TbShield, TbBell, TbSparkles, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug, TbPlugConnected, TbEye, TbHelp, TbX } from 'react-icons/tb';
 import api from '../../utils/api';
+import { onAskAssistant } from '../../utils/askAssistant';
+import Tour from '../Tour/Tour';
+import { useFirstVisitTour } from '../../hooks/useFirstVisitTour';
 import { useAuth } from '../../hooks/useAuth';
 import { useGraph } from '../../hooks/graphContext';
 import { useTheme } from '../../hooks/useTheme';
@@ -57,7 +60,23 @@ export default function AppShell({ step }) {
   useEffect(() => {
     try { localStorage.setItem(ASK_OPEN_KEY, askOpen ? '1' : '0'); } catch { /* storage blocked: not remembered */ }
   }, [askOpen]);
-  const canAsk = askAvailable && (user?.role === 'admin' || user?.role === 'editor');
+  // Asking about data is building on a model: same roles as creating a
+  // report. Help with the tool itself is for everyone who has the assistant.
+  const canAskData = askAvailable && (user?.role === 'admin' || user?.role === 'editor');
+  const [askMode, setAskMode] = useState('data');
+  // A question handed over from elsewhere in the app (utils/askAssistant.js):
+  // the panel opens on its tab, with that question asked.
+  const [pendingQuestion, setPendingQuestion] = useState(null);
+  useEffect(() => onAskAssistant(({ question, tab, modelId }) => {
+    setAskMode(tab);
+    setAskOpen(true);
+    setPendingQuestion({ text: question, tab, modelId, at: Date.now() });
+  }), []);
+  const openHelp = () => {
+    if (askOpen && askMode === 'help') { setAskOpen(false); return; }
+    setAskMode('help');
+    setAskOpen(true);
+  };
   useEffect(() => {
     api.get('/ai/status')
       .then((res) => setAskAvailable(!!res.data.enabled || res.data.reason === 'setup'))
@@ -87,6 +106,12 @@ export default function AppShell({ step }) {
   const index = Math.max(0, visibleSteps.findIndex((s) => s.key === step));
 
   const compact = useIsCompact();
+
+  // The tour of the app on arrival (Reports, wide screens): where the data
+  // comes in, where reports are made, where to ask. Account menu → Show me
+  // around replays it.
+  const homeTour = useFirstVisitTour('home', user?.id, step === 'reports' && !compact && !graphLoading);
+  const tourSteps = canEditOrg ? HOME_TOUR : HOME_TOUR.filter((t) => VIEWER_TOUR.has(t.target));
 
   const viewportRef = useRef(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
@@ -302,24 +327,34 @@ export default function AppShell({ step }) {
             <div style={centerGroup} data-keeps-highlight="">
               {/* The overview is no stage: none shows as the current one. */}
               <StepNav current={overviewOn ? null : step} onGo={go} allowed={stepAllowed} />
-              <button
-                type="button"
-                onClick={() => setOverview((v) => !v)}
-                style={overviewBtnStyle(overviewOn)}
-                title={overviewOn ? 'Back to the stage (Esc)' : 'Overview: sources, models and reports at once, with their joins'}
-                aria-label="Overview"
-                aria-pressed={overviewOn}
-              >
-                <TbEye size={16} />
-              </button>
+              {/* One stage (a viewer's Reports) has no journey to look over. */}
+              {visibleSteps.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setOverview((v) => !v)}
+                  style={overviewBtnStyle(overviewOn)}
+                  title={overviewOn ? 'Back to the stage (Esc)' : 'Overview: sources, models and reports at once, with their joins'}
+                  aria-label="Overview"
+                  aria-pressed={overviewOn}
+                >
+                  <TbEye size={16} />
+                </button>
+              )}
             </div>
           )}
 
           <nav style={rightGroup}>
-          {/* Asking is building on a model: same roles as creating a report.
-              On a wide screen the panel's own bar opens it; a narrow one has
+          {/* The way into the assistant's Help tab, where a newcomer looks for
+              help — not a bar they have not learnt to read yet. Without the
+              assistant, Help is the user guide itself. */}
+          <button onClick={askAvailable ? openHelp : () => navigate('/help')} style={askBtnStyle(askOpen && askMode === 'help', compact)}
+            title={askAvailable ? 'Help: ask how to do anything in OpenReport' : 'Help: the user guide'} aria-label="Help" aria-pressed={askOpen && askMode === 'help'}
+            data-tour="home-help">
+            <TbHelp size={16} />{!compact && <span>Help</span>}
+          </button>
+          {/* On a wide screen the panel's own bar opens it; a narrow one has
               no room for that bar. */}
-          {canAsk && compact && (
+          {askAvailable && compact && (
             <button onClick={() => setAskOpen((v) => !v)} style={askBtnStyle(askOpen, compact)} title="Assistant" aria-label="Assistant" aria-pressed={askOpen}>
               <TbSparkles size={15} />
             </button>
@@ -423,6 +458,17 @@ export default function AppShell({ step }) {
                     barre qu'on regarde en permanence. Le signalement qui compte
                     vraiment part de l'erreur elle-même, où il emporte son
                     contexte (voir Canvas/WidgetItem). */}
+                {!compact && step === 'reports' && (
+                  <button
+                    onClick={() => { setUserMenuOpen(false); homeTour.start(); }}
+                    style={userMenuItem}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <TbHelp size={15} />
+                    <span>Show me around</span>
+                  </button>
+                )}
                 <button
                   onClick={() => { setUserMenuOpen(false); openBugReport({ Step: step || '' }); }}
                   style={userMenuItem}
@@ -542,7 +588,11 @@ export default function AppShell({ step }) {
         </div>
         </div>
       </div>
-      {canAsk && <AskPanel open={askOpen} onToggle={() => setAskOpen((v) => !v)} onClose={() => setAskOpen(false)} compact={compact} />}
+      {homeTour.open && <Tour steps={tourSteps} onClose={homeTour.close} />}
+      {askAvailable && (
+        <AskPanel open={askOpen} onToggle={() => setAskOpen((v) => !v)} onClose={() => setAskOpen(false)} compact={compact}
+          mode={askMode} onModeChange={setAskMode} canData={canAskData} pendingQuestion={pendingQuestion} />
+      )}
       </div>
 
     </div>
@@ -651,6 +701,21 @@ const navBtnStyled = {
   transition: 'background 0.15s',
 };
 const ASK_OPEN_KEY = 'openreport.askOpen';
+// The tour on arrival. Wording follows the user guide (server/utils/ai/help.md,
+// journey / reports / ask).
+const HOME_TOUR = [
+  { target: 'home-stage-sources', title: 'Data Sources', text: 'Where your data comes from: connect a database, or import a file (CSV, Excel…). Click to go there.' },
+  { target: 'home-stage-models', title: 'Data Models', text: 'Built on a source: the tables you use, how they join, and the fields — dimensions and measures — your reports offer.' },
+  { target: 'home-stage-reports', title: 'Reports', text: 'Built on a data model: pages of visuals you share with your team. You are here.' },
+  { target: 'home-workspace', title: 'Where you work', text: 'My Reports is your own space; workspaces are shared with your team. Switch here.' },
+  { target: 'home-new-report', title: 'Create a report', text: 'From a file, a database, or a data model you already have.' },
+  { target: 'home-import-file', title: 'The quickest start', text: 'Import a file — or drop it anywhere on this page — and the report opens on it.' },
+  { target: 'home-ask', title: 'Or just ask', text: 'Describe the report you want: the assistant takes it from there.' },
+  { target: 'home-help', title: 'Help', text: 'How anything works: ask in your own words, or read the user guide.' },
+  { target: 'home-assistant', title: 'The assistant', text: 'Questions about your data, visuals, new data: open it from here, on every screen.' },
+];
+// A viewer reads reports: none of the building steps.
+const VIEWER_TOUR = new Set(['home-workspace', 'home-help', 'home-assistant']);
 function overviewBtnStyle(active) {
   return {
     ...navBtnStyled, padding: 6,

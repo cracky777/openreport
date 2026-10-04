@@ -3,31 +3,9 @@ import { TbCalendarTime, TbCheck, TbSparkles } from 'react-icons/tb';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
 import { toast } from '../Toast/toast';
-import { handOver } from '../../utils/modelAssistantHandoff';
-
-const cardStyle = {
-  display: 'flex', flexDirection: 'column', gap: 10, padding: 12, borderRadius: 12,
-  background: 'var(--bg-app)', border: '1px solid var(--border-default)',
-};
-const rowStyle = { display: 'flex', gap: 10, alignItems: 'flex-start' };
-const iconStyle = { flexShrink: 0, marginTop: 1, color: 'var(--accent-primary)' };
-const titleStyle = { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.35 };
-const subStyle = { fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4, marginTop: 2 };
-const selectStyle = {
-  width: '100%', boxSizing: 'border-box', padding: '6px 8px', fontSize: 12, borderRadius: 7,
-  border: '1px solid var(--border-default)', background: 'var(--bg-panel)', color: 'var(--text-primary)',
-};
-const actionsStyle = { display: 'flex', justifyContent: 'flex-end', gap: 6 };
-const quietBtn = {
-  padding: '6px 11px', fontSize: 12, borderRadius: 8, cursor: 'pointer',
-  border: '1px solid var(--border-default)', background: 'transparent', color: 'var(--text-muted)',
-};
-const applyBtn = (active) => ({
-  display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 11px', fontSize: 12, fontWeight: 600,
-  border: 'none', borderRadius: 8, color: '#fff', background: 'var(--accent-primary)',
-  cursor: active ? 'pointer' : 'default', opacity: active ? 1 : 0.5,
-});
-const doneStyle = { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: 'var(--state-success)' };
+import { handOver } from '../../utils/assistantHandoff';
+import StartCard from './StartCards';
+import { cardStyle, rowStyle, iconStyle, titleStyle, subStyle, selectStyle, actionsStyle, quietBtn, applyBtn, doneStyle } from './actionCardStyles';
 
 const WEEKDAY_LABELS = { sunday: 'Sunday', monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday', thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday' };
 
@@ -52,7 +30,7 @@ function ModelAssistantCard({ proposal, inEditor, onOutcome }) {
   const [state, setState] = useState('open'); // open | applied | dismissed
   const finish = (next) => { setState(next); onOutcome?.(next); };
   const open = () => {
-    handOver(proposal.modelId, proposal.request);
+    handOver('model', proposal.modelId, proposal.request);
     const url = `/models/${proposal.modelId}?assistant=1`;
     if (inEditor) window.open(url, '_blank', 'noopener');
     else navigate(url);
@@ -79,7 +57,11 @@ function ModelAssistantCard({ proposal, inEditor, onOutcome }) {
   );
 }
 
+// The first steps, before any report: StartCards.jsx.
+const START_ACTIONS = new Set(['connect_database', 'import_file', 'build_model', 'create_report']);
+
 export default function ActionCard(props) {
+  if (START_ACTIONS.has(props.proposal.action)) return <StartCard proposal={props.proposal} onOutcome={props.onOutcome} />;
   if (props.proposal.action === 'open_model_assistant') {
     return <ModelAssistantCard proposal={props.proposal} inEditor={!!props.reportId} onOutcome={props.onOutcome} />;
   }

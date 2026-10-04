@@ -144,7 +144,7 @@ export default function Step0Tables({
             <span style={_hs29}>{selectedTables.length} table(s) selected</span>
             <button
               className="btn-hover btn-hover-primary"
-              onClick={enterStep1}
+              onClick={() => enterStep1()}
               disabled={selectedTables.length === 0}
               style={{ ...primaryBtn, opacity: selectedTables.length === 0 ? 0.5 : 1 }}
             >

@@ -1,4 +1,4 @@
-const { validateActionProposal } = require('../utils/ai/actions');
+const { validateActionProposal, ACTIONS_FOR } = require('../utils/ai/actions');
 
 // The model says how often, which day and at what time; the server builds the
 // cron expression the schedule route expects. The model never writes one.
@@ -56,5 +56,30 @@ describe('pointing to the model assistant', () => {
     expect(action).toBeNull();
     expect(errors.join(' ')).toMatch(/owner or an admin/);
     expect(open({}).action).toBeNull();
+  });
+});
+
+// The first steps, from the Assistant panel: forms to open, a model or a report
+// to start. Each assistant hands over only its own; a form may go with a "how?".
+describe('bringing data in and starting a report, as cards', () => {
+  test('a card that opens a form goes with a "how do I…?"; one that creates needs a request asked to be done', () => {
+    const help = { allowed: ACTIONS_FOR.help };
+    expect(validateActionProposal({ userAsked: 'how', action: 'connect_database', summary: 's' }, help).action)
+      .toEqual({ action: 'connect_database', summary: 's', request: '' });
+    expect(validateActionProposal({ userAsked: 'how', action: 'import_file', summary: 's', request: 'Sales by region' }, help).action)
+      .toEqual({ action: 'import_file', summary: 's', request: 'Sales by region' });
+    expect(validateActionProposal({ userAsked: 'how', action: 'build_model', summary: 's', request: 'Sales' }, help).action).toBeNull();
+    expect(validateActionProposal({ userAsked: 'do', action: 'build_model', summary: 's' }, help).errors.join(' ')).toMatch(/needs request/);
+    expect(validateActionProposal({ userAsked: 'do', action: 'build_model', summary: 's', request: 'Sales' }, help).action)
+      .toEqual({ action: 'build_model', summary: 's', request: 'Sales' });
+  });
+
+  test('each assistant hands over its own actions only', () => {
+    const report = { userAsked: 'do', action: 'create_report', summary: 's', request: 'Sales by region' };
+    expect(validateActionProposal(report, { allowed: ACTIONS_FOR.ask }).action).toMatchObject({ action: 'create_report', request: 'Sales by region' });
+    expect(validateActionProposal(report, { allowed: ACTIONS_FOR.help }).action).toBeNull();
+    // The report editor keeps the two it had.
+    expect(validateActionProposal(report).errors.join(' ')).toMatch(/action must be one of schedule_cache_refresh, open_model_assistant$/);
+    expect(validateActionProposal({ userAsked: 'do', action: 'schedule_cache_refresh', frequency: 'daily', summary: 's' }, { allowed: ACTIONS_FOR.help }).action).toBeNull();
   });
 });

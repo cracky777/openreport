@@ -17,6 +17,8 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 process.env.OPENREPORT_DATA_DIR = DATA_DIR;
 process.env.PORT = process.env.E2E_PORT || '3210';
 process.env.NODE_ENV = 'development';
+// The AI specs hold more conversations a minute than the per-user limit allows.
+process.env.AI_CHAT_RATE_LIMIT = '1000';
 process.env.SESSION_SECRET = 'e2e-session-secret-only-for-this-suite';
 process.env.INTERNAL_TOKEN_SECRET = 'e2e-internal-token-secret-distinct-one';
 process.env.DATASOURCE_ENC_KEY = 'a'.repeat(64);

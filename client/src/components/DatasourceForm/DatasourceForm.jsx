@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import api from '../../utils/api';
 import { toast } from '../Toast/toast';
-import { TbLock } from 'react-icons/tb';
+import { handOver, DESCRIBE_MAX_AGE_MS } from '../../utils/assistantHandoff';
+import { TbLock, TbUpload } from 'react-icons/tb';
+import FileImportDialog from '../FileImportDialog/FileImportDialog';
+import { FILE_IMPORT_ACCEPT } from '../../utils/sourceFiles';
 import ConnectorIcon from '../AppShell/ConnectorIcon';
 
 const _hs0 = { display: 'flex', gap: 12 };
@@ -18,7 +21,12 @@ const _hs8 = { display: 'block', fontSize: 13, color: 'var(--text-secondary)', m
 // qu'un juriste appellerait un éditeur : Azure PostgreSQL est du PostgreSQL
 // hébergé, il se cherche à côté de lui et non dans un rayon Microsoft. L'ordre
 // de la liste est l'ordre des familles.
+// « File » n'est pas un moteur : c'est l'import de fichier (CSV, Excel,
+// Parquet, JSON…), rangé ici parce que c'est là qu'on cherche comment amener
+// des données. Le choisir ouvre l'import habituel, jamais un formulaire de
+// connexion ; il n'existe pas en édition d'une source.
 const DB_TYPES = [
+  { value: 'file', label: 'File', family: 'file', defaultPort: 0, noHost: true },
   { value: 'postgres', label: 'PostgreSQL', family: 'postgres', defaultPort: 5432 },
   { value: 'azure_postgres', label: 'Azure PostgreSQL', family: 'postgres', defaultPort: 5432 },
   { value: 'redshift', label: 'Redshift', family: 'postgres', defaultPort: 5439 },
@@ -32,7 +40,7 @@ const DB_TYPES = [
   { value: 'clickhouse', label: 'ClickHouse', family: 'olap', defaultPort: 8123 },
   { value: 'duckdb', label: 'DuckDB', family: 'olap', defaultPort: 0, noHost: true },
 ];
-const FAMILY_ORDER = ['postgres', 'mysql', 'oracle', 'sqlserver', 'cloud', 'olap'];
+const FAMILY_ORDER = ['file', 'postgres', 'mysql', 'oracle', 'sqlserver', 'cloud', 'olap'];
 
 // Moteurs dont le certificat peut légitimement ne pas être vérifiable.
 // BigQuery et DuckDB n'ont pas de socket TLS à nous : l'un passe par le SDK
@@ -97,10 +105,12 @@ const blankForm = {
  *   - initialValues: prefill the form (used for edit)
  *   - onSaved({ datasource, isNew }): called after a successful save
  *   - onCancel(): called when the user clicks Cancel
+ *   - defaultType: the type a NEW source starts on ('file' where any data will
+ *     do — Data Sources; a database where the user asked to connect one)
  */
 // `workspaceId`: where a NEW source lands (the workspace open on the page).
-export default function DatasourceForm({ editingId = null, initialValues = null, onSaved, onCancel, workspaceId = null }) {
-  const [form, setForm] = useState(initialValues || blankForm);
+export default function DatasourceForm({ editingId = null, initialValues = null, onSaved, onCancel, workspaceId = null, defaultType = 'postgres' }) {
+  const [form, setForm] = useState(initialValues || { ...blankForm, dbType: defaultType });
   // Quels connecteurs ce déploiement refuse. La liste vient du serveur, pas
   // d'une constante du client : un opérateur peut lever le garde-fou avec
   // OPENREPORT_PREVIEW_CONNECTORS, et l'écran doit alors le refléter. Tant que
@@ -135,12 +145,12 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
       FAMILY_ORDER.indexOf(t.family),
       DB_TYPES.indexOf(t),
     ];
-    return [...DB_TYPES].sort((a, b) => {
+    return DB_TYPES.filter((t) => t.value !== 'file' || !editingId).sort((a, b) => {
       const ra = rank(a); const rb = rank(b);
       for (let i = 0; i < ra.length; i++) if (ra[i] !== rb[i]) return ra[i] - rb[i];
       return 0;
     });
-  }, [unavailable]);
+  }, [unavailable, editingId]);
 
   const updateForm = (key, value) => {
     setForm((prev) => {
@@ -205,12 +215,7 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
 
   const dbTypeMeta = DB_TYPES.find((t) => t.value === form.dbType);
 
-  return (
-    <div>
-      <Field label="Name">
-        <input style={inputStyle} value={form.name} onChange={(e) => updateForm('name', e.target.value)} placeholder="My database" />
-      </Field>
-
+  const typeField = (
       <Field label="Type">
         {/* Une grille plutôt qu'un <select> : un <option> ne sait pas porter
             d'icône, et c'est le logo qu'on reconnaît avant le libellé. Elle
@@ -246,6 +251,27 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
           <div style={previewNote}>{PREVIEW_HINT}</div>
         )}
       </Field>
+  );
+
+  // A file is imported, not connected: the import dialog takes it from here,
+  // and what it creates comes back to the caller as any new source does.
+  if (form.dbType === 'file') {
+    return (
+      <div>
+        {typeField}
+        <FileStep workspaceId={workspaceId} onCancel={onCancel}
+          onImported={(datasource) => onSaved?.({ datasource, isNew: true })} />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <Field label="Name">
+        <input style={inputStyle} value={form.name} onChange={(e) => updateForm('name', e.target.value)} placeholder="My database" />
+      </Field>
+
+      {typeField}
 
       {/* Standard DB fields */}
       {!dbTypeMeta?.noHost && (
@@ -487,7 +513,10 @@ export default function DatasourceForm({ editingId = null, initialValues = null,
 export async function createModelAndNavigate(navigate, datasource, options = {}) {
   if (!datasource?.id) return false;
   try {
-    const res = await api.post('/models', { name: datasource.name || 'New Model', datasourceId: datasource.id, description: '' });
+    const res = await api.post('/models', {
+      name: datasource.name || 'New Model', datasourceId: datasource.id, description: '',
+      ...(options.workspaceId ? { workspaceId: options.workspaceId } : {}),
+    });
     const modelId = res.data?.model?.id;
     if (modelId) {
       // `then=newReport` tells the model editor to bounce back to the
@@ -495,7 +524,13 @@ export async function createModelAndNavigate(navigate, datasource, options = {})
       // `title` carries the report title the user already typed so it
       // survives the round trip.
       const params = new URLSearchParams();
-      if (options.then) params.set('then', options.then);
+      // The model assistant is asked `request` on arrival; a report described
+      // on the empty Reports stage (`reportRequest`) waits for the model.
+      if (options.request) {
+        handOver('model', modelId, options.request);
+        if (options.reportRequest) handOver('describe', modelId, options.reportRequest, DESCRIBE_MAX_AGE_MS);
+        params.set('assistant', 'ask');
+      } else if (options.then) params.set('then', options.then);
       if (options.title) params.set('title', options.title);
       const qs = params.toString();
       navigate(`/models/${modelId}${qs ? '?' + qs : ''}`);
@@ -509,6 +544,42 @@ export async function createModelAndNavigate(navigate, datasource, options = {})
   }
   return false;
 }
+
+// The file connector: drop the file or pick it, then the usual import dialog.
+function FileStep({ workspaceId, onImported, onCancel }) {
+  const inputRef = useRef(null);
+  const [file, setFile] = useState(null);
+  const [over, setOver] = useState(false);
+  return (
+    <>
+      <button type="button" style={dropZoneStyle(over)} onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
+        onDrop={(e) => { e.preventDefault(); setOver(false); const f = e.dataTransfer.files?.[0]; if (f) setFile(f); }}>
+        <TbUpload size={22} />
+        <span>Drop your file here, or click to choose it</span>
+        <span style={fileHintStyle}>CSV, Excel, Parquet, JSON, SQLite or DuckDB — every sheet or table becomes a table of the source.</span>
+      </button>
+      <input ref={inputRef} type="file" accept={FILE_IMPORT_ACCEPT} style={{ display: 'none' }} aria-label="File to import"
+        onChange={(e) => { setFile(e.target.files?.[0] || null); e.target.value = ''; }} />
+      <div style={_hs7}>
+        <button className="btn-hover" onClick={onCancel} style={secondaryBtn}>Cancel</button>
+      </div>
+      {file && (
+        <FileImportDialog file={file} mode="create" workspaceId={workspaceId}
+          onDone={(data) => { setFile(null); onImported(data.datasource); }}
+          onFailed={() => {}} onCancel={() => setFile(null)} />
+      )}
+    </>
+  );
+}
+
+const dropZoneStyle = (over) => ({
+  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: '100%', boxSizing: 'border-box',
+  padding: '24px 16px', marginBottom: 12, fontSize: 13, fontFamily: 'inherit', textAlign: 'center',
+  color: 'var(--text-secondary)', cursor: 'pointer', borderRadius: 8,
+  border: `1.5px dashed ${over ? 'var(--accent-primary)' : 'var(--border-strong)'}`,
+  background: over ? 'var(--accent-primary-soft)' : 'var(--bg-app)',
+});
 
 function Field({ label, children, style }) {
   return (

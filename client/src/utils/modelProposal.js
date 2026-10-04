@@ -7,6 +7,7 @@
  *
  * @param {object} state     { joins, dimensions, measures, tablePositions }
  * @param {object} proposal  { joins, removeJoins, tableRoles, fields, measures, positions }
+ *                           (its `addTables` are the editor's to load: they need their columns)
  * @param {object} columns   { typeOf(table, column) → dimension type, dataTypeOf(table, column) → source type }
  */
 const sameLink = (a, b) => (a.from_table === b.from_table && a.from_column === b.from_column && a.to_table === b.to_table && a.to_column === b.to_column)
@@ -51,13 +52,14 @@ export function applyModelProposal(state, proposal, { typeOf, dataTypeOf }) {
 
 /**
  * The proposal without the lines the author unticked (`dropped`, a Set of the
- * keys the card gives them: join0, remove0, role:<table>, field0, measure0, positions).
+ * keys the card gives them: table:<name>, join0, remove0, role:<table>, field0, measure0, positions).
  */
 export function keepModelChoices(proposal, dropped) {
   if (!dropped.size) return proposal;
   const keep = (list, prefix) => (list || []).filter((_, i) => !dropped.has(`${prefix}${i}`));
   return {
     ...proposal,
+    addTables: (proposal.addTables || []).filter((t) => !dropped.has(`table:${t}`)),
     joins: keep(proposal.joins, 'join'),
     removeJoins: keep(proposal.removeJoins, 'remove'),
     tableRoles: Object.fromEntries(Object.entries(proposal.tableRoles || {}).filter(([t]) => !dropped.has(`role:${t}`))),
@@ -74,6 +76,7 @@ export function describeModelProposal(proposal, outcome) {
     partial: 'partly applied by the user — only what follows was kept, the rest turned down',
   }[outcome] || 'not applied yet';
   const parts = [
+    ...(proposal.addTables || []).map((t) => `add table ${t}`),
     ...(proposal.joins || []).map((j) => `join ${j.from_table}.${j.from_column} → ${j.to_table}.${j.to_column}`),
     ...(proposal.removeJoins || []).map((j) => `remove join ${j.from_table}.${j.from_column} → ${j.to_table}.${j.to_column}`),
     ...Object.entries(proposal.tableRoles || {}).map(([t, r]) => `${t} is a ${r}`),

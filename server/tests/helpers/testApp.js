@@ -31,6 +31,7 @@ function buildApp() {
   app.use('/api/reports', require('../../routes/bookmarks'));
   app.use('/api/rollups', require('../../routes/rollups'));
   app.use('/api/ai', require('../../routes/ai'));
+  app.use('/api/help', require('../../routes/help'));
   app.use('/api/api-tokens', require('../../routes/apiTokens'));
   app.use('/api/v1', require('../../routes/v1'));
   // Same order as index.js: customVisuals first, so its /:wsId/visuals/* routes

@@ -1,10 +1,12 @@
-// The assistant of the model editor: joins, which columns are dimensions or
-// measures, the measures themselves, which tables are facts or dimensions, and
-// where the tables sit on the diagram. Like everywhere else it proposes; the
+// The assistant of the model editor: which tables of the source the model
+// uses, joins, which columns are dimensions or measures, the measures
+// themselves, which tables are facts or dimensions, and where the tables sit on
+// the diagram. Like everywhere else it proposes; the
 // author applies the proposal to the editor, and saves the model as usual.
 //
 // What it is shown is the editor's UNSAVED draft: table and column names with
-// their types, the joins and the flags. Names, never rows. It writes no SQL: a
+// their types, the joins and the flags, and the names of the source's other
+// tables — the columns of those only when it asks. Names, never rows. It writes no SQL: a
 // measure is an aggregation of a column, a join is two columns — a free SQL
 // expression runs on the source database, and text sitting in the data could
 // steer a model into writing one.
@@ -13,6 +15,9 @@ const providers = require('./providers');
 const { helpTopics, readHelp } = require('./help');
 
 const MAX_TABLES = 80;
+// The source's tables not in the model yet: named in the prompt, read on demand.
+const MAX_AVAILABLE = 300;
+const MAX_COLUMN_READS = 10;
 const MAX_COLUMNS = 300;
 const MAX_NAME = 128;
 const MAX_ITERATIONS = 5;
@@ -44,7 +49,9 @@ function cleanDraft(raw) {
       .map((c) => ({ column: name(c && c.column), type: typeof (c && c.type) === 'string' ? c.type.slice(0, 40) : '' }))
       .filter((c) => c.column);
   }
-  if (!Object.keys(tables).length) return null;
+  const available = [...new Set((Array.isArray(src.available) ? src.available : []).filter((t) => name(t) && !tables[t]))].slice(0, MAX_AVAILABLE);
+  // A brand-new model has no table yet: what it may add is then all there is.
+  if (!Object.keys(tables).length && !available.length) return null;
   const has = (t, c) => !!tables[t] && tables[t].some((x) => x.column === c);
   const joins = (Array.isArray(src.joins) ? src.joins : []).slice(0, 200)
     .filter((j) => j && has(j.from_table, j.from_column) && has(j.to_table, j.to_column))
@@ -58,7 +65,7 @@ function cleanDraft(raw) {
   const measures = (Array.isArray(src.measures) ? src.measures : [])
     .filter((m) => m && has(m.table, m.column) && AGGREGATIONS.includes(m.aggregation))
     .map((m) => ({ table: m.table, column: m.column, aggregation: m.aggregation }));
-  return { tables, joins, roles, dimensions: new Set(dimensions), measures };
+  return { tables, available, joins, roles, dimensions: new Set(dimensions), measures };
 }
 
 // Loops, second paths and repeated pairs: the rules every set of joins keeps.
@@ -91,7 +98,18 @@ function validateModelProposal(args, draft) {
   const r = a.reading && typeof a.reading === 'object' ? a.reading : {};
   const errors = [];
   const has = (t, c) => !!draft.tables[t] && draft.tables[t].some((x) => x.column === c);
-  const out = { joins: [], removeJoins: [], tableRoles: {}, fields: [], measures: [], positions: null };
+  const out = { addTables: [], joins: [], removeJoins: [], tableRoles: {}, fields: [], measures: [], positions: null };
+
+  // Tables come in first, on their own: their columns are loaded, flagged and
+  // joined by their foreign keys when the author applies, and only then can a
+  // join or a field on them be checked — the next turn does that.
+  if (r.tables === true) {
+    const offered = new Set(draft.available || []);
+    for (const t of (Array.isArray(a.addTables) ? a.addTables : []).slice(0, 30)) {
+      if (!offered.has(t)) { errors.push(`addTables: ${JSON.stringify(String(t).slice(0, 80))} is not a table of the source outside the model`); continue; }
+      if (!out.addTables.includes(t)) out.addTables.push(t);
+    }
+  }
 
   let joins = [...draft.joins];
   if (r.joins === true) {
@@ -141,8 +159,8 @@ function validateModelProposal(args, draft) {
   }
   if (r.layout === true) out.positions = arrangeTables(draft.tables, joins, roles);
 
-  const empty = !out.joins.length && !out.removeJoins.length && !Object.keys(out.tableRoles).length && !out.fields.length && !out.measures.length && !out.positions;
-  if (empty && !errors.length) errors.push('nothing to apply: set `reading` to what the user asked (joins, fields, measures, tableRoles, layout) and fill the matching lists');
+  const empty = !out.addTables.length && !out.joins.length && !out.removeJoins.length && !Object.keys(out.tableRoles).length && !out.fields.length && !out.measures.length && !out.positions;
+  if (empty && !errors.length) errors.push('nothing to apply: set `reading` to what the user asked (tables, joins, fields, measures, tableRoles, layout) and fill the matching lists');
   return {
     payload: empty ? null : { kind: 'model', summary: typeof a.summary === 'string' ? a.summary.slice(0, 300) : '', ...out },
     errors,
@@ -163,13 +181,18 @@ function draftLines(draft) {
   return lines;
 }
 
-function buildModelPrompt({ modelName, draft, topics }) {
+function buildModelPrompt({ modelName, draft, topics, canReadColumns }) {
+  const available = draft.available || [];
   return [
-    'You are the data-model assistant of OpenReport, a business-intelligence tool. You help the author of a data model: the joins between tables, which columns are dimensions (grouped and filtered by) or measures (aggregated numbers), the measures themselves, which tables are facts or dimensions, and how the tables sit on the diagram.',
+    'You are the data-model assistant of OpenReport, a business-intelligence tool. You help the author of a data model: which tables of the source it uses, the joins between tables, which columns are dimensions (grouped and filtered by) or measures (aggregated numbers), the measures themselves, which tables are facts or dimensions, and how the tables sit on the diagram.',
     '',
     'Rules:',
     '- You cannot change the model yourself: call `propose_model_changes` once; the author reviews the card, applies it, and saves the model.',
-    '- Write your `reading` first: which of joins, fields, measures, tableRoles, layout the request asks for. Only those parts are applied. Asked to set up or clean the whole model: all of them.',
+    '- Write your `reading` first: which of tables, joins, fields, measures, tableRoles, layout the request asks for. Only those parts are applied. Asked to set up or clean the whole model: all of them.',
+    ...(available.length ? [
+      '- Tables: when the model lacks tables the request needs (or has none yet), put them in `addTables` — only names from "Other tables of the source". Add what the request needs and the dimensions they point to, not every table. That card adds tables and nothing else: once the author applies it, their columns are loaded and flagged, the joins the database declares are drawn, and you are asked to continue with the joins, roles and fields.',
+      ...(canReadColumns ? ['- Unsure what a table holds? Call `read_table_columns` with a few names (at most 10) before choosing.'] : []),
+    ] : []),
     '- Joins: from the table holding the foreign key (usually the fact, the many side) to the table it points to (the dimension, the one side): many-to-one. Join on a key and the column that refers to it (customer_id → customers.id). Every fact is joined to each dimension it has a key for — several facts may share a dimension. Never two ways from one table to another: do not also join two dimensions to each other when a fact already reaches both. A table with no key in common with the others stays unjoined.',
     '- Facts hold the events and the numbers (orders, calls, sales lines); dimensions describe them (customers, products, dates, regions).',
     '- Fields: text, dates, codes and keys are dimensions; numbers that add up (amounts, quantities, durations) are measures. An id or code is never a sum. A column nobody reports on: none.',
@@ -184,7 +207,8 @@ function buildModelPrompt({ modelName, draft, topics }) {
     '',
     `Model: ${JSON.stringify(String(modelName || 'Untitled'))}`,
     'Tables (column type; D = dimension, M:agg = measure; [role]):',
-    ...draftLines(draft),
+    ...(Object.keys(draft.tables).length ? draftLines(draft) : ['- none yet']),
+    ...(available.length ? ['', `Other tables of the source (not in the model): ${available.map((t) => JSON.stringify(t)).join(', ')}`] : []),
     '',
     'Joins:',
     draft.joins.length ? draft.joins.map((j) => `- ${j.from_table}.${j.from_column} (${j.cardinality.from}) → ${j.to_table}.${j.to_column} (${j.cardinality.to})`).join('\n') : '- none yet',
@@ -192,15 +216,41 @@ function buildModelPrompt({ modelName, draft, topics }) {
 }
 
 /**
+ * Column names and types of tables the model does not use yet. The names are
+ * only lookups in the list the editor read from the source: nothing the model
+ * wrote reaches the database.
+ */
+async function readTableColumns(asked, draft, getColumns) {
+  const offered = new Set(draft.available);
+  const wanted = [...new Set(Array.isArray(asked) ? asked : [])].filter((t) => offered.has(t)).slice(0, MAX_COLUMN_READS);
+  if (!wanted.length) return { error: 'tables: name tables from "Other tables of the source"' };
+  const out = {};
+  for (const t of wanted) {
+    try {
+      const cols = await getColumns(t);
+      out[t] = (cols || []).slice(0, MAX_COLUMNS).map((c) => `${c.column_name ?? c.name} ${String(c.data_type ?? c.type ?? '').slice(0, 40)}`.trim());
+    } catch {
+      out[t] = 'unreadable'; /* one table failing leaves the others */
+    }
+  }
+  return { columns: out };
+}
+
+/**
  * One turn of the model assistant.
  * @returns {Promise<{reply: string, proposals: object[]}>}
  */
-async function runModelChat({ config, modelName, draft, messages }, deps = {}) {
+async function runModelChat({ config, modelName, draft, messages, getColumns }, deps = {}) {
   const tools = require('./tools');
   const chat = deps.chat || providers.chat;
   const topics = helpTopics();
-  const toolset = [tools.PROPOSE_MODEL_CHANGES, ...(topics.length ? [tools.helpToolFor(topics)] : [])];
-  const system = buildModelPrompt({ modelName, draft, topics });
+  const canReadColumns = !!getColumns && draft.available.length > 0;
+  const toolset = [
+    tools.PROPOSE_MODEL_CHANGES,
+    ...(canReadColumns ? [tools.READ_TABLE_COLUMNS] : []),
+    ...(topics.length ? [tools.helpToolFor(topics)] : []),
+  ];
+  const system = buildModelPrompt({ modelName, draft, topics, canReadColumns });
   const convo = messages.map((m) => ({ role: m.role, text: m.text }));
   let repaired = false;
   let emptyRetries = 0;
@@ -220,6 +270,7 @@ async function runModelChat({ config, modelName, draft, messages }, deps = {}) {
       let result;
       if (call.argsError) result = { error: call.argsError };
       else if (call.name === 'read_help' && topics.length) result = readHelp(call.args && call.args.topics);
+      else if (call.name === 'read_table_columns' && canReadColumns) result = await readTableColumns(call.args && call.args.tables, draft, getColumns);
       else if (call.name === 'propose_model_changes') {
         const checked = validateModelProposal(call.args, draft);
         if (checked.errors.length && !repaired) {
@@ -240,4 +291,4 @@ async function runModelChat({ config, modelName, draft, messages }, deps = {}) {
   return { reply: lastText || 'I could not finish within the allowed number of steps. Try a narrower request.', proposals: [] };
 }
 
-module.exports = { cleanDraft, validateModelProposal, arrangeTables, buildModelPrompt, runModelChat, AGGREGATIONS, CARDINALITIES };
+module.exports = { cleanDraft, validateModelProposal, arrangeTables, buildModelPrompt, runModelChat, readTableColumns, AGGREGATIONS, CARDINALITIES };

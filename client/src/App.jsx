@@ -9,6 +9,7 @@ import ModelEditor from './pages/ModelEditor';
 import Admin from './pages/Admin';
 import Alerts from './pages/Alerts';
 import ApiTokens from './pages/ApiTokens';
+import Help from './pages/Help';
 import Verify from './pages/Verify';
 // Cloud-edition routes — empty in the OSS build, populated in the cloud build.
 // The same import path resolves to either the stub or the real implementation.
@@ -76,6 +77,7 @@ const router = createBrowserRouter([
       { path: '/admin', element: <PrivateRoute><Admin /></PrivateRoute> },
       { path: '/alerts', element: <PrivateRoute><Alerts /></PrivateRoute> },
       { path: '/api-tokens', element: <PrivateRoute><ApiTokens /></PrivateRoute> },
+      { path: '/help', element: <PrivateRoute><Help /></PrivateRoute> },
       { path: '/view/:id', element: <Viewer /> },
       // Token-authenticated embed page (iframe-able) — same Viewer, chrome-less;
       // the signed ?token= grants access, no session required.

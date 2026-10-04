@@ -6,7 +6,7 @@ jest.mock('../utils/ai/providers', () => ({
 const request = require('supertest');
 const providers = require('../utils/ai/providers');
 const { setAiConfig } = require('../utils/settingsHelper');
-const { cleanDraft, validateModelProposal, arrangeTables } = require('../utils/ai/modelAssistant');
+const { cleanDraft, validateModelProposal, arrangeTables, readTableColumns } = require('../utils/ai/modelAssistant');
 const { buildApp, seedUser, seedDatasource, seedModel, seedReport, seedWorkspace, db } = require('./helpers/testApp');
 
 const app = buildApp();
@@ -131,6 +131,36 @@ describe('what the model assistant may propose', () => {
   });
 });
 
+describe('adding tables of the source', () => {
+  const NEW_MODEL = { tables: {}, available: ['orders', 'customers', 'audit_log'] };
+
+  test('a model with no table yet has a draft: the tables it may add', () => {
+    const d = cleanDraft(NEW_MODEL);
+    expect(d.tables).toEqual({});
+    expect(d.available).toEqual(['orders', 'customers', 'audit_log']);
+    // A table already in the model is not offered again.
+    expect(cleanDraft({ ...DRAFT, available: ['orders', 'regions'] }).available).toEqual(['regions']);
+  });
+
+  test('only tables the source offered, and only when the reading asks for tables', () => {
+    const { payload, errors } = validateModelProposal({
+      reading: { tables: true }, summary: 's', addTables: ['orders', 'customers', 'orders', 'pg_shadow'],
+    }, cleanDraft(NEW_MODEL));
+    expect(payload.addTables).toEqual(['orders', 'customers']);
+    expect(errors).toEqual([expect.stringMatching(/pg_shadow.*not a table of the source/)]);
+    expect(validateModelProposal({ reading: { tables: false }, summary: 's', addTables: ['orders'] }, cleanDraft(NEW_MODEL)).payload).toBeNull();
+  });
+
+  test('columns are read only for tables the source offered, ten at most', async () => {
+    const read = jest.fn(async (t) => [{ column_name: 'id', data_type: 'integer' }, { column_name: `${t}_name`, data_type: 'text' }]);
+    const draft = cleanDraft({ tables: {}, available: Array.from({ length: 12 }, (_, i) => `t${i}`) });
+    const out = await readTableColumns(['t0', 'nope', ...draft.available], draft, read);
+    expect(read.mock.calls.map(([t]) => t)).toEqual(['t0', 't1', 't2', 't3', 't4', 't5', 't6', 't7', 't8', 't9']);
+    expect(out.columns.t0).toEqual(['id integer', 't0_name text']);
+    expect(await readTableColumns(['nope'], draft, read)).toHaveProperty('error');
+  });
+});
+
 describe('POST /api/ai/models/:id/model-chat', () => {
   let owner, editor, model;
   beforeAll(() => {
@@ -175,6 +205,16 @@ describe('POST /api/ai/models/:id/model-chat', () => {
     const res = await send(owner, ask('Join the tables'));
     expect(providers.chat.mock.calls[1][0].messages.find((m) => m.role === 'tool').content).toMatch(/Fix these.*not a column/);
     expect(res.body.proposals[0].joins).toHaveLength(1);
+  });
+
+  test('a model with no table: the tables of the source are named, and the card adds some', async () => {
+    providers.chat.mockResolvedValueOnce(call('propose_model_changes', { reading: { tables: true }, summary: 'Add orders and customers.', addTables: ['orders', 'customers'] }));
+    const res = await send(owner, { messages: [{ role: 'user', text: 'Sales by country' }], draft: { tables: {}, available: ['orders', 'customers', 'audit_log'] } });
+    expect(res.status).toBe(200);
+    const { system, tools } = providers.chat.mock.calls[0][0];
+    expect(system).toContain('Other tables of the source (not in the model): "orders", "customers", "audit_log"');
+    expect(tools.map((t) => t.name)).toContain('read_table_columns');
+    expect(res.body.proposals[0]).toMatchObject({ kind: 'model', addTables: ['orders', 'customers'] });
   });
 
   test('a plain answer stays a plain answer', async () => {

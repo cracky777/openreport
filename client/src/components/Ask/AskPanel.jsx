@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TbSparkles, TbArrowUp, TbPlayerStopFilled, TbX, TbPlus, TbSettings, TbChevronDown, TbChevronsLeft, TbChevronsRight } from 'react-icons/tb';
+import { TbSparkles, TbArrowUp, TbPlayerStopFilled, TbX, TbPlus, TbSettings, TbChevronDown, TbChevronsLeft, TbChevronsRight, TbChartBar, TbHelp } from 'react-icons/tb';
 import api from '../../utils/api';
 import { toast } from '../Toast/toast';
 import { useAiChat } from '../../hooks/useAiChat';
@@ -12,11 +12,28 @@ import AskAnswer from './AskAnswer';
 import { proposedVisuals as visualsOf } from '../../utils/aiProposal';
 import AddToReport from './AddToReport';
 import ActionCard from '../AiPanel/ActionCard';
+import Suggestions from '../AiPanel/Suggestions';
 
 const LAST_MODEL_KEY = 'openreport.askModel';
 // The same fold as the report editor's Data panel.
 const SLIDE = 'width 200ms ease';
 const MAX_INPUT_HEIGHT = 140;
+
+// Questions that work on any model: the panel knows nothing of its fields.
+const DATA_SUGGESTIONS = [
+  { label: 'Try', items: ['What are the key figures of this model?', 'Show the monthly trend of the main measure', 'Which categories weigh the most?'] },
+  { label: 'Learn the tool', items: ['How do I add an answer to a report?', 'How do I build a report from scratch?'] },
+];
+// By role: a viewer is never told how to connect a database.
+const HELP_SUGGESTIONS = {
+  builder: [
+    { label: 'Get started', items: ['How do I connect a database?', 'How do I import an Excel or CSV file?', 'What is a data model, and how do I build one?', 'How do I create my first report?'] },
+    { label: 'Go further', items: ['How do I filter a whole page?', 'How do I share a report with my team?', 'How do I refresh the data every night?', 'What can the AI assistant do for me?'] },
+  ],
+  viewer: [
+    { label: 'Get started', items: ['How do I open and read a report?', 'How do I filter a report?', 'How do I export a report to PDF or Excel?', 'What can I do as a viewer?'] },
+  ],
+};
 
 function rememberedModel() {
   try { return localStorage.getItem(LAST_MODEL_KEY) || ''; } catch { return ''; /* storage blocked: no memory */ }
@@ -32,8 +49,16 @@ function rememberedModel() {
  * slim strip on the right opens it; open, the chevrons in its header fold it
  * back, and its width is dragged from its left edge. Closed, the panel stays
  * mounted: reopening finds the conversation where it was.
+ *
+ * Two tabs: Your data (a model's assistant, for whoever may build on one) and
+ * Help (how to use OpenReport, from the user guide — for everyone, and the
+ * only tab while there is no model to ask about). Each keeps its own thread.
+ *
+ * @param {'data'|'help'} mode  the tab asked for; Help when Your data is not possible
+ * @param {{text: string, tab: string, modelId?: string, at: number}} pendingQuestion  asked on its tab once the panel can (utils/askAssistant.js)
+ * @param {boolean} canData     this user may ask about models (editor or admin)
  */
-export default function AskPanel({ open, onToggle, onClose, compact }) {
+export default function AskPanel({ open, onToggle, onClose, compact, mode: askedMode = 'data', onModeChange, canData, pendingQuestion }) {
   const navigate = useNavigate();
   const { models, selectedWs, personalWorkspace, refresh } = useGraph();
   const [dragging, setDragging] = useState(false);
@@ -59,31 +84,54 @@ export default function AskPanel({ open, onToggle, onClose, compact }) {
   // offered, and its admins may have a new one written.
   const workspaceId = selectedWs || personalWorkspace?.id || '';
   const getExtraBody = useCallback(() => (workspaceId ? { workspaceId } : {}), [workspaceId]);
-  const { messages, loading, send, cancel, reset, setOutcome } = useAiChat(`/ai/models/${modelId}/chat`, getExtraBody);
+  const dataChat = useAiChat(`/ai/models/${modelId}/chat`, getExtraBody);
+  const helpChat = useAiChat('/ai/help/chat');
+  const dataPossible = !!canData && !!modelId;
+  const mode = dataPossible && askedMode === 'data' ? 'data' : 'help';
+  const { messages, loading, send, cancel, reset, setOutcome } = mode === 'data' ? dataChat : helpChat;
+  const resetData = dataChat.reset;
+  const askedRef = useRef(0);
 
   const refreshStatus = useCallback(() => (
     api.get('/ai/status').then((res) => setStatus(res.data)).catch(() => setStatus({ enabled: false }))
   ), []);
   useEffect(() => { if (open) refreshStatus(); }, [open, refreshStatus]);
-
+  // A question handed over: on Your data, about the model it names (once that
+  // model is the one picked); otherwise on Help.
+  const pendingChat = pendingQuestion?.tab === 'data' && dataPossible ? dataChat : helpChat;
+  const pendingModel = pendingQuestion?.tab === 'data' ? pendingQuestion.modelId : null;
   useEffect(() => {
-    if (!modelId) return undefined;
+    if (!pendingQuestion || askedRef.current === pendingQuestion.at || !status?.enabled || pendingChat.loading) return;
+    if (pendingModel && (models || []).some((m) => m.id === pendingModel) && pendingModel !== modelId) {
+      resetData();
+      setPickedModel(pendingModel);
+      return;
+    }
+    askedRef.current = pendingQuestion.at;
+    // Empty: the panel opens on its tab, ready for the question.
+    if (pendingQuestion.text) pendingChat.send(pendingQuestion.text);
+    else setTimeout(() => inputRef.current?.focus(), 280);
+  }, [pendingQuestion, status?.enabled, pendingChat, pendingModel, models, modelId, resetData]);
+
+  // A viewer has the Help tab only: no model of theirs to load.
+  useEffect(() => {
+    if (!modelId || !canData) return undefined;
     let stale = false;
     api.get(`/models/${modelId}`)
       .then((res) => { if (!stale) setModel(res.data.model); })
       .catch((err) => toast(err.response?.data?.error || 'Failed to load the model'));
     return () => { stale = true; };
-  }, [modelId]);
+  }, [modelId, canData]);
 
   useEffect(() => {
     const el = threadRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages, loading]);
 
-  // Opening puts the cursor where the question goes.
+  // Opening, or another tab, puts the cursor where the question goes.
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 280);
-  }, [open]);
+  }, [open, mode]);
 
   // Another model — or another workspace, another library: the conversation
   // starts over, since the next turn would carry proposals about the other one.
@@ -91,11 +139,11 @@ export default function AskPanel({ open, onToggle, onClose, compact }) {
   useEffect(() => {
     if (firstWs.current === workspaceId) return;
     firstWs.current = workspaceId;
-    reset();
-  }, [workspaceId, reset]);
+    resetData();
+  }, [workspaceId, resetData]);
   const switchModel = (id) => {
     if (id === modelId) return;
-    reset();
+    resetData();
     setPickedModel(id);
     try { localStorage.setItem(LAST_MODEL_KEY, id); } catch { /* storage blocked: no memory */ }
   };
@@ -105,9 +153,9 @@ export default function AskPanel({ open, onToggle, onClose, compact }) {
     el.style.height = `${Math.min(el.scrollHeight, MAX_INPUT_HEIGHT)}px`;
   };
 
-  const submit = async () => {
-    const question = draft.trim();
-    if (!question || loading || !modelId) return;
+  const submit = async (text) => {
+    const question = (text ?? draft).trim();
+    if (!question || loading || (mode === 'data' && !modelId)) return;
     setDraft('');
     if (inputRef.current) inputRef.current.style.height = 'auto';
     if (!(await send(question))) setDraft(question);
@@ -136,7 +184,7 @@ export default function AskPanel({ open, onToggle, onClose, compact }) {
   return (
     <>
     {!compact && !open && (
-      <button type="button" onClick={onToggle} style={stripStyle} aria-label="Assistant" aria-expanded={false} title="Open the assistant">
+      <button type="button" onClick={onToggle} style={stripStyle} aria-label="Assistant" aria-expanded={false} title="Open the assistant" data-tour="home-assistant">
         <span style={stripChevronStyle}><TbChevronsLeft size={14} /></span>
         <TbSparkles size={14} color="var(--accent-primary)" />
         <span style={stripLabelStyle}>Assistant</span>
@@ -150,12 +198,20 @@ export default function AskPanel({ open, onToggle, onClose, compact }) {
           <span style={badgeStyle(26)}><TbSparkles size={15} /></span>
           <div style={headerTextStyle}>
             <div style={headerTitleStyle}>Assistant</div>
+            {mode === 'data' && (
             <label style={modelPickStyle}>
               <select style={modelSelectStyle} value={modelId} onChange={(e) => switchModel(e.target.value)} aria-label="Data model" disabled={loading}>
                 {(models || []).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
               <TbChevronDown size={12} style={chevronStyle} />
             </label>
+            )}
+            {mode === 'help' && (
+              <div style={headerSubStyle}>
+                How to use OpenReport ·{' '}
+                <button type="button" style={guideLinkStyle} onClick={() => navigate('/help')}>Read the full guide</button>
+              </div>
+            )}
           </div>
           {status?.source === 'personal' && (
             <button style={iconBtn} onClick={() => setEditingProvider((v) => !v)} title="Your AI provider" aria-label="Your AI provider"><TbSettings size={16} /></button>
@@ -182,12 +238,32 @@ export default function AskPanel({ open, onToggle, onClose, compact }) {
           </div>
         ) : (
           <>
+            {dataPossible && !unavailable && (
+              <div style={tabBarStyle} role="tablist" aria-label="Assistant mode">
+                <button type="button" role="tab" aria-selected={mode === 'data'} style={tabBtn(mode === 'data')} onClick={() => onModeChange?.('data')}>
+                  <TbChartBar size={14} /> Your data
+                </button>
+                <button type="button" role="tab" aria-selected={mode === 'help'} style={tabBtn(mode === 'help')} onClick={() => onModeChange?.('help')}>
+                  <TbHelp size={14} /> Help
+                </button>
+              </div>
+            )}
             <div ref={threadRef} style={threadStyle}>
               {messages.length === 0 && (
                 <div style={emptyStyle}>
                   <span style={badgeStyle(44)}><TbSparkles size={24} /></span>
-                  <div style={emptyTitleStyle}>{unavailable ? 'The assistant is not available for this account' : 'What would you like to know?'}</div>
-                  {!unavailable && model?.name ? <div style={emptySubStyle}>{model.name}</div> : null}
+                  <div style={emptyTitleStyle}>{unavailable ? 'The assistant is not available for this account'
+                    : mode === 'data' ? 'What would you like to know?' : 'How can I help you with OpenReport?'}</div>
+                  {!unavailable && mode === 'data' && model?.name ? <div style={emptySubStyle}>{model.name}</div> : null}
+                  {!unavailable && mode === 'help' && canData && !modelId
+                    ? <div style={emptySubStyle}>No data model yet: once you have one, ask me about your data too.</div> : null}
+                  {status?.enabled && (
+                    <Suggestions
+                      groups={mode === 'data' ? DATA_SUGGESTIONS : HELP_SUGGESTIONS[canData ? 'builder' : 'viewer']}
+                      onPick={submit}
+                      disabled={loading}
+                    />
+                  )}
                 </div>
               )}
               {messages.map((m, i) => (m.role === 'user' ? (
@@ -230,16 +306,16 @@ export default function AskPanel({ open, onToggle, onClose, compact }) {
                   value={draft}
                   onChange={(e) => { setDraft(e.target.value); grow(e.target); }}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
-                  placeholder="Ask anything about your data…"
+                  placeholder={mode === 'data' ? 'Ask anything about your data…' : 'Ask how to do something in OpenReport…'}
                   maxLength={4000}
                   rows={1}
-                  disabled={!status?.enabled || !modelId}
+                  disabled={!status?.enabled || (mode === 'data' && !modelId)}
                   aria-label="Your question"
                 />
                 {loading ? (
                   <button style={sendBtn(true)} onClick={cancel} title="Stop" aria-label="Stop"><TbPlayerStopFilled size={14} /></button>
                 ) : (
-                  <button style={sendBtn(!!draft.trim())} onClick={submit} disabled={!draft.trim()} title="Send" aria-label="Send"><TbArrowUp size={17} /></button>
+                  <button style={sendBtn(!!draft.trim())} onClick={() => submit()} disabled={!draft.trim()} title="Send" aria-label="Send"><TbArrowUp size={17} /></button>
                 )}
               </div>
             </div>
@@ -336,6 +412,19 @@ const threadStyle = {
 const emptyStyle = { margin: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, textAlign: 'center', padding: 24 };
 const emptyTitleStyle = { fontSize: 16, fontWeight: 650, color: 'var(--text-primary)', letterSpacing: '-0.01em' };
 const emptySubStyle = { fontSize: 12.5, color: 'var(--text-muted)' };
+const headerSubStyle = { fontSize: 12, fontWeight: 500, color: 'var(--text-muted)' };
+const guideLinkStyle = { padding: 0, border: 'none', background: 'none', font: 'inherit', color: 'var(--accent-primary)', cursor: 'pointer', textDecoration: 'underline' };
+const tabBarStyle = {
+  display: 'flex', gap: 2, padding: 2, margin: '10px 14px 0', borderRadius: 9, flexShrink: 0,
+  background: 'var(--bg-subtle)', border: '1px solid var(--border-default)',
+};
+const tabBtn = (active) => ({
+  flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '6px 8px',
+  fontSize: 12.5, fontWeight: 600, fontFamily: 'inherit', border: 'none', borderRadius: 7, cursor: 'pointer',
+  background: active ? 'var(--bg-panel)' : 'transparent',
+  color: active ? 'var(--accent-primary)' : 'var(--text-muted)',
+  boxShadow: active ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+});
 const userBubble = {
   alignSelf: 'flex-end', maxWidth: '85%', padding: '9px 13px', fontSize: 13, lineHeight: 1.45,
   borderRadius: '16px 16px 4px 16px', background: 'var(--accent-primary)', color: '#fff',

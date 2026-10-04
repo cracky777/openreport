@@ -257,6 +257,7 @@ export default function Datasources() {
               workspaceId={currentWsKey}
               editingId={editingId}
               initialValues={editingValues}
+              defaultType="file"
               onSaved={handleSaved}
               onCancel={handleCancel}
             />

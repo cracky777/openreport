@@ -6,7 +6,7 @@
 const { BINDING_KEYS, DESIGN_CONFIG, TABLE_LOOK } = require('./validateProposal');
 const { HARMONIES, HARMONY_NOTES } = require('./colorScheme');
 const { TIME_PRESETS, ALL_OPS, MAX_RANK } = require('./widgetShaping');
-const { ACTIONS, FREQUENCIES, WEEKDAYS } = require('./actions');
+const { ACTIONS_FOR, FREQUENCIES, WEEKDAYS } = require('./actions');
 
 // "header{fontColor,bgColor,…} values{…}": the nested shape of tableConfig, from the validator's own table.
 const tableLookShape = Object.entries(TABLE_LOOK).map(([group, keys]) => `${group}{${Object.keys(keys).join(',')}}`).join(' ');
@@ -316,29 +316,46 @@ function helpToolFor(topics) {
 }
 
 // Doing something for the user instead of explaining how: a card they confirm.
-const PROPOSE_ACTION = {
-  name: 'propose_action',
-  description: 'Do something in OpenReport for the user, when they ask you to do it (not when they ask how it is done): they see a card and confirm it with one click. schedule_cache_refresh: refresh the cache of a report on a schedule — what scheduling a report means in this edition. open_model_assistant: the user wants the data model itself changed (joins, dimension / measure flags, model measures, fact / dimension tables, the diagram), which only the model assistant of the model editor does — the card opens it. Call this once, as your final step.',
-  parameters: {
-    type: 'object',
-    properties: {
-      userAsked: { type: 'string', enum: ['do', 'how'], description: 'do: the user asks you to do it ("schedule my report every Monday", "yes, do it") · how: the user asks how it is done ("how do I schedule a report?") — then do NOT call this tool: explain' },
-      action: { type: 'string', enum: ACTIONS },
-      frequency: { type: 'string', enum: FREQUENCIES, description: 'schedule_cache_refresh only' },
-      weekday: { type: 'string', enum: WEEKDAYS, description: 'weekly only' },
-      monthDay: { type: 'integer', minimum: 1, maximum: 28, description: 'monthly only' },
-      time: { type: 'string', description: 'HH:MM, 24-hour clock, in the user\'s time zone (08:00 when they do not say)' },
-      request: { type: 'string', description: 'open_model_assistant only: the user\'s request, in their language, as they would type it to the model assistant' },
-      summary: { type: 'string', description: 'One short sentence in the user\'s language: what will happen' },
-    },
-    required: ['userAsked', 'action', 'summary'],
-  },
+// What each action is for, as the model reads it in the tool's description.
+const ACTION_HELP = {
+  schedule_cache_refresh: 'schedule_cache_refresh: refresh the cache of a report on a schedule — what scheduling a report means in this edition.',
+  open_model_assistant: 'open_model_assistant: the user wants the data model itself changed (joins, dimension / measure flags, model measures, fact / dimension tables, the diagram), which only the model assistant of the model editor does — the card opens it.',
+  create_report: 'create_report: the user wants a report built ("make me a report of sales by region"): the card creates it on the data model of this conversation and opens it in the editor, whose assistant is asked `request`.',
+  connect_database: 'connect_database: connect a database (PostgreSQL, MySQL, SQL Server, BigQuery…): the card opens the connection form, where the user types the connection details themselves — never ask for them in the chat. Offered to "how do I connect…?" too, after the steps.',
+  import_file: 'import_file: import a file (CSV, Excel, Parquet, JSON): the card takes the file from the user — say "send me the file" and hand over this card; never ask them to paste its content. Offered to "how do I import…?" too, after the steps.',
+  build_model: 'build_model: build a data model on a data source the user already has: the card lets them pick the source, then opens the model editor, whose assistant is asked `request`.',
 };
+
+/** propose_action, offering only the actions this assistant may hand over. */
+function actionToolFor(actions) {
+  return {
+    name: 'propose_action',
+    description: `Do something in OpenReport for the user: they see a card and confirm it with one click. ${actions.map((a) => ACTION_HELP[a]).join(' ')} Call this once, as your final step.`,
+    parameters: {
+      type: 'object',
+      properties: {
+        userAsked: { type: 'string', enum: ['do', 'how'], description: 'do: the user asks you to do it ("schedule my report every Monday", "yes, do it") · how: the user asks how it is done ("how do I schedule a report?") — then explain; only a card that opens a form (connect_database, import_file) goes with the explanation' },
+        action: { type: 'string', enum: actions },
+        ...(actions.includes('schedule_cache_refresh') ? {
+          frequency: { type: 'string', enum: FREQUENCIES, description: 'schedule_cache_refresh only' },
+          weekday: { type: 'string', enum: WEEKDAYS, description: 'weekly only' },
+          monthDay: { type: 'integer', minimum: 1, maximum: 28, description: 'monthly only' },
+          time: { type: 'string', description: 'HH:MM, 24-hour clock, in the user\'s time zone (08:00 when they do not say)' },
+        } : {}),
+        request: { type: 'string', description: 'The user\'s request, in their language, as they would type it: what the model or the report should show (open_model_assistant, build_model, create_report), or what they want once their data is in (connect_database, import_file — empty when they did not say)' },
+        summary: { type: 'string', description: 'One short sentence in the user\'s language: what will happen' },
+      },
+      required: ['userAsked', 'action', 'summary'],
+    },
+  };
+}
+
+const PROPOSE_ACTION = actionToolFor(ACTIONS_FOR.editor);
 
 // The model editor's assistant (modelAssistant.js). Names only; no SQL.
 const PROPOSE_MODEL_CHANGES = {
   name: 'propose_model_changes',
-  description: 'Propose changes to the data model: joins, dimension / measure flags, measures, fact / dimension tables, and arranging the diagram. The author applies them and saves. Call this once, as your final step.',
+  description: 'Propose changes to the data model: tables to add, joins, dimension / measure flags, measures, fact / dimension tables, and arranging the diagram. The author applies them and saves. Call this once, as your final step.',
   parameters: {
     type: 'object',
     properties: {
@@ -346,6 +363,7 @@ const PROPOSE_MODEL_CHANGES = {
         type: 'object',
         description: 'What the request asks to change, read BEFORE anything else, whatever its language. Only those parts are applied.',
         properties: {
+          tables: { type: 'boolean', description: 'tables of the source to add to the model' },
           joins: { type: 'boolean' },
           fields: { type: 'boolean', description: 'which columns are dimensions or measures' },
           measures: { type: 'boolean', description: 'new measures (aggregations)' },
@@ -355,6 +373,7 @@ const PROPOSE_MODEL_CHANGES = {
         required: ['joins', 'fields', 'measures', 'tableRoles', 'layout'],
       },
       summary: { type: 'string', description: 'One sentence in the user\'s language: what changes' },
+      addTables: { type: 'array', items: { type: 'string' }, description: 'Names from "Other tables of the source"' },
       joins: {
         type: 'array',
         items: {
@@ -397,10 +416,22 @@ const PROPOSE_MODEL_CHANGES = {
   },
 };
 
+// Schema of tables the model does not use yet, for the model assistant to
+// choose from. Names and types only.
+const READ_TABLE_COLUMNS = {
+  name: 'read_table_columns',
+  description: 'The columns (name and type) of tables of the source that are not in the model yet. Names only, no rows.',
+  parameters: {
+    type: 'object',
+    properties: { tables: { type: 'array', items: { type: 'string' }, description: 'Up to 10 names from "Other tables of the source"' } },
+    required: ['tables'],
+  },
+};
+
 const PING = {
   name: 'ping',
   description: 'Connectivity check. Call it once with ok=true.',
   parameters: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
 };
 
-module.exports = { QUERY_CACHED_DATA, PROPOSE_WIDGETS, PROPOSE_DESIGN_CHANGES, PROPOSE_CUSTOM_VISUAL, PROPOSE_ACTION, PROPOSE_MODEL_CHANGES, PING, widgetsToolFor, helpToolFor };
+module.exports = { QUERY_CACHED_DATA, PROPOSE_WIDGETS, PROPOSE_DESIGN_CHANGES, PROPOSE_CUSTOM_VISUAL, PROPOSE_ACTION, PROPOSE_MODEL_CHANGES, READ_TABLE_COLUMNS, PING, widgetsToolFor, helpToolFor, actionToolFor };

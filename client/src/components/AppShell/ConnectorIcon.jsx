@@ -4,7 +4,7 @@ import { SiDatabricks } from 'react-icons/si';
 import { DiMsqlServer } from 'react-icons/di';
 import { TbDatabaseCog } from 'react-icons/tb';
 import { VscAzure } from 'react-icons/vsc';
-import { TbDatabase } from 'react-icons/tb';
+import { TbDatabase, TbFileSpreadsheet } from 'react-icons/tb';
 
 // Le logo de l'éditeur, dans sa couleur. Une liste de connecteurs se lit à la
 // couleur avant de se lire au texte : c'est ce qui distingue PostgreSQL d'Azure
@@ -33,6 +33,8 @@ const MARKS = {
   bigquery:       { Icon: SiGooglebigquery, color: 'var(--brand-bigquery)',       label: 'Google BigQuery' },
   clickhouse:     { Icon: SiClickhouse,      color: 'var(--brand-clickhouse)',     label: 'ClickHouse' },
   duckdb:         { Icon: SiDuckdb,         color: 'var(--brand-duckdb)',         label: 'DuckDB' },
+  // Not an engine: the file import, listed with the connectors.
+  file:           { Icon: TbFileSpreadsheet, color: 'var(--state-success)',       label: 'File (CSV, Excel, Parquet, JSON)' },
 };
 
 const wrap = { display: 'inline-flex', alignItems: 'center', flexShrink: 0 };

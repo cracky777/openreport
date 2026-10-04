@@ -75,6 +75,7 @@ export default function StepNav({ current, onGo, allowed, compact = false }) {
             {i > 0 && <TbChevronRight size={13} style={sepStyle} />}
             <button
               onClick={() => onGo(s.key)}
+              data-tour={`home-stage-${s.key}`}
               style={compact ? { ...stepBtn(active), ...compactBtn } : stepBtn(active)}
               aria-current={active ? 'page' : undefined}
               onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--bg-hover)'; }}

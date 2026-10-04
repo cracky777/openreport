@@ -619,7 +619,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
   };
 
   return (
-    <div style={_hs2}>
+    <div style={_hs2} data-tour="fields">
       {/* One search box filters Measures, Date Table and Dimensions at once —
           scanning long lists is the panel's main cost on wide models. */}
       {(model.measures?.length > 0 || model.dimensions?.length > 0) && (
@@ -651,7 +651,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         collapsed={measuresCollapsed}
         onToggle={() => setSectionCollapsed((s) => ({ ...s, measures: !s.measures }))}
         actions={
-          <button onClick={(e) => { e.stopPropagation(); setShowCalcForm(!showCalcForm); }} style={addCalcBtnSmall}>+ Measure</button>
+          <button onClick={(e) => { e.stopPropagation(); setShowCalcForm(!showCalcForm); }} style={addCalcBtnSmall} data-tour="new-measure">+ Measure</button>
         }
         style={measuresCollapsed || compact ? { flex: '0 0 auto' } : { flex: `${effSplit * 100} 1 0%`, maxHeight: 'max-content' }}>
         {/* Unified measure wizard:
@@ -1313,7 +1313,7 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           actions={
             <button
               onClick={(e) => { e.stopPropagation(); setDimForm(dimForm ? null : { label: '', table: modelTables[0] || '', type: 'string', expression: '' }); }}
-              style={addCalcBtnSmall}>+ Dimension</button>
+              style={addCalcBtnSmall} data-tour="new-dimension">+ Dimension</button>
           }
           style={dimsCollapsed || compact ? { flex: '0 0 auto' } : { flex: `${(1 - effSplit) * 100} 1 0%`, maxHeight: 'max-content' }}>
           {/* Calculated dimension: a row-level SQL expression (the counterpart

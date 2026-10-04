@@ -178,5 +178,13 @@ setup('seed the fixture', async ({ request }) => {
   const mergeReportId = await mkReport('Rapport e2e fusion', MERGE_WIDGETS, MERGE_LAYOUT);
 
   fs.writeFileSync(F.IDS_FILE, JSON.stringify({ datasourceId, modelId, reportId, tableReportId, textReportId, twiceReportId, otherReportId, mergeReportId }, null, 1));
-  await request.storageState({ path: F.AUTH_STATE });
+  // The tours (components/Tour) bubble over whatever a spec clicks: every spec
+  // starts with them turned off but the one about them (tours.spec.js).
+  const me = await (await request.get('/api/auth/me')).json();
+  const state = await request.storageState();
+  state.origins = [{
+    origin: new URL(setup.info().project.use.baseURL).origin,
+    localStorage: ['home', 'editor', 'model'].map((tour) => ({ name: `openreport.${tour}TourOff.${(me.user || me).id}`, value: '1' })),
+  }];
+  fs.writeFileSync(F.AUTH_STATE, JSON.stringify(state));
 });

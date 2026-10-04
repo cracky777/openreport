@@ -1,9 +1,13 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useBugReport } from '../components/BugReport/BugReportProvider';
-import { TbBug, TbSparkles } from 'react-icons/tb';
+import { TbBug, TbSparkles, TbHelp } from 'react-icons/tb';
 import ModelAssistant from '../components/ModelAssistant/ModelAssistant';
 import { applyModelProposal } from '../utils/modelProposal';
-import { takeHandOver } from '../utils/modelAssistantHandoff';
+import { takeHandOver, peekHandOver, handOver } from '../utils/assistantHandoff';
+import Tour from '../components/Tour/Tour';
+import { useAuth } from '../hooks/useAuth';
+import { useFirstVisitTour } from '../hooks/useFirstVisitTour';
+import { useIsCompact } from '../hooks/useMediaQuery';
 import { useParams, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom';
 import Step1Schema from './Step1Schema';
 import api from '../utils/api';
@@ -76,6 +80,18 @@ const _hs40 = { fontSize: 12, lineHeight: 1.5 };
 
 
 const STEPS = ['Tables', 'Schema & Joins', 'Dimensions & Measures'];
+// A tour anchor around a header button that takes no data attribute of its own.
+const tourAnchor = { display: 'inline-flex' };
+// The model editor's tour (components/Tour), from its first screen. Wording
+// follows the user guide (server/utils/ai/help.md, models / fields).
+const MODEL_TOUR = [
+  { target: 'model-step-0', title: '1. Tables', text: 'Pick the tables of your data source this model uses. Search finds them by name.' },
+  { target: 'model-step-1', title: '2. Schema & Joins', text: 'Join the tables: drag from a column dot to another, or let Detect relationships do it. Click a table\'s type bar to make it a fact or a dimension, and D or M next to a column to offer it in reports.' },
+  { target: 'model-step-2', title: '3. Dimensions & Measures', text: 'Review the fields your reports will offer: rename them, change their type, add SQL dimensions and measures.' },
+  { target: 'model-assistant', title: 'Or ask the assistant', text: 'It picks the tables, joins them and marks dimensions and measures: it proposes, you apply.' },
+  { target: 'model-new-report', title: 'Build a report on it', text: 'Saves the model and opens a new report bound to it.' },
+  { target: 'model-save', title: 'Save', text: 'Save the model. Reports built on it see the change.' },
+];
 
 // Default positions for the tables that have none, skipping any grid cell
 // already covered by a card — on a saved model the tables keep their (possibly
@@ -172,6 +188,9 @@ export default function ModelEditor() {
   const [brokenRefs, setBrokenRefs] = useState([]);
   const [validating, setValidating] = useState(false);
   const [creatingReport, setCreatingReport] = useState(false);
+  // Sent here from the empty Reports stage with a report described: once the
+  // model is ready, "+ New Report" carries that request to the report's assistant.
+  const [reportWaiting] = useState(() => !!peekHandOver('describe', id));
   const [showDsChange, setShowDsChange] = useState(false);
   const [allDatasources, setAllDatasources] = useState([]);
   const [switchingDs, setSwitchingDs] = useState(false);
@@ -320,10 +339,11 @@ export default function ModelEditor() {
   // names; fact → dimension, no loop, no second path. Applied to the draft —
   // the joins added, and with `byName` the roles of tables that had none.
   // Returns the server's answer for the caller to report.
-  const applyRelationships = useCallback(async (byName, columnsByTable) => {
-    const columns = Object.fromEntries(selectedTables.map((t) => [t, (columnsByTable[t] || []).map((c) => c.column_name)]));
+  // `tables`: the selection about to be committed, when the caller has just set it.
+  const applyRelationships = useCallback(async (byName, columnsByTable, tables = selectedTables) => {
+    const columns = Object.fromEntries(tables.map((t) => [t, (columnsByTable[t] || []).map((c) => c.column_name)]));
     const roles = Object.fromEntries(Object.entries(tablePositions).filter(([, p]) => p && p.tableType).map(([t, p]) => [t, p.tableType]));
-    const res = await api.post(`/datasources/${model.datasource_id}/relationships`, { tables: selectedTables, columns, joins, roles, byName });
+    const res = await api.post(`/datasources/${model.datasource_id}/relationships`, { tables, columns, joins, roles, byName });
     const found = res.data;
     if (found.joins.length) {
       setJoins((prev) => [...prev, ...found.joins.map(({ reason: _r, ...j }) => j)]);
@@ -362,9 +382,10 @@ export default function ModelEditor() {
     }
   };
 
-  // When entering step 1, load columns for newly selected tables
-  const enterStep1 = useCallback(async () => {
-    const toLoad = selectedTables.filter((t) => !tableColumns[t]);
+  // When entering step 1, load columns for newly selected tables. `tables`:
+  // the selection just set by the model assistant, not yet in this closure.
+  const enterStep1 = useCallback(async (tables = selectedTables) => {
+    const toLoad = tables.filter((t) => !tableColumns[t]);
     const loaded = { ...tableColumns };
     for (const t of toLoad) {
       const res = await api.get(columnsUrl(t));
@@ -381,12 +402,12 @@ export default function ModelEditor() {
       setDimensions((prev) => (prev.some((d) => d.table === t) ? prev : [...prev, ...auto.dimensions]));
       setMeasures((prev) => (prev.some((m) => m.table === t) ? prev : [...prev, ...auto.measures]));
     }
-    setTablePositions((prev) => placeUnpositioned(prev, selectedTables));
+    setTablePositions((prev) => placeUnpositioned(prev, tables));
     setStep(1);
     // New tables arrive joined as the database declares them.
     if (toLoad.length) {
       try {
-        const found = await applyRelationships(false, loaded);
+        const found = await applyRelationships(false, loaded, tables);
         if (found.joins.length) {
           toast(`${found.joins.length} relationship${found.joins.length > 1 ? 's' : ''} added from the database's foreign keys`, 'success');
         }
@@ -603,12 +624,19 @@ export default function ModelEditor() {
   // Sent here by the report or Ask assistant (`?assistant=1`): open it, with
   // the request they handed over.
   const [searchParams] = useSearchParams();
+  // The tour, on a wide screen, once the model is loaded — not when the editor
+  // opens with its assistant already asked (`?assistant=`).
+  const { user } = useAuth();
+  const compact = useIsCompact();
+  const tour = useFirstVisitTour('model', user?.id, !loading && !compact && !searchParams.get('assistant'));
   const [assistantRequest, setAssistantRequest] = useState('');
+  // `ask`: from the empty Reports stage, where the request was already sent.
+  const sendAssistantRequest = searchParams.get('assistant') === 'ask';
   useEffect(() => {
-    if (searchParams.get('assistant') !== '1') return;
+    if (!['1', 'ask'].includes(searchParams.get('assistant'))) return;
     setAssistantOpen(true);
     // Read once: a second run (StrictMode) finds nothing and must not clear it.
-    const request = takeHandOver(id);
+    const request = takeHandOver('model', id);
     if (request) setAssistantRequest(request);
   }, [searchParams, id]);
   const headerRef = useRef(null);
@@ -618,20 +646,25 @@ export default function ModelEditor() {
   ), []);
   useEffect(() => { refreshAiStatus(); }, [refreshAiStatus]);
   const aiAvailable = !!aiStatus && (aiStatus.enabled || aiStatus.reason === 'setup');
+  // Opened on arrival (`?assistant=`), it is open before the header exists —
+  // the page shows "Loading model…" first: measured again once it is there, or
+  // the panel starts at the top and covers the header's buttons.
   useEffect(() => {
     if (assistantOpen && headerRef.current) setAssistantTop(headerRef.current.getBoundingClientRect().bottom);
-  }, [assistantOpen]);
+  }, [assistantOpen, loading]);
 
   const dataTypeOf = useCallback((table, column) => (tableColumns[table] || []).find((c) => c.column_name === column)?.data_type, [tableColumns]);
   const getAssistantDraft = useCallback(() => ({
     tables: Object.fromEntries(selectedTables.filter((t) => tableColumns[t])
       .map((t) => [t, tableColumns[t].map((c) => ({ column: c.column_name, type: String(c.data_type || '') }))])),
+    // The source's other tables, by name: the assistant may add some.
+    available: allTables.filter((t) => !selectedTables.includes(t)),
     joins,
     roles: Object.fromEntries(Object.entries(tablePositions).filter(([, p]) => p && p.tableType).map(([t, p]) => [t, p.tableType])),
     dimensions: dimensions.filter((d) => d.table && d.column).map((d) => ({ table: d.table, column: d.column })),
     measures: measures.filter((m) => m.table && m.column).map((m) => ({ table: m.table, column: m.column, aggregation: m.aggregation })),
-  }), [selectedTables, tableColumns, joins, tablePositions, dimensions, measures]);
-  const applyAssistantProposal = useCallback((proposal) => {
+  }), [selectedTables, tableColumns, allTables, joins, tablePositions, dimensions, measures]);
+  const applyAssistantProposal = useCallback(async (proposal) => {
     const next = applyModelProposal({ joins, dimensions, measures, tablePositions }, proposal, {
       typeOf: (t, c) => effectiveColumnType(t, c, dataTypeOf(t, c)).type,
       dataTypeOf,
@@ -642,8 +675,21 @@ export default function ModelEditor() {
     setTablePositions(next.tablePositions);
     // Joins, roles and positions are drawn on the diagram: show it.
     if ((proposal.joins || []).length || (proposal.removeJoins || []).length || Object.keys(proposal.tableRoles || {}).length || proposal.positions) setStep(1);
+    // Added tables come in as if ticked by hand: columns loaded and flagged,
+    // joined by the database's foreign keys. After the rest, which the loading
+    // builds on rather than overwrites.
+    const added = (proposal.addTables || []).filter((t) => allTables.includes(t) && !selectedTables.includes(t));
+    if (added.length) {
+      const tables = [...selectedTables, ...added];
+      setSelectedTables(tables);
+      try {
+        await enterStep1(tables);
+      } catch {
+        toast('Some tables could not be read');
+      }
+    }
     return true;
-  }, [joins, dimensions, measures, tablePositions, effectiveColumnType, dataTypeOf]);
+  }, [joins, dimensions, measures, tablePositions, effectiveColumnType, dataTypeOf, allTables, selectedTables, enterStep1]);
 
   // Both guards are advisory — the user may legitimately know better than a
   // 100k-row sample. They used to be two blocking prompts in a row, so a model
@@ -752,7 +798,10 @@ export default function ModelEditor() {
             : null,
         },
       });
-      navigate(`/edit/${res.data.report.id}`);
+      const reportId = res.data.report.id;
+      const described = takeHandOver('describe', id);
+      if (described) handOver('report', reportId, described);
+      navigate(`/edit/${reportId}${described ? '?assistant=1' : ''}`);
     } catch (err) {
       toast(err?.response?.data?.error || 'Failed to create report');
       setCreatingReport(false);
@@ -825,6 +874,7 @@ export default function ModelEditor() {
             return (
               <button
                 key={i}
+                data-tour={`model-step-${i}`}
                 className="btn-hover"
                 onClick={() => {
                   if (i === 1 && step === 0) enterStep1();
@@ -851,6 +901,7 @@ export default function ModelEditor() {
             type="button"
             aria-label="Model assistant"
             title="Model assistant"
+            data-tour="model-assistant"
             aria-pressed={assistantOpen}
             onClick={() => setAssistantOpen((v) => !v)}
             style={{ ...bugBtnStyle, ...(assistantOpen ? { color: 'var(--accent-primary)', background: 'var(--accent-primary-soft)' } : null) }}
@@ -867,20 +918,42 @@ export default function ModelEditor() {
         >
           <TbBug size={17} />
         </button>
-        <SecondaryButton
-          onClick={handleCreateReport}
-          disabled={creatingReport || saving || selectedTables.length === 0}
-          title={selectedTables.length === 0
-            ? 'Pick at least one table before creating a report'
-            : 'Save the model and open a new report bound to it'}
-          style={_hs6}
-        >
-          {creatingReport ? 'Creating…' : '+ New Report'}
-        </SecondaryButton>
-        <PrimaryButton onClick={handleSave} disabled={saving}>
-          {saving ? 'Saving...' : 'Save'}
-        </PrimaryButton>
+        <span style={tourAnchor} data-tour="model-new-report">
+        {reportWaiting ? (
+          <PrimaryButton
+            onClick={handleCreateReport}
+            disabled={creatingReport || saving || selectedTables.length === 0}
+            title={selectedTables.length === 0
+              ? 'Pick at least one table first'
+              : 'Save the model and open your report, with the assistant asked what you described'}
+          >
+            {creatingReport ? 'Creating…' : 'Continue to your report →'}
+          </PrimaryButton>
+        ) : (
+          <SecondaryButton
+            onClick={handleCreateReport}
+            disabled={creatingReport || saving || selectedTables.length === 0}
+            title={selectedTables.length === 0
+              ? 'Pick at least one table before creating a report'
+              : 'Save the model and open a new report bound to it'}
+            style={_hs6}
+          >
+            {creatingReport ? 'Creating…' : '+ New Report'}
+          </SecondaryButton>
+        )}
+        </span>
+        <span style={tourAnchor} data-tour="model-save">
+          <PrimaryButton onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : 'Save'}
+          </PrimaryButton>
+        </span>
+        {!compact && (
+          <button type="button" aria-label="Show me around" title="Show me around" onClick={tour.start} style={bugBtnStyle}>
+            <TbHelp size={17} />
+          </button>
+        )}
       </header>
+      {tour.open && <Tour steps={MODEL_TOUR} onClose={tour.close} />}
 
       {/* Change datasource modal */}
       {showDsChange && (
@@ -1023,6 +1096,7 @@ export default function ModelEditor() {
           status={aiStatus}
           onStatusChange={refreshAiStatus}
           initialRequest={assistantRequest}
+          sendInitial={sendAssistantRequest}
         />
       )}
 

@@ -6,6 +6,7 @@
  *   POST   /api/ai/personal/test             try it
  *   DELETE /api/ai/personal                  forget it
  *   POST   /api/ai/reports/:reportId/chat    one assistant turn for a report
+ *   POST   /api/ai/help/chat                 how to use OpenReport, from the user guide only
  *
  * Permission model: whoever may EDIT the report may talk to its assistant —
  * its answers are proposals to change that report. The assistant reads data
@@ -31,6 +32,8 @@ const { pickDesignConfig } = require('../utils/ai/validateProposal');
 const { withFloors } = require('../utils/ai/arrangeLayout');
 const aiFeedback = require('../utils/ai/feedback');
 const { cleanDraft, runModelChat } = require('../utils/ai/modelAssistant');
+const { runHelpChat } = require('../utils/ai/helpAssistant');
+const { connectionForModel } = require('../utils/modelSources');
 
 const router = express.Router();
 
@@ -44,9 +47,11 @@ const HEX = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
 
 // Every turn is paid for at the provider. Keyed per user: a shared office IP
 // must not pool everyone into one bucket.
+// Conversations per user and minute. Configurable: an end-to-end run holds
+// more conversations in a minute than anyone types.
 const chatLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 20,
+  max: Number(process.env.AI_CHAT_RATE_LIMIT) || 20,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => req.user.id,
@@ -297,7 +302,28 @@ router.post('/models/:modelId/model-chat', requireAuth, chatLimiter, async (req,
   const draft = cleanDraft(req.body && req.body.draft);
   if (!draft) return res.status(400).json({ error: 'Pick the tables of the model first' });
 
-  return answer(res, runModelChat({ config, modelName: modelRow.name, draft, messages }));
+  // The columns of a table it may add, read like the editor reads them: the
+  // same route rights, through the connection the model's queries use.
+  const datasource = db.prepare('SELECT * FROM datasources WHERE id = ?').get(modelRow.datasource_id);
+  let conn = null;
+  const getColumns = datasource ? (table) => {
+    conn = conn || connectionForModel(modelRow, datasource);
+    return conn.getColumns(table);
+  } : null;
+  return answer(res, runModelChat({ config, modelName: modelRow.name, draft, messages, getColumns }));
+});
+
+// Help with the tool itself, for anyone who has the assistant — a viewer, or a
+// newcomer with no model yet. Nothing is read but the user guide: no model, no
+// data, no card, so there is nothing to scope.
+router.post('/help/chat', requireAuth, chatLimiter, async (req, res) => {
+  const { config, reason } = resolveAccess(req);
+  if (!config) return refuseWithoutConfig(res, reason);
+
+  const messages = cleanMessages(req.body && req.body.messages);
+  if (!messages) return res.status(400).json({ error: 'Invalid conversation' });
+
+  return answer(res, runHelpChat({ config, role: req.user.role, messages }));
 });
 
 // 👍 / 👎 on an answer. Same gate as the conversation it rates: the model named

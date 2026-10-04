@@ -28,6 +28,9 @@ import { useJourneyFocus, isDimmed, dimProps, DIMMED_CARD } from '../hooks/useJo
 import { groupByParent } from '../utils/groupByParent';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
 import CacheInspectorModal from '../components/CacheInspectorModal/CacheInspectorModal';
+import DescribeReport from '../components/DescribeReport/DescribeReport';
+import { askAssistant } from '../utils/askAssistant';
+import { FILE_IMPORT_ACCEPT } from '../utils/sourceFiles';
 import PbitImportWizard from '../components/PbitImport/PbitImportWizard';
 import CacheScheduleModal from '../components/CacheScheduleModal/CacheScheduleModal';
 import ScheduleModal from '../components/ScheduleModal/ScheduleModal';
@@ -132,9 +135,20 @@ const _hs65 = { textAlign: 'center', color: 'var(--text-disabled)', marginTop: 6
 const emptyState = {
   marginTop: 60, display: 'flex', flexDirection: 'column',
   alignItems: 'center', textAlign: 'center',
+  // Tall enough to catch a file dropped anywhere on the empty stage.
+  position: 'relative', minHeight: '60vh',
 };
-const emptyTitle = { fontSize: 16, color: 'var(--text-muted)', marginBottom: 4 };
+const dropOverlay = {
+  position: 'absolute', inset: -20, zIndex: 5, pointerEvents: 'none',
+  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10,
+  fontSize: 15, fontWeight: 600, color: 'var(--accent-primary)', borderRadius: 16,
+  border: '2px dashed var(--accent-primary)', background: 'var(--accent-primary-soft)',
+};
+// A tour anchor (components/Tour) around a button that takes no data attribute.
+const tourAnchor = { display: 'inline-flex' };
 const emptySub = { fontSize: 13, color: 'var(--text-disabled)', marginBottom: 20 };
+const viewerEmptyTitle = { fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 6px' };
+const viewerEmptyText = { fontSize: 13.5, lineHeight: 1.5, color: 'var(--text-secondary)', maxWidth: 440, margin: 0 };
 const emptyChoices = { display: 'flex', gap: 12, width: 'min(760px, 100%)' };
 // One report per row rather than a grid: the journey's other stages are lists
 // with join gutters either side, and a grid leaves nowhere for the incoming
@@ -310,14 +324,16 @@ export default function Dashboard() {
   // Step 1: just record the pick — the import options only make sense once a
   // file is in hand, so the actual upload waits for the Import button. For an
   // Excel workbook we read its sheet names (in-browser) and pre-select them all.
-  const handleFileSelected = async (e) => {
+  const handleFileSelected = (e) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (createFileRef.current) createFileRef.current.value = ''; // allow re-picking the same file
+    if (file) pickFile(file);
+  };
+  const pickFile = async (file) => {
     setSelectedFile(file);
     setUploadError('');
     setImportOpts(DEFAULT_IMPORT_OPTIONS);
     setSheetNames([]);
-    if (createFileRef.current) createFileRef.current.value = ''; // allow re-picking the same file
     if (importKind(file.name) === 'excel') {
       const names = await readSheetNames(file);
       setSheetNames(names);
@@ -481,6 +497,42 @@ export default function Dashboard() {
       toast(err.response?.data?.error || 'Failed to create report');
     }
   };
+
+  // The empty stage's "describe the report you want": a blank draft on that
+  // model, and the editor opens with its assistant asked the request.
+  const [aiAvailable, setAiAvailable] = useState(false);
+  useEffect(() => {
+    api.get('/ai/status')
+      .then((res) => setAiAvailable(!!res.data.enabled || res.data.reason === 'setup'))
+      .catch(() => { /* the box stays hidden: the three cards remain */ });
+  }, []);
+  // "What do you need?" hands the request to the Assistant panel: Your data
+  // when this workspace has a model to build on, Help (which brings data in)
+  // otherwise. The answer — a report, a file to import, a connection — comes
+  // back there as a card.
+  const askFromEmptyStage = (request) => askAssistant(request, scopedModels.length
+    ? { tab: 'data', modelId: scopedModels[0].id }
+    : { tab: 'help' });
+
+  // A file dropped anywhere on the empty stage starts the Import File step with
+  // it: the shortest way from a spreadsheet to a report.
+  const [fileOver, setFileOver] = useState(false);
+  const draggingFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+  const dropZone = canEdit ? {
+    onDragOver: (e) => { if (!draggingFiles(e)) return; e.preventDefault(); setFileOver(true); },
+    onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFileOver(false); },
+    onDrop: (e) => {
+      if (!draggingFiles(e)) return;
+      e.preventDefault();
+      setFileOver(false);
+      const file = e.dataTransfer.files?.[0];
+      if (!file) return;
+      const ext = `.${file.name.split('.').pop().toLowerCase()}`;
+      if (!FILE_IMPORT_ACCEPT.split(',').includes(ext)) { toast('This file cannot be imported: CSV, Excel, Parquet, JSON, SQLite or DuckDB'); return; }
+      openCreate('file');
+      pickFile(file);
+    },
+  } : {};
 
   // Confirmation belongs to the button that arms itself — see ConfirmDeleteButton.
   const deleteReport = async (id) => {
@@ -944,7 +996,7 @@ export default function Dashboard() {
                   </ImportMenuButton>
                   {/* Wrapped: openCreate takes a source mode, and passing it straight
                       as a handler would hand it the click event instead. */}
-                  <PrimaryButton onClick={() => openCreate()}>+ New Report</PrimaryButton>
+                  <span style={tourAnchor} data-tour="home-new-report"><PrimaryButton onClick={() => openCreate()}>+ New Report</PrimaryButton></span>
                 </>
               )}
               <RefreshButton onClick={refreshGraph} />
@@ -1151,20 +1203,31 @@ export default function Dashboard() {
             // Nothing to list, so the column carries the first step instead of
             // a sentence about its own emptiness. Same three choices the
             // dialog asks for, which is why picking one here skips that step.
-            <div style={emptyState}>
-              <p style={emptyTitle}>No reports in {wsName} yet</p>
+            <div style={emptyState} {...dropZone}>
+              {fileOver && (
+                <div style={dropOverlay} aria-hidden="true">
+                  <TbUpload size={30} />
+                  <span>Drop your file to start a report</span>
+                </div>
+              )}
               {canEdit ? (
                 <>
-                  <p style={emptySub}>Start from a file, a database, or a model you already have.</p>
+                  {aiAvailable && (
+                    <DescribeReport onSubmit={askFromEmptyStage} />
+                  )}
+                  <p style={emptySub}>{aiAvailable
+                    ? 'Or start from a file, a database, or a model you already have.'
+                    : 'Start from a file, a database, or a model you already have.'}</p>
                   <div style={emptyChoices}>
-                    {models.length > 0 && (
+                    {/* The models of this workspace: the dialog offers no other. */}
+                    {scopedModels.length > 0 && (
                       <button className="btn-hover" onClick={() => openCreate('model')} style={sourceCard}>
                         <TbLayoutDashboard size={28} color="var(--accent-primary)" />
                         <span style={_hs50}>Existing Model</span>
                         <span style={_hs51}>Use a data model already configured</span>
                       </button>
                     )}
-                    <button className="btn-hover" onClick={() => openCreate('file')} style={sourceCard}>
+                    <button className="btn-hover" onClick={() => openCreate('file')} style={sourceCard} data-tour="home-import-file">
                       <TbUpload size={28} color="#16a34a" />
                       <span style={_hs52}>Import File</span>
                       <span style={_hs53}>CSV, Excel, Parquet, JSON</span>
@@ -1177,7 +1240,18 @@ export default function Dashboard() {
                   </div>
                 </>
               ) : (
-                <p style={emptySub}>Nobody has shared a report here yet.</p>
+                // A viewer only reads what is shared with them: say where it
+                // will show, and who can share it.
+                <>
+                  <p style={viewerEmptyTitle}>No report to show yet</p>
+                  <p style={viewerEmptyText}>
+                    {selectedWs
+                      ? `Reports shared with ${wsName} will appear here.`
+                      : workspaces.length
+                        ? 'Reports shared with you are in your workspaces: pick one with the folder button at the top left.'
+                        : 'Reports shared with you will appear here. Ask an admin to add you to a workspace.'}
+                  </p>
+                </>
               )}
             </div>
           ) : (

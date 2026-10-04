@@ -77,3 +77,38 @@ test('the model editor files its new report under the open workspace', async ({ 
   expect(row.workspace_id).toBe(ws.id);
   expect(row.draft).toBe(1);
 });
+
+// A file dropped anywhere on the empty Reports stage starts the Import File
+// step with it: Import, and the editor opens on a report built from it.
+test('a file dropped on the empty stage becomes a report', async ({ page, request }) => {
+  const name = `Drop ${Date.now()}`;
+  const ws = (await (await request.post('/api/workspaces', { data: { name } })).json()).workspace;
+  try {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await page.goto('/');
+    await page.locator('header').getByRole('button', { name: 'My Reports' }).click();
+    await page.getByRole('button', { name }).first().click();
+    await expect(page.getByRole('button', { name: /^Import File/ }).last()).toBeVisible();
+
+    const fileName = `dropped-${Date.now()}.csv`;
+    const dataTransfer = await page.evaluateHandle((n) => {
+      const dt = new DataTransfer();
+      dt.items.add(new File(['id,amount\n1,10\n2,20\n'], n, { type: 'text/csv' }));
+      return dt;
+    }, fileName);
+    // Anywhere on the empty stage: here, on the Import File card (a stable spot,
+    // whatever the AI's state does to the text around it).
+    const stage = page.getByRole('button', { name: /^Import File/ }).last();
+    await stage.dispatchEvent('dragover', { dataTransfer });
+    await expect(page.getByText('Drop your file to start a report')).toBeVisible();
+    await stage.dispatchEvent('drop', { dataTransfer });
+
+    await expect(page.getByText(fileName)).toBeVisible();
+    await page.getByRole('dialog').getByRole('button', { name: 'Import', exact: true }).click();
+    await page.waitForURL(/\/edit\//);
+    const id = page.url().split('/edit/')[1].split(/[?#]/)[0];
+    expect((await reportRow(request, id)).workspace_id).toBe(ws.id);
+  } finally {
+    await request.delete(`/api/workspaces/${ws.id}`);
+  }
+});

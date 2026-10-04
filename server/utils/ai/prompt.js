@@ -157,6 +157,14 @@ function buildSystemPrompt({ reportTitle, schema, coverage, pageContext, mode, c
       ? '- Asked to change the data model itself (joins, which columns are dimensions or measures, the model\'s measures, fact / dimension tables, the diagram): you cannot do it here. Say so in one sentence and call `propose_action` with open_model_assistant and their request: the card opens the model assistant of the model editor, which can. Asked HOW: explain, then offer that card.'
       : '- Asked to change the data model itself (joins, which columns are dimensions or measures, the model\'s measures, fact / dimension tables, the diagram): you cannot do it here, and neither can this user. Say so in one sentence: the model\'s owner or an admin can, with the model assistant of the model editor (Data Models, open the model, sparkles button). No card.');
   }
+  // The Assistant panel is the one place a user may ask anything: a report,
+  // new data, how things work. Visuals answer questions; a whole report is a card.
+  if (ask) {
+    lines.push(
+      '- Asked for a whole report ("build me a report of…", "I need a dashboard on…"): call `propose_action` with create_report and their request — not a visual. A question about the data ("which region sells most?") is still answered with a visual.',
+      '- Asked to bring new data — connect a database, import a file — even as "how do I…?": explain in one or two sentences, then call `propose_action` with connect_database or import_file (for a file, say "send me the file": the card takes it). Never ask for connection details or file contents in the chat.',
+    );
+  }
   // A restyle cannot touch what a widget shows, so Design gets neither the
   // data tool nor the model's schema: on a real report that schema was most of
   // a 7 000-token prompt, and fewer tools is what keeps tool calling reliable.

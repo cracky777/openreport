@@ -4,7 +4,7 @@ import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB
 
 // Widget types whose flyout just adds the base type with the chosen sub-type.
 const SUB_TYPE_MENUS = { bar: BAR_SUB_TYPES, line: LINE_SUB_TYPES, combo: COMBO_SUB_TYPES, gauge: GAUGE_SUB_TYPES };
-import { TbEye, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbDownload, TbHandClick, TbFilter, TbToggleLeft, TbToggleRightFilled, TbPlus, TbX, TbSparkles } from 'react-icons/tb';
+import { TbEye, TbHelp, TbArrowLeft, TbSettings, TbShape, TbRefresh, TbArrowBackUp, TbArrowForwardUp, TbPuzzle, TbUpload, TbDownload, TbHandClick, TbFilter, TbToggleLeft, TbToggleRightFilled, TbPlus, TbX, TbSparkles } from 'react-icons/tb';
 import { useIsCompact } from '../../hooks/useMediaQuery';
 import { ICON_SIZE } from '../actionIcons';
 import ConfirmDeleteButton from '../ConfirmDeleteButton/ConfirmDeleteButton';
@@ -162,7 +162,7 @@ function WidgetTooltip({ text, show }) {
   );
 }
 
-export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, onRebuildCache, cacheWarming = false, cacheWarmPct = 0, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions, onOpenReportFilters, reportFilterCount = 0, reportFilterBarVisible = false, aiEnabled = false, aiOpen = false, onToggleAi, visualsNonce = 0 }) {
+export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, onRebuildCache, cacheWarming = false, cacheWarmPct = 0, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions, onOpenReportFilters, reportFilterCount = 0, reportFilterBarVisible = false, aiEnabled = false, aiOpen = false, onToggleAi, visualsNonce = 0, onShowTour }) {
   const navigate = useNavigate();
   // Wrapped, this toolbar was taking 233px of an 844px screen — more than a
   // quarter of the phone, most of it the widget palette you need once per
@@ -386,7 +386,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           {paletteOpen ? <TbX size={16} /> : <TbPlus size={16} />}
         </button>
       )}
-      <div style={compact && !paletteOpen ? hiddenStyle : _hs9}>
+      <div style={compact && !paletteOpen ? hiddenStyle : _hs9} data-tour="palette">
         {groupedWidgets.map((group, gi) => (
           <div key={group.name} style={_hs10}>
             {gi > 0 && <div style={_hs11} />}
@@ -764,6 +764,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             onMouseLeave={clearHover}>
             <button
               aria-label="AI assistant"
+              data-tour="ai"
               aria-pressed={aiOpen}
               onClick={onToggleAi}
               style={{
@@ -792,6 +793,16 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           </button>
           <WidgetTooltip text="Report settings" show={hoverKey === 'settings'} />
         </div>
+        {onShowTour && (
+          <div style={_hs49}
+            onMouseEnter={() => scheduleHover('tour')}
+            onMouseLeave={clearHover}>
+            <button aria-label="Show me around" onClick={onShowTour} style={utilityIconBtn}>
+              <TbHelp size={18} color="var(--text-secondary)" />
+            </button>
+            <WidgetTooltip text="Show me around" show={hoverKey === 'tour'} />
+          </div>
+        )}
         {exportMenu && (
           <>
             <div style={_hs50} />
@@ -833,6 +844,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
       </div>
 
       <button
+        data-tour="save"
         onClick={onSave}
         disabled={saving}
         style={saveBtnStyle(saving)}

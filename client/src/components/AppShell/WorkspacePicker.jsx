@@ -51,7 +51,7 @@ export default function WorkspacePicker({ canCreate }) {
   const openSettings = (id) => { setSettingsFor(id); setOpen(false); };
 
   return (
-    <div ref={boxRef} style={relStyle}>
+    <div ref={boxRef} style={relStyle} data-tour="home-workspace">
       <button
         onClick={() => setOpen((v) => !v)}
         style={pillStyle}

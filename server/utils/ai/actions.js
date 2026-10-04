@@ -10,10 +10,25 @@
 //
 // The model never writes a cron expression: it says how often, which day and
 // at what time; the server builds the expression and checks it.
+//
+// The Assistant panel is where newcomers land, so it also opens the steps
+// before any report: a card that opens the database connection form, one that
+// takes a file (the file goes from the browser to the upload route, never to
+// the AI provider; connection details are typed in the form, never in the
+// chat), one that builds a data model on a source, one that starts a report
+// from what the user described. Opening a form does nothing by itself: those
+// two are offered to a "how do I…?" too.
 
 const { validateCron } = require('../cacheSchedules');
 
-const ACTIONS = ['schedule_cache_refresh', 'open_model_assistant'];
+const ACTIONS = ['schedule_cache_refresh', 'open_model_assistant', 'connect_database', 'import_file', 'build_model', 'create_report'];
+// What each assistant may hand over.
+const ACTIONS_FOR = {
+  editor: ['schedule_cache_refresh', 'open_model_assistant'],
+  ask: ['schedule_cache_refresh', 'open_model_assistant', 'create_report', 'connect_database', 'import_file'],
+  help: ['connect_database', 'import_file', 'build_model'],
+};
+const OPENS_A_FORM = new Set(['connect_database', 'import_file']);
 const FREQUENCIES = ['hourly', 'daily', 'weekly', 'monthly'];
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const TIME = /^([01]?\d|2[0-3]):([0-5]\d)$/;
@@ -40,22 +55,28 @@ function scheduleOf(args) {
 }
 
 /**
- * @param {{canEditModel?: boolean}} ctx whether the user may change the data model
+ * @param {{canEditModel?: boolean, allowed?: string[]}} ctx whether the user may change the data model; the actions this assistant may hand over
  * @returns {{ action: object|null, errors: string[] }} `action` is what the card applies
  */
-function validateActionProposal(args, { canEditModel = false } = {}) {
+function validateActionProposal(args, { canEditModel = false, allowed = ACTIONS_FOR.editor } = {}) {
   const a = args && typeof args === 'object' ? args : {};
+  if (!allowed.includes(a.action)) return { action: null, errors: [`action must be one of ${allowed.join(', ')}`] };
   // Asked "how do I schedule a report?", a real model scheduled one: the user
   // wanted to learn how. The model says which it read — being asked to do it,
-  // or asked how — and only the first gets a card.
-  if (a.userAsked !== 'do') {
+  // or asked how — and only the first gets a card. A card that only opens a
+  // form goes with the explanation either way: it does nothing by itself.
+  if (a.userAsked !== 'do' && !OPENS_A_FORM.has(a.action)) {
     return { action: null, errors: ['the user asked HOW, not to do it: answer with the steps from read_help, then offer in one sentence to do it for them'] };
   }
-  if (!ACTIONS.includes(a.action)) return { action: null, errors: [`action must be one of ${ACTIONS.join(', ')}`] };
   const summary = typeof a.summary === 'string' ? a.summary.slice(0, MAX_SUMMARY) : '';
+  const request = typeof a.request === 'string' ? a.request.trim().slice(0, MAX_REQUEST) : '';
+  if (OPENS_A_FORM.has(a.action)) return { action: { action: a.action, summary, request }, errors: [] };
+  if (a.action === 'build_model' || a.action === 'create_report') {
+    if (!request) return { action: null, errors: [`${a.action} needs request: what the user wants, in their words`] };
+    return { action: { action: a.action, summary, request }, errors: [] };
+  }
   if (a.action === 'open_model_assistant') {
     if (!canEditModel) return { action: null, errors: ['this user cannot change the data model: no card — say in one sentence that its owner or an admin can, with the model assistant of the model editor'] };
-    const request = typeof a.request === 'string' ? a.request.trim().slice(0, MAX_REQUEST) : '';
     return { action: { action: a.action, summary, request }, errors: [] };
   }
   const built = scheduleOf(a);
@@ -73,4 +94,4 @@ function validateActionProposal(args, { canEditModel = false } = {}) {
   };
 }
 
-module.exports = { validateActionProposal, ACTIONS, FREQUENCIES, WEEKDAYS };
+module.exports = { validateActionProposal, ACTIONS, ACTIONS_FOR, FREQUENCIES, WEEKDAYS };

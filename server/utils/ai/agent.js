@@ -12,7 +12,7 @@ const { dimensionCardinality } = require('./cardinality');
 const { helpTopics, readHelp } = require('./help');
 const { validateWidgetsProposal, validateDesignProposal, validateVisualProposal } = require('./validateProposal');
 const { layoutNew } = require('./arrangeLayout');
-const { validateActionProposal } = require('./actions');
+const { validateActionProposal, ACTIONS_FOR } = require('./actions');
 
 const MAX_ITERATIONS = 6;
 // Rows of each cache read handed back to the client, which replays them in the
@@ -46,11 +46,12 @@ const PROPOSERS = {
     return { payload: { kind: 'design', summary, advice, colorScheme, ops }, errors, warnings };
   },
   propose_action(args, ctx) {
-    const { action, errors } = validateActionProposal(args, { canEditModel: ctx.canEditModel });
+    const allowed = ACTIONS_FOR[ctx.mode === 'ask' ? 'ask' : 'editor'];
+    const { action, errors } = validateActionProposal(args, { canEditModel: ctx.canEditModel, allowed });
     if (!action) return { payload: null, errors };
-    // The model to open is the one of the conversation, never a name the
-    // model chose.
-    if (action.action === 'open_model_assistant') return { payload: { kind: 'action', ...action, modelId: ctx.modelId }, errors };
+    // The model to open, or to build the report on, is the one of the
+    // conversation, never a name the model chose.
+    if (action.action === 'open_model_assistant' || action.action === 'create_report') return { payload: { kind: 'action', ...action, modelId: ctx.modelId }, errors };
     // Which report it is for: the one open in the editor; in Ask, the user
     // picks it on the card (`null` here).
     return { payload: { kind: 'action', ...action, reportId: ctx.reportId || null }, errors };
@@ -140,7 +141,7 @@ async function runChat({ config, user, orgId, report, effective, messages, pageC
     ? [tools.PROPOSE_DESIGN_CHANGES]
     : [tools.widgetsToolFor({ library, withLayout: mode !== 'ask', hasDate })];
   if (mode !== 'design' && canWriteVisuals) proposalTools.push(tools.PROPOSE_CUSTOM_VISUAL);
-  if (mode !== 'design') proposalTools.push(tools.PROPOSE_ACTION);
+  if (mode !== 'design') proposalTools.push(mode === 'ask' ? tools.actionToolFor(ACTIONS_FOR.ask) : tools.PROPOSE_ACTION);
   // Design restyles; it has no use for the data, so no data tool either.
   // "How do I…?" is asked in every mode: the user guide is one tool away.
   const topics = helpTopics();

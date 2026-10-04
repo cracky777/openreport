@@ -7,6 +7,7 @@ import ProposalCard from './ProposalCard';
 import ActionCard from './ActionCard';
 import AssistantText from './AssistantText';
 import PersonalProvider from './PersonalProvider';
+import Suggestions from './Suggestions';
 
 const panelStyle = {
   backgroundColor: 'var(--bg-panel-alt)', borderLeft: '1px solid var(--border-default)',
@@ -27,12 +28,6 @@ const iconBtn = {
   borderRadius: 6, cursor: 'pointer',
 };
 const threadStyle = { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 2 };
-const emptyStyle = { fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 };
-const exampleBtn = {
-  display: 'block', width: '100%', textAlign: 'left', marginTop: 6, padding: '6px 8px', fontSize: 12,
-  color: 'var(--text-secondary)', background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
-  borderRadius: 6, cursor: 'pointer',
-};
 const userBubble = {
   alignSelf: 'flex-end', maxWidth: '90%', padding: '6px 10px', borderRadius: 10, fontSize: 12, lineHeight: 1.45,
   background: 'var(--accent-primary)', color: '#fff', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
@@ -74,12 +69,14 @@ const MODES = {
     icon: TbChartBar,
     placeholder: 'Ask a business question…',
     examples: ['Which categories drive revenue?', 'Show the monthly trend of the main measure'],
+    learn: ['How do I filter the whole page?', 'How do I share this report?'],
   },
   design: {
     label: 'Design',
     icon: TbPalette,
     placeholder: 'Describe the look you want…',
     examples: ['Rearrange this page so the key figure stands out', 'Use one consistent color palette across the page'],
+    learn: ['How do I change the theme of the report?'],
   },
 };
 
@@ -90,7 +87,7 @@ const SHARING = {
   schema: 'Schema only — no data is shared. Field names are sent to your AI provider.',
 };
 
-export default function AiPanel({ reportId, model, widgets, settings, status, onStatusChange, getPageContext, onApplyProposal, onClose, onResizeStart, onResizeEnd }) {
+export default function AiPanel({ reportId, model, widgets, settings, status, onStatusChange, getPageContext, onApplyProposal, onClose, onResizeStart, onResizeEnd, initialRequest = '' }) {
   const { width, handleProps } = useResizableWidth({ storageKey: 'openreport.aiPanelWidth', defaultWidth: 300, min: 260, max: 520, onDragStart: onResizeStart, onDragEnd: onResizeEnd });
   const compact = useIsCompact();
   const getExtraBody = useCallback(() => ({ pageContext: getPageContext() }), [getPageContext]);
@@ -117,6 +114,20 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
     // A failed turn hands the question back so it can be re-sent as is.
     if (!(await send(question, { mode }))) setDraft(question);
   };
+
+  // A request described before the report existed (the empty Reports stage) is
+  // asked right away: the user already pressed the button that says so. Until a
+  // provider is set it waits in the box. Once only — StrictMode runs effects twice.
+  const askedInitialRef = useRef(false);
+  useEffect(() => {
+    if (!initialRequest || askedInitialRef.current) return;
+    if (status.enabled) {
+      askedInitialRef.current = true;
+      submit(initialRequest);
+    } else if (status.reason === 'setup') {
+      setDraft(initialRequest);
+    }
+  }, [initialRequest, status.enabled, status.reason]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -170,11 +181,10 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
 
       <div ref={threadRef} style={threadStyle}>
         {messages.length === 0 && (
-          <div style={emptyStyle}>
-            {MODES[mode].examples.map((ex) => (
-              <button key={ex} style={exampleBtn} onClick={() => submit(ex)}>{ex}</button>
-            ))}
-          </div>
+          <Suggestions dense onPick={submit} groups={[
+            { label: 'Try', items: MODES[mode].examples },
+            { label: 'Learn the tool', items: MODES[mode].learn },
+          ]} />
         )}
         {messages.map((m, i) => (m.role === 'user' ? (
           <div key={i} style={userBubble}>{m.text}</div>

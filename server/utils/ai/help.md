@@ -4,11 +4,14 @@
 - OpenReport works in three stages, left to right: Data Sources (connections) → Data Models (the fields people report on) → Reports.
 - The stage switcher in the top header shows Data Sources, Data Models and Reports. Viewers only see Reports; Data Sources and Data Models are for admins and editors.
 - Alt+← / Alt+→ moves between stages. On a wide screen you can also click the neighbouring column that peeks in at the edge.
-- Overview (eye icon right of the stage switcher, wide screens): shows Data Sources, Data Models and Reports side by side, zoomed out to fit the screen, with the joins between them and without the cards' buttons. Click a column to open that stage; Esc or the same icon goes back.
+- Overview (eye icon right of the stage switcher, wide screens, admins and editors): shows Data Sources, Data Models and Reports side by side, zoomed out to fit the screen, with the joins between them and without the cards' buttons. Click a column to open that stage; Esc or the same icon goes back.
 - Lines between cards show which model uses which source and which report uses which model. Clicking the name or the count on a line opens the next stage and highlights that branch: everything it is linked to stays as is, the rest is greyed out (nothing is hidden), and the column scrolls to the first highlighted card. The crumb at the top (Highlighting …) switches to another branch or clears it with its ×. The + at the end of a card creates on it (a model on a source, a report on a model) without highlighting anything.
 - The workspace picker (folder icon, top-left, next to the logo) chooses between My Reports and the workspaces you belong to. Every stage follows it: Data Sources and Data Models show what lives in the open workspace (or is shared into it), Reports shows its reports. An app admin also sees, apart, the workspaces they hold no role in.
 - Top-right: your user menu (the account pill). It opens on Alerts (admins and editors), Admin (admins only), the theme, API tokens, Report a bug and Logout.
-- Right edge: the Assistant bar (if the AI assistant is available to you) — click it to open or close the Assistant panel.
+- Right edge: the Assistant bar (if the AI assistant is available to you) — click it to open or close the Assistant panel. The Help button in the top header opens that panel on its Help tab: ask how to do anything in OpenReport. Without the AI assistant, the Help button opens the user guide instead.
+- The user guide (Help → Read the full guide, or the Help button when the assistant is not available): every topic of this guide on one page, with a search box and the list of topics on the left.
+- Tutorials: arriving on the Reports stage, in the report editor and in the model editor (wide screens), a short tutorial points at each part, one bubble at a time (on arrival: Data Sources, Data Models and Reports each in turn, then where to create and where to ask): Next / Back move through it, × closes it. It comes back each time you arrive there until you tick Don't show this tutorial again in one of its bubbles. Show me around plays it again: in your account menu (Reports), or the question-mark button of each editor.
+- On the empty Reports stage, the Import File / Connect Database / Existing Model cards are the quick way to start a report — and a file dropped anywhere on the empty stage opens Import File with it.
 
 ## roles — Roles and who can do what
 - Every account has an app role: Admin (full access + user management), Editor (create/edit reports, models, datasources) or Viewer (view reports only).
@@ -33,6 +36,7 @@
 - A source marked "shared" is shared into the open workspace: create models on it, its settings belong to its own workspace. One marked "read-only" is shown because a model that lives in this workspace, and that you edit, reads it. A dashed card with a lock ("Not shared with this workspace") is the source of a data model shared here: it shows where the model comes from, but it is not shared — ask its workspace admin to share it to build models on it.
 - On a source card (workspace admins): edit the connection or re-import the file, Share with other workspaces…, Move to another workspace, Delete; the + creates a model on it (editors).
 - Supported: PostgreSQL, Azure PostgreSQL, Redshift, MySQL, Oracle, Azure SQL, SQL Server, BigQuery, Snowflake, Databricks, ClickHouse, DuckDB.
+- The first type, File, is not a database: it imports a file instead (CSV, Excel, Parquet, JSON…) — drop it or choose it, then the usual import options (see file-upload). On the Data Sources stage, + New Connection opens on File; pick another type to connect a database.
 1. Click + New Connection, choose the type and fill in host, port, database, user and password (fields change with the type; e.g. SSL, TLS, named instance).
 2. Click Test Connection until it says "Connection successful!".
 3. Click Save.
@@ -60,7 +64,7 @@
 5. Step 3. Dimensions & Measures: rename labels, set types and date formats, add calculated fields.
 6. Click Save (top-right). + New Report saves the model and opens a new report on it.
 - The datasource badge in the header lets you switch the model to another data source (Change datasource); broken references are listed with a Re-check button.
-- The model assistant (sparkles button in the model editor header, for the model's owner or an admin, when the AI assistant is available) can propose the joins, which columns are dimensions or measures, new measures (sum, average, count, distinct count, min, max of a column), which tables are facts or dimensions, and arrange the diagram. Review the card, untick any line you do not want, click Apply, then Save the model. It does not write SQL: calculated fields stay manual.
+- The model assistant (sparkles button in the model editor header, for the model's owner or an admin, when the AI assistant is available) can propose the tables of the source the model needs (it reads their column names, never their rows), the joins, which columns are dimensions or measures, new measures (sum, average, count, distinct count, min, max of a column), which tables are facts or dimensions, and arrange the diagram. Review the card, untick any line you do not want, click Apply, then Save the model. A card that adds tables adds only them: once they are loaded (columns flagged, joins the database declares drawn), the assistant goes on by itself with the joins, table roles and fields. It does not write SQL: calculated fields stay manual.
 - On a model card: Edit model, Refresh the cache and Delete model; More actions (⋮) holds Incremental cache refresh, Export data model (a .model.yaml file), Share (with other workspaces) and Move to workspace; the + adds a report on it. What shows follows your role: an editor edits and exports, a workspace admin has everything, a model shared into the workspace (badge "shared") offers only the +.
 
 ## fields — Dimensions, measures and calculated fields
@@ -86,14 +90,16 @@
 1. Type a Title.
 2. Pick the data: Existing Model, Import File (CSV, Excel, Parquet, JSON) or Connect Database.
 3. With an existing model: choose the Model → Create Report. The editor opens.
+- Or ask the assistant: when a workspace has no report yet, and the AI assistant is available to you, the Reports stage asks What do you need? Describe the report you want and press Enter: the Assistant panel opens with your request asked — on its Your data tab when the workspace has a data model, on Help otherwise. It answers with a card: Build this report (a new report opens in the editor with the assistant asked your request), or, with no data yet, Import a file or Connect a database, then Build a data model with the assistant.
 - On a report card: View (opens the viewer in a new tab), Edit, More actions (⋮), and delete.
 - More actions (⋮): Rename, Duplicate, Export report, Move to workspace, Share report, Share public link / Make private, Copy public link, Embed…, History (admins), Schedule refresh, Alerts…, and the Rollup cache / Live query switch (admins).
-- Viewers only get View.
+- Viewers only get View. A viewer sees only the reports shared with them: with none yet, Reports says so — an admin adds them to a workspace where reports are shared.
 
 ## editor — The report editor toolbar
 - Left: Back, Undo, Redo, the report title (click to rename).
 - Middle: the widget palette — Bar Chart, Line Chart, Combo Chart, Pie Chart, TreeMap, Scatter Chart; Table (and Pivot Table), Scorecard, Gauge; Filter; Shapes (Text, Image, Line, Square, Round, Arrow); Custom visuals (workspace reports only).
-- Right: Refresh data (Live query or Cache), Edit interactions, AI assistant (when available), Report settings, Export, Preview, Save.
+- Right: Refresh data (Live query or Cache), Edit interactions, AI assistant (when available), Report settings, Show me around (question mark), Export, Preview, Save.
+- The tutorial of the editor points at where to add a visual, your fields, + Measure and + Dimension, the page, the assistant and Save; Show me around (question mark in the toolbar) plays it again.
 - Right-hand panels: the property panel of the selected visual, and the Data panel with the model's Dimensions and Measures (collapsible).
 - Shortcuts: Ctrl+Z undo, Ctrl+Y or Ctrl+Shift+Z redo, Ctrl+C / Ctrl+V copy-paste a widget, Delete removes the selected widget, arrow keys nudge it (Shift = ten steps).
 - Preview opens the last saved version in a new tab; with unsaved changes it offers Save and preview.
@@ -248,17 +254,20 @@
 - Two modes: Visuals (ask a business question; it proposes visuals) and Design (describe the look; it proposes layout, colour or theme changes).
 - It never changes the report by itself: each proposal is a card with Add visual / Add N visuals, or Apply N changes, and Dismiss. When a card has several lines (visuals, changes), untick the ones you do not want: only the ticked ones are applied, and the assistant is told what you kept. An applied proposal is one undo step (Ctrl+Z); a theme change has its own Revert button.
 - In a workspace report it can also write a new custom visual, previewed sandboxed on sample data (Review the code); only a workspace admin can Add to library & insert.
-- New conversation starts over; Stop cancels an answer.
+- New conversation starts over; Stop cancels an answer. An empty conversation offers example questions (Try, Learn the tool) to click.
 - It does not change the data model (joins, dimension / measure flags, model measures, fact / dimension tables). The model assistant of the model editor does: the assistant offers an Open model assistant card to the model's owner or an admin.
 
-## ask — The Assistant panel (ask your data)
-- Who: admins and editors, when the assistant is available to them. Where: the Assistant bar docked on the right edge of the Data Sources / Data Models / Reports screens (click it to open or close the panel; on a phone, the sparkles button in the top header).
-1. Pick the Data model at the top of the Assistant panel.
+## ask — The Assistant panel (ask your data, and Help)
+- Where: the Assistant bar docked on the right edge of the Data Sources / Data Models / Reports screens (click it to open or close the panel; on a phone, the sparkles button in the top header). The Help button in the top header opens the same panel on its Help tab.
+- Two tabs. Your data: questions about a data model (admins and editors, once a data model exists). Help: how to use OpenReport, for everyone who has the assistant, viewers included; it answers from this guide and cannot see your data. With no data model yet, or as a viewer, the panel shows the Help tab only.
+- An empty conversation offers example questions to click: things to try on your data, and things to learn about the tool.
+1. Pick the Data model at the top of the Assistant panel (Your data tab).
 2. Type a question (Ask anything about your data…) → Send.
 3. The answer shows a visual, switchable between Chart and Table. Rate it with Good answer / Bad answer.
 4. Add to report → Existing report (choose Report and Page) or New report (Title, Workspace) → Add. Then Open in editor.
 - It proposes visuals on any data model. To quote figures in its answer it reads only data already in the rollup cache, never the live database.
-- It also answers questions about how to use OpenReport, and can do some things for you once you confirm (scheduling a report's cache refresh).
+- It also answers questions about how to use OpenReport, and can do some things for you once you confirm, as a card: scheduling a report's cache refresh; Build this report (asked for a whole report: a new report opens in the editor with the assistant asked your request); Connect a database (opens the connection form: you type the connection details there, never in the chat); Import a file (drop the file on the card, or click to choose it).
+- On the Help tab too, admins and editors get those cards to bring data in: Connect a database, Import a file, and Build a data model on a source you already have. Once a file is imported or a database connected, the card offers Build a data model with the assistant: the model editor opens and its assistant prepares the model (and, if you asked for a report, Continue to your report takes you there). The file goes straight from your browser to OpenReport, never to the AI provider.
 - If the target report is open in an editor, save and close it first, or its next save overwrites the addition.
 - It does not change the data model (joins, dimension / measure flags, model measures, fact / dimension tables). The model assistant of the model editor does: the assistant offers an Open model assistant card to the model's owner or an admin.
 
