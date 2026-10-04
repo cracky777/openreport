@@ -41,13 +41,16 @@ export function GraphProvider({ children }) {
   // reads it. Remembered per user across reloads.
   const lastWsKey = user?.id ? `openreport.lastWorkspace.${user.id}` : null;
   const [selectedWs, setSelectedWs] = useState(null);
+  // Another account signing in, in the same tab, starts from ITS remembered
+  // workspace or My Reports — never from the one the previous account had open,
+  // where it may hold no role: it saw nothing there and could create nothing.
   useEffect(() => {
-    if (!lastWsKey) return;
+    let stored = null;
     try {
-      const stored = window.localStorage.getItem(lastWsKey);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (stored && stored !== 'null') setSelectedWs(stored);
+      stored = lastWsKey ? window.localStorage.getItem(lastWsKey) : null;
     } catch { /* private mode / storage disabled — start on My Reports */ }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedWs(stored && stored !== 'null' ? stored : null);
   }, [lastWsKey]);
   useEffect(() => {
     if (!lastWsKey) return;
@@ -55,12 +58,12 @@ export function GraphProvider({ children }) {
   }, [lastWsKey, selectedWs]);
 
   // A workspace that no longer exists (deleted, access revoked) must not leave
-  // the picker pointing at nothing.
+  // the picker pointing at nothing — even when the account has no workspace at all.
   useEffect(() => {
-    if (!selectedWs || (!workspaces.length && !otherWorkspaces.length)) return;
+    if (!selectedWs || loading) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!workspaces.some((w) => w.id === selectedWs) && !otherWorkspaces.some((w) => w.id === selectedWs)) setSelectedWs(null);
-  }, [selectedWs, workspaces, otherWorkspaces]);
+  }, [selectedWs, workspaces, otherWorkspaces, loading]);
 
   const refresh = useCallback(async () => {
     // Each list degrades on its own: a datasource the user can't read must not
@@ -85,8 +88,22 @@ export function GraphProvider({ children }) {
   // viewer renders under this provider too.
   // The rule fires because `refresh` sets state, but it only does so after
   // awaiting the three requests — never synchronously during the effect.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (user) refresh(); }, [user, refresh]);
+  // Signed out, or another account: the previous one's lists leave the screen
+  // at once rather than once the new ones are in.
+  const userId = user?.id || null;
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setDatasources([]);
+    setModels([]);
+    setReports([]);
+    setWorkspaces([]);
+    setPersonalWorkspace(null);
+    setOtherWorkspaces([]);
+    setManagesAll(false);
+    setLoading(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
+    if (userId) refresh();
+  }, [userId, refresh]);
 
   // Everything below is scoped to the active workspace. Reports are the
   // workspace's own; sources and models are those that LIVE there or are
