@@ -4,6 +4,33 @@ All notable changes to OpenReport are listed here. Versions follow
 [Semantic Versioning](https://semver.org/); each one is a git tag and a
 `ghcr.io/cracky777/openreport` image.
 
+## 0.5.0 — 2026-10-04
+
+- **The assistant as a way in.** On the Data Sources / Data Models / Reports
+  screens the Assistant answers any question about the app from the built-in
+  guide, and hands over buttons for what it explains (connect a database,
+  import a file, build a model, create a report). The guide is also a page of
+  its own, `/help`, readable without AI.
+- **Guided tours.** A first visit to the home screen, the report editor and the
+  model editor shows a tour in bubbles, one per stage or step; it comes back on
+  each visit until "Don't show this tutorial again" is ticked, and Show me
+  around plays it again.
+- **Start from a file.** "File" is the first connector of a new data source,
+  and a file dropped anywhere on the empty Reports stage is imported.
+- **The assistant docked on the right everywhere**, report and model editors
+  included; the Data panel, the assistant and the visual's configuration panel
+  slide open and closed.
+- **Drop a field on the page to make a visual there**: a measure becomes a
+  scorecard, a dimension a table, and "Show as" offers the other shapes (or
+  asks the assistant). A dimension dropped on a scorecard turns it into a chart.
+- **The selected visual lights up its button** in the editor's palette, and its
+  variant in that button's menu, as in Power BI.
+- A viewer with no report gets an explicit message instead of empty stages.
+- Signing in as another account in the same tab no longer keeps the previous
+  account's workspace.
+- The AI could not be turned off in Admin while no provider was set
+  ("Base URL must be valid").
+
 ## 0.4.0 — 2026-09-30
 
 - **A data model can read several imported files.** Each imported file is a
