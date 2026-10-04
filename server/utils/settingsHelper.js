@@ -289,11 +289,16 @@ function applyAiProviderPatch(next, p) {
     if (!AI_PROVIDERS.includes(p.provider)) throw new Error(`Provider must be one of: ${AI_PROVIDERS.join(', ')}`);
     next.provider = p.provider;
   }
-  if (p.baseUrl !== undefined) next.baseUrl = validateAiBaseUrl(p.baseUrl);
+  // A form sends back every field, changed or not: only a changed one is
+  // checked. Otherwise a config switched on before its provider was filled in
+  // (empty base URL and model) could never be switched off again.
+  if (p.baseUrl !== undefined && String(p.baseUrl == null ? '' : p.baseUrl).trim() !== next.baseUrl) next.baseUrl = validateAiBaseUrl(p.baseUrl);
   if (p.model !== undefined) {
     const model = String(p.model == null ? '' : p.model).trim();
-    if (!model || model.length > 200) throw new Error('Model must be 1 to 200 characters');
-    next.model = model;
+    if (model !== next.model) {
+      if (!model || model.length > 200) throw new Error('Model must be 1 to 200 characters');
+      next.model = model;
+    }
   }
   if (p.clearApiKey === true) next.apiKey = '';
   if (typeof p.apiKey === 'string' && p.apiKey.trim()) {

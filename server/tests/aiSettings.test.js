@@ -102,11 +102,21 @@ describe('admin AI settings', () => {
     ['an unknown provider', { provider: 'skynet' }],
     ['a non-http URL', { baseUrl: 'file:///etc/passwd' }],
     ['a URL with credentials', { baseUrl: 'https://user:pw@host.test' }],
-    ['an empty model', { model: '  ' }],
   ])('%s is a 400', async (_what, patch) => {
     const res = await put(admin, patch);
     expect(res.status).toBe(400);
     expect(res.body.error).toBeTruthy();
+  });
+
+  // The form sends back every field: an empty model sent back unchanged is no
+  // change (switching off a provider-less config must work), emptying a set one is refused.
+  test('emptying the model is a 400; sending an empty one back unchanged is not', async () => {
+    await put(admin, VALID);
+    const res = await put(admin, { model: '  ' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Model must be/);
+    await put(admin, { removeProvider: true });
+    expect((await put(admin, { enabled: false, baseUrl: '', model: '' })).status).toBe(200);
   });
 
   test('an undecryptable key disables the assistant instead of throwing', async () => {
