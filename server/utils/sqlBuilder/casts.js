@@ -214,7 +214,7 @@ function buildInList(colExpr, dimType, list, dbType, negate) {
 // flavour to keep the IN clause numeric-vs-string aligned.
 function effectiveDimType(dim) {
   if (!dim) return 'string';
-  if (dim.datePart) return dim.datePart.startsWith('name_') ? 'string' : 'integer';
+  if (dim.datePart) return dim.datePart.startsWith('name_') || dim.datePart === 'year_month' ? 'string' : 'integer';
   return dim.type || 'string';
 }
 

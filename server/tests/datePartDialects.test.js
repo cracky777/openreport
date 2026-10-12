@@ -83,3 +83,17 @@ describe('buildDatePartExpr — une syntaxe par dialecte', () => {
     expect(buildDatePartExpr({ table: 't', column: 'd' }, 'bigquery', {})).toBeNull();
   });
 });
+
+describe('year_month — le mois qui se trie à travers les années', () => {
+  test('chaque dialecte rend « YYYY-MM », jamais la colonne brute', () => {
+    const expected = {
+      duckdb: `STRFTIME(CAST("t"."d" AS DATE), '%Y-%m')`,
+      postgres: `TO_CHAR(CAST("t"."d" AS DATE), 'YYYY-MM')`,
+      mysql: "DATE_FORMAT(CAST(`t`.`d` AS DATE), '%Y-%m')",
+      mssql: "FORMAT(TRY_CONVERT(date, [t].[d]), 'yyyy-MM')",
+      bigquery: "FORMAT_DATE('%Y-%m', CAST(`t`.`d` AS DATE))",
+    };
+    for (const [dbType, sql] of Object.entries(expected)) expect(exprFor(dbType, 'year_month')).toBe(sql);
+    for (const dbType of ['oracle', 'databricks', 'clickhouse', 'snowflake']) expect(exprFor(dbType, 'year_month')).toMatch(/Y-%m|YYYY-MM|yyyy-MM/);
+  });
+});

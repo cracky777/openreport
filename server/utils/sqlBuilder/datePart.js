@@ -38,7 +38,8 @@ function getOverrideType(table, column, columnTypes) {
 }
 
 // Build the SQL expression for a date-part dimension (year, month, week,
-// day-of-week, month/day name) honouring the per-dialect EXTRACT/YEAR/etc.
+// day-of-week, month/day name, year-month as 'YYYY-MM' — the one that sorts
+// a trend across years) honouring the per-dialect EXTRACT/YEAR/etc.
 // syntax AND the column's date-format override (so a text column with
 // 'DD/MM/YYYY' values is parsed before the part is extracted).
 //
@@ -57,6 +58,7 @@ function buildDatePartExpr(dim, dbType, columnTypes) {
       case 'num_year': return `EXTRACT(YEAR FROM ${dateExpr})`;
       case 'num_month': return `EXTRACT(MONTH FROM ${dateExpr})`;
       case 'name_month': return `STRFTIME(${dateExpr}, '%B')`;
+      case 'year_month': return `STRFTIME(${dateExpr}, '%Y-%m')`;
       case 'num_week': return `EXTRACT(WEEK FROM ${dateExpr})`;
       case 'num_day_of_week': return `EXTRACT(DOW FROM ${dateExpr})`;
       case 'name_day': return `STRFTIME(${dateExpr}, '%A')`;
@@ -84,6 +86,7 @@ function buildDatePartExpr(dim, dbType, columnTypes) {
       case 'num_year': return `EXTRACT(YEAR FROM ${dateExpr})`;
       case 'num_month': return `EXTRACT(MONTH FROM ${dateExpr})`;
       case 'name_month': return `TO_CHAR(${dateExpr}, 'FMMonth', 'NLS_DATE_LANGUAGE=ENGLISH')`;
+      case 'year_month': return `TO_CHAR(${dateExpr}, 'YYYY-MM')`;
       case 'num_week': return `TO_NUMBER(TO_CHAR(${dateExpr}, 'IW'))`;
       case 'num_day_of_week': return `TO_NUMBER(TO_CHAR(${dateExpr}, 'D'))`;
       case 'name_day': return `TO_CHAR(${dateExpr}, 'FMDay', 'NLS_DATE_LANGUAGE=ENGLISH')`;
@@ -99,6 +102,7 @@ function buildDatePartExpr(dim, dbType, columnTypes) {
       case 'num_year': return `year(${dateExpr})`;
       case 'num_month': return `month(${dateExpr})`;
       case 'name_month': return `date_format(${dateExpr}, 'MMMM')`;
+      case 'year_month': return `date_format(${dateExpr}, 'yyyy-MM')`;
       case 'num_week': return `weekofyear(${dateExpr})`;
       case 'num_day_of_week': return `dayofweek(${dateExpr})`;
       case 'name_day': return `date_format(${dateExpr}, 'EEEE')`;
@@ -111,6 +115,7 @@ function buildDatePartExpr(dim, dbType, columnTypes) {
       case 'num_year': return `toYear(${dateExpr})`;
       case 'num_month': return `toMonth(${dateExpr})`;
       case 'name_month': return `monthName(${dateExpr})`;
+      case 'year_month': return `formatDateTime(${dateExpr}, '%Y-%m')`;
       case 'num_week': return `toWeek(${dateExpr})`;
       case 'num_day_of_week': return `toDayOfWeek(${dateExpr})`;
       case 'name_day': return `formatDateTime(${dateExpr}, '%W')`;
@@ -123,6 +128,7 @@ function buildDatePartExpr(dim, dbType, columnTypes) {
       case 'num_year': return `YEAR(${dateExpr})`;
       case 'num_month': return `MONTH(${dateExpr})`;
       case 'name_month': return `MONTHNAME(${dateExpr})`;
+      case 'year_month': return `DATE_FORMAT(${dateExpr}, '%Y-%m')`;
       case 'num_week': return `WEEK(${dateExpr})`;
       case 'num_day_of_week': return `DAYOFWEEK(${dateExpr})`;
       case 'name_day': return `DAYNAME(${dateExpr})`;
@@ -134,6 +140,7 @@ function buildDatePartExpr(dim, dbType, columnTypes) {
       case 'num_year': return `YEAR(${dateExpr})`;
       case 'num_month': return `MONTH(${dateExpr})`;
       case 'name_month': return `DATENAME(MONTH, ${dateExpr})`;
+      case 'year_month': return `FORMAT(${dateExpr}, 'yyyy-MM')`;
       case 'num_week': return `DATEPART(WEEK, ${dateExpr})`;
       case 'num_day_of_week': return `DATEPART(WEEKDAY, ${dateExpr})`;
       case 'name_day': return `DATENAME(WEEKDAY, ${dateExpr})`;
@@ -151,6 +158,7 @@ function buildDatePartExpr(dim, dbType, columnTypes) {
       case 'num_year': return `EXTRACT(YEAR FROM ${dateExpr})`;
       case 'num_month': return `EXTRACT(MONTH FROM ${dateExpr})`;
       case 'name_month': return `TO_CHAR(${dateExpr}, 'MMMM')`;
+      case 'year_month': return `TO_CHAR(${dateExpr}, 'YYYY-MM')`;
       case 'num_week': return `EXTRACT(WEEK FROM ${dateExpr})`;
       case 'num_day_of_week': return `EXTRACT(DAYOFWEEK FROM ${dateExpr})`;
       case 'name_day': return `DECODE(EXTRACT(DAYOFWEEKISO FROM ${dateExpr}), 1, 'Monday', 2, 'Tuesday', 3, 'Wednesday', 4, 'Thursday', 5, 'Friday', 6, 'Saturday', 7, 'Sunday')`;
@@ -172,6 +180,7 @@ function buildDatePartExpr(dim, dbType, columnTypes) {
       case 'num_year': return `EXTRACT(YEAR FROM ${dateExpr})`;
       case 'num_month': return `EXTRACT(MONTH FROM ${dateExpr})`;
       case 'name_month': return `FORMAT_DATE('%B', ${dateExpr})`;
+      case 'year_month': return `FORMAT_DATE('%Y-%m', ${dateExpr})`;
       case 'num_week': return `EXTRACT(WEEK FROM ${dateExpr})`;
       // 1 = Sunday … 7 = Saturday. Each dialect numbers this its own way
       // (PG starts at 0, SQL Server follows DATEFIRST) — the part is meant to
@@ -187,6 +196,7 @@ function buildDatePartExpr(dim, dbType, columnTypes) {
     case 'num_year': return `EXTRACT(YEAR FROM ${dateExpr})`;
     case 'num_month': return `EXTRACT(MONTH FROM ${dateExpr})`;
     case 'name_month': return `TO_CHAR(${dateExpr}, 'Month')`;
+    case 'year_month': return `TO_CHAR(${dateExpr}, 'YYYY-MM')`;
     case 'num_week': return `EXTRACT(WEEK FROM ${dateExpr})`;
     case 'num_day_of_week': return `EXTRACT(DOW FROM ${dateExpr})`;
     case 'name_day': return `TO_CHAR(${dateExpr}, 'Day')`;
