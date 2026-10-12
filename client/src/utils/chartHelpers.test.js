@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { alignDualAxes, calcBottomMargin } from './chartHelpers';
+import { alignDualAxes, calcBottomMargin, categoryLabelRoom } from './chartHelpers';
 
 describe('alignDualAxes', () => {
   test('both axes get the same number of round steps', () => {
@@ -47,5 +47,31 @@ describe('calcBottomMargin follows the tilt', () => {
   });
   test('a very long label at 90 degrees cannot swallow the plot', () => {
     expect(calcBottomMargin(90, ['x'.repeat(200)], 35, 14)).toBe(180);
+  });
+});
+
+describe('categoryLabelRoom', () => {
+  const long = ['06 Other purchases & external charges', '07 Taxes, duties and similar payments'];
+  test('cut short by default: a tilted label is bounded and the margin follows the cut', () => {
+    const { axisLabel, margin } = categoryLabelRoom({ labels: long, rotate: 45, chartWidth: 400 });
+    expect(axisLabel.overflow).toBe('truncate');
+    expect(axisLabel.width).toBeLessThan(140);
+    expect(margin).toBeLessThan(calcBottomMargin(45, long));
+  });
+  test('full text: nothing is cut and the margin holds the whole label', () => {
+    const { axisLabel, margin } = categoryLabelRoom({ labels: long, rotate: 45, chartWidth: 400, overflow: 'full' });
+    expect(axisLabel).toEqual({});
+    expect(margin).toBe(calcBottomMargin(45, long));
+  });
+  test('beside a horizontal bar, the labels keep about a third of the width', () => {
+    const cut = categoryLabelRoom({ labels: long, horizontal: true, chartWidth: 400 });
+    expect(cut.axisLabel.width).toBe(120);
+    expect(cut.margin).toBe(136);
+    const full = categoryLabelRoom({ labels: long, horizontal: true, chartWidth: 400, overflow: 'full' });
+    expect(full.axisLabel).toEqual({});
+    expect(full.margin).toBeGreaterThan(cut.margin);
+  });
+  test('short labels beside a horizontal bar take only the room they need', () => {
+    expect(categoryLabelRoom({ labels: ['A', 'B'], horizontal: true, chartWidth: 400 }).margin).toBeLessThan(40);
   });
 });

@@ -71,6 +71,17 @@ export default function AxesSection({ ctx }) {
   const cfg = widget.config || {};
   return (
     <Section id="axes" title="Axes" sectionState={sections}>
+      {type !== 'scatter' && (
+        // Category labels are cut short by default so the plot keeps its
+        // room (the tooltip carries the whole text); the full text pushes
+        // the plot instead.
+        <Field label="Long labels">
+          <select value={cfg.axisLabelOverflow || 'truncate'} onChange={(e) => updateConfig('axisLabelOverflow', e.target.value)} style={{ ...inputStyle, marginBottom: 0 }}>
+            <option value="truncate">Cut short</option>
+            <option value="full">Full text</option>
+          </select>
+        </Field>
+      )}
       <AxisPart label="X axis" cfg={cfg} updateConfig={updateConfig} inputStyle={inputStyle}
         titlePlaceholder={widget.data?._xLabel || widget.data?._dimLabel || 'Auto'}
         keys={{ show: 'showXAxis', showTitle: 'showXAxisTitle', title: 'xAxisTitle', lineColor: 'xAxisLineColor', rotate: 'xAxisLabelRotate', fontSize: 'xAxisLabelFontSize', color: 'xAxisLabelColor', fontFamily: 'xAxisLabelFontFamily' }} />

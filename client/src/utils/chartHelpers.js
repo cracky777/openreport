@@ -83,21 +83,60 @@ export function axisLineStyle(color) {
   return color ? { axisLine: { show: true, lineStyle: { color } } } : {};
 }
 
+// Glyphs of a sans-serif run about 0.6 of the font size wide.
+const GLYPH_WIDTH = 0.6;
+// Room a tilted label may take below the axis before it is cut short.
+const TILTED_LABEL_ROOM = 100;
+
 /**
  * Calculate bottom grid margin based on label rotation and max label length.
+ * `maxTextWidth` bounds the width of a label that the chart cuts short.
  */
-export function calcBottomMargin(rotation, labels, defaultMargin = 35, fontSize = 11) {
+export function calcBottomMargin(rotation, labels, defaultMargin = 35, fontSize = 11, maxTextWidth = Infinity) {
   if (rotation === 0) return defaultMargin;
   const maxLen = Math.max(...(labels || ['']).map((l) => String(l).length));
   // Height a tilted label takes below the axis: its width projected on the
-  // vertical, plus its own line height. Glyphs of a sans-serif run about 0.6
-  // of the font size wide. A negative tilt leans the other way but takes the
-  // same height.
+  // vertical, plus its own line height. A negative tilt leans the other way
+  // but takes the same height.
   const rad = (Math.abs(rotation) * Math.PI) / 180;
-  const textWidth = maxLen * fontSize * 0.6;
+  const textWidth = Math.min(maxLen * fontSize * GLYPH_WIDTH, maxTextWidth);
   const labelHeight = Math.sin(rad) * textWidth + Math.cos(rad) * fontSize;
   // The default margin already holds one flat line of labels; only what
   // sticks out below it is added. Capped so a very long label at 90° cannot
   // swallow the plot on a short widget.
   return Math.min(defaultMargin + Math.max(0, labelHeight - fontSize), 180);
+}
+
+/**
+ * How much of the chart the category labels may take. Cut short by default
+ * so the plot stays visible (the tooltip carries the whole text); the Axes
+ * section's "Long labels: Full text" (`axisLabelOverflow: 'full'`) lets them
+ * run whole and pushes the plot instead.
+ * Returns the ECharts `axisLabel` keys that cut the text and the margin —
+ * below the axis, or beside it for a horizontal bar — that holds the labels.
+ */
+export function categoryLabelRoom({ labels, rotate = 0, fontSize = 11, chartWidth = 400, horizontal = false, overflow = 'truncate', defaultMargin = 35 }) {
+  const full = overflow === 'full';
+  const maxLen = Math.max(0, ...(labels || []).map((l) => String(l ?? '').length));
+  const widest = maxLen * fontSize * GLYPH_WIDTH;
+  const cut = (width) => ({ width, overflow: 'truncate', ellipsis: '…' });
+  if (horizontal) {
+    // Labels sit beside the bars: whole, they may take 60% of the width; cut
+    // short, about 30% (never under 60px, never more than 180px).
+    const room = full ? chartWidth * 0.6 : Math.min(180, Math.max(60, chartWidth * 0.3));
+    const width = Math.min(widest, room);
+    // Tick, gap and the axis line.
+    return { axisLabel: full ? {} : cut(room), margin: Math.ceil(width) + 16 };
+  }
+  if (full) return { axisLabel: {}, margin: calcBottomMargin(rotate, labels, defaultMargin, fontSize) };
+  if (!rotate) {
+    // Flat labels share the width; the chart already hides those that would
+    // still overlap.
+    const perLabel = chartWidth / Math.max(1, (labels || []).length);
+    return { axisLabel: cut(Math.max(60, perLabel)), margin: defaultMargin };
+  }
+  // Tilted: the width whose vertical projection fits the room below the axis.
+  const rad = (Math.abs(rotate) * Math.PI) / 180;
+  const width = Math.max(40, (TILTED_LABEL_ROOM - Math.cos(rad) * fontSize) / Math.sin(rad));
+  return { axisLabel: cut(width), margin: calcBottomMargin(rotate, labels, defaultMargin, fontSize, width) };
 }

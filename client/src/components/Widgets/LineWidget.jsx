@@ -5,7 +5,7 @@ import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues } from '../../utils/axisSort';
-import { calcLabelRotation, calcBottomMargin, axisLineStyle } from '../../utils/chartHelpers';
+import { calcLabelRotation, categoryLabelRoom, axisLineStyle } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { paletteOf, CHART_COLORS_BASIC as COLORS, hexToRgba } from '../../utils/chartPalette';
 import { buildDataLabel } from '../../utils/chartLabels';
@@ -101,6 +101,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
     const rawLabels = [...labels];
     // The Axes section may pin the tilt of the category labels; otherwise the chart picks one that fits its width.
     const xRotate = config?.xAxisLabelRotate ?? calcLabelRotation(labels, w);
+    const labelRoom = categoryLabelRoom({ labels, rotate: xRotate, chartWidth: w, overflow: config?.axisLabelOverflow, fontSize: config?.xAxisLabelFontSize ?? 11 });
     if (datePart) {
       labels = labels.map((l) => formatDateLabel(l, datePart));
     }
@@ -216,7 +217,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
         type: 'category', data: labels, show: showXAxis, ...axisLineStyle(config?.xAxisLineColor),
         ...xNameCfg,
         axisLabel: {
-          show: showLabels, rotate: xRotate,
+          show: showLabels, rotate: xRotate, ...labelRoom.axisLabel,
           fontSize: config?.xAxisLabelFontSize ?? 11,
           color: config?.xAxisLabelColor || '#64748b',
           fontFamily: xAxisFontFamily,
@@ -249,7 +250,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
       grid: {
         top: 15,
         right: 20,
-        bottom: (showXAxis ? calcBottomMargin(xRotate, labels, 35, config?.xAxisLabelFontSize ?? 11) : 15) + xTitleExtra,
+        bottom: (showXAxis ? labelRoom.margin : 15) + xTitleExtra,
         left: (showYAxis ? 50 : 15) + yTitleExtra,
       },
     };
@@ -272,7 +273,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, gridLineColor, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors, config?.palette,
       config?.lineSymbol, config?.lineSymbolSize,
-      config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.xAxisLabelRotate, config?.xAxisLineColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor, config?.yAxisLineColor, config?.secondaryYAxisLineColor,
+      config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.xAxisLabelRotate, config?.axisLabelOverflow, config?.xAxisLineColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor, config?.yAxisLineColor, config?.secondaryYAxisLineColor,
       config?.xAxisTitle, config?.yAxisTitle, config?.showXAxisTitle, config?.showYAxisTitle, chartTheme.grid]);
 
   const option = memoResult?.option;

@@ -5,7 +5,7 @@ import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues } from '../../utils/axisSort';
-import { calcLabelRotation, calcBottomMargin, axisLineStyle } from '../../utils/chartHelpers';
+import { calcLabelRotation, categoryLabelRoom, axisLineStyle } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { paletteOf, CHART_COLORS as COLORS, OTHERS_COLOR, hexToRgba } from '../../utils/chartPalette';
 import { buildDataLabel } from '../../utils/chartLabels';
@@ -496,9 +496,13 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
     const yTitle = showYTitle ? ((config?.yAxisTitle ?? '') || (isHoriz ? (data._dimLabel || '') : (data._measureLabel || ''))) : '';
     // The Axes section may pin the tilt of the category labels; otherwise the chart picks one that fits its width.
     const xRotate = isHoriz ? 0 : (config?.xAxisLabelRotate ?? calcLabelRotation(labels, w));
+    const labelRoom = categoryLabelRoom({
+      labels, rotate: xRotate, chartWidth: w, horizontal: isHoriz, overflow: config?.axisLabelOverflow,
+      fontSize: (isHoriz ? config?.yAxisLabelFontSize : config?.xAxisLabelFontSize) ?? 11,
+    });
     const categoryAxis = {
       type: 'category', data: labels, show: showXAxis, ...axisLineStyle(config?.xAxisLineColor),
-      axisLabel: { show: showLabels, rotate: xRotate },
+      axisLabel: { show: showLabels, rotate: xRotate, ...labelRoom.axisLabel },
       position: barDir === 'verticalInverse' ? 'top' : barDir === 'horizontalInverse' ? 'right' : undefined,
       inverse: barDir === 'horizontalInverse',
     };
@@ -541,9 +545,9 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
     opt.series = series;
     // Adjust grid margins to accommodate axis titles
     const baseTop = barDir === 'verticalInverse' ? 35 : 15;
-    const baseRight = barDir === 'horizontalInverse' ? 80 : 15;
-    const baseBottom = barDir === 'verticalInverse' ? 15 : (showXAxis ? calcBottomMargin(xRotate, labels, 35, config?.xAxisLabelFontSize ?? 11) : 15);
-    const baseLeft = barDir === 'horizontalInverse' ? 15 : (isHoriz ? 80 : (showYAxis ? 50 : 15));
+    const baseRight = barDir === 'horizontalInverse' ? labelRoom.margin : 15;
+    const baseBottom = barDir === 'verticalInverse' ? 15 : (showXAxis ? labelRoom.margin : 15);
+    const baseLeft = barDir === 'horizontalInverse' ? 15 : (isHoriz ? labelRoom.margin : (showYAxis ? 50 : 15));
     const xTitleExtra = xTitle ? 18 : 0;
     const yTitleExtra = yTitle ? 20 : 0;
     opt.grid = {
@@ -577,7 +581,7 @@ export default memo(function BarWidget({ data, config, chartWidth, onDataClick, 
   }, [data, subType, showLabels, hideZeros, showLegend, legendPosition, sortOrder, axisSort, groupBySort, hasData, config?.color,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, gridLineColor, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors, config?.palette, config?.barDirection,
-      config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.xAxisLabelRotate, config?.xAxisLineColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor, config?.yAxisLineColor, config?.secondaryYAxisLineColor,
+      config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.xAxisLabelRotate, config?.axisLabelOverflow, config?.xAxisLineColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor, config?.yAxisLineColor, config?.secondaryYAxisLineColor,
       config?.xAxisTitle, config?.yAxisTitle, config?.showXAxisTitle, config?.showYAxisTitle,
       topNEnabled, topN, othersLabel,
       config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor, chartTheme.grid]);
