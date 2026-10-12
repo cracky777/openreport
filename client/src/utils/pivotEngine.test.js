@@ -89,3 +89,32 @@ describe('total components', () => {
     expect(p.grandTotal._avg_h_sum).toBeUndefined();
   });
 });
+
+describe('pivotData — column order', () => {
+  // The first rows need not hold every column: a line booked only in
+  // September comes first, the months still read in order.
+  test('columns read in ascending order, whatever order the rows arrive in', () => {
+    const p = pivotData({
+      rawRows: [
+        { Line: 'A', Period: '2017-09', Amount: 1 },
+        { Line: 'B', Period: '2017-03', Amount: 2 },
+        { Line: 'B', Period: '2017-10', Amount: 3 },
+      ],
+      rowDims: ['Line'], colDims: ['Period'], measures: ['Amount'],
+    });
+    expect(p.colKeys.map(([, v]) => v[0])).toEqual(['2017-03', '2017-09', '2017-10']);
+  });
+
+  test('a month name sorts by the calendar, a number as a number', () => {
+    const months = pivotData({
+      rawRows: ['March', 'January', 'February'].map((m) => ({ M: m, v: 1 })),
+      rowDims: [], colDims: ['M'], measures: ['v'], colDimDefs: [{ datePart: 'name_month' }],
+    });
+    expect(months.colKeys.map(([, v]) => v[0])).toEqual(['January', 'February', 'March']);
+    const years = pivotData({
+      rawRows: [10, 9, 100].map((y) => ({ Y: y, v: 1 })),
+      rowDims: [], colDims: ['Y'], measures: ['v'], colDimDefs: [{ type: 'integer' }],
+    });
+    expect(years.colKeys.map(([, v]) => v[0])).toEqual([9, 10, 100]);
+  });
+});

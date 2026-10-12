@@ -113,8 +113,16 @@ export function getConditionalStyle(rules, value, colValues) {
     if (rule.type === 'colorScale' && !isNaN(num)) {
       const min = rule.minValue != null ? rule.minValue : Math.min(...nums);
       const max = rule.maxValue != null ? rule.maxValue : Math.max(...nums);
-      const pct = max > min ? Math.max(0, Math.min(1, (num - min) / (max - min))) : 0;
-      style.backgroundColor = lerpColor(rule.minColor || '#dcfce7', rule.maxColor || '#dc2626', pct);
+      const share = (lo, hi) => (hi > lo ? Math.max(0, Math.min(1, (num - lo) / (hi - lo))) : 0);
+      if (rule.midColor) {
+        // Diverging: zero is the natural middle of values of both signs.
+        const mid = rule.midValue != null ? rule.midValue : (min < 0 && max > 0 ? 0 : (min + max) / 2);
+        style.backgroundColor = num <= mid
+          ? lerpColor(rule.minColor || '#dcfce7', rule.midColor, share(min, mid))
+          : lerpColor(rule.midColor, rule.maxColor || '#dc2626', share(mid, max));
+      } else {
+        style.backgroundColor = lerpColor(rule.minColor || '#dcfce7', rule.maxColor || '#dc2626', share(min, max));
+      }
     }
     if (rule.type === 'dataBar' && !isNaN(num)) {
       const max = Math.max(...nums, 1);

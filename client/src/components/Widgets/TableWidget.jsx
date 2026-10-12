@@ -29,14 +29,14 @@ const cellGrip = {
 const _hs5 = { fontSize: 11, color: 'var(--text-muted)' };
 const _hs6 = { fontSize: 10, color: 'var(--text-disabled)', marginLeft: 8 };
 
-export default memo(function TableWidget({ data, config, columnOrder, onLoadMore, onConfigUpdate }) {
+export default memo(function TableWidget({ data, config, columnOrder, onLoadMore, onConfigUpdate, onDataClick, highlightValue }) {
   const rawColumns = data?.columns;
   const rawRows = data?.rows;
 
   // Reorder columns according to columnOrder (allows mixing dims and measures)
-  const { columns, rows } = useMemo(() => {
+  const { columns, rows, fields } = useMemo(() => {
     if (!rawColumns || !rawRows || !columnOrder || columnOrder.length === 0) {
-      return { columns: rawColumns, rows: rawRows };
+      return { columns: rawColumns, rows: rawRows, fields: data?._fieldNames || [] };
     }
     // columnOrder contains field names like "table.col", columns contains labels like "col"
     // Match by suffix: columnOrder entry ends with the column label
@@ -44,10 +44,14 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
     const used = new Set();
     const newCols = [];
     // Build a mapping: for each columnOrder entry, find matching column index
+    // The field behind each column when the data names it; the suffix match
+    // only holds for a field still labelled after its column.
+    const fieldNames = data?._fieldNames || [];
     for (const orderName of columnOrder) {
       const parts = orderName.split('.');
       const suffix = parts[parts.length - 1].replace(/_sum$|_avg$|_count$|_min$|_max$/, '');
-      const idx = rawColumns.findIndex((c, i) => !used.has(i) && c === suffix);
+      const byField = fieldNames.findIndex((n, i) => !used.has(i) && n === orderName);
+      const idx = byField !== -1 ? byField : rawColumns.findIndex((c, i) => !used.has(i) && c === suffix);
       if (idx !== -1) {
         used.add(idx);
         colIndices.push(idx);
@@ -59,10 +63,25 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
       if (!used.has(i)) { colIndices.push(i); newCols.push(c); }
     });
     const newRows = rawRows.map((row) => colIndices.map((i) => row[i]));
-    return { columns: newCols, rows: newRows };
-  }, [rawColumns, rawRows, columnOrder]);
+    return { columns: newCols, rows: newRows, fields: colIndices.map((i) => fieldNames[i] || null) };
+  }, [rawColumns, rawRows, columnOrder, data?._fieldNames]);
 
   const hasData = columns?.length > 0 && rows?.length > 0;
+
+  // A click on a row filters the page by one of its dimensions: the one
+  // clicked, or the row's first when the click lands on a figure. On by
+  // default; `config.rowClickFilter: false` turns it off.
+  const dimCols = useMemo(() => {
+    const dims = new Set(data?._dimNames || []);
+    return (fields || []).map((n, i) => (dims.has(n) ? i : -1)).filter((i) => i >= 0);
+  }, [fields, data?._dimNames]);
+  const rowClickable = !!onDataClick && config?.rowClickFilter !== false && dimCols.length > 0;
+  const clickRow = (row, ci) => {
+    if (!rowClickable) return;
+    const at = dimCols.includes(ci) ? ci : dimCols[0];
+    if (row[at] !== '' && row[at] != null) onDataClick(fields[at], row[at]);
+  };
+  const isHighlighted = (row) => highlightValue != null && dimCols.some((i) => String(row[i]) === String(highlightValue));
   const scrollRef = useRef(null);
   const loadingMore = data?._loadingMore || false;
   const hasMore = data?._hasMore !== false;
@@ -331,14 +350,15 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
               const stripeBg = rowCfg.striped
                 ? (ri % 2 === 0 ? rowCfg.stripeColor1 : rowCfg.stripeColor2)
                 : (rowCfg.bgColor || rowCfg.stripeColor1 || 'var(--bg-panel)');
-              const rowBg = isHovered && rowCfg.hoverHighlight ? rowCfg.hoverColor : stripeBg;
+              const rowBg = isHighlighted(row) ? 'var(--accent-primary-soft)'
+                : isHovered && rowCfg.hoverHighlight ? rowCfg.hoverColor : stripeBg;
 
               return (
                 <tr
                   key={ri}
                   onMouseEnter={rowCfg.hoverHighlight ? () => setHoveredRow(ri) : undefined}
                   onMouseLeave={rowCfg.hoverHighlight ? () => setHoveredRow(null) : undefined}
-                  style={{ height: rowHeight, backgroundColor: rowBg, transition: 'background-color 0.1s' }}
+                  style={{ height: rowHeight, backgroundColor: rowBg, transition: 'background-color 0.1s', cursor: rowClickable ? 'pointer' : undefined }}
                 >
                   {row.map((cell, ci) => {
                     const col = columns[ci];
@@ -381,6 +401,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                     return (
                       <td
                         key={ci}
+                        onClick={rowClickable ? () => clickRow(row, ci) : undefined}
                         style={{
                           padding: `${Math.max(2, grid.cellPadding - 2)}px ${grid.cellPadding}px`,
                           fontSize: vs.fontSize || 13,

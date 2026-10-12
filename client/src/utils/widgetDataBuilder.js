@@ -152,7 +152,14 @@ export function buildWidgetData({
     newData = {
       rawRows: rows,
       _rowDims: rowDimNames.map((d) => gl(d, effectiveModel?.dimensions)),
+      // The field behind each row level: a click on a row filters by its level.
+      _rowDimNames: rowDimNames,
       _colDims: colDimsB.map((d) => gl(d, effectiveModel?.dimensions)),
+      // How each column level sorts: a month name by the calendar, a number as a number.
+      _colDimDefs: colDimsB.map((d) => {
+        const def = (effectiveModel?.dimensions || []).find((x) => x.name === d);
+        return def ? { type: def.type, datePart: def.datePart } : null;
+      }),
       _measures: meass.map((m) => gl(m, effectiveModel?.measures)),
     };
   } else if (w.type === 'scatter') {
@@ -282,10 +289,21 @@ export function buildWidgetData({
     }
     newData = { text: w.data?.text, runs: w.data?.runs, values, valueFormats, valueDurations };
   } else if (w.type === 'table') {
+    // The field behind each column: rows are keyed by label, the binding's
+    // columnOrder by field name, and a label rarely is its column's name.
+    const labelOf = (name) => {
+      const def = (effectiveModel?.dimensions || []).find((x) => x.name === name)
+        || (effectiveModel?.measures || []).find((x) => x.name === name);
+      return def?.label || def?.name || name;
+    };
+    const fields = [...dims, ...meass];
     // Object.values would have included the companion column — the number the
     // author's text is positioned by is not a column of the table.
     newData = {
       columns: keys,
+      _fieldNames: keys.map((k) => fields.find((n) => labelOf(n) === k) || null),
+      // Which of them are dimensions: a click on a row filters the page by one.
+      _dimNames: [...dims],
       rows: rows.map((r) => keys.map((k) => (r[k] != null ? String(r[k]) : ''))),
       // Per column, the number to sort by when its cells are text.
       _sortValues: keys.reduce((acc, k) => {
@@ -307,7 +325,7 @@ export function buildWidgetData({
       return { name: m?.label || m?.name || name, role: 'value', format: m?.format, sourceName: name };
     });
     newData = { rows, fields: { dimensions: dimsMeta, measures: measMeta } };
-  } else if (w.type === 'pie' || w.type === 'treemap') {
+  } else if (w.type === 'pie' || w.type === 'treemap' || w.type === 'waterfall') {
     // `?? ''` like every other label path in this file: String(null) renders the
     // word "null" as a slice name, which reads as a category rather than as a
     // missing one.

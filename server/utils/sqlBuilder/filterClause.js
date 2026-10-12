@@ -30,9 +30,11 @@ function buildScalarClause(colExpr, op, value, values, isDateCol, dateFmt, dimTy
         ? `${cast} BETWEEN ${escVal(a)} AND ${escVal(b)}`
         : `${cast} BETWEEN ${Number(a)} AND ${Number(b)}`;
     }
-    case 'contains':     return isEmpty(value) ? null : `${castToString(colExpr, dbType)} LIKE ${escVal('%' + value + '%')}`;
-    case 'not_contains': return isEmpty(value) ? null : `${castToString(colExpr, dbType)} NOT LIKE ${escVal('%' + value + '%')}`;
-    case 'starts_with':  return isEmpty(value) ? null : `${castToString(colExpr, dbType)} LIKE ${escVal(value + '%')}`;
+    // Case-insensitive, like starts_with below: a search for "salaire" finds
+    // "Salaires". The rollup planner reads these the same way (rollupPlanner.js).
+    case 'contains':     return isEmpty(value) ? null : `LOWER(${castToString(colExpr, dbType)}) LIKE ${escVal('%' + String(value).toLowerCase() + '%')}`;
+    case 'not_contains': return isEmpty(value) ? null : `LOWER(${castToString(colExpr, dbType)}) NOT LIKE ${escVal('%' + String(value).toLowerCase() + '%')}`;
+    case 'starts_with':  return isEmpty(value) ? null : `LOWER(${castToString(colExpr, dbType)}) LIKE ${escVal(String(value).toLowerCase() + '%')}`;
     case 'ends_with':    return isEmpty(value) ? null : `${castToString(colExpr, dbType)} LIKE ${escVal('%' + value)}`;
     case 'is_empty':     return `(${colExpr} IS NULL OR ${castToString(colExpr, dbType)} = '')`;
     case 'is_not_empty': return `(${colExpr} IS NOT NULL AND ${castToString(colExpr, dbType)} <> '')`;

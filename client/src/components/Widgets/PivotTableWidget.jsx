@@ -5,7 +5,7 @@ import { formatDuration } from '../../utils/formatHuman';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 import {
   getGridConfig, getRowConfig, getTotalsConfig, getFreezeConfig, ROW_HEIGHTS,
-  getColumnHeaderStyle, getColumnValueStyle, getColumnDisplayName, getColumnWidth,
+  getColumnHeaderStyle, getColumnValueStyle, getColumnDisplayName, getColumnWidth, getConditionalStyle,
 } from '../../utils/tableConfigHelpers';
 
 const _hs0 = {
@@ -45,11 +45,11 @@ function buildRowTree(rowKeys, rowDims) {
  * Flatten tree into display rows, respecting collapse state.
  * Each row: { type: 'group'|'leaf', node, depth, rk? }
  */
-function flattenTree(node, collapsed, depth = 0) {
+function flattenTree(node, collapsedOf, depth = 0) {
   const rows = [];
   for (const child of node.children) {
     const isLeaf = child.children.length === 0;
-    const isCollapsed = collapsed.has(child.key);
+    const isCollapsed = collapsedOf(child);
 
     if (isLeaf) {
       // Leaf node — data row
@@ -61,14 +61,14 @@ function flattenTree(node, collapsed, depth = 0) {
       rows.push({ type: 'group', node: child, depth, isCollapsed });
       // If expanded, show children
       if (!isCollapsed) {
-        rows.push(...flattenTree(child, collapsed, depth + 1));
+        rows.push(...flattenTree(child, collapsedOf, depth + 1));
       }
     }
   }
   return rows;
 }
 
-export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) {
+export default memo(function PivotTableWidget({ data, config, onConfigUpdate, onDataClick, highlightValue }) {
   const rawRows = data?.rawRows;
   const rowDims = data?._rowDims || [];
   const colDims = data?._colDims || [];
@@ -103,7 +103,9 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
     return pc[key] ?? defaultVal;
   };
 
-  const [collapsedGroups, setCollapsedGroups] = useState(new Set());
+  // The groups the reader opened or closed by hand, against the default:
+  // every level open, or only the first `pivotConfig.expandDepth` levels.
+  const [toggledGroups, setToggledGroups] = useState(new Set());
   const [hoveredRow, setHoveredRow] = useState(null);
   // Column resize — same model as TableWidget, but the pivot's columns
   // are derived from data, not statically declared. We track widths by
@@ -151,7 +153,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
   );
 
   const toggleGroup = (key) => {
-    setCollapsedGroups((prev) => {
+    setToggledGroups((prev) => {
       const next = new Set(prev);
       next.has(key) ? next.delete(key) : next.add(key);
       return next;
@@ -174,8 +176,9 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
       aggregationFns: aggFns,
       defaultAggregation: defaultAgg,
       extraCols: totalComponentCols,
+      colDimDefs: data?._colDimDefs,
     });
-  }, [rawRows, rowDims, colDims, measures, hasData, pc.perMeasure, defaultAgg, totalComponentCols]);
+  }, [rawRows, rowDims, colDims, measures, hasData, pc.perMeasure, defaultAgg, totalComponentCols, data?._colDimDefs]);
 
   // Build row tree and flatten
   const rowTree = useMemo(() => {
@@ -183,10 +186,51 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
     return buildRowTree(pivot.rowKeys, rowDims);
   }, [pivot, rowDims]);
 
+  const expandDepth = Number.isInteger(pc.expandDepth) ? pc.expandDepth : null;
   const displayRows = useMemo(() => {
     if (!rowTree) return [];
-    return flattenTree(rowTree, collapsedGroups);
-  }, [rowTree, collapsedGroups]);
+    const collapsedOf = (node) => ((expandDepth != null && node.depth >= expandDepth) !== toggledGroups.has(node.key));
+    return flattenTree(rowTree, collapsedOf);
+  }, [rowTree, toggledGroups, expandDepth]);
+
+  // Conditional formatting of a measure, judged among the cells of the same
+  // level: a section's subtotal against the other sections, an account
+  // against the other accounts — the levels' magnitudes are not comparable.
+  const levelValues = useMemo(() => {
+    if (!pivot || !rowTree) return {};
+    const ruled = measures.filter((m) => tc.columns?.[m]?.conditionalFormatting?.length);
+    if (!ruled.length) return {};
+    const out = Object.fromEntries(ruled.map((m) => [m, {}]));
+    const push = (m, depth, v) => { if (v != null) (out[m][depth] = out[m][depth] || []).push(v); };
+    const walk = (node) => {
+      for (const child of node.children) {
+        for (const m of ruled) {
+          for (const [ck] of pivot.colKeys) {
+            if (child.children.length) push(m, child.depth, resolveCell(pivot.subTotals[child.key]?.[ck]?.[m], pivot.getFn(m)));
+            else for (const rk of child.rowKeys) push(m, child.depth, resolveCell(pivot.cellMap[rk]?.[ck]?.[m], pivot.getFn(m)));
+          }
+        }
+        walk(child);
+      }
+    };
+    walk(rowTree);
+    return out;
+  }, [pivot, rowTree, measures, tc.columns]);
+  const conditionalStyle = (m, depth, value) => {
+    const rules = tc.columns?.[m]?.conditionalFormatting;
+    return rules?.length ? (getConditionalStyle(rules, value, levelValues[m]?.[depth] || []).style || {}) : {};
+  };
+  // The first level's labels in bold, the levels under it in regular weight.
+  const boldFirstLevel = pc.boldFirstLevel === true;
+  // A click on a row filters the page by that row's level (a section, a line,
+  // an account). On by default; `config.rowClickFilter: false` turns it off.
+  const rowDimNames = data?._rowDimNames || [];
+  const rowClickable = !!onDataClick && config?.rowClickFilter !== false && rowDimNames.length > 0;
+  const clickRow = (node) => {
+    const dim = rowDimNames[node.depth];
+    if (rowClickable && dim && node.value !== '(blank)') onDataClick(dim, node.value);
+  };
+  const isPicked = (node) => highlightValue != null && String(node.value) === String(highlightValue);
 
   if (!hasData || !pivot) {
     if (data?._rowCount === 0) {
@@ -286,11 +330,12 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
   //     rather than overflowing the column. Combined with the default
   //     `whiteSpace: normal` (td default), this is the standard
   //     "break-anywhere on narrow column" recipe.
-  // Returns an empty object when the measure has no explicit width
-  // — pre-existing behaviour stays unchanged for non-resized columns.
+  // Without an explicit width a value stays on one line: a figure broken
+  // at its thousands separator ("-14 567" over "€") reads as two numbers.
+  // A pivot wider than its widget scrolls instead.
   const valueCellWrapStyle = (measureKey) => {
     const w = widthFor(measureKey);
-    if (!w) return null;
+    if (!w) return { whiteSpace: 'nowrap' };
     return { maxWidth: w, overflowWrap: 'anywhere' };
   };
 
@@ -453,7 +498,8 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
               // Group header row — show aggregated values (subtotals)
               const node = row.node;
               return (
-                <tr key={`g-${node.key}`} style={{ height: rowHeight, backgroundColor: bg, fontWeight: 600 }}
+                <tr key={`g-${node.key}`} onClick={rowClickable ? () => clickRow(node) : undefined}
+                  style={{ height: rowHeight, backgroundColor: isPicked(node) ? 'var(--accent-primary-soft)' : bg, fontWeight: boldFirstLevel ? (depth === 0 ? 700 : 400) : 600, cursor: rowClickable ? 'pointer' : undefined }}
                   onMouseEnter={rowCfg.hoverHighlight ? () => setHoveredRow(idx) : undefined}
                   onMouseLeave={rowCfg.hoverHighlight ? () => setHoveredRow(null) : undefined}>
                   {(() => {
@@ -469,10 +515,10 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
                         whiteSpace: rowsW ? 'normal' : 'nowrap',
                         overflowWrap: rowsW ? 'anywhere' : 'normal',
                         ...(rowsW ? { maxWidth: rowsW } : {}),
-                        fontWeight: rs.fontWeight || 600, textAlign: 'left',
+                        fontWeight: boldFirstLevel ? (depth === 0 ? 700 : 400) : (rs.fontWeight || 600), textAlign: 'left',
                         ...(freeze.freezeFirstColumn ? { position: 'sticky', left: 0, zIndex: 1, backgroundColor: bg, boxShadow: '2px 0 4px rgba(0,0,0,0.06)' } : {}),
                       }}>
-                        <span onClick={() => toggleGroup(node.key)}
+                        <span onClick={(e) => { e.stopPropagation(); toggleGroup(node.key); }}
                           style={_hs2}>
                           {row.isCollapsed ? '▶' : '▼'}
                         </span>
@@ -488,6 +534,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
                         <td key={`${ck}-${mi}`} style={{
                           ...getCellStyle(m),
                           backgroundColor: isGroup ? 'var(--bg-subtle)' : undefined,
+                          ...(showSubTotals ? conditionalStyle(m, depth, resolveCell(subTotals[node.key]?.[ck]?.[m], getFn(m))) : {}),
                         }}>
                           {val != null ? val : ''}
                         </td>
@@ -521,7 +568,8 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
             const rk = row.rk;
             const node = row.node;
             return (
-              <tr key={`l-${rk}`} style={{ height: rowHeight, backgroundColor: bg }}
+              <tr key={`l-${rk}`} onClick={rowClickable ? () => clickRow(node) : undefined}
+                style={{ height: rowHeight, backgroundColor: isPicked(node) ? 'var(--accent-primary-soft)' : bg, cursor: rowClickable ? 'pointer' : undefined }}
                 onMouseEnter={rowCfg.hoverHighlight ? () => setHoveredRow(idx) : undefined}
                 onMouseLeave={rowCfg.hoverHighlight ? () => setHoveredRow(null) : undefined}>
                 {(() => {
@@ -558,6 +606,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
                         padding: cellPad, textAlign: 'right', fontSize: 12,
                         color: 'var(--text-secondary)', borderBottom: hBorder, borderRight: vBorder,
                         ...(valueCellWrapStyle(m) || {}),
+                        ...conditionalStyle(m, node.depth, val),
                       }}>
                         {formatVal(val, m)}
                       </td>
@@ -595,13 +644,13 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate }) 
               <td style={{ ...totalStyle, textAlign: 'left', fontWeight: 700 }}>Grand Total</td>
               {colKeys.map(([ck]) =>
                 measures.map((m, mi) => (
-                  <td key={`${ck}-${mi}`} style={totalStyle}>
+                  <td key={`${ck}-${mi}`} style={{ ...totalStyle, ...valueCellWrapStyle(m) }}>
                     {formatTotal(colTotals[ck], m)}
                   </td>
                 ))
               )}
               {showGrandCol && measures.map((m, mi) => (
-                <td key={`gt-${mi}`} style={{ ...totalStyle, fontWeight: 700, backgroundColor: 'var(--bg-hover)' }}>
+                <td key={`gt-${mi}`} style={{ ...totalStyle, fontWeight: 700, backgroundColor: 'var(--bg-hover)', ...valueCellWrapStyle(m) }}>
                   {formatTotal(grandTotal, m)}
                 </td>
               ))}

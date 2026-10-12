@@ -137,10 +137,15 @@
 - Click a report-filter chip to edit it, the hand icon to choose which widgets it applies to, × to remove it. Hiding the bar keeps the filters active.
 - Visual-only filters: the visual's Filters section → Add filter (dimensions or measures).
 
+- Search slicer: Style → Search (contains). A text box: the visuals of the page keep only the values of its field that contain what is typed (any case) — e.g. an account number or part of a label. Placeholder sets its hint.
+- Opens on (List, Dropdown, Buttons): Latest value selects the slicer's last value when the report opens (the latest year, the latest month) unless a selection was saved; No selection leaves it empty.
+- A slicer's selection belongs to its page: each page keeps its own.
+
 ## interactions — Cross-filtering and drill-down
 - Cross-filter: clicking a bar, slice or point filters the other visuals of the page; click it again to clear. Works in the editor and the viewer.
+- Tables and pivot tables too: clicking a row filters the page by it — a table by the dimension clicked (or the row's first when you click a figure), a pivot by the level of the row (a section, a line, an account). The row stays highlighted; click it again to clear. Turn it off in the visual's own section: Filter on row click.
 - Edit interactions (hand icon in the toolbar): select a source widget first, click Edit interactions, then on each other widget toggle Filter or None to decide whether it reacts. Click the icon again to exit.
-- Drill-down: on a Bar, Line, Combo, Pie or TreeMap chart with more than one dimension in its axis/category well, clicking a value drills to the next level. Drill up and Reset drill buttons appear on the widget.
+- Drill-down: on a Bar, Line, Combo, Pie, TreeMap or Waterfall chart with more than one dimension in its axis/category well, clicking a value drills to the next level. Drill up and Reset drill buttons appear on the widget.
 
 ## pages — Pages and page navigation
 - The pages column sits beside the canvas. Add page (+) adds one.

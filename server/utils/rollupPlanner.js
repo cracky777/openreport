@@ -102,12 +102,13 @@ function scalarClause(colName, dimType, op, value, values) {
       return `${col} IS NULL`;
     case 'is_not_null':
       return `${col} IS NOT NULL`;
+    // Case-insensitive, like the live query (sqlBuilder/filterClause.js).
     case 'contains':
-      return `${col} LIKE ${qLit(`%${value}%`)}`;
+      return `LOWER(${col}) LIKE ${qLit(`%${String(value).toLowerCase()}%`)}`;
     case 'not_contains':
-      return `${col} NOT LIKE ${qLit(`%${value}%`)}`;
+      return `LOWER(${col}) NOT LIKE ${qLit(`%${String(value).toLowerCase()}%`)}`;
     case 'starts_with':
-      return `${col} LIKE ${qLit(`${value}%`)}`;
+      return `LOWER(${col}) LIKE ${qLit(`${String(value).toLowerCase()}%`)}`;
     case 'ends_with':
       return `${col} LIKE ${qLit(`%${value}`)}`;
     default:

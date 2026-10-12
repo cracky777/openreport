@@ -31,6 +31,33 @@ const _hs20 = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowra
  */
 const RENDER_BATCH = 200;
 
+// The search slicer's box: what is typed reaches the report once typing
+// pauses, so each keystroke does not refetch every visual of the page.
+function SearchSlicer({ text, placeholder, style, onChange }) {
+  const [draft, setDraft] = useState(text);
+  const timer = useRef(null);
+  useEffect(() => { setDraft(text); }, [text]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const type = (value) => {
+    setDraft(value);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => onChange(value.trim()), 400);
+  };
+  return (
+    <div style={searchSlicerWrap}>
+      <input type="search" value={draft} placeholder={placeholder} aria-label={placeholder}
+        onChange={(e) => type(e.target.value)} style={{ ...style, marginBottom: 0 }} />
+    </div>
+  );
+}
+// Laid out like the dropdown slicer's trigger: at the top of the box, under
+// the title, rather than centred in a height the title already takes from.
+const searchSlicerWrap = { display: 'flex', flexDirection: 'column', padding: 4 };
+const searchSlicerInput = {
+  width: '100%', padding: '6px 10px', border: '1px solid var(--border-default)', borderRadius: 6,
+  outline: 'none', boxSizing: 'border-box', backgroundColor: 'var(--bg-panel)', lineHeight: 'normal',
+};
+
 export default memo(function FilterWidget({ data, config, onFilterChange, activeSelection, onSearchValues }) {
   const [selected, setSelected] = useState(activeSelection || config?.selectedValues || []);
 
@@ -164,6 +191,18 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
     onFilterChange?.(filtered);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [values, config?.dateFrom, config?.dateTo]);
+  // A list can open on its latest value (the last fiscal year, the current
+  // month…): applied once, when the values land, unless a selection exists.
+  const latestApplied = useRef(false);
+  useEffect(() => {
+    if (latestApplied.current || config?.opensOn !== 'latest' || values.length === 0) return;
+    latestApplied.current = true;
+    if ((config?.selectedValues || []).length > 0 || (activeSelection || []).length > 0) return;
+    const latest = [...values].sort((a, b) => String(b).localeCompare(String(a), undefined, { numeric: true }))[0];
+    setSelected([latest]);
+    onFilterChange?.([latest]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values, config?.opensOn]);
   const multiSelect = config?.multiSelect ?? true;
   const slicerStyle = config?.slicerStyle || (isDate ? 'dateRange' : 'list');
   const showSearch = config?.showSearch ?? true;
@@ -260,6 +299,16 @@ export default memo(function FilterWidget({ data, config, onFilterChange, active
     if (isNaN(d)) return String(val);
     return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
   };
+
+  // ─── SEARCH MODE ─── typed text filters the report on "contains"; it
+  // needs no list of values, so it comes before the empty-list guard.
+  if (slicerStyle === 'search') {
+    return (
+      <SearchSlicer text={selected[0] || ''} placeholder={config?.searchPlaceholder || 'Search…'}
+        style={{ ...searchSlicerInput, fontSize, color: fontColor, ...slicerFontStyle }}
+        onChange={(t) => { setSelected(t ? [t] : []); onFilterChange?.(t ? [t] : []); }} />
+    );
+  }
 
   if (values.length === 0) {
     return <div style={emptyStyle}>Select a dimension to create a slicer</div>;

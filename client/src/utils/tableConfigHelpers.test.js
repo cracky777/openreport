@@ -30,6 +30,16 @@ describe('getConditionalStyle', () => {
     expect(style.backgroundColor).toBeTruthy();
   });
 
+  test('a mid colour splits the scale at zero when values have both signs', () => {
+    const diverging = [{ type: 'colorScale', minColor: '#ff0000', midColor: '#ffffff', maxColor: '#00ff00' }];
+    const values = [-100, -10, 0, 50, 200];
+    expect(getConditionalStyle(diverging, -100, values).style.backgroundColor).toBe('rgb(255,0,0)');
+    expect(getConditionalStyle(diverging, 0, values).style.backgroundColor).toBe('rgb(255,255,255)');
+    expect(getConditionalStyle(diverging, 200, values).style.backgroundColor).toBe('rgb(0,255,0)');
+    // Halfway to the max on the positive side, whatever the negative range.
+    expect(getConditionalStyle(diverging, 100, values).style.backgroundColor).toBe('rgb(128,255,128)');
+  });
+
   test('leaves a text cell alone', () => {
     // parseFloat read 164 and the cell was tinted on a number nobody computed.
     const { style } = getConditionalStyle(scale, '164j 08:02:17', ['164j 08:02:17', '12j 01:00:00']);

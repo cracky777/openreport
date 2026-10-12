@@ -397,6 +397,13 @@ function ConditionalFormatEditor({ rules, onChange, inputStyle }) {
             <>
               {colorField('Min color', i, 'minColor', '#dcfce7')}
               {numberField('Min value', i, 'minValue')}
+              {/* Three colours around a middle value: below and above it read as
+                  two directions (losses and gains), not one scale. */}
+              <Field label="Mid color">
+                <input type="checkbox" checked={!!rule.midColor} onChange={(e) => updateRule(i, 'midColor', e.target.checked ? '#ffffff' : undefined)} />
+              </Field>
+              {rule.midColor && colorField('Mid color', i, 'midColor', '#ffffff')}
+              {rule.midColor && numberField('Mid value', i, 'midValue')}
               {colorField('Max color', i, 'maxColor', '#dc2626')}
               {numberField('Max value', i, 'maxValue')}
             </>

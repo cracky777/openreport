@@ -141,11 +141,13 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
   // — the upstream `reportFilters` map keeps its array form so other
   // consumers (slicer `activeSelection`, snapshot diff, …) keep working.
   const rangeSlicerDims = new Set();
+  const searchSlicerDims = new Map(); // dim → 'contains' | 'starts_with'
   for (const w of Object.values(currentWidgets || {})) {
     if (w?.type !== 'filter') continue;
     const dim = w.dataBinding?.selectedDimensions?.[0];
     if (!dim) continue;
     const style = w.config?.slicerStyle;
+    if (style === 'search') searchSlicerDims.set(dim, w.config?.searchMatch === 'starts_with' ? 'starts_with' : 'contains');
     const isBetweenStyle = style === 'dateRange'
       || style === 'dateBetween'
       || (style === 'dateCalendar' && w.config?.dateCalendarMode === 'between');
@@ -162,6 +164,15 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
       const sorted = [...arr].map((x) => String(x)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
       mergedFilters[k] = { op: 'between', value: [sorted[0], sorted[sorted.length - 1]] };
     }
+  }
+  // A search slicer holds the typed text, not values to match: it filters as
+  // a "contains" (or "starts with") rule — the channel that carries
+  // operators — and leaves the values map.
+  const searchRules = [];
+  for (const [k, op] of searchSlicerDims) {
+    const text = Array.isArray(mergedFilters[k]) ? String(mergedFilters[k][0] ?? '') : '';
+    delete mergedFilters[k];
+    if (text) searchRules.push({ field: k, isMeasure: false, op, value: text, values: [] });
   }
 
   // Filter widget handling. In Viewer ('distinct' mode) filter widgets
@@ -183,9 +194,11 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
   // rides the widgetFilters channel: live SQL and the rollup planner both
   // already know how to apply (or refuse) a between rule on a dim.
   const timeFilter = timePeriodFilter(binding);
+  // The slicer's own list ignores the report's filters, its search included.
+  const slicerSearch = useFilterWidgetDistinct ? [] : searchRules;
   const widgetFilters = timeFilter
-    ? [...reportLevelFilters, ...widgetOwnFilters, timeFilter]
-    : [...reportLevelFilters, ...widgetOwnFilters];
+    ? [...reportLevelFilters, ...widgetOwnFilters, ...slicerSearch, timeFilter]
+    : [...reportLevelFilters, ...widgetOwnFilters, ...slicerSearch];
   const hasMainBinding = (allDims.length > 0 || meass.length > 0);
 
   // Server-side Top N — push the limit into the SQL via a synthetic

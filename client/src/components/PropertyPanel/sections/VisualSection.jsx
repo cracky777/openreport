@@ -44,6 +44,16 @@ function LineFields({ cfg, updateConfig, inputStyle }) {
   );
 }
 
+// A click on a row of a table or pivot filters the other visuals of the page
+// by that row (`rowClickFilter`, on unless turned off).
+function RowClickFilter({ cfg, updateConfig }) {
+  return (
+    <Field label="Filter on row click">
+      <input type="checkbox" checked={cfg.rowClickFilter ?? true} onChange={(e) => updateConfig('rowClickFilter', e.target.checked)} />
+    </Field>
+  );
+}
+
 // Stored as `hideZeros`; the box reads the positive way and stays checked
 // by default, exactly as zeros were shown by default before.
 function ShowZeros({ cfg, updateConfig }) {
@@ -134,6 +144,7 @@ export default function VisualSection({ ctx }) {
   } else if (type === 'table') {
     body = (
       <>
+        <RowClickFilter cfg={cfg} updateConfig={updateConfig} />
         {table.colSelect}
         <TableRowsPart t={table} />
         <TableTotalsPart t={table} />
@@ -148,7 +159,25 @@ export default function VisualSection({ ctx }) {
     const setGlobal = (key, value) => updateConfig('pivotConfig', { ...pc, [key]: value });
     body = (
       <>
+        <RowClickFilter cfg={cfg} updateConfig={updateConfig} />
         {table.colSelect}
+        <SubSection label="Hierarchy">
+          {/* How far the row levels open when the visual loads; the reader
+              still opens and closes each group. */}
+          <Field label="Open levels">
+            <select value={Number.isInteger(pc.expandDepth) ? String(pc.expandDepth) : 'all'}
+              onChange={(e) => setGlobal('expandDepth', e.target.value === 'all' ? undefined : Number(e.target.value))}
+              style={{ ...inputStyle, marginBottom: 0 }}>
+              <option value="all">All</option>
+              <option value="0">None (first level only)</option>
+              <option value="1">First level</option>
+              <option value="2">Two levels</option>
+            </select>
+          </Field>
+          <Field label="Bold first level">
+            <input type="checkbox" checked={pc.boldFirstLevel ?? false} onChange={(e) => setGlobal('boldFirstLevel', e.target.checked)} />
+          </Field>
+        </SubSection>
         <SubSection label="Totals">
           <Field label="Row subtotals">
             <input type="checkbox" checked={pc.showRowSubTotals ?? true} onChange={(e) => setGlobal('showRowSubTotals', e.target.checked)} />
@@ -243,7 +272,8 @@ export default function VisualSection({ ctx }) {
     const isDateRange = effStyle === 'dateRange' || effStyle === 'dateBetween';
     const isDateCalendar = effStyle === 'dateCalendar';
     const isDateAny = isDateRange || effStyle === 'dateRelative' || isDateCalendar;
-    const isListLike = !isDateAny && effStyle !== 'range';
+    const isSearch = effStyle === 'search';
+    const isListLike = !isDateAny && effStyle !== 'range' && !isSearch;
     body = (
       <>
         <Field label="Style">
@@ -252,6 +282,7 @@ export default function VisualSection({ ctx }) {
             <option value="dropdown">Dropdown</option>
             <option value="buttons">Buttons</option>
             <option value="range">Range</option>
+            <option value="search">Search (contains)</option>
             {widget.data?._isDate && (
               <>
                 <option value="dateRange">📆 Date range</option>
@@ -288,8 +319,29 @@ export default function VisualSection({ ctx }) {
             </select>
           </Field>
         )}
+        {isSearch && (
+          <Field label="Match">
+            <select value={cfg.searchMatch || 'contains'} onChange={(e) => updateConfig('searchMatch', e.target.value)} style={{ ...inputStyle, marginBottom: 0 }}>
+              <option value="contains">Contains</option>
+              <option value="starts_with">Starts with</option>
+            </select>
+          </Field>
+        )}
+        {isSearch && (
+          <Field label="Placeholder" vertical>
+            <input type="text" value={cfg.searchPlaceholder ?? ''} placeholder="Search…"
+              onChange={(e) => updateConfig('searchPlaceholder', e.target.value || undefined)} style={{ ...inputStyle, marginBottom: 0 }} />
+          </Field>
+        )}
         {isListLike && (
           <>
+            {/* Picked when the report opens, unless a selection was saved. */}
+            <Field label="Opens on">
+              <select value={cfg.opensOn || 'none'} onChange={(e) => updateConfig('opensOn', e.target.value === 'none' ? undefined : e.target.value)} style={{ ...inputStyle, marginBottom: 0 }}>
+                <option value="none">No selection</option>
+                <option value="latest">Latest value</option>
+              </select>
+            </Field>
             <Field label="Multi-select">
               <input type="checkbox" checked={cfg.multiSelect ?? true} onChange={(e) => updateConfig('multiSelect', e.target.checked)} />
             </Field>

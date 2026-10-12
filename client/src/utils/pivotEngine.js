@@ -1,6 +1,7 @@
 /**
  * Pivot engine — transforms flat rows into a cross-tab structure.
  */
+import { compareAxisValues } from './axisSort';
 
 export function compositeKey(row, fields) {
   return fields.map((f) => row[f] ?? '(blank)').join('\x00');
@@ -96,7 +97,10 @@ export function flattenHeaderLevels(tree, depth) {
 // measures: the SUM/COUNT atoms of an average, which let a total be rebuilt as
 // Σsum/Σcount instead of averaging averages. They ride along the same
 // accumulators, so a sub-total gets them as naturally as the grand total.
-export function pivotData({ rawRows, rowDims, colDims, measures, aggregationFns = {}, defaultAggregation = 'sum', extraCols = [] }) {
+// `colDimDefs`: { type, datePart } per column level — columns read in
+// ascending order, by the calendar for a date part, as a pivot's headers do
+// everywhere. Rows keep the order the query gives them.
+export function pivotData({ rawRows, rowDims, colDims, measures, aggregationFns = {}, defaultAggregation = 'sum', extraCols = [], colDimDefs = [] }) {
   if (!rawRows || rawRows.length === 0 || measures.length === 0) {
     return null;
   }
@@ -114,7 +118,15 @@ export function pivotData({ rawRows, rowDims, colDims, measures, aggregationFns 
     if (!colKeyMap.has(ck)) colKeyMap.set(ck, colDims.map((d) => row[d]));
   }
   const rowKeys = [...rowKeyMap.entries()];
-  const colKeys = [...colKeyMap.entries()];
+  // The order rows arrive in says nothing of the columns' order: the first
+  // rows need not hold every month.
+  const colKeys = [...colKeyMap.entries()].sort(([, a], [, b]) => {
+    for (let i = 0; i < a.length; i++) {
+      const c = compareAxisValues(a[i], b[i], colDimDefs[i]);
+      if (c) return c;
+    }
+    return 0;
+  });
 
   // Cell map
   const cellMap = {};
