@@ -96,11 +96,11 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
   const grpBy = usesLegend(widget.type) ? (binding.groupBy || []) : [];
   const colDimsB = usesPivotColumns(widget.type) ? (binding.columnDimensions || []) : [];
 
-  // Drill-down support. Drillable widgets (bar/line/combo/pie/treemap)
+  // Drill-down support. Drillable widgets (bar/line/combo/pie/treemap/waterfall)
   // with >1 dim follow a hierarchy: each drill click pushes one
   // {dim, value} pair onto `widget.drillPath`. The fetch uses only the
   // currently-active dim level and filters by the ancestor pinned values.
-  const DRILLABLE = ['bar', 'line', 'combo', 'pie', 'treemap'];
+  const DRILLABLE = ['bar', 'line', 'combo', 'pie', 'treemap', 'waterfall'];
   const isDrillable = DRILLABLE.includes(widget.type) && fullHierarchy.length > 1;
   const drillPath = [];
   if (isDrillable) {

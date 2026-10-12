@@ -17,6 +17,7 @@ function DataLabelsPart({ widget, updateConfig, inputStyle }) {
   const canPosition = t === 'bar' || t === 'line' || t === 'pie';
   const canColor = t !== 'scatter'; // scatter draws its labels in a fixed colour
   const canBg = t === 'bar' || t === 'line' || t === 'pie';
+  const canRotate = t !== 'waterfall';
   return (
     <SubSection label="Data labels">
       <Field label="Show data labels">
@@ -51,10 +52,12 @@ function DataLabelsPart({ widget, updateConfig, inputStyle }) {
               )}
             </Field>
           )}
-          <Field label="Angle" vertical>
-            <RangeInput min={-90} max={90} value={cfg.dataLabelRotate ?? 0} suffix="°"
-              onChange={(e) => updateConfig('dataLabelRotate', parseIntOrNull(e.target.value))} />
-          </Field>
+          {canRotate && (
+            <Field label="Angle" vertical>
+              <RangeInput min={-90} max={90} value={cfg.dataLabelRotate ?? 0} suffix="°"
+                onChange={(e) => updateConfig('dataLabelRotate', parseIntOrNull(e.target.value))} />
+            </Field>
+          )}
           <FontFields inputStyle={inputStyle}
             size={{ value: cfg.dataLabelFontSize, min: 6, max: 36, placeholder: '10', onChange: (v) => updateConfig('dataLabelFontSize', v) }}
             color={canColor ? { value: cfg.dataLabelColor, fallback: '#475569', onChange: (v) => updateConfig('dataLabelColor', v) } : null}
@@ -83,8 +86,8 @@ export default function LabelsSection({ ctx }) {
   let body = null;
 
   if (isChart(type)) {
-    const axisFormat = type === 'bar' || type === 'line' || type === 'combo';
-    const labelFormat = type === 'bar' || type === 'line' || type === 'pie' || type === 'treemap';
+    const axisFormat = type === 'bar' || type === 'line' || type === 'combo' || type === 'waterfall';
+    const labelFormat = type === 'bar' || type === 'line' || type === 'pie' || type === 'treemap' || type === 'waterfall';
     body = (
       <>
         <DataLabelsPart widget={widget} updateConfig={updateConfig} inputStyle={inputStyle} />

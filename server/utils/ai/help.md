@@ -113,6 +113,7 @@
 - Text: Shapes → Text, then double-click it to type; the toolbar offers Bold, Italic, Underline, Font size, Font, Color, Clear formatting. To print a measure inside the text: drop the measure (or a dimension, read as Max of its column) in the Measures well of the Text's Fields section, then write its #tag in the text (the panel lists the tags, e.g. #revenue, #category_max); the value follows the report's filters and slicers. Dropping a field straight onto a Text visual binds it and appends its #tag.
 - Image: Shapes → Image, then in its panel paste a URL or use Upload (upload is not available in the cloud edition), and choose Fit.
 - Line, Square, Round, Arrow are decorative shapes.
+- Waterfall: a running total, category by category — each bar starts where the previous one ended (green up, red down), and a closing Total bar. One Category and one Value. Its own section adds Show total, Total label and Subtotals (a bar showing the running total after a chosen category — e.g. EBITDA after Staff costs); Colors sets the Increase, Decrease and Totals colours. A second dimension under the first in Category makes it drillable: click a bar to see its parts. The AI assistant proposes it when asked how one figure becomes another (revenue down to net income).
 - On a widget: View the SQL query, Refresh this widget's data, Cancel query (while loading).
 
 ## property-panel — Configuring a visual (property panel)

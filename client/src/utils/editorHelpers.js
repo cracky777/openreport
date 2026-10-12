@@ -38,6 +38,7 @@ export function convertData(data, fromType, toType) {
       return { labels, values };
     case 'pie':
     case 'treemap':
+    case 'waterfall':
       return { items: labels.map((name, i) => ({ name, value: values[i] || 0 })) };
     case 'table':
       return {

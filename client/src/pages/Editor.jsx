@@ -430,7 +430,7 @@ export default function Editor() {
   }, [history]);
 
   // Drill-down handlers — update widget.drillPath silently and trigger refetch
-  const DRILLABLE_TYPES = ['bar', 'line', 'combo', 'pie', 'treemap'];
+  const DRILLABLE_TYPES = ['bar', 'line', 'combo', 'pie', 'treemap', 'waterfall'];
   const isWidgetDrillable = useCallback((w) => {
     if (!w || !DRILLABLE_TYPES.includes(w.type)) return false;
     const dims = w.dataBinding?.selectedDimensions || [];

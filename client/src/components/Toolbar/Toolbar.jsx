@@ -149,7 +149,7 @@ const _hs66 = {
 
 // Ordered groups for the widget toolbar
 const WIDGET_GROUPS = [
-  { name: 'charts', types: ['bar', 'line', 'combo', 'pie', 'treemap', 'scatter'] },
+  { name: 'charts', types: ['bar', 'line', 'combo', 'pie', 'treemap', 'waterfall', 'scatter'] },
   { name: 'data', types: ['table', 'scorecard', 'gauge'] },
   { name: 'interactive', types: ['filter'] },
 ];

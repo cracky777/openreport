@@ -26,7 +26,7 @@ const _hs3 = { height: 22 };
 const _hs4 = { fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' };
 const _hs5 = { display: 'flex', alignItems: 'center', gap: 4 };
 
-const DRILLABLE_TYPES = ['bar', 'line', 'combo', 'pie', 'treemap'];
+const DRILLABLE_TYPES = ['bar', 'line', 'combo', 'pie', 'treemap', 'waterfall'];
 
 // Embed mode (/embed/:id?token=…): the signed token authenticates every API
 // call in place of a session cookie — third-party iframes don't get cookies.

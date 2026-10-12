@@ -8,6 +8,7 @@ import api from '../../../utils/api';
 import { parseIntOrNull } from '../../../utils/input';
 import { DirectionButtons } from './shared';
 import { BAR_DIRECTIONS, GAUGE_DIRECTIONS } from './visualTypes';
+import { WaterfallVisualPart } from './waterfallParts';
 import { TableGridPart, TableRowsPart, TableTotalsPart, TablePaginationPart, TableColumnSizingPart, TableFreezePart } from './tableParts';
 
 function LineFields({ cfg, updateConfig, inputStyle }) {
@@ -124,6 +125,11 @@ export default function VisualSection({ ctx }) {
           </>
         )}
       </>
+    );
+  } else if (type === 'waterfall') {
+    body = (
+      <WaterfallVisualPart cfg={cfg} updateConfig={updateConfig} inputStyle={inputStyle}
+        categories={(widget.data?.items || []).map((it) => String(it.name))} />
     );
   } else if (type === 'table') {
     body = (

@@ -86,7 +86,7 @@ export default function FieldsSection({ ctx }) {
         {roleZone('Size', 'scatterSize', scatter.size, setScatterMeas('size'), removeScatterMeas('size'))}
       </>
     );
-  } else if (type === 'pie' || type === 'treemap') {
+  } else if (type === 'pie' || type === 'treemap' || type === 'waterfall') {
     zones = (
       <>
         <DropZone label="Category" accepts={['dimension']} fields={selectedDims} zoneName="category"

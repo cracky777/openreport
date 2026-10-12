@@ -129,7 +129,7 @@ function grainsForWidget(w, widgetId, allWidgets) {
   const colDims = b.columnDimensions || [];
   const baseDims = [...new Set([...dims, ...grpBy, ...colDims])];
 
-  const DRILLABLE = ['bar', 'line', 'combo', 'pie', 'treemap'];
+  const DRILLABLE = ['bar', 'line', 'combo', 'pie', 'treemap', 'waterfall'];
   const isDrillable = DRILLABLE.includes(w.type) && dims.length > 1;
   const baseGrains = isDrillable
     ? dims.map((_, i) => {

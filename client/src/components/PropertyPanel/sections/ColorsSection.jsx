@@ -5,6 +5,7 @@ import { Section, SubSection, Field, ColorInput } from '../controls';
 import DropZone from '../../DropZone/DropZone';
 import { hasData, isChart } from './visualTypes';
 import { TableConditionalPart } from './tableParts';
+import { WaterfallColorsPart } from './waterfallParts';
 import { paletteOf } from '../../../utils/chartPalette';
 
 const seriesList = { display: 'flex', flexDirection: 'column', gap: 8 };
@@ -201,7 +202,15 @@ export default function ColorsSection({ ctx }) {
   const cfg = widget.config || {};
   let body = null;
 
-  if (isChart(type)) {
+  if (type === 'waterfall') {
+    // Coloured by what a bar does to the running total, never by series.
+    body = (
+      <>
+        <WaterfallColorsPart cfg={cfg} updateConfig={updateConfig} />
+        <ConditionalPart ctx={ctx} />
+      </>
+    );
+  } else if (isChart(type)) {
     body = (
       <>
         {(type === 'bar' || type === 'line' || type === 'scatter') && (

@@ -8,7 +8,7 @@ import { isChart } from './visualTypes';
 export default function LegendSection({ ctx }) {
   const { widget, updateConfig, inputStyle, sections } = ctx;
   const type = widget.type;
-  if (!isChart(type) || type === 'treemap') return null;
+  if (!isChart(type) || type === 'treemap' || type === 'waterfall') return null;
   const cfg = widget.config || {};
   const shown = cfg.showLegend ?? false;
   return (

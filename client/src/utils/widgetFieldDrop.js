@@ -98,6 +98,7 @@ function targetsFor({ widget, fieldName, fieldType, model }) {
 
     case 'pie':
     case 'treemap':
+    case 'waterfall':
       return isDim ? list([dimZone('Category'), singleMeasure('Value')]) : list([singleMeasure('Value')]);
 
     case 'table': {

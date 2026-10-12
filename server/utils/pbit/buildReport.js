@@ -38,6 +38,7 @@ const VISUAL_MAP = {
   donutChart: { type: 'pie' },
   scatterChart: { type: 'scatter' },
   treemap: { type: 'treemap' },
+  waterfallChart: { type: 'waterfall' },
   gauge: { type: 'gauge', config: { subType: 'arc' } },
 };
 
@@ -53,6 +54,8 @@ const ZONES = {
   pie: { dims: ['Category'], legend: [], measures: ['Y'] },
   scatter: { dims: ['Category', 'Details'], legend: ['Series'], x: ['X'], y: ['Y'], size: ['Size'] },
   treemap: { dims: ['Group', 'Details'], measures: ['Values', 'Y'] },
+  // Breakdown (a second split of each step) has no equivalent: the steps stay whole.
+  waterfall: { dims: ['Category'], measures: ['Y'] },
   gauge: { measures: ['Y'], max: ['MaxValue'], target: ['TargetValue'] },
 };
 
