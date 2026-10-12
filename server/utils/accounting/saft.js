@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { readRecords, readXmlRoot } = require('./xmlStream');
 const { importEntries } = require('./fec');
-const { utf8CopyPath } = require('../textFile');
+const { utf8CopyPath, discardStream } = require('../textFile');
 const ns4102 = require('./ns4102');
 const snc = require('./snc');
 const ro = require('./ro');
@@ -134,12 +134,12 @@ async function importSaft({ dbInstance, filePath, originalName, saft, tableName 
   try {
     read = await readAuditFile(filePath, out);
   } catch (err) {
-    out.destroy();
+    discardStream(out);
     throw new Error(`${originalName} could not be read as a SAF-T file: ${err.message}`);
   }
   const { header, accounts, lines } = read;
   if (!lines) {
-    out.destroy();
+    discardStream(out);
     // Portugal's invoicing SAF-T (TaxAccountingBasis F) is the common one.
     throw new Error(header.TaxAccountingBasis === 'F'
       ? `${originalName} is an invoicing SAF-T: export the accounting SAF-T (contabilidade) to read the books`

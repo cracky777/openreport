@@ -1099,8 +1099,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Create report modal — wizard */}
-          {/* Dismissible: the user reached for the browser's Back button to get
           {fecOffer && (
             <Modal width={600} onClose={() => setFecOffer(null)}>
               <FecPackOffer datasourceId={fecOffer.datasource.id} workspaceId={currentWsKey} accounting={fecOffer.accounting}
@@ -1111,6 +1109,8 @@ export default function Dashboard() {
             </Modal>
           )}
 
+          {/* Create report modal — wizard */}
+          {/* Dismissible: the user reached for the browser's Back button to get
               out of it, which is what a dialog with no way out earns. Escape
               and the backdrop now close it — except mid-import, where the
               upload owns the dialog. */}

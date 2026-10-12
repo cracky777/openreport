@@ -151,7 +151,8 @@ export default function FileImportDialog({ file, files: initialFiles, mode, targ
       const results = await uploadEach(files, {
         workspaceId,
         optionsFor: fileOptions.optionsFor,
-        onStatus: (i, state, err) => setStatus((s) => ({ ...s, [i]: { state, error: err } })),
+        // One file: its failure is told once, in the dialog's error line below.
+        onStatus: (i, state, err) => setStatus((s) => ({ ...s, [i]: { state, error: single ? '' : err } })),
       });
       const ok = results.filter((r) => r.data);
       const failures = results.filter((r) => r.error);

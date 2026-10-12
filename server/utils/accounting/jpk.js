@@ -15,7 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const { readRecords, readXmlRoot } = require('./xmlStream');
 const { importEntries } = require('./fec');
-const { utf8CopyPath } = require('../textFile');
+const { utf8CopyPath, discardStream } = require('../textFile');
 const pl = require('./pl');
 
 const COLUMNS = ['JournalCode', 'JournalLib', 'EcritureNum', 'EcritureDate', 'CompteNum', 'CompteLib', 'CompAuxNum', 'CompAuxLib',
@@ -75,11 +75,11 @@ async function importJpk({ dbInstance, filePath, originalName, jpk, tableName })
       }
     });
   } catch (err) {
-    out.destroy();
+    discardStream(out);
     throw new Error(`${originalName} could not be read as a JPK_KR_PD file: ${err.message}`);
   }
   if (!written) {
-    out.destroy();
+    discardStream(out);
     throw new Error(`${originalName} holds no journal entries (Dziennik)`);
   }
   // Opening balances: the trial balance lists parent accounts with their

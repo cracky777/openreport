@@ -31,6 +31,14 @@ function isValidUtf8(filePath) {
 // whoever removes the upload, once the import process is gone.
 const utf8CopyPath = (filePath) => `${filePath}.utf8`;
 
+// Drop a write stream on a failure path. Destroying it fails any write still
+// in flight (the header, when the file turned out empty before its copy was
+// even open), and a stream error nobody listens to kills the import process.
+function discardStream(stream) {
+  stream.on('error', () => { /* the caller reports the failure */ });
+  stream.destroy();
+}
+
 // Rewrite a Windows-1252 file as UTF-8 at `outPath`. Windows-1252 rather than
 // Latin-1: the two agree on every printable byte except 0x80–0x9F, which
 // Latin-1 leaves to control characters no text file means.
@@ -69,4 +77,4 @@ function readFirstLine(filePath, maxBytes = 64 * 1024) {
   }
 }
 
-module.exports = { isValidUtf8, writeUtf8Copy, readFirstLine, utf8CopyPath };
+module.exports = { isValidUtf8, writeUtf8Copy, readFirstLine, utf8CopyPath, discardStream };

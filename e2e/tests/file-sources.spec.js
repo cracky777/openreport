@@ -15,7 +15,8 @@ const csv = (name) => ({ name, mimeType: 'text/csv', buffer: Buffer.from('id,amo
 // Created straight through the API: the page open in the browser knows nothing of it.
 async function importBehindThePage(page, fileName) {
   const res = await page.request.post('/api/upload', { multipart: { file: csv(fileName) } });
-  expect(res.status()).toBe(201);
+  // 409 on a retry: the source survived the first attempt, which is all the test needs.
+  expect([201, 409]).toContain(res.status());
 }
 
 // The three stages are mounted side by side: everything is read inside the

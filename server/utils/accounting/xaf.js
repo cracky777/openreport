@@ -15,7 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const { readRecords, readXmlRoot } = require('./xmlStream');
 const { importEntries } = require('./fec');
-const { utf8CopyPath } = require('../textFile');
+const { utf8CopyPath, discardStream } = require('../textFile');
 const rgs = require('./rgs');
 
 const COLUMNS = ['JournalCode', 'JournalLib', 'EcritureNum', 'EcritureDate', 'CompteNum', 'CompteLib', 'CompAuxNum', 'CompAuxLib',
@@ -88,11 +88,11 @@ async function importXaf({ dbInstance, filePath, originalName, tableName }) {
       }
     });
   } catch (err) {
-    out.destroy();
+    discardStream(out);
     throw new Error(`${originalName} could not be read as an XML Auditfile Financieel: ${err.message}`);
   }
   if (!written) {
-    out.destroy();
+    discardStream(out);
     throw new Error(`${originalName} holds no transactions: export an XML Auditfile Financieel 3.2 or 4.0 with its journals`);
   }
   const openingDate = opening.date || header.startDate;
