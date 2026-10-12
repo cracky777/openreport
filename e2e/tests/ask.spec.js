@@ -244,7 +244,8 @@ test('the Help button opens the Help tab, and a suggested question is answered f
 // Assistant panel; with a model here, the answer is a report to build — a card,
 // then the editor with its own assistant asked the same request. The request
 // travels in the browser's storage, never in the URL.
-test('asked on the empty stage, the panel answers with a report to build, and the editor opens on it', async ({ page, request }) => {
+// Skipped while "What do you need?" is off (Dashboard.jsx DESCRIBE_REPORT).
+test.skip('asked on the empty stage, the panel answers with a report to build, and the editor opens on it', async ({ page, request }) => {
   const REQUEST = 'Sales by country, best first';
   const provider = await F.startScriptedProvider((body) => (provider.requests.length === 1
     ? { name: 'propose_action', arguments: { userAsked: 'do', action: 'create_report', request: REQUEST, summary: 'A report of sales by country.' } }
@@ -315,7 +316,8 @@ function journeyScript(REQUEST, first) {
   };
 }
 
-test('asked on a workspace with only a source, the panel builds a model with the model assistant, then the report', async ({ page, request }) => {
+// Skipped while "What do you need?" is off (Dashboard.jsx DESCRIBE_REPORT).
+test.skip('asked on a workspace with only a source, the panel builds a model with the model assistant, then the report', async ({ page, request }) => {
   const REQUEST = 'Amounts by id';
   const provider = await F.startScriptedProvider(journeyScript(REQUEST,
     { name: 'propose_action', arguments: { userAsked: 'do', action: 'build_model', request: REQUEST, summary: 'A data model on your file.' } }));
@@ -369,7 +371,8 @@ test('asked on a workspace with only a source, the panel builds a model with the
 // With nothing in the workspace, "send me the file": the card takes it, the
 // file goes to the upload route (never to the provider), and the model to
 // build on it is one click away, with the request carried on.
-test('asked on an empty workspace, the panel takes the file and goes on to the model', async ({ page, request }) => {
+// Skipped while "What do you need?" is off (Dashboard.jsx DESCRIBE_REPORT).
+test.skip('asked on an empty workspace, the panel takes the file and goes on to the model', async ({ page, request }) => {
   const REQUEST = 'Total amount';
   const provider = await F.startScriptedProvider(journeyScript(REQUEST,
     { name: 'propose_action', arguments: { userAsked: 'do', action: 'import_file', request: REQUEST, summary: 'Send me the file.' } }));

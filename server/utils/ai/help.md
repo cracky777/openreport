@@ -112,7 +112,6 @@
 1. Type a Title.
 2. Pick the data: Existing Model, Import File (CSV, Excel, Parquet, JSON) or Connect Database.
 3. With an existing model: choose the Model → Create Report. The editor opens.
-- Or ask the assistant: when a workspace has no report yet, and the AI assistant is available to you, the Reports stage asks What do you need? Describe the report you want and press Enter: the Assistant panel opens with your request asked — on its Your data tab when the workspace has a data model, on Help otherwise. It answers with a card: Build this report (a new report opens in the editor with the assistant asked your request), or, with no data yet, Import a file or Connect a database, then Build a data model with the assistant.
 - On a report card: View (opens the viewer in a new tab), Edit, More actions (⋮), and delete.
 - More actions (⋮): Rename, Duplicate, Export report, Move to workspace, Share report, Share public link / Make private, Copy public link, Embed…, History (admins), Schedule refresh, Alerts…, and the Rollup cache / Live query switch (admins).
 - Viewers only get View. A viewer sees only the reports shared with them: with none yet, Reports says so — an admin adds them to a workspace where reports are shared.

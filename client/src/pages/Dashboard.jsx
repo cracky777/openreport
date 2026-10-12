@@ -30,6 +30,11 @@ import { groupByParent } from '../utils/groupByParent';
 import FilterCrumb from '../components/AppShell/FilterCrumb';
 import CacheInspectorModal from '../components/CacheInspectorModal/CacheInspectorModal';
 import DescribeReport from '../components/DescribeReport/DescribeReport';
+// "What do you need?" on the empty Reports stage is off for now (the three
+// cards stay). Turning it back on: this flag, the 'home-ask' tour step
+// (AppShell), the guide's line (help.md § reports) and the e2e tests skipped
+// for the same reason (ask.spec.js, journey-overview.spec.js).
+const DESCRIBE_REPORT = false;
 import { askAssistant } from '../utils/askAssistant';
 import { FILE_IMPORT_ACCEPT } from '../utils/sourceFiles';
 import PbitImportWizard from '../components/PbitImport/PbitImportWizard';
@@ -1255,10 +1260,10 @@ export default function Dashboard() {
               )}
               {canEdit ? (
                 <>
-                  {aiAvailable && (
+                  {DESCRIBE_REPORT && aiAvailable && (
                     <DescribeReport onSubmit={askFromEmptyStage} />
                   )}
-                  <p style={emptySub}>{aiAvailable
+                  <p style={emptySub}>{DESCRIBE_REPORT && aiAvailable
                     ? 'Or start from a file, a database, or a model you already have.'
                     : 'Start from a file, a database, or a model you already have.'}</p>
                   <div style={emptyChoices}>

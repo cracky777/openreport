@@ -113,7 +113,8 @@ test("un viewer sans rapport partagé n'a pas de vue d'ensemble, et sait qui peu
 });
 
 // La vue d'ensemble est une image du parcours : « What do you need? » s'y efface.
-test("la vue d'ensemble masque « What do you need? »", async ({ page, request }) => {
+// Ignoré tant que « What do you need? » est coupé (Dashboard.jsx DESCRIBE_REPORT).
+test.skip("la vue d'ensemble masque « What do you need? »", async ({ page, request }) => {
   const F = require('../fixtures');
   const provider = await F.startScriptedProvider(() => ({ name: 'read_help', arguments: { topics: ['reports'] } }));
   const name = `Vide ${Date.now()}`;

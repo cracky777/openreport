@@ -710,7 +710,6 @@ const HOME_TOUR = [
   { target: 'home-workspace', title: 'Where you work', text: 'My Reports is your own space; workspaces are shared with your team. Switch here.' },
   { target: 'home-new-report', title: 'Create a report', text: 'From a file, a database, or a data model you already have.' },
   { target: 'home-import-file', title: 'The quickest start', text: 'Import a file — or drop it anywhere on this page — and the report opens on it.' },
-  { target: 'home-ask', title: 'Or just ask', text: 'Describe the report you want: the assistant takes it from there.' },
   { target: 'home-help', title: 'Help', text: 'How anything works: ask in your own words, or read the user guide.' },
   { target: 'home-assistant', title: 'The assistant', text: 'Questions about your data, visuals, new data: open it from here, on every screen.' },
 ];
