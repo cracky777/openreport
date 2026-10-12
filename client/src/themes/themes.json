@@ -10,6 +10,7 @@
       "--bg-hover": "#f1f5f9",
       "--bg-active": "#f5f3ff",
       "--bg-canvas": "#ffffff",
+      "--bg-input": "#ffffff",
 
       "--text-primary": "#0f172a",
       "--text-secondary": "#334155",
@@ -58,6 +59,7 @@
       "--bg-hover": "#1f2a3d",
       "--bg-active": "#3b2a6b",
       "--bg-canvas": "#0f172a",
+      "--bg-input": "#0f172a",
 
       "--text-primary": "#f1f5f9",
       "--text-secondary": "#cbd5e1",

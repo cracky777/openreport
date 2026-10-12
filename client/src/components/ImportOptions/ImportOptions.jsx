@@ -4,6 +4,8 @@
 // selection instead. Tokens here MUST match the whitelist maps in
 // server/routes/fileUpload.js (values are mapped server-side, never interpolated
 // raw into SQL).
+import LedgerOptions from './LedgerOptions';
+
 export const DEFAULT_IMPORT_OPTIONS = {
   delimiter: 'auto', decimalSeparator: 'auto', dateFormat: 'auto', encoding: 'auto', hasHeader: true, sheets: [],
 };
@@ -11,7 +13,7 @@ export const DEFAULT_IMPORT_OPTIONS = {
 // Classify a file by name → drives which options are relevant.
 export function importKind(fileName) {
   const ext = (fileName || '').toLowerCase().split('.').pop();
-  if (ext === 'csv' || ext === 'tsv') return 'csv';
+  if (ext === 'csv' || ext === 'tsv' || ext === 'txt') return 'csv';
   if (ext === 'xlsx' || ext === 'xls') return 'excel';
   return 'other';
 }
@@ -24,6 +26,7 @@ export function appendImportOptions(formData, o) {
   if (o.dateFormat && o.dateFormat !== 'auto') formData.append('dateFormat', o.dateFormat);
   if (o.encoding && o.encoding !== 'auto') formData.append('encoding', o.encoding);
   if (Array.isArray(o.sheets) && o.sheets.length) formData.append('sheets', JSON.stringify(o.sheets));
+  if (o.ledger) formData.append('ledger', JSON.stringify(o.ledger));
   // header is on by default server-side; only send when the user turned it off.
   if (o.hasHeader === false) formData.append('hasHeader', 'false');
 }
@@ -62,7 +65,8 @@ function Select({ label, value, options, onChange }) {
 
 // Import options, always visible. `kind` ('csv' | 'excel' | 'other') selects
 // which controls show; `sheetNames` lists a workbook's tabs for Excel files.
-export default function ImportOptions({ value, onChange, kind = 'csv', sheetNames = [] }) {
+// With `file`, a CSV or a workbook can also be read as a general ledger.
+export default function ImportOptions({ value, onChange, kind = 'csv', sheetNames = [], file }) {
   const v = value || DEFAULT_IMPORT_OPTIONS;
   const set = (k, val) => onChange({ ...v, [k]: val });
 
@@ -91,6 +95,7 @@ export default function ImportOptions({ value, onChange, kind = 'csv', sheetName
           <input type="checkbox" checked={v.hasHeader} onChange={(e) => set('hasHeader', e.target.checked)} />
           First row is header
         </label>
+        {file && <LedgerOptions file={file} kind="excel" options={v} onChange={onChange} />}
       </div>
     );
   }
@@ -111,6 +116,7 @@ export default function ImportOptions({ value, onChange, kind = 'csv', sheetName
         </label>
         <div style={hintStyle}>Applies to CSV / TSV files. Leave on Auto-detect unless the import looks wrong.</div>
       </div>
+      {file && <LedgerOptions file={file} kind="csv" options={v} onChange={onChange} />}
     </div>
   );
 }

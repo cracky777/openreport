@@ -557,7 +557,7 @@ function FileStep({ workspaceId, onImported, onCancel }) {
         onDrop={(e) => { e.preventDefault(); setOver(false); const f = e.dataTransfer.files?.[0]; if (f) setFile(f); }}>
         <TbUpload size={22} />
         <span>Drop your file here, or click to choose it</span>
-        <span style={fileHintStyle}>CSV, Excel, Parquet, JSON, SQLite or DuckDB — every sheet or table becomes a table of the source.</span>
+        <span style={fileHintStyle}>CSV, Excel, Parquet, JSON, SQLite or DuckDB — every sheet or table becomes a table of the source. Accounting books — a French FEC, a SAF-T or XAF audit file, a SIE or DATEV export — are recognised (a general ledger in CSV or Excel too, with its import options) and offered a ready-made accounting report.</span>
       </button>
       <input ref={inputRef} type="file" accept={FILE_IMPORT_ACCEPT} style={{ display: 'none' }} aria-label="File to import"
         onChange={(e) => { setFile(e.target.files?.[0] || null); e.target.value = ''; }} />
