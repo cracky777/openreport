@@ -65,6 +65,37 @@ describe('Linking sources to a model', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM model_datasources WHERE model_id = ?').get(model).n).toBe(0);
   });
 
+  // Reading a source is not enough: the model would carry another
+  // workspace's file to every reader of its own.
+  test("only a source of the model's workspace can be linked", async () => {
+    const owner = seedUser({ role: 'editor' });
+    const ws = seedWorkspace({ ownerId: owner, name: 'Team' });
+    const model = await modelOn(owner, await importFile(owner, 'team.csv', { workspaceId: ws }), { workspaceId: ws });
+    const personal = await importFile(owner, 'personal.csv');
+    expect((await link(owner, model, personal)).status).toBe(403);
+    db.prepare('INSERT INTO workspace_datasources (workspace_id, datasource_id) VALUES (?, ?)').run(ws, personal);
+    expect((await link(owner, model, personal)).status).toBe(201);
+  });
+
+  // Same rule wherever a model gets a source: creation, a change of source, an import.
+  test("a model is only built on a source of its workspace", async () => {
+    const owner = seedUser({ role: 'editor' });
+    const ws = seedWorkspace({ ownerId: owner, name: 'Team' });
+    const personal = await importFile(owner, 'own_personal.csv');
+    const team = await importFile(owner, 'own_team.csv', { workspaceId: ws });
+    const created = await request(app).post('/api/models').use(as(owner)).send({ name: 'cross', datasourceId: personal, workspaceId: ws });
+    expect(created.status).toBe(403);
+    const model = await modelOn(owner, team, { workspaceId: ws });
+    const repointed = await request(app).put(`/api/models/${model}`).use(as(owner)).send({ datasourceId: personal });
+    expect(repointed.status).toBe(403);
+    const exported = await request(app).get(`/api/models/${model}/export`).use(as(owner));
+    const yaml = exported.text.replace(/^name: .*$/m, 'name: imported-cross');
+    const imported = await request(app).post('/api/models/import').use(as(owner)).send({ yaml, datasourceId: personal, workspaceId: ws });
+    expect(imported.status).toBe(403);
+    db.prepare('INSERT INTO workspace_datasources (workspace_id, datasource_id) VALUES (?, ?)').run(ws, personal);
+    expect((await request(app).post('/api/models').use(as(owner)).send({ name: 'shared', datasourceId: personal, workspaceId: ws })).status).toBe(201);
+  });
+
   test('a viewer of the model cannot link', async () => {
     const owner = seedUser({ role: 'editor' });
     const viewer = seedUser({ role: 'editor' });
@@ -82,8 +113,9 @@ describe('Linking sources to a model', () => {
     const ws = seedWorkspace({ ownerId: owner, name: 'Team' });
     db.prepare('INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?)').run(ws, editor, 'editor');
     const own = await importFile(owner, 'own.csv', { workspaceId: ws });
-    // Lives in the owner's personal workspace: the team's editors reach it only through the model.
+    // Lives in the owner's personal workspace, shared into the team's.
     const linked = await importFile(owner, 'linked.csv');
+    db.prepare('INSERT INTO workspace_datasources (workspace_id, datasource_id) VALUES (?, ?)').run(ws, linked);
     const model = await modelOn(owner, own, { workspaceId: ws });
     expect((await link(owner, model, linked)).status).toBe(201);
 

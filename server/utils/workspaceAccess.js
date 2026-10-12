@@ -227,6 +227,15 @@ function modelReachableFromWorkspace(model, workspaceId) {
   return !!db.prepare('SELECT 1 FROM workspace_models WHERE model_id = ? AND workspace_id = ?').get(model.id, workspaceId);
 }
 
+// A source a model combines must be found in the model's workspace: it lives
+// there or is shared into it. Reading it from another workspace is not enough —
+// the model would carry that workspace's data to every reader of its own.
+function datasourceReachableFromWorkspace(ds, workspaceId) {
+  if (!ds || !workspaceId) return false;
+  if (datasourceHome(ds) === workspaceId) return true;
+  return !!db.prepare('SELECT 1 FROM workspace_datasources WHERE datasource_id = ? AND workspace_id = ?').get(ds.id, workspaceId);
+}
+
 // What the caller may do with a model, for the client:
 // 'manage' | 'edit' | 'build' | null.
 function modelAccess(model, user) {
@@ -335,6 +344,7 @@ module.exports = {
   workspaceRoleOf,
   datasourceHome,
   modelHome,
+  datasourceReachableFromWorkspace,
   sharedWorkspaceIdsOf,
   sharedWorkspaceIdsOfDatasource,
   setDatasourceShares,

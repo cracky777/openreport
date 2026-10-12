@@ -4,7 +4,7 @@ import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import FileImportDialog from '../components/FileImportDialog/FileImportDialog';
 import { sourceFiles, FILE_IMPORT_ACCEPT } from '../utils/sourceFiles';
-import { TbUpload, TbArrowsRightLeft, TbShare, TbLock } from 'react-icons/tb';
+import { TbUpload, TbArrowsRightLeft, TbShare, TbLock, TbListDetails } from 'react-icons/tb';
 import { EditIcon, ICON_SIZE } from '../components/actionIcons';
 import { cardActionBtn } from '../components/dashboardModalStyles';
 import { PrimaryButton, SecondaryButton, ImportButton, RefreshButton } from '../components/PageHeader/PageHeader';
@@ -20,6 +20,8 @@ import SourceIcon from '../components/AppShell/SourceIcon';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 import { MoveToWorkspaceModal, ShareWithWorkspacesModal } from '../components/WorkspaceTargets/WorkspaceTargets';
 import { canBuildWithRole } from '../utils/workspaceScope';
+import { isBooks } from '../utils/accountingPack';
+import AccountMappingDialog from '../components/AccountingPack/AccountMappingDialog';
 
 // Fills the stage slot AppShell gives it; the shell owns the viewport height.
 const _hs0 = { flex: 1, overflow: 'auto', backgroundColor: 'var(--bg-app)' };
@@ -92,6 +94,7 @@ export default function Datasources() {
     ...otherWorkspaces.map((w) => ({ id: w.id, name: w.name })),
   ], [personalWorkspace, workspaces, otherWorkspaces]);
   const [sharing, setSharing] = useState(null);
+  const [mapping, setMapping] = useState(null); // a source of books whose accounts are being placed
   const shareDatasource = async (workspaceIds) => {
     try {
       await api.put(`/datasources/${sharing.id}/shares`, { workspaceIds });
@@ -117,7 +120,7 @@ export default function Datasources() {
   // Order comes from the graph so the three columns agree.
   const orderedDatasources = graphOrderedDatasources;
   const [uploadProgress, setUploadProgress] = useState('');
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState(null);
   const [pickFor, setPickFor] = useState({ mode: 'create', target: null });
   const fileInputRef = useRef(null);
   const [showForm, setShowForm] = useState(false);
@@ -192,9 +195,9 @@ export default function Datasources() {
 
   // Record the pick only — the dialog asks for the import options next.
   const handleFileSelected = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setSelectedFile(file);
+    const picked = Array.from(e.target.files || []);
+    if (!picked.length) return;
+    setSelectedFiles(picked);
     setUploadProgress('');
     e.target.value = ''; // allow re-picking the same file
   };
@@ -202,16 +205,17 @@ export default function Datasources() {
   const handleImported = (data) => {
     const { mode, target } = pickFor;
     const rows = data.datasource.rowCount?.toLocaleString() || '?';
+    const count = data.imported?.length || 1;
     setUploadProgress(mode === 'refresh'
-      ? `${target.name} refreshed — ${rows} rows from ${selectedFile.name}`
-      : `Imported ${rows} rows from ${selectedFile.name}`);
+      ? `${target.name} refreshed — ${rows} rows from ${selectedFiles[0].name}`
+      : count > 1 ? `Imported ${count} files` : `Imported ${rows} rows from ${data.datasource.sourceFile || data.datasource.name}`);
     // Tables the new file didn't bring back. Said now, while the cause is
     // still on screen, rather than at the next model open.
     const missing = data.missingTables || [];
     if (missing.length) {
       toast(`Models using ${missing.join(', ')} will need fixing — the new file has no such table.`);
     }
-    setSelectedFile(null);
+    setSelectedFiles(null);
     loadDatasources();
     setTimeout(() => setUploadProgress(''), 5000);
   };
@@ -231,7 +235,7 @@ export default function Datasources() {
             )}
           </div>
           <div style={actionGroup}>
-            <input ref={fileInputRef} type="file" accept={FILE_IMPORT_ACCEPT}
+            <input ref={fileInputRef} type="file" accept={FILE_IMPORT_ACCEPT} multiple={pickFor.mode === 'create'}
               style={_hs2} onChange={handleFileSelected} />
             {canManageHere && (
               <>
@@ -244,10 +248,10 @@ export default function Datasources() {
         </div>
         {DatasourcesHeader && <DatasourcesHeader />}
         {uploadProgress && <div style={importedBanner}>{uploadProgress}</div>}
-        {selectedFile && (
+        {selectedFiles && (
           <FileImportDialog
-            file={selectedFile} mode={pickFor.mode} target={pickFor.target} workspaceId={currentWsKey}
-            onDone={handleImported} onFailed={loadDatasources} onCancel={() => setSelectedFile(null)}
+            files={selectedFiles} mode={pickFor.mode} target={pickFor.target} workspaceId={currentWsKey}
+            onDone={handleImported} onFailed={loadDatasources} onCancel={() => setSelectedFiles(null)}
           />
         )}
         {showForm && (
@@ -340,6 +344,11 @@ export default function Datasources() {
                         <EditIcon size={ICON_SIZE.card} />
                       </button>
                     )}
+                    {ds.access === 'manage' && files.some((f) => isBooks(f.accounting)) && (
+                      <button onClick={() => setMapping(ds)} title="Account mapping: where each account sits in the statements" {...cardActionBtn('muted')}>
+                        <TbListDetails size={16} />
+                      </button>
+                    )}
                     {ds.access === 'manage' && (
                       <>
                         <button onClick={() => setSharing(ds)} title="Share with other workspaces…" {...cardActionBtn(ds.shared_in?.length ? 'accent' : 'muted')}>
@@ -373,6 +382,9 @@ export default function Datasources() {
           </div>
         )}
       </main>
+      {mapping && (
+        <AccountMappingDialog datasourceId={mapping.id} name={mapping.name} onClose={() => setMapping(null)} onSaved={refresh} />
+      )}
       {sharing && (
         <ShareWithWorkspacesModal
           title={`Share "${sharing.name}" with…`}

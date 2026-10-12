@@ -5,8 +5,9 @@ import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import { downloadReportBundle } from '../utils/reportBundle';
-import ImportOptions, { DEFAULT_IMPORT_OPTIONS, appendImportOptions, importKind } from '../components/ImportOptions/ImportOptions';
-import { readSheetNames } from '../utils/readSheetNames';
+import { appendImportOptions } from '../components/ImportOptions/ImportOptions';
+import ImportFileList from '../components/FileImportDialog/ImportFileList';
+import { useFileOptions, missingSheets } from '../utils/importFiles';
 import { TbEye, TbShare, TbShareOff, TbShield, TbFolder, TbFolderPlus, TbUsers, TbUserPlus, TbArrowRight, TbDatabase, TbBolt, TbUpload, TbLayoutDashboard, TbLogout, TbUser, TbStack3, TbSun, TbMoon, TbDeviceLaptop, TbChevronDown, TbDotsVertical, TbCopy, TbArrowsRightLeft, TbHistory, TbArrowBackUp, TbLink, TbCalendarTime, TbBell, TbPlayerPlay, TbToggleLeftFilled, TbToggleRightFilled, TbLoader2, TbRefresh, TbFileText, TbCode, TbChartInfographic, TbFileExport } from 'react-icons/tb';
 import { DeleteIcon, EditIcon, ICON_SIZE } from '../components/actionIcons';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
@@ -32,6 +33,9 @@ import DescribeReport from '../components/DescribeReport/DescribeReport';
 import { askAssistant } from '../utils/askAssistant';
 import { FILE_IMPORT_ACCEPT } from '../utils/sourceFiles';
 import PbitImportWizard from '../components/PbitImport/PbitImportWizard';
+import FecPackOffer from '../components/AccountingPack/FecPackOffer';
+import { uploadEach, mergeFecUploads, modelOnFiles } from '../utils/multiFileImport';
+import { hasFinancePack } from '../utils/accountingPack';
 import CacheScheduleModal from '../components/CacheScheduleModal/CacheScheduleModal';
 import ScheduleModal from '../components/ScheduleModal/ScheduleModal';
 import { actionModalTitle, actionModalInput, actionModalActions, actionModalBtnSecondary, actionModalBtnPrimary, cardActionBtn } from '../components/dashboardModalStyles';
@@ -278,9 +282,11 @@ export default function Dashboard() {
   const [createMode, setCreateMode] = useState(null); // null | 'model' | 'file' | 'connection'
   const [uploadingFile, setUploadingFile] = useState(false);
   const [uploadError, setUploadError] = useState('');
-  const [importOpts, setImportOpts] = useState(DEFAULT_IMPORT_OPTIONS);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [sheetNames, setSheetNames] = useState([]);
+  // The files picked for the new report, each with its own import options.
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const fileOptions = useFileOptions();
+  const selectedFile = selectedFiles[0] || null;
+  const [fecOffer, setFecOffer] = useState(null); // books' upload response, while their accounting pack is offered
   const createFileRef = useRef(null);
   // Import-from-JSON-bundle flow
   const importFileRef = useRef(null);
@@ -325,113 +331,63 @@ export default function Dashboard() {
   // file is in hand, so the actual upload waits for the Import button. For an
   // Excel workbook we read its sheet names (in-browser) and pre-select them all.
   const handleFileSelected = (e) => {
-    const file = e.target.files?.[0];
+    const picked = Array.from(e.target.files || []);
     if (createFileRef.current) createFileRef.current.value = ''; // allow re-picking the same file
-    if (file) pickFile(file);
+    if (picked.length) pickFiles(picked);
   };
-  const pickFile = async (file) => {
-    setSelectedFile(file);
+  // Files added to those already picked; their options are set in the list.
+  const pickFiles = (picked) => {
+    setSelectedFiles((prev) => [...prev, ...picked.filter((f) => !prev.some((x) => x.name === f.name && x.size === f.size))]);
     setUploadError('');
-    setImportOpts(DEFAULT_IMPORT_OPTIONS);
-    setSheetNames([]);
-    if (importKind(file.name) === 'excel') {
-      const names = await readSheetNames(file);
-      setSheetNames(names);
-      setImportOpts((o) => ({ ...o, sheets: names })); // default: import every sheet
-    }
   };
 
-  // Step 2: run the upload → model → report chain for the pending file.
+  // Step 2: run the upload → model → report chain for the pending file. A
+  // book of accounts (FEC, SAF-T, DATEV) stops after the upload: its accounting pack is offered first,
+  // and the blank report is what declining it leads to. Several files: each
+  // becomes a source; a company's books merge into one, and other files
+  // are combined in one model whose joins the model editor asks for before
+  // the report.
   const handleFileForReport = async () => {
     const file = selectedFile;
     if (!file) return;
-    setUploadingFile(true);
-    setUploadError('');
-    try {
+    if (selectedFiles.length > 1) { await runFileChain(() => reportFromFiles(selectedFiles)); return; }
+    await runFileChain(async () => {
       // 1. Upload file → creates DuckDB datasource (or reuses existing)
       const formData = new FormData();
       formData.append('file', file);
       formData.append('name', file.name.replace(/\.[^.]+$/, ''));
       // The source and its model land in the open workspace, like the report.
       if (currentWsKey) formData.append('workspaceId', currentWsKey);
-      appendImportOptions(formData, importOpts);
+      appendImportOptions(formData, fileOptions.optionsFor(file));
       const uploadRes = await api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
-      const ds = uploadRes.data.datasource;
+      if (hasFinancePack(uploadRes.data.accounting)) setFecOffer(uploadRes.data);
+      else await blankReportFor(uploadRes.data);
+    });
+  };
 
-      // Step 2: locate or create the model for this datasource, and decide whether
-      // it still needs auto-flagging. Any leftover empty model (from a previously
-      // failed auto-flag) gets re-flagged in place — otherwise reuse skipped flagging
-      // and the user landed in an empty editor.
-      let modelId;
-      let needsAutoFlag = true;
-      if (uploadRes.data.reused) {
-        const existingModel = models.find((m) => m.datasource_id === ds.id);
-        if (existingModel) {
-          modelId = existingModel.id;
-          try {
-            const fullRes = await api.get(`/models/${existingModel.id}`);
-            const m = fullRes.data.model;
-            const hasTables = (m.selected_tables || []).length > 0;
-            const hasFields = (m.dimensions || []).length > 0 || (m.measures || []).length > 0;
-            if (hasTables && hasFields) needsAutoFlag = false;   // already populated, leave it
-          } catch { /* fetch failed, just re-flag to be safe */ }
-        }
-      }
-      if (!modelId) {
-        const modelRes = await api.post('/models', { name: ds.name, datasourceId: ds.id, ...(currentWsKey ? { workspaceId: currentWsKey } : {}) });
-        modelId = modelRes.data.model.id;
-      }
+  const reportFromFiles = async (files) => {
+    const results = await uploadEach(files, { workspaceId: currentWsKey, optionsFor: fileOptions.optionsFor });
+    const ok = results.filter((r) => r.data);
+    const failures = results.filter((r) => r.error);
+    if (!ok.length) throw new Error(failures.map((r) => `${r.file.name}: ${r.error}`).join(' · '));
+    if (failures.length) toast(`Not imported: ${failures.map((r) => r.file.name).join(', ')}`);
+    const books = await mergeFecUploads(ok);
+    if (books.length) { setFecOffer(books[0]); return; }
+    const kept = ok.filter((r) => !r.mergedInto);
+    if (kept.length === 1) { await blankReportFor(kept[0].data); return; }
+    const modelId = await modelOnFiles(kept.map((r) => r.data.datasource), { workspaceId: currentWsKey });
+    setShowCreate(false);
+    setCreateMode(null);
+    const back = new URLSearchParams({ setup: 'files', then: 'newReport' });
+    if (newTitle) back.set('title', newTitle);
+    navigate(`/models/${modelId}?${back}`);
+  };
 
-      if (needsAutoFlag) {
-        // A fresh upload carries every imported table (name + columns); older or
-        // reused datasources fall back to a single-table fetch.
-        let tbls = ds.tables;
-        if (!tbls || !tbls.length) {
-          const colRes = await api.get(`/datasources/${ds.id}/tables/${ds.tableName}/columns`);
-          tbls = [{ tableName: ds.tableName, columns: colRes.data.columns || [] }];
-        }
-        const numericTypes = ['integer', 'bigint', 'numeric', 'decimal', 'real', 'double', 'float', 'int', 'smallint', 'double precision', 'interval'];
-        const dateTypes = ['date', 'timestamp', 'timestamptz', 'timestamp with time zone', 'timestamp without time zone', 'datetime', 'time', 'smalldatetime', 'datetime2'];
-        const dimensions = [];
-        const measures = [];
-        const selectedTables = [];
-        // With several sheets/tables, suffix labels with the sheet so homonym
-        // columns stay distinguishable (and users don't accidentally combine
-        // fields from unrelated tables, which the server now rejects).
-        const multi = tbls.length > 1;
-        const lbl = (t, col) => (multi ? `${col} (${t.tableName})` : col);
-        tbls.forEach((t) => {
-          selectedTables.push(t.tableName);
-          (t.columns || []).forEach((c) => {
-            const dimName = `${t.tableName}.${c.column_name}`;
-            const dt = c.data_type?.toLowerCase() || '';
-            const colType = numericTypes.includes(dt) ? 'number' : dateTypes.includes(dt) ? 'date' : 'string';
-            dimensions.push({ name: dimName, table: t.tableName, column: c.column_name, type: colType, label: lbl(t, c.column_name) });
-            if (numericTypes.includes(dt)) {
-              measures.push({ name: `${t.tableName}.${c.column_name}_sum`, table: t.tableName, column: c.column_name, aggregation: 'sum', label: lbl(t, c.column_name) });
-            }
-          });
-        });
-        await api.put(`/models/${modelId}`, { selected_tables: selectedTables, dimensions, measures });
-      }
-
-      // 4. Create report with this model
-      const reportRes = await api.post('/reports', {
-        // Blank until its first save: listed nowhere, dropped if left unsaved.
-        draft: true,
-        title: newTitle || ds.name,
-        // Only when we fell back to the datasource's name — a title the user
-        // typed keeps its conflict error.
-        ...(newTitle ? {} : { autoTitle: true }),
-        modelId,
-        ...(selectedWs ? { workspaceId: selectedWs } : {}),
-        settings: { theme: availableThemes[themeResolved] ? { key: themeResolved, ...availableThemes[themeResolved] } : null },
-      });
-      // Close before leaving, like the database branch already does. The
-      // dialog is state, not a route, so nothing else would ever close it.
-      setShowCreate(false);
-      setCreateMode(null);
-      navigate(`/edit/${reportRes.data.report.id}`);
+  const runFileChain = async (step) => {
+    setUploadingFile(true);
+    setUploadError('');
+    try {
+      await step();
     } catch (err) {
       setUploadError(err.response?.data?.error || err.message);
       // The chain can stop after the upload (model or report refused, proxy
@@ -443,6 +399,86 @@ export default function Dashboard() {
     }
   };
 
+  // The model and the blank report on an uploaded file, then the editor.
+  const blankReportFor = async (uploadData) => {
+    const ds = uploadData.datasource;
+
+    // Step 2: locate or create the model for this datasource, and decide whether
+    // it still needs auto-flagging. Any leftover empty model (from a previously
+    // failed auto-flag) gets re-flagged in place — otherwise reuse skipped flagging
+    // and the user landed in an empty editor.
+    let modelId;
+    let needsAutoFlag = true;
+    if (uploadData.reused) {
+      const existingModel = models.find((m) => m.datasource_id === ds.id);
+      if (existingModel) {
+        modelId = existingModel.id;
+        try {
+          const fullRes = await api.get(`/models/${existingModel.id}`);
+          const m = fullRes.data.model;
+          const hasTables = (m.selected_tables || []).length > 0;
+          const hasFields = (m.dimensions || []).length > 0 || (m.measures || []).length > 0;
+          if (hasTables && hasFields) needsAutoFlag = false;   // already populated, leave it
+        } catch { /* fetch failed, just re-flag to be safe */ }
+      }
+    }
+    if (!modelId) {
+      const modelRes = await api.post('/models', { name: ds.name, datasourceId: ds.id, ...(currentWsKey ? { workspaceId: currentWsKey } : {}) });
+      modelId = modelRes.data.model.id;
+    }
+
+    if (needsAutoFlag) {
+      // A fresh upload carries every imported table (name + columns); older or
+      // reused datasources fall back to a single-table fetch.
+      let tbls = ds.tables;
+      if (!tbls || !tbls.length) {
+        const colRes = await api.get(`/datasources/${ds.id}/tables/${ds.tableName}/columns`);
+        tbls = [{ tableName: ds.tableName, columns: colRes.data.columns || [] }];
+      }
+      const numericTypes = ['integer', 'bigint', 'numeric', 'decimal', 'real', 'double', 'float', 'int', 'smallint', 'double precision', 'interval'];
+      const dateTypes = ['date', 'timestamp', 'timestamptz', 'timestamp with time zone', 'timestamp without time zone', 'datetime', 'time', 'smalldatetime', 'datetime2'];
+      const dimensions = [];
+      const measures = [];
+      const selectedTables = [];
+      // With several sheets/tables, suffix labels with the sheet so homonym
+      // columns stay distinguishable (and users don't accidentally combine
+      // fields from unrelated tables, which the server now rejects).
+      const multi = tbls.length > 1;
+      const lbl = (t, col) => (multi ? `${col} (${t.tableName})` : col);
+      tbls.forEach((t) => {
+        selectedTables.push(t.tableName);
+        (t.columns || []).forEach((c) => {
+          const dimName = `${t.tableName}.${c.column_name}`;
+          const dt = c.data_type?.toLowerCase() || '';
+          const colType = numericTypes.includes(dt) ? 'number' : dateTypes.includes(dt) ? 'date' : 'string';
+          dimensions.push({ name: dimName, table: t.tableName, column: c.column_name, type: colType, label: lbl(t, c.column_name) });
+          if (numericTypes.includes(dt)) {
+            measures.push({ name: `${t.tableName}.${c.column_name}_sum`, table: t.tableName, column: c.column_name, aggregation: 'sum', label: lbl(t, c.column_name) });
+          }
+        });
+      });
+      await api.put(`/models/${modelId}`, { selected_tables: selectedTables, dimensions, measures });
+    }
+
+    // 4. Create report with this model
+    const reportRes = await api.post('/reports', {
+      // Blank until its first save: listed nowhere, dropped if left unsaved.
+      draft: true,
+      title: newTitle || ds.name,
+      // Only when we fell back to the datasource's name — a title the user
+      // typed keeps its conflict error.
+      ...(newTitle ? {} : { autoTitle: true }),
+      modelId,
+      ...(selectedWs ? { workspaceId: selectedWs } : {}),
+      settings: { theme: availableThemes[themeResolved] ? { key: themeResolved, ...availableThemes[themeResolved] } : null },
+    });
+    // Close before leaving, like the database branch already does. The
+    // dialog is state, not a route, so nothing else would ever close it.
+    setShowCreate(false);
+    setCreateMode(null);
+    navigate(`/edit/${reportRes.data.report.id}`);
+  };
+
   // Creating from a filtered column pre-picks the model we're standing in,
   // and jumps straight past the source step it would otherwise ask for.
   //
@@ -452,7 +488,7 @@ export default function Dashboard() {
   const openCreate = (mode) => {
     setNewTitle('');
     setUploadError('');
-    setSelectedFile(null);
+    setSelectedFiles([]);
     const followed = focus.stage === 'models' ? focus.id : '';
     setNewModelId(followed);
     const preset = mode || (followed ? 'model' : null);
@@ -467,7 +503,7 @@ export default function Dashboard() {
     setCreateMode(null);
     setModePreset(false);
     setUploadError('');
-    setSelectedFile(null);
+    setSelectedFiles([]);
   };
 
   // Backing out of a source step. When the source was picked before the dialog
@@ -479,7 +515,7 @@ export default function Dashboard() {
     if (modePreset) { closeCreate(); return; }
     setCreateMode(null);
     setUploadError('');
-    setSelectedFile(null);
+    setSelectedFiles([]);
   };
 
   const handleCreate = async () => {
@@ -525,12 +561,12 @@ export default function Dashboard() {
       if (!draggingFiles(e)) return;
       e.preventDefault();
       setFileOver(false);
-      const file = e.dataTransfer.files?.[0];
-      if (!file) return;
-      const ext = `.${file.name.split('.').pop().toLowerCase()}`;
-      if (!FILE_IMPORT_ACCEPT.split(',').includes(ext)) { toast('This file cannot be imported: CSV, Excel, Parquet, JSON, SQLite or DuckDB'); return; }
+      const dropped = Array.from(e.dataTransfer.files || []);
+      if (!dropped.length) return;
+      const accepted = dropped.filter((f) => FILE_IMPORT_ACCEPT.split(',').includes(`.${f.name.split('.').pop().toLowerCase()}`));
+      if (!accepted.length) { toast('This file cannot be imported: CSV/TXT, French FEC, SAF-T / XAF XML, SIE, DATEV, Excel, Parquet, JSON, SQLite or DuckDB'); return; }
       openCreate('file');
-      pickFile(file);
+      pickFiles(accepted);
     },
   } : {};
 
@@ -1060,6 +1096,16 @@ export default function Dashboard() {
 
           {/* Create report modal — wizard */}
           {/* Dismissible: the user reached for the browser's Back button to get
+          {fecOffer && (
+            <Modal width={600} onClose={() => setFecOffer(null)}>
+              <FecPackOffer datasourceId={fecOffer.datasource.id} workspaceId={currentWsKey} accounting={fecOffer.accounting}
+                sameCompany={fecOffer.sameCompany}
+                onMerged={(t) => setFecOffer((prev) => ({ ...prev, datasource: { ...prev.datasource, id: t.id, name: t.name } }))}
+                declineLabel="Start from a blank report"
+                onDecline={() => { const data = fecOffer; setFecOffer(null); runFileChain(() => blankReportFor(data)); }} />
+            </Modal>
+          )}
+
               out of it, which is what a dialog with no way out earns. Escape
               and the backdrop now close it — except mid-import, where the
               upload owns the dialog. */}
@@ -1087,7 +1133,7 @@ export default function Dashboard() {
                         <span style={_hs51}>Use a data model already configured</span>
                       </button>
                     )}
-                    <button className="btn-hover" onClick={() => { setSelectedFile(null); setUploadError(''); setCreateMode('file'); }} style={sourceCard}>
+                    <button className="btn-hover" onClick={() => { setSelectedFiles([]); setUploadError(''); setCreateMode('file'); }} style={sourceCard}>
                       <TbUpload size={28} color="#16a34a" />
                       <span style={_hs52}>Import File</span>
                       <span style={_hs53}>CSV, Excel, Parquet, JSON</span>
@@ -1124,7 +1170,7 @@ export default function Dashboard() {
               {/* Step 2b: Upload file */}
               {createMode === 'file' && (
                 <div>
-                  <input ref={createFileRef} type="file" accept=".csv,.xlsx,.xls,.parquet,.json,.tsv,.db,.sqlite,.sqlite3,.duckdb,.ddb" style={_hs59}
+                  <input ref={createFileRef} type="file" multiple accept={FILE_IMPORT_ACCEPT} style={_hs59}
                     onChange={handleFileSelected} />
                   {!selectedFile ? (
                     // No file yet → the drop zone.
@@ -1139,27 +1185,24 @@ export default function Dashboard() {
                       onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border-strong)'}
                     >
                       <TbUpload size={32} color="var(--text-disabled)" />
-                      <div style={_hs61}>Click to select a file</div>
-                      <div style={_hs62}>CSV, Excel, Parquet, JSON (max 500 Mo)</div>
+                      <div style={_hs61}>Click to select one or several files</div>
+                      <div style={_hs62}>CSV, Excel, Parquet, JSON, FEC, SAF-T, XAF, SIE, DATEV (max 500 Mo)</div>
                     </div>
                   ) : (
-                    // File picked → a compact chip (name + remove) then the options.
-                    // Removing the file restores the drop zone above.
+                    // Files picked → the list, each file with its own options.
+                    // Removing the last file restores the drop zone above.
                     <>
-                      <div style={fileChipStyle}>
-                        <TbFileText size={18} color="var(--accent-primary)" style={{ flexShrink: 0 }} />
-                        <span style={fileChipNameStyle} title={selectedFile.name}>{selectedFile.name}</span>
-                        <button
-                          className="btn-hover"
-                          onClick={() => { setSelectedFile(null); setUploadError(''); }}
-                          disabled={uploadingFile}
-                          title="Remove file"
-                          style={fileChipRemoveStyle}
-                        >
-                          <DeleteIcon size={ICON_SIZE.modal} />
-                        </button>
-                      </div>
-                      <ImportOptions value={importOpts} onChange={setImportOpts} kind={importKind(selectedFile.name)} sheetNames={sheetNames} />
+                      <ImportFileList files={selectedFiles} options={fileOptions} busy={uploadingFile}
+                        onRemove={(i) => { setSelectedFiles((prev) => prev.filter((_, k) => k !== i)); setUploadError(''); }} />
+                      {selectedFiles.length === 1 && !uploadingFile && (
+                        <button className="btn-hover" onClick={() => setSelectedFiles([])} style={removeOnlyBtn}>Remove this file</button>
+                      )}
+                      <button className="btn-hover" onClick={() => createFileRef.current?.click()} disabled={uploadingFile} style={addFileBtn}>
+                        + Add another file
+                      </button>
+                      {selectedFiles.length > 1 && (
+                        <div style={multiFileNote}>Each file becomes a source, read with automatic detection unless you change its Options. Accounting books (FEC, SAF-T, XAF, SIE, DATEV) of one company are merged; other files are combined in one model, whose joins you set before the report opens.</div>
+                      )}
                     </>
                   )}
                   {uploadError && <div style={_hs63}>{uploadError}</div>}
@@ -1168,11 +1211,11 @@ export default function Dashboard() {
                     {selectedFile && (() => {
                       // Block only when the sheets are known but none is ticked;
                       // if we couldn't read them, let the server pick the first.
-                      const noSheets = importKind(selectedFile.name) === 'excel' && sheetNames.length > 0 && !(importOpts.sheets && importOpts.sheets.length);
+                      const noSheets = missingSheets(selectedFiles, fileOptions.optionsFor);
                       const disabled = uploadingFile || noSheets;
                       return (
                         <button className="btn-hover btn-hover-primary" onClick={handleFileForReport} disabled={disabled} style={{ ...primaryBtn, opacity: disabled ? 0.6 : 1 }}>
-                          {uploadingFile ? 'Importing…' : 'Import'}
+                          {uploadingFile ? 'Importing…' : selectedFiles.length > 1 ? `Import ${selectedFiles.length} files` : 'Import'}
                         </button>
                       );
                     })()}
@@ -1715,9 +1758,9 @@ export default function Dashboard() {
 
 const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer' };
 const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: 'var(--bg-panel)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer' };
-const fileChipStyle = { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', marginBottom: 12, borderRadius: 8, border: '1px solid var(--border-default)', background: 'var(--bg-panel-alt)' };
-const fileChipNameStyle = { flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
-const fileChipRemoveStyle = { display: 'inline-flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 4, borderRadius: 6, flexShrink: 0 };
+const removeOnlyBtn = { display: 'block', marginTop: 6, marginBottom: 4, padding: 0, fontSize: 12, background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' };
+const addFileBtn = { marginTop: 8, marginBottom: 12, padding: '6px 10px', fontSize: 12, background: 'transparent', border: '1px dashed var(--border-strong)', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer' };
+const multiFileNote = { fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted)', background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', borderRadius: 6, padding: '8px 10px', marginBottom: 12 };
 
 // 3-dots dropdown shown next to the action row of each report card.
 const cardMenuPanel = {

@@ -5,6 +5,7 @@ import { toast } from '../Toast/toast';
 import Modal from '../Modal/Modal';
 import DatasourceForm from '../DatasourceForm/DatasourceForm';
 import { useGraph } from '../../hooks/graphContext';
+import { buildableSources } from '../../utils/workspaceScope';
 
 // Power BI template (.pbit) import, in four steps: upload → pick or create
 // the connection → review what the template maps to → apply. The server
@@ -63,7 +64,10 @@ function base64ToBlob(base64, mime) {
 // page); `onImported` lets that page refresh its list once the report exists.
 export default function PbitImportWizard({ onClose, workspaceId, onImported }) {
   const navigate = useNavigate();
-  const { datasources, refresh } = useGraph();
+  const { datasources: allDatasources, refresh } = useGraph();
+  // In a workspace, the model lands there: only its sources (living there or
+  // shared into it) may carry it. In My Reports it lands with its source.
+  const datasources = useMemo(() => (workspaceId ? buildableSources(allDatasources, workspaceId) : allDatasources), [allDatasources, workspaceId]);
   const fileRef = useRef(null);
   const [step, setStep] = useState('upload');
   const [busy, setBusy] = useState(false);

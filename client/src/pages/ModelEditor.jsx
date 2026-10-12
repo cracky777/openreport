@@ -23,7 +23,8 @@ import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
 import Step2DimensionsMeasures from './Step2DimensionsMeasures';
 import Step0Tables from './Step0Tables';
 import FileImportDialog from '../components/FileImportDialog/FileImportDialog';
-import { sourceFiles, FILE_IMPORT_ACCEPT } from '../utils/sourceFiles';
+import { sourceFiles, tablesOfSource, FILE_IMPORT_ACCEPT } from '../utils/sourceFiles';
+import { buildableSources } from '../utils/workspaceScope';
 import {
   isNumeric, isDateType, getColumnType, readOverride, writeOverride,
 } from '../utils/modelEditorHelpers';
@@ -233,7 +234,8 @@ export default function ModelEditor() {
   const openDsChange = async () => {
     try {
       const res = await api.get('/datasources');
-      setAllDatasources(res.data?.datasources || []);
+      // Only the sources of the model's workspace, as the server allows.
+      setAllDatasources(buildableSources(res.data?.datasources, model?.workspace_id));
       setShowDsChange(true);
     } catch (err) {
       toast(err?.response?.data?.error || 'Failed to load datasources');
@@ -387,7 +389,8 @@ export default function ModelEditor() {
 
   // When entering step 1, load columns for newly selected tables. `tables`:
   // the selection just set by the model assistant, not yet in this closure.
-  const enterStep1 = useCallback(async (tables = selectedTables) => {
+  // `byName`: also join by key column names, not only by declared keys.
+  const enterStep1 = useCallback(async (tables = selectedTables, { byName = false } = {}) => {
     const toLoad = tables.filter((t) => !tableColumns[t]);
     const loaded = { ...tableColumns };
     for (const t of toLoad) {
@@ -410,9 +413,9 @@ export default function ModelEditor() {
     // New tables arrive joined as the database declares them.
     if (toLoad.length) {
       try {
-        const found = await applyRelationships(false, loaded, tables);
+        const found = await applyRelationships(byName, loaded, tables);
         if (found.joins.length) {
-          toast(`${found.joins.length} relationship${found.joins.length > 1 ? 's' : ''} added from the database's foreign keys`, 'success');
+          toast(`${found.joins.length} relationship${found.joins.length > 1 ? 's' : ''} added ${byName ? 'from the column names' : "from the database's foreign keys"}`, 'success');
         }
       } catch { /* keys unreadable: the joins are drawn by hand or detected by name */ }
     }
@@ -422,7 +425,7 @@ export default function ModelEditor() {
   // its own, linked here — a new file becomes a new source. Their tables join
   // the list; a new file's come in ticked, the user added it to use it.
   const addFileRef = useRef(null);
-  const [fileToAdd, setFileToAdd] = useState(null);
+  const [filesToAdd, setFilesToAdd] = useState(null);
   const [fileSources, setFileSources] = useState([]);
   const linked = model?.linked_datasources || [];
   const canLinkSources = ['manage', 'edit'].includes(model?.access) && sourceFiles(datasource).length > 0;
@@ -434,7 +437,10 @@ export default function ModelEditor() {
     }).catch(() => { /* the picker just stays empty */ });
     return () => { live = false; };
   }, [canLinkSources, linked.length]);
-  const linkable = fileSources.filter((d) => d.id !== model?.datasource_id && !linked.some((l) => l.id === d.id));
+  // Only the files of the model's workspace (living there or shared into it),
+  // as the server allows.
+  const linkable = buildableSources(fileSources, model?.workspace_id)
+    .filter((d) => d.id !== model?.datasource_id && !linked.some((l) => l.id === d.id));
   const linkedTables = useMemo(() => Object.fromEntries(
     tableInfo.filter((t) => t.sourceId !== model?.datasource_id).map((t) => [t.name, t]),
   ), [tableInfo, model?.datasource_id]);
@@ -448,13 +454,28 @@ export default function ModelEditor() {
       const ticked = tickTables.map((t) => `${alias}__${t}`);
       setSelectedTables((prev) => [...prev, ...ticked.filter((t) => !prev.includes(t))]);
       toast(`${res.data.datasource.name} added to the model`, 'success');
+      return ticked;
     } catch (err) {
       toast(err.response?.data?.error || 'Could not add this source');
     }
   };
   const handleFileImported = async (data) => {
-    setFileToAdd(null);
-    await linkSource(data.datasource.id, (data.datasource.tables || []).map((t) => t.tableName));
+    setFilesToAdd(null);
+    // Every file imported is linked to the model, its tables ticked.
+    const ticked = [];
+    for (const d of data.imported || [data]) {
+      ticked.push(...((await linkSource(d.datasource.id, (d.datasource.tables || []).map((t) => t.tableName))) || []));
+    }
+    await onSchema(ticked);
+  };
+  // A file source already imported, added from the schema's Add a file.
+  const linkExisting = async (ds) => onSchema((await linkSource(ds.id, tablesOfSource(ds))) || []);
+  // Added from the schema: the new tables arrive on it flagged and joined by
+  // column names, as on a model made from files.
+  const onSchema = async (ticked) => {
+    if (step < 1 || !ticked.length) return;
+    await enterStep1([...selectedTables, ...ticked.filter((t) => !selectedTables.includes(t))], { byName: true })
+      .catch(() => toast('Some tables could not be read'));
   };
   const unlinkSource = async (source) => {
     try {
@@ -626,7 +647,7 @@ export default function ModelEditor() {
   const [assistantOpen, setAssistantOpen] = useState(false);
   // Sent here by the report or Ask assistant (`?assistant=1`): open it, with
   // the request they handed over.
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   // The tour, on a wide screen, once the model is loaded — not when the editor
   // opens with its assistant already asked (`?assistant=`).
   const { user } = useAuth();
@@ -642,6 +663,20 @@ export default function ModelEditor() {
     const request = takeHandOver('model', id);
     if (request) setAssistantRequest(request);
   }, [searchParams, id]);
+  // A model just made from several imported files (`?setup=files`): every
+  // table of its sources is ticked, flagged and joined by column names, as if
+  // picked here — then the parameter goes, so a reload does not redo it.
+  const filesSetUp = useRef(false);
+  useEffect(() => {
+    if (loading || filesSetUp.current || searchParams.get('setup') !== 'files' || !tableInfo.length) return;
+    filesSetUp.current = true;
+    const tables = tableInfo.map((t) => t.name);
+    setSelectedTables(tables);
+    enterStep1(tables, { byName: true }).catch(() => toast('Some tables could not be read'));
+    const rest = new URLSearchParams(searchParams);
+    rest.delete('setup');
+    setSearchParams(rest, { replace: true });
+  }, [loading, searchParams, setSearchParams, tableInfo, enterStep1]);
   const headerRef = useRef(null);
   const [assistantTop, setAssistantTop] = useState(0);
   const refreshAiStatus = useCallback(() => (
@@ -1031,13 +1066,13 @@ export default function ModelEditor() {
         />
       )}
       <input
-        ref={addFileRef} type="file" accept={FILE_IMPORT_ACCEPT} style={{ display: 'none' }}
-        onChange={(e) => { setFileToAdd(e.target.files?.[0] || null); e.target.value = ''; }}
+        ref={addFileRef} type="file" multiple accept={FILE_IMPORT_ACCEPT} style={{ display: 'none' }}
+        onChange={(e) => { const picked = Array.from(e.target.files || []); setFilesToAdd(picked.length ? picked : null); e.target.value = ''; }}
       />
-      {fileToAdd && model && (
+      {filesToAdd && model && (
         <FileImportDialog
-          file={fileToAdd} mode="create" workspaceId={model.workspace_id}
-          onDone={handleFileImported} onCancel={() => setFileToAdd(null)}
+          files={filesToAdd} mode="create" workspaceId={model.workspace_id} offerAccountingPack={false} offerCombine={false}
+          onDone={handleFileImported} onCancel={() => setFilesToAdd(null)}
         />
       )}
 
@@ -1131,6 +1166,7 @@ export default function ModelEditor() {
           rlsDialogTable={rlsDialogTable} setRlsDialogTable={setRlsDialogTable}
           setSelectedTables={setSelectedTables} tableColumns={tableColumns}
           onDetectRelationships={detectRelationships} detecting={detecting}
+          addFile={canLinkSources ? { sources: linkable, onImport: () => addFileRef.current?.click(), onPick: linkExisting } : null}
         />
       )}
 

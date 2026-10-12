@@ -35,9 +35,9 @@ const sourceChip = {
   background: 'var(--bg-panel)', border: '1px solid var(--border-default)', color: 'var(--text-primary)',
 };
 const chipRemove = { border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, fontSize: 13, lineHeight: 1 };
-const linkBtn = {
-  color: 'var(--accent-primary)', background: 'transparent', border: 'none',
-  cursor: 'pointer', fontSize: 13, padding: '2px 4px',
+const importFileBtn = {
+  color: 'var(--accent-primary)', background: 'var(--accent-primary-soft)', border: '1px solid var(--accent-primary-border)',
+  cursor: 'pointer', fontSize: 13, fontWeight: 600, padding: '3px 10px', borderRadius: 6,
 };
 const linkSelect = {
   fontSize: 13, padding: '2px 6px', borderRadius: 6, maxWidth: 200,
@@ -95,7 +95,7 @@ export default function Step0Tables({
                   <button onClick={() => sources.onUnlink(l)} style={chipRemove} title={`Remove ${l.name} from the model`} aria-label={`Remove ${l.name} from the model`}>×</button>
                 </span>
               ))}
-              <button className="btn-hover" onClick={sources.onImportFile} style={linkBtn}>+ Import a file</button>
+              <button className="btn-hover" onClick={sources.onImportFile} style={importFileBtn}>+ Import a file</button>
               {sources.linkable.length > 0 && (
                 <select
                   aria-label="Add a data source"

@@ -91,6 +91,15 @@ function datasourceUsable(datasourceId, req) {
   return !!ds && wsAccess.canReadDatasource(ds, wsAccess.actorOf(req));
 }
 
+// A model reads only sources found in its own workspace (living there or
+// shared into it): reading a source elsewhere is not enough, the model would
+// carry that workspace's data to every reader of its own.
+function sourceInWorkspace(datasourceId, workspaceId) {
+  const ds = db.prepare('SELECT id, user_id, workspace_id FROM datasources WHERE id = ?').get(datasourceId);
+  return wsAccess.datasourceReachableFromWorkspace(ds, workspaceId);
+}
+const SOURCE_NOT_HERE = "This source is not available in the model's workspace. Share it there first.";
+
 // Where a new model lives: the workspace asked for, else its source's. An
 // admin/editor of that workspace (or the global admin) may create there.
 // Returns the id, or null after a 403.
@@ -182,6 +191,7 @@ router.post('/', authFor('write'), (req, res) => {
   if (!datasourceUsable(datasourceId, req)) return res.status(404).json({ error: 'Datasource not found' });
   const targetWs = targetWorkspaceForModel(req, res, datasourceId);
   if (!targetWs) return;
+  if (!sourceInWorkspace(datasourceId, targetWs)) return res.status(403).json({ error: SOURCE_NOT_HERE });
 
   const id = uuidv4();
   db.prepare('INSERT INTO models (id, user_id, datasource_id, name, description, workspace_id) VALUES (?, ?, ?, ?, ?, ?)').run(
@@ -207,6 +217,7 @@ router.put('/:id', authFor('write'), (req, res) => {
   // If caller is moving the model to a different datasource, verify they may use it
   if (datasourceId && datasourceId !== model.datasource_id) {
     if (!datasourceUsable(datasourceId, req)) return res.status(404).json({ error: 'Target datasource not found' });
+    if (!sourceInWorkspace(datasourceId, wsAccess.modelHome(model))) return res.status(403).json({ error: SOURCE_NOT_HERE });
     // A model combining files keeps a file as its own source, and not one it already links.
     const linked = linkedSourcesOf(model.id);
     if (linked.length) {
@@ -355,6 +366,7 @@ router.post('/import', authFor('write'), (req, res) => {
   if (rejectIfNameTaken('model', fields.name, req, res)) return;
   const targetWs = targetWorkspaceForModel(req, res, dsId);
   if (!targetWs) return;
+  if (![dsId, ...links.map((l) => l.id)].every((id) => sourceInWorkspace(id, targetWs))) return res.status(403).json({ error: SOURCE_NOT_HERE });
 
   const id = uuidv4();
   db.prepare(`
@@ -603,6 +615,7 @@ router.post('/:id/datasources', authFor('write'), (req, res) => {
   if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
   const { datasourceId } = req.body || {};
   if (typeof datasourceId !== 'string' || !datasourceUsable(datasourceId, req)) return res.status(404).json({ error: 'Datasource not found' });
+  if (!sourceInWorkspace(datasourceId, wsAccess.modelHome(model))) return res.status(403).json({ error: SOURCE_NOT_HERE });
 
   const own = db.prepare('SELECT db_type, extra_config FROM datasources WHERE id = ?').get(model.datasource_id);
   const other = db.prepare('SELECT id, name, db_type, extra_config FROM datasources WHERE id = ?').get(datasourceId);

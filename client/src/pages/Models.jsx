@@ -176,7 +176,7 @@ export default function Models() {
   // A model on an imported file can read other files too — sources of their
   // own, picked here or imported on the spot — and joins tables across them.
   const addFileRef = useRef(null);
-  const [fileToAdd, setFileToAdd] = useState(null);
+  const [filesToAdd, setFilesToAdd] = useState(null);
   const [alsoIds, setAlsoIds] = useState([]);
   const isFile = (ds) => sourceFiles(ds).length > 0;
   const chosenSource = sourcesHere.find((d) => d.id === form.datasourceId);
@@ -185,8 +185,10 @@ export default function Models() {
   const alsoOffered = sourcesHere.filter((d) => isFile(d) && d.id !== form.datasourceId && !also.includes(d.id));
   const nameOf = (dsId) => datasources.find((d) => d.id === dsId)?.name || 'Imported file';
   const handleFileImported = (data) => {
-    setFileToAdd(null);
-    setAlsoIds((ids) => (ids.includes(data.datasource.id) ? ids : [...ids, data.datasource.id]));
+    setFilesToAdd(null);
+    // Every file imported joins the sources of the model being created.
+    const added = (data.imported || [data]).map((d) => d.datasource.id);
+    setAlsoIds((ids) => [...ids, ...added.filter((dsId) => !ids.includes(dsId))]);
     refresh();
   };
 
@@ -342,10 +344,10 @@ export default function Models() {
             </div>
           </Modal>
         )}
-        {fileToAdd && (
+        {filesToAdd && (
           <FileImportDialog
-            file={fileToAdd} mode="create" workspaceId={currentWsKey}
-            onDone={handleFileImported} onFailed={refresh} onCancel={() => setFileToAdd(null)}
+            files={filesToAdd} mode="create" workspaceId={currentWsKey} offerCombine={false}
+            onDone={handleFileImported} onFailed={refresh} onCancel={() => setFilesToAdd(null)}
           />
         )}
         {showForm && (
@@ -395,8 +397,8 @@ export default function Models() {
                 </div>
               )}
               <input
-                ref={addFileRef} type="file" accept={FILE_IMPORT_ACCEPT} style={{ display: 'none' }}
-                onChange={(e) => { setFileToAdd(e.target.files?.[0] || null); e.target.value = ''; }}
+                ref={addFileRef} type="file" multiple accept={FILE_IMPORT_ACCEPT} style={{ display: 'none' }}
+                onChange={(e) => { const picked = Array.from(e.target.files || []); setFilesToAdd(picked.length ? picked : null); e.target.value = ''; }}
               />
               {sourcesHere.length === 0 && (
                 <p style={_hs6}>

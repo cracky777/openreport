@@ -1,4 +1,5 @@
 import { TbWand } from 'react-icons/tb';
+import AddFileMenu from '../components/AddFilesButton/AddFileMenu';
 import SchemaCanvas from '../components/SchemaCanvas/SchemaCanvas';
 import RLSDialog from '../components/SchemaCanvas/RLSDialog';
 
@@ -12,6 +13,13 @@ const _hs42 = {
   display: 'flex', alignItems: 'center', gap: 10,
   background: 'var(--bg-panel)', borderRadius: 6, padding: '6px 6px 6px 12px',
   boxShadow: '0 1px 3px rgba(0,0,0,0.1)', fontSize: 12, color: 'var(--text-muted)',
+};
+// Adding a file is the one way to bring new data in from here: the button
+// stands out from the canvas tools beside it.
+const addFileBtn = {
+  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px',
+  fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
+  border: '1px solid var(--accent-primary)', background: 'var(--accent-primary)', color: '#fff',
 };
 const detectBtn = {
   display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px',
@@ -34,6 +42,7 @@ export default function Step1Schema({
   rlsDialogTable, setRlsDialogTable,
   setSelectedTables, tableColumns,
   onDetectRelationships, detecting,
+  addFile,
 }) {
   return (
     <div style={_hs41}>
@@ -49,6 +58,10 @@ export default function Step1Schema({
         >
           <TbWand size={14} /> {detecting ? 'Detecting…' : 'Detect relationships'}
         </button>
+        {addFile && (
+          <AddFileMenu buttonStyle={addFileBtn} sources={addFile.sources}
+            onImport={addFile.onImport} onPick={addFile.onPick} />
+        )}
       </div>
       <SchemaCanvas
         tables={schemaTablesData}
