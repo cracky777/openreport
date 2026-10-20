@@ -1,7 +1,7 @@
 // Relationships found for a model: declared foreign keys, and — asked for —
 // key column names, pointed fact → dimension and kept free of loops and second
 // paths (utils/relationships.js).
-const { detectRelationships, tableBase, keyOf } = require('../utils/relationships');
+const { detectRelationships, calendarTableOf, tableBase, keyOf } = require('../utils/relationships');
 
 const pairs = (joins) => joins.map((j) => `${j.from_table}.${j.from_column}>${j.to_table}.${j.to_column}`);
 
@@ -112,6 +112,34 @@ test('the joins already drawn stay, and a pair already joined is not joined agai
   expect(r.skipped).toEqual([]);
 });
 
+test('the calendar table is known by its name or by Date, Year and Month', () => {
+  expect(calendarTableOf(['entries', 'calendar'], { entries: ['EcritureDate'], calendar: ['Date', 'Year', 'Month'] })).toEqual({ table: 'calendar', column: 'Date' });
+  expect(calendarTableOf(['budget__dim_date'], { budget__dim_date: ['day_key', 'full_date'] })).toEqual({ table: 'budget__dim_date', column: 'full_date' });
+  expect(calendarTableOf(['orders', 'customers'], { orders: ['order_date'], customers: ['id'] })).toBeNull();
+});
+
+test('by name: the date columns of the other tables point at the calendar, one join per table', () => {
+  // The books' star already joins its entries to the calendar; the reshaped
+  // budget linked to the model gets the same calendar, not one of its own.
+  const existing = [{ from_table: 'entries', from_column: 'EcritureDate', to_table: 'calendar', to_column: 'Date', cardinality: { from: '*', to: '1' } }];
+  const r = detectRelationships({
+    tables: ['entries', 'calendar', 'accounts', 'bp__budget'],
+    columns: {
+      entries: ['EcritureDate', 'PieceDate', 'CompteNum', 'Amount'],
+      calendar: ['Date', 'Year', 'Month'],
+      accounts: ['CompteNum', 'CompteLib'],
+      bp__budget: ['Compte', 'Date', 'ship_date', 'Amount'],
+    },
+    joins: existing,
+    roles: { entries: 'fact', calendar: 'dimension', accounts: 'dimension' },
+    byName: true,
+  });
+  expect(pairs(r.joins)).toEqual(['bp__budget.Date>calendar.Date']);
+  expect(r.joins[0]).toMatchObject({ cardinality: { from: '*', to: '1' }, reason: 'date' });
+  expect(r.roles).toEqual({ bp__budget: 'fact' });
+  expect(r.skipped).toEqual([]);
+});
+
 describe('POST /datasources/:id/relationships', () => {
   const fs = require('fs');
   const path = require('path');
@@ -173,5 +201,55 @@ describe('POST /datasources/:id/relationships', () => {
     expect((await post({ ...body, tables: 'orders' })).status).toBe(400);
     expect((await post({ ...body, roles: { orders: 'boss' } })).status).toBe(400);
     expect((await post({ ...body, joins: [{ from_table: 'orders' }] })).status).toBe(400);
+  });
+});
+
+describe('identifiers shared by two files', () => {
+  test('a sku in a stock file and in its thresholds: the thresholds are the dimension', () => {
+    const found = detectRelationships({
+      tables: ['mouvements', 'seuils__seuils'],
+      columns: { mouvements: ['date', 'entrepot', 'sku', 'stock'], seuils__seuils: ['sku', 'stock_minimum'] },
+      byName: true,
+    });
+    expect(found.joins.map((j) => `${j.from_table}.${j.from_column}>${j.to_table}.${j.to_column}`)).toEqual(['mouvements.sku>seuils__seuils.sku']);
+    expect(found.roles).toEqual({ mouvements: 'fact', seuils__seuils: 'dimension' });
+  });
+  test('a column named as the other file is about: client → the clients file', () => {
+    const found = detectRelationships({
+      tables: ['activites', 'clients__clients'],
+      columns: { activites: ['date', 'client', 'canal', 'rdv_pris'], clients__clients: ['client', 'forfait_mensuel_eur'] },
+      byName: true,
+    });
+    expect(found.joins.map((j) => `${j.from_table}.${j.from_column}>${j.to_table}.${j.to_column}`)).toEqual(['activites.client>clients__clients.client']);
+    expect(found.roles).toEqual({ activites: 'fact', clients__clients: 'dimension' });
+  });
+  test('a table named by a noun and its qualifier is about its first word when that is its first column', () => {
+    const found = detectRelationships({
+      tables: ['demandes_credit', 'agences_bancaires__agences_bancaires'],
+      columns: { demandes_credit: ['dossier_id', 'agence', 'montant'], agences_bancaires__agences_bancaires: ['agence', 'objectif'] },
+      byName: true,
+    });
+    expect(found.joins.map((j) => `${j.from_table}.${j.from_column}>${j.to_table}.${j.to_column}`)).toEqual(['demandes_credit.agence>agences_bancaires__agences_bancaires.agence']);
+    expect(found.roles).toEqual({ demandes_credit: 'fact', agences_bancaires__agences_bancaires: 'dimension' });
+    // An order table is not the customers' table for opening on an order id.
+    expect(detectRelationships({
+      tables: ['sales', 'customer_orders'],
+      columns: { sales: ['customer', 'amount'], customer_orders: ['order_id', 'customer'] },
+      byName: true,
+    }).joins).toEqual([]);
+  });
+  test('a shared column that names nothing is no key', () => {
+    expect(detectRelationships({ tables: ['a', 'b'], columns: { a: ['region', 'x'], b: ['date', 'region'] }, byName: true }).joins).toEqual([]);
+  });
+});
+
+describe('a table named by a noun and its qualifier, opening on its key', () => {
+  test('ticket lines join the till tickets on ticket_id', () => {
+    const found = detectRelationships({
+      tables: ['tickets_caisse', 'lignes_tickets__lignes_tickets'],
+      columns: { tickets_caisse: ['ticket_id', 'date', 'montant'], lignes_tickets__lignes_tickets: ['ticket_id', 'produit', 'quantite'] },
+      byName: true,
+    });
+    expect(found.joins.map((j) => `${j.from_table}.${j.from_column}>${j.to_table}.${j.to_column}`)).toEqual(['lignes_tickets__lignes_tickets.ticket_id>tickets_caisse.ticket_id']);
   });
 });

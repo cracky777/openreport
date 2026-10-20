@@ -40,6 +40,7 @@ import { FILE_IMPORT_ACCEPT } from '../utils/sourceFiles';
 import PbitImportWizard from '../components/PbitImport/PbitImportWizard';
 import FecPackOffer from '../components/AccountingPack/FecPackOffer';
 import { uploadEach, mergeFecUploads, modelOnFiles } from '../utils/multiFileImport';
+import { ensureModelForUpload } from '../utils/modelFromFiles';
 import { hasFinancePack } from '../utils/accountingPack';
 import CacheScheduleModal from '../components/CacheScheduleModal/CacheScheduleModal';
 import ScheduleModal from '../components/ScheduleModal/ScheduleModal';
@@ -407,63 +408,7 @@ export default function Dashboard() {
   // The model and the blank report on an uploaded file, then the editor.
   const blankReportFor = async (uploadData) => {
     const ds = uploadData.datasource;
-
-    // Step 2: locate or create the model for this datasource, and decide whether
-    // it still needs auto-flagging. Any leftover empty model (from a previously
-    // failed auto-flag) gets re-flagged in place — otherwise reuse skipped flagging
-    // and the user landed in an empty editor.
-    let modelId;
-    let needsAutoFlag = true;
-    if (uploadData.reused) {
-      const existingModel = models.find((m) => m.datasource_id === ds.id);
-      if (existingModel) {
-        modelId = existingModel.id;
-        try {
-          const fullRes = await api.get(`/models/${existingModel.id}`);
-          const m = fullRes.data.model;
-          const hasTables = (m.selected_tables || []).length > 0;
-          const hasFields = (m.dimensions || []).length > 0 || (m.measures || []).length > 0;
-          if (hasTables && hasFields) needsAutoFlag = false;   // already populated, leave it
-        } catch { /* fetch failed, just re-flag to be safe */ }
-      }
-    }
-    if (!modelId) {
-      const modelRes = await api.post('/models', { name: ds.name, datasourceId: ds.id, ...(currentWsKey ? { workspaceId: currentWsKey } : {}) });
-      modelId = modelRes.data.model.id;
-    }
-
-    if (needsAutoFlag) {
-      // A fresh upload carries every imported table (name + columns); older or
-      // reused datasources fall back to a single-table fetch.
-      let tbls = ds.tables;
-      if (!tbls || !tbls.length) {
-        const colRes = await api.get(`/datasources/${ds.id}/tables/${ds.tableName}/columns`);
-        tbls = [{ tableName: ds.tableName, columns: colRes.data.columns || [] }];
-      }
-      const numericTypes = ['integer', 'bigint', 'numeric', 'decimal', 'real', 'double', 'float', 'int', 'smallint', 'double precision', 'interval'];
-      const dateTypes = ['date', 'timestamp', 'timestamptz', 'timestamp with time zone', 'timestamp without time zone', 'datetime', 'time', 'smalldatetime', 'datetime2'];
-      const dimensions = [];
-      const measures = [];
-      const selectedTables = [];
-      // With several sheets/tables, suffix labels with the sheet so homonym
-      // columns stay distinguishable (and users don't accidentally combine
-      // fields from unrelated tables, which the server now rejects).
-      const multi = tbls.length > 1;
-      const lbl = (t, col) => (multi ? `${col} (${t.tableName})` : col);
-      tbls.forEach((t) => {
-        selectedTables.push(t.tableName);
-        (t.columns || []).forEach((c) => {
-          const dimName = `${t.tableName}.${c.column_name}`;
-          const dt = c.data_type?.toLowerCase() || '';
-          const colType = numericTypes.includes(dt) ? 'number' : dateTypes.includes(dt) ? 'date' : 'string';
-          dimensions.push({ name: dimName, table: t.tableName, column: c.column_name, type: colType, label: lbl(t, c.column_name) });
-          if (numericTypes.includes(dt)) {
-            measures.push({ name: `${t.tableName}.${c.column_name}_sum`, table: t.tableName, column: c.column_name, aggregation: 'sum', label: lbl(t, c.column_name) });
-          }
-        });
-      });
-      await api.put(`/models/${modelId}`, { selected_tables: selectedTables, dimensions, measures });
-    }
+    const modelId = await ensureModelForUpload(uploadData, { workspaceId: currentWsKey, models });
 
     // 4. Create report with this model
     const reportRes = await api.post('/reports', {
@@ -523,7 +468,9 @@ export default function Dashboard() {
     setSelectedFiles([]);
   };
 
-  const handleCreate = async () => {
+  // `where`: the editor, or the AI studio (pages/AiStudio.jsx) where the
+  // assistant builds the report while it shows on the right.
+  const handleCreate = async (where = 'edit') => {
     if (!newModelId) return;
     try {
       const res = await api.post('/reports', {
@@ -533,7 +480,7 @@ export default function Dashboard() {
         ...(selectedWs ? { workspaceId: selectedWs } : {}),
         settings: { theme: availableThemes[themeResolved] ? { key: themeResolved, ...availableThemes[themeResolved] } : null },
       });
-      navigate(`/edit/${res.data.report.id}`);
+      navigate(`/${where}/${res.data.report.id}`);
     } catch (err) {
       toast(err.response?.data?.error || 'Failed to create report');
     }
@@ -1167,7 +1114,10 @@ export default function Dashboard() {
                   </div>
                   <div style={_hs58}>
                     <button className="btn-hover" onClick={leaveCreateStep} style={secondaryBtn}>{modePreset ? 'Cancel' : '← Back'}</button>
-                    <button className="btn-hover btn-hover-primary" onClick={handleCreate} disabled={!newModelId} style={{ ...primaryBtn, opacity: newModelId ? 1 : 0.5 }}>Create Report</button>
+                    {aiAvailable && (
+                      <button className="btn-hover btn-hover-accent" onClick={() => handleCreate('studio')} disabled={!newModelId} style={{ ...secondaryBtn, opacity: newModelId ? 1 : 0.5 }} title="The assistant builds the report from what you ask, and shows it as it goes">✨ Create with the assistant</button>
+                    )}
+                    <button className="btn-hover btn-hover-primary" onClick={() => handleCreate()} disabled={!newModelId} style={{ ...primaryBtn, opacity: newModelId ? 1 : 0.5 }}>Create Report</button>
                   </div>
                 </div>
               )}

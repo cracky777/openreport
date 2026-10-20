@@ -41,6 +41,23 @@ describe('File import parse options', () => {
     expect(res.body.datasource.columns.length).toBe(3);
   });
 
+  test('full auto: a French export (semicolons, amounts like 59,00) reads its amounts as numbers', async () => {
+    // Left on auto, the decimal separator used to fall to DuckDB's guess: the
+    // amounts came in as TEXT and a store's turnover could not be summed.
+    const u = seedUser({ role: 'editor' });
+    const res = await request(app).post('/api/upload').use(as(u))
+      .attach('file', Buffer.from('date;produit;quantite;montant_ttc\n2025-01-02;Lampe;2;118,00\n2025-01-03;Vase;1;34,50\n2025-01-03;Plaid;3;1207,50\n'), 'tickets.csv');
+    expect(res.status).toBe(201);
+    const types = Object.fromEntries(res.body.datasource.columns.map((c) => [c.column_name || c.name, String(c.data_type || c.type).toUpperCase()]));
+    expect(types.montant_ttc).toMatch(/DOUBLE|DECIMAL|FLOAT|NUMERIC/);
+    expect(types.quantite).toMatch(/INT/);
+    const sum = await request(app).post(`/api/datasources/${res.body.datasource.id}/query`).use(as(u)).send({ sql: 'SELECT SUM(montant_ttc) AS s FROM tickets' });
+    expect(Number(sum.body.rows[0].s)).toBeCloseTo(1360, 0);
+    // A comma-separated file keeps the point: nothing sniffed.
+    const dots = await request(app).post('/api/upload').use(as(u)).attach('file', Buffer.from('a,b\n1,2.5\n2,3.5\n'), 'dots.csv');
+    expect(Object.fromEntries(dots.body.datasource.columns.map((c) => [c.column_name || c.name, String(c.data_type || c.type).toUpperCase()])).b).toMatch(/DOUBLE|DECIMAL|FLOAT|NUMERIC/);
+  });
+
   test('full auto: a Latin-1 + semicolon file imports with no options at all', async () => {
     // 'coût' in Latin-1 has byte 0xFB (invalid UTF-8) → the file is read as
     // Latin-1, while the delimiter is sniffed as ';'.

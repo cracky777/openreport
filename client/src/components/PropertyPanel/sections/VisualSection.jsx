@@ -7,6 +7,7 @@ import { toast } from '../../Toast/toast';
 import api from '../../../utils/api';
 import { parseIntOrNull } from '../../../utils/input';
 import { DirectionButtons } from './shared';
+import { MAP_AREAS } from '../../../utils/geo';
 import { BAR_DIRECTIONS, GAUGE_DIRECTIONS } from './visualTypes';
 import { WaterfallVisualPart } from './waterfallParts';
 import { TableGridPart, TableRowsPart, TableTotalsPart, TablePaginationPart, TableColumnSizingPart, TableFreezePart } from './tableParts';
@@ -105,9 +106,55 @@ export default function VisualSection({ ctx }) {
     );
   } else if (type === 'pie') {
     body = (
-      <Field label="Donut">
-        <input type="checkbox" checked={cfg.donut || false} onChange={(e) => updateConfig('donut', e.target.checked)} />
+      <Field label="Shape">
+        <select
+          value={['pie', 'donut', 'rose', 'funnel'].includes(cfg.subType) ? cfg.subType : (cfg.donut ? 'donut' : 'pie')}
+          onChange={(e) => updateConfig('subType', e.target.value)}
+          style={inputStyle}
+        >
+          <option value="pie">Pie</option>
+          <option value="donut">Donut</option>
+          <option value="rose">Rose</option>
+          <option value="funnel">Funnel</option>
+        </select>
       </Field>
+    );
+  } else if (type === 'map') {
+    body = (
+      <>
+        <Field label="Map">
+          <select value={cfg.mapArea || 'auto'} onChange={(e) => updateConfig('mapArea', e.target.value === 'auto' ? undefined : e.target.value)} style={inputStyle}>
+            <option value="auto">From the places</option>
+            {MAP_AREAS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Zoom and pan">
+          <input type="checkbox" checked={cfg.mapRoam ?? false} onChange={(e) => updateConfig('mapRoam', e.target.checked)} />
+        </Field>
+        <Field label="Show scale">
+          <input type="checkbox" checked={cfg.showScale ?? true} onChange={(e) => updateConfig('showScale', e.target.checked)} />
+        </Field>
+        <Field label="Largest bubble" vertical>
+          <RangeInput min={8} max={60} value={cfg.mapBubbleMax ?? 28}
+            onChange={(e) => updateConfig('mapBubbleMax', parseIntOrNull(e.target.value))} suffix="px" />
+        </Field>
+      </>
+    );
+  } else if (type === 'heatmap') {
+    body = (
+      <>
+        <Field label="Show scale">
+          <input type="checkbox" checked={cfg.showScale ?? false} onChange={(e) => updateConfig('showScale', e.target.checked)} />
+        </Field>
+        <Field label="Gap between cells" vertical>
+          <RangeInput min={0} max={8} value={cfg.cellGap ?? 2}
+            onChange={(e) => updateConfig('cellGap', parseIntOrNull(e.target.value))} suffix="px" />
+        </Field>
+        <Field label="Cell corners" vertical>
+          <RangeInput min={0} max={12} value={cfg.cellRadius ?? 0}
+            onChange={(e) => updateConfig('cellRadius', parseIntOrNull(e.target.value))} suffix="px" />
+        </Field>
+      </>
     );
   } else if (type === 'scatter') {
     body = (
@@ -161,6 +208,17 @@ export default function VisualSection({ ctx }) {
       <>
         <RowClickFilter cfg={cfg} updateConfig={updateConfig} />
         {table.colSelect}
+        <SubSection label="Heatmap">
+          {/* Each cell tinted by its value: two dimensions crossed read at a glance. */}
+          <Field label="Color cells by value">
+            <input type="checkbox" checked={!!cfg.heatmap?.enabled} onChange={(e) => updateConfig('heatmap', { ...(cfg.heatmap || {}), enabled: e.target.checked })} />
+          </Field>
+          {cfg.heatmap?.enabled && (
+            <Field label="Color">
+              <ColorInput value={cfg.heatmap?.color || '#2563eb'} onChange={(v) => updateConfig('heatmap', { ...(cfg.heatmap || {}), color: v })} allowTransparent={false} />
+            </Field>
+          )}
+        </SubSection>
         <SubSection label="Hierarchy">
           {/* How far the row levels open when the visual loads; the reader
               still opens and closes each group. */}
@@ -218,6 +276,14 @@ export default function VisualSection({ ctx }) {
               measure's own label. */}
           <input type="text" value={cfg.label ?? ''} placeholder={widget.data?.label || ''}
             onChange={(e) => updateConfig('label', e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
+        </Field>
+        <Field label="Alignment">
+          <select value={cfg.textAlign === 'left' || cfg.textAlign === 'right' ? cfg.textAlign : 'center'} onChange={(e) => updateConfig('textAlign', e.target.value)}
+            style={{ ...inputStyle, marginBottom: 0 }}>
+            <option value="left">Left</option>
+            <option value="center">Center</option>
+            <option value="right">Right</option>
+          </select>
         </Field>
         <Field label="Label position">
           <select value={cfg.labelPosition || 'above'} onChange={(e) => updateConfig('labelPosition', e.target.value)}

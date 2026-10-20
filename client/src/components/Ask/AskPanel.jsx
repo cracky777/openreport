@@ -13,7 +13,10 @@ import AskAnswer from './AskAnswer';
 import { proposedVisuals as visualsOf } from '../../utils/aiProposal';
 import AddToReport from './AddToReport';
 import ActionCard from '../AiPanel/ActionCard';
+import QuestionCard from '../AiPanel/QuestionCard';
+import ReportCard from './ReportCard';
 import Suggestions from '../AiPanel/Suggestions';
+import { startingQuestions, followUps } from '../../utils/objectiveSuggestions';
 
 const LAST_MODEL_KEY = 'openreport.askModel';
 // The same fold as the report editor's Data panel.
@@ -61,7 +64,9 @@ function rememberedModel() {
  */
 export default function AskPanel({ open, onToggle, onClose, compact, mode: askedMode = 'data', onModeChange, canData, pendingQuestion }) {
   const navigate = useNavigate();
-  const { models, selectedWs, personalWorkspace, refresh } = useGraph();
+  // The models of the OPEN workspace only (those living there or shared into
+  // it), like the Models stage: the assistant answers about what is on screen.
+  const { scopedModels: models, selectedWs, personalWorkspace, refresh } = useGraph();
   const [dragging, setDragging] = useState(false);
   const { width, handleProps } = useResizableWidth({
     storageKey: 'openreport.askPanelWidth', defaultWidth: 440, min: 340, max: 760,
@@ -75,6 +80,17 @@ export default function AskPanel({ open, onToggle, onClose, compact, mode: asked
   const [loadedModel, setModel] = useState(null);
   // The one loaded for another selection is never shown while the new one loads.
   const model = loadedModel?.id === modelId ? loadedModel : null;
+  // The business catalogue (objectives by domain): the questions a model with
+  // a glossary offers before anything is typed, and after each answer.
+  const [catalogue, setCatalogue] = useState([]);
+  useEffect(() => {
+    if (!open || !canData || catalogue.length) return;
+    api.get('/models/business-domains').then((res) => setCatalogue(res.data.domains || [])).catch(() => { /* generic suggestions then */ });
+  }, [open, canData, catalogue.length]);
+  const starters = startingQuestions(model, catalogue);
+  const dataSuggestions = starters.length
+    ? [{ label: 'On this model', items: starters }, DATA_SUGGESTIONS[1]]
+    : DATA_SUGGESTIONS;
   const [draft, setDraft] = useState('');
   const [ratings, setRatings] = useState({});
   const [adding, setAdding] = useState(null); // index of the answer being added
@@ -154,13 +170,15 @@ export default function AskPanel({ open, onToggle, onClose, compact, mode: asked
     el.style.height = `${Math.min(el.scrollHeight, MAX_INPUT_HEIGHT)}px`;
   };
 
-  const submit = async (text) => {
+  const submit = async (text, extra) => {
     const question = (text ?? draft).trim();
     if (!question || loading || (mode === 'data' && !modelId)) return;
     setDraft('');
     if (inputRef.current) inputRef.current.style.height = 'auto';
-    if (!(await send(question))) setDraft(question);
+    if (!(await send(question, extra))) setDraft(question);
   };
+  // A whole report in one click: the server then accepts nothing else.
+  const buildReport = () => submit('Build the full report on this model', { intent: 'report' });
 
   const rate = async (m, rating) => {
     setRatings((prev) => ({ ...prev, [m.answerId]: rating }));
@@ -227,7 +245,7 @@ export default function AskPanel({ open, onToggle, onClose, compact, mode: asked
         {showProvider ? (
           <div style={providerStyle}>
             <PersonalProvider
-              key={`${status.personal.baseUrl}|${status.personal.model}|${status.personal.hasApiKey}`}
+              key={`${status.personal.provider}|${status.personal.baseUrl}|${status.personal.model}|${status.personal.hasApiKey}`}
               personal={status.personal}
               onSaved={async () => { await refreshStatus(); setEditingProvider(false); }}
               onCancel={needsSetup ? null : () => setEditingProvider(false)}
@@ -254,9 +272,14 @@ export default function AskPanel({ open, onToggle, onClose, compact, mode: asked
                   {!unavailable && mode === 'data' && model?.name ? <div style={emptySubStyle}>{model.name}</div> : null}
                   {!unavailable && mode === 'help' && canData && !modelId
                     ? <div style={emptySubStyle}>No data model yet: once you have one, ask me about your data too.</div> : null}
+                  {status?.enabled && mode === 'data' && (
+                    <button type="button" style={buildReportBtn} onClick={buildReport} disabled={loading} title="One page per objective the model can draw; you create it as a new report from the card">
+                      <TbSparkles size={14} /> Build the full report
+                    </button>
+                  )}
                   {status?.enabled && (
                     <Suggestions
-                      groups={mode === 'data' ? DATA_SUGGESTIONS : HELP_SUGGESTIONS[canData ? 'builder' : 'viewer']}
+                      groups={mode === 'data' ? dataSuggestions : HELP_SUGGESTIONS[canData ? 'builder' : 'viewer']}
                       onPick={submit}
                       disabled={loading}
                     />
@@ -282,7 +305,20 @@ export default function AskPanel({ open, onToggle, onClose, compact, mode: asked
                       />
                     )}
                     {m.proposals?.[0]?.kind === 'action' && (
-                      <ActionCard proposal={m.proposals[0]} modelId={modelId} onOutcome={(outcome) => setOutcome(i, 0, outcome)} />
+                      <ActionCard proposal={m.proposals[0]} modelId={modelId} onOutcome={(outcome) => setOutcome(i, 0, outcome)} onAnswer={(text) => submit(text)} />
+                    )}
+                    {m.proposals?.[0]?.kind === 'report' && (
+                      <ReportCard proposal={m.proposals[0]} model={model} modelId={modelId} workspaceId={workspaceId} created={m.created}
+                        onCreated={(where) => { setOutcome(i, 0, 'applied', { created: where }); refresh?.(); toast(`Created ${where.title}`, 'success'); }}
+                        onOpen={(id) => navigate(`/edit/${id}`)} />
+                    )}
+                    {m.proposals?.[0]?.kind === 'question' && (
+                      <QuestionCard proposal={m.proposals[0]} modelId={modelId} answered={m.outcomes?.[0] === 'answered' ? messages[i + 1]?.text : ''}
+                        onOutcome={(outcome) => setOutcome(i, 0, outcome)} onAnswer={(text) => submit(text)} />
+                    )}
+                    {/* After the latest answer on an objective: its neighbours, one click away. */}
+                    {i === messages.length - 1 && !loading && followUps(model, catalogue, m.proposals?.[0]?.understood).length > 0 && (
+                      <Suggestions dense groups={[{ label: 'Next', items: followUps(model, catalogue, m.proposals[0].understood) }]} onPick={submit} />
                     )}
                   </div>
                 </div>
@@ -342,6 +378,10 @@ export default function AskPanel({ open, onToggle, onClose, compact, mode: asked
   );
 }
 
+const buildReportBtn = {
+  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', marginBottom: 4,
+  fontSize: 13, fontWeight: 600, borderRadius: 999, border: 'none', cursor: 'pointer', color: '#fff', background: 'var(--accent-primary)',
+};
 // Folded, the panel is the strip the report editor's Data panel folds into.
 const foldBtn = {
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,

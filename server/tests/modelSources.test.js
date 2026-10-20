@@ -8,7 +8,7 @@ const request = require('supertest');
 // parallel run, the default 5 s is short.
 jest.setTimeout(30000);
 const { buildApp, seedUser, seedDatasource, seedWorkspace, db } = require('./helpers/testApp');
-const { modelIdsUsing, aliasFor } = require('../utils/modelSources');
+const { modelIdsUsing, aliasFor, describeSource } = require('../utils/modelSources');
 
 const app = buildApp();
 const as = (uid) => (r) => r.set('x-test-user', uid);
@@ -157,5 +157,17 @@ describe('Linking sources to a model', () => {
     expect(aliasFor(model, 'main')).toBe('main_2');
     expect(aliasFor(model, '2024 export (v2)')).toBe('s_2024_export_v2');
     expect(aliasFor(model, 'Clients & Articles')).toBe('clients_articles');
+  });
+});
+
+// What the assistant names when a file cannot join the model: the source in
+// words, never the host nor the credentials.
+describe('describing a source to a business user', () => {
+  test('files, a database by its name, a BigQuery dataset', () => {
+    expect(describeSource({ db_type: 'duckdb', extra_config: '{"files":[{"sourceFile":"a.csv"}]}' })).toBe('imported files');
+    expect(describeSource({ db_type: 'postgres', db_name: 'shop', host: 'db.internal', extra_config: '{}' })).toBe('the PostgreSQL database "shop"');
+    expect(describeSource({ db_type: 'bigquery', extra_config: '{"dataset":"bigquery-public-data.thelook_ecommerce","credentials":"x"}' })).toBe('the BigQuery dataset "bigquery-public-data.thelook_ecommerce"');
+    expect(describeSource({ db_type: 'mysql', extra_config: 'not json' })).toBe('a MySQL database');
+    expect(describeSource(null)).toBe('its data source');
   });
 });

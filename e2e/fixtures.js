@@ -15,8 +15,15 @@ function startScriptedProvider(script) {
       const body = JSON.parse(raw);
       requests.push(body);
       const toolTurns = body.messages.filter((m) => m.role === 'tool').length;
-      const call = script(body);
       res.setHeader('content-type', 'application/json');
+      // The studio's review of an applied change (the page as images): the
+      // scripted provider finds nothing to say, so the specs see one card.
+      const last = body.messages[body.messages.length - 1];
+      if (last && last.role === 'user' && Array.isArray(last.content)) {
+        res.end(JSON.stringify({ choices: [{ message: { content: 'Looks fine.' } }] }));
+        return;
+      }
+      const call = script(body);
       res.end(JSON.stringify({
         choices: [{
           message: {

@@ -125,7 +125,16 @@ const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, label, 
   const instanceRef = useRef(null);
   const [chartTheme, themeRootRef] = useChartTheme();
 
-  const arcWidth = config?.gaugeArcWidth ?? 18;
+  // The room the arc has (ECharts: 95 % of half the smaller side): in a figure
+  // card the value ran off the arc and the label sat on it (Marché Plus), so
+  // the arc, the value and the label shrink to it; no room, no label — the
+  // card's title already says what it is.
+  const radiusPx = 0.95 * Math.min(Number(width) || 200, Number(height) || 200) / 2;
+  const arcWidth = Math.min(config?.gaugeArcWidth ?? 18, Math.max(6, Math.round(radiusPx * 0.18)));
+  const valueText = String(displayValue ?? '');
+  const valueSize = Math.max(10, Math.min(config?.gaugeValueSize || 24, Math.round(radiusPx * 0.42), Math.round((2 * (radiusPx - arcWidth) * 0.9) / Math.max(1, valueText.length * 0.6))));
+  const labelFits = radiusPx >= 60;
+  const labelSize = Math.max(9, Math.min(config?.gaugeLabelSize || 12, Math.round(radiusPx * 0.18)));
   // Arc has no rounded caps by default (user preference)
   // Arc span in degrees (how open the arc is). 240 = default (opening at the bottom).
   // 360 = full circle, 180 = half circle, <180 = narrower top-only arc.
@@ -153,18 +162,18 @@ const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, label, 
         return {
           valueAnimation: true,
           offsetCenter: [0, '0%'],
-          fontSize: config?.gaugeValueSize || 24,
+          fontSize: valueSize,
           fontWeight: 700,
           color: config?.gaugeValueColor || chartTheme.text,
           fontFamily: config?.gaugeValueFontFamily ? fontStack(config.gaugeValueFontFamily) : undefined,
           formatter: () => displayValue,
         };
       })() : { show: false },
-      title: showLabel && label ? (() => {
+      title: showLabel && label && labelFits ? (() => {
         if (config?.gaugeLabelFontFamily) loadGoogleFont(config.gaugeLabelFontFamily);
         return {
-          offsetCenter: [0, '30%'],
-          fontSize: config?.gaugeLabelSize || 12,
+          offsetCenter: [0, '34%'],
+          fontSize: labelSize,
           color: config?.gaugeLabelColor || '#64748b',
           fontFamily: config?.gaugeLabelFontFamily ? fontStack(config.gaugeLabelFontFamily) : undefined,
         };
@@ -199,7 +208,7 @@ const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, label, 
       });
     }
     return { series };
-  }, [value, min, max, label, color, trackColor, threshold, thresholdColor, showValue, showLabel, showMinMax, displayValue, config?.gaugeValueSize, config?.gaugeValueColor, config?.gaugeLabelSize, config?.gaugeLabelColor, config?.gaugeAxisSize, config?.gaugeAxisColor, arcWidth, startAngle, endAngle, chartTheme.text]);
+  }, [value, min, max, label, color, trackColor, threshold, thresholdColor, showValue, showLabel, showMinMax, displayValue, valueSize, labelSize, labelFits, config?.gaugeValueSize, config?.gaugeValueColor, config?.gaugeLabelSize, config?.gaugeLabelColor, config?.gaugeAxisSize, config?.gaugeAxisColor, arcWidth, startAngle, endAngle, chartTheme.text]);
 
   useEffect(() => {
     const el = chartRef.current;

@@ -112,6 +112,35 @@ describe('POST /api/ai/reports/:id/chat', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM cache_schedules').get().n).toBe(before);
   });
 
+  // Data the model lacks, on a model that reads a database: no file can join
+  // it. The provider hears which database, in words a business user gets, and
+  // the two ways out — not "a database" alone (Jonathan did not understand it).
+  test('a file cannot join a model on a database: the source is named, with the two ways out', async () => {
+    providers.chat.mockResolvedValueOnce(call('propose_action', { userAsked: 'do', action: 'add_file_to_model', summary: 'Add the budget file.', request: 'Sales against budget' }));
+    providers.chat.mockResolvedValueOnce({ text: 'This report reads the shop database: a file cannot be joined to it.', toolCalls: [], usage: null });
+    const res = await chat(owner, { ...ASK, messages: [{ role: 'user', text: 'Ajoute un axe budget' }] });
+    expect(res.body.proposals).toEqual([]);
+    const system = providers.chat.mock.calls[0][0].system;
+    expect(system).toMatch(/this report reads the \w[\w ]* (database|dataset) "[^"]+", and a file cannot be joined to a database/);
+    expect(system).toMatch(/Start a new report/);
+    const refused = providers.chat.mock.calls[1][0].messages.find((m) => m.role === 'tool').content;
+    // JSON-escaped on the tool message: the name is there, between escaped quotes.
+    expect(refused).toMatch(/this report reads the PostgreSQL database \\"testdb\\"/);
+    expect(refused).toMatch(/start a new report from files/);
+  });
+
+  // Design is about the whole report: the other pages travel with the page
+  // shown, their look only, so a color request reaches every chart.
+  test('the other pages of the report reach the provider, for styling the whole report', async () => {
+    providers.chat.mockResolvedValueOnce({ text: 'ok', toolCalls: [], usage: null });
+    await chat(owner, { ...ASK, mode: 'design', pageContext: { ...(ASK.pageContext || {}), widgets: [], otherPages: [{ id: 'p2', name: 'Costs', widgets: [{ id: 'w9', type: 'bar', title: 'Cost by month', layout: { x: 0, y: 0, w: 1, h: 1 } }] }] } });
+    const system = providers.chat.mock.calls[0][0].system;
+    expect(system).toContain('OTHER pages');
+    expect(system).toContain('"Cost by month"');
+    // Their layout is sent on: a design card sizes and places their widgets too.
+    expect(system).toContain('"layout":{"x":0,"y":0,"w":1,"h":1}');
+  });
+
   test('409 when the assistant is disabled', async () => {
     setAiConfig({ enabled: false });
     expect((await chat(owner)).status).toBe(409);
@@ -141,9 +170,13 @@ describe('POST /api/ai/reports/:id/chat', () => {
     const res = await chat(owner);
     expect(res.body.proposals).toEqual([{
       kind: 'widgets',
+      pageHeight: 800,
+      // The measure has no format in the model: the card brings one (dress.js).
+      measureOverrides: { 'items.amt_sum': { format: { decimals: 0, thousandSep: ' ', prefix: '', suffix: '' } } },
       widgets: [{
         type: 'bar',
-        config: { title: 'Sales', subType: 'stacked', showLegend: true, showXAxisTitle: false, showYAxisTitle: false },
+        // Dressed: one series → no legend; categories sorted by value; big numbers abbreviated.
+        config: { title: 'Sales', subType: 'stacked', showLegend: false, legendPosition: 'top', sortOrder: 'desc', valueAbbreviation: 'auto', showXAxisTitle: false, showYAxisTitle: false },
         dataBinding: { selectedDimensions: ['items.label'], selectedMeasures: ['items.amt_sum'] },
         // h: a bar chart is raised to its readable floor, not to the generic one.
         layout: { x: 740, y: 0, w: 400, h: 200 },
@@ -183,6 +216,16 @@ describe('POST /api/ai/reports/:id/chat', () => {
       expect(res.body.proposals[0].widgets.map((w) => w.type)).toEqual(['scorecard', 'bar']);
     });
 
+    test('how one figure becomes another is a waterfall, which the assistant may propose', async () => {
+      providers.chat.mockResolvedValueOnce(call('propose_widgets', { widgets: [{ ...BAR, type: 'waterfall', answers: 'bridge', title: 'From sales to margin' }] }));
+      const res = await chat(owner, ask('From sales to margin'));
+      const item = providers.chat.mock.calls[0][0].tools.find((t) => t.name === 'propose_widgets').parameters.properties.widgets.items.properties;
+      expect(item.type.enum).toContain('waterfall');
+      expect(item.answers.enum).toContain('bridge');
+      expect(providers.chat).toHaveBeenCalledTimes(1);
+      expect(res.body.proposals[0].widgets.map((w) => [w.type, w.dataBinding.selectedDimensions])).toEqual([['waterfall', ['items.label']]]);
+    });
+
     test('a chart that does not answer the kind of question the model named goes back once', async () => {
       providers.chat
         .mockResolvedValueOnce(call('propose_widgets', { widgets: [{ ...BAR, type: 'pie', answers: 'ranking' }] }))
@@ -220,7 +263,8 @@ describe('POST /api/ai/reports/:id/chat', () => {
       ['figure', { ...TOTAL }],
       ['ranking', { ...BAR }],
       ['share', { ...BAR, type: 'pie' }],
-      ['detail', { ...BAR, type: 'table' }],
+      // A table shows its fields' names: the raw one is named (fieldNames), else it goes back once.
+      ['detail', { ...BAR, type: 'table', fieldNames: { 'items.label': 'Label' } }],
     ])('%s answered by the matching type passes without a round trip', async (answers, w) => {
       providers.chat.mockResolvedValueOnce(call('propose_widgets', { widgets: [{ ...w, answers }] }));
       await chat(owner, ask('Show me the sales'));
@@ -273,7 +317,7 @@ describe('POST /api/ai/reports/:id/chat', () => {
   test('config keys the model invents never reach the proposal', async () => {
     providers.chat.mockResolvedValueOnce(call('propose_widgets', { widgets: [{ ...BAR, config: { bundleUrl: 'http://evil' }, dataBinding: { x: 1 } }] }));
     const w = (await chat(owner)).body.proposals[0].widgets[0];
-    expect(Object.keys(w.config).sort()).toEqual(['showLegend', 'showXAxisTitle', 'showYAxisTitle', 'title']);
+    expect(Object.keys(w.config).sort()).toEqual(['legendPosition', 'showLegend', 'showXAxisTitle', 'showYAxisTitle', 'sortOrder', 'title', 'valueAbbreviation']);
   });
 
   test('a design proposal targets widgets of the submitted page only', async () => {
@@ -373,7 +417,7 @@ describe('POST /api/ai/reports/:id/chat', () => {
       ] },
     });
     const sent = providers.chat.mock.calls[0][0];
-    expect(Object.keys(sent.tools[0].parameters.properties)[0]).toBe('reading');
+    expect(Object.keys(sent.tools.find((t) => t.name === 'propose_design_changes').parameters.properties)[0]).toBe('reading');
     expect(providers.chat).toHaveBeenCalledTimes(1);
     expect(res.body.proposals[0].ops).toEqual([{ op: 'update_config', widgetId: 'a', set: { legendTextColor: '#334155' } }]);
     expect(res.body.proposals[0].colorScheme).toBeNull();
@@ -392,12 +436,16 @@ describe('POST /api/ai/reports/:id/chat', () => {
         { id: 'b', type: 'line', title: 'B', layout: { x: 420, y: 0, w: 400, h: 300 } },
       ] },
     });
-    expect(providers.chat).toHaveBeenCalledTimes(2);
-    expect(providers.chat.mock.calls[1][0].messages.find((m) => m.role === 'tool').content).toContain('would overlap');
-    expect(res.body.proposals[0].ops).toEqual([{ op: 'move', widgetId: 'b', x: 100, y: 0, w: 400, h: 300 }]);
+    // The box lands where the model put it; what it covered slides under it —
+    // the editor's own tidying, told to the author, never a repair round.
+    expect(providers.chat).toHaveBeenCalledTimes(1);
+    expect(res.body.proposals[0].ops).toEqual([
+      { op: 'move', widgetId: 'b', x: 100, y: 0, w: 400, h: 300 },
+      { op: 'move', widgetId: 'a', x: 0, y: 320, w: 400, h: 300 },
+    ]);
     expect(providers.chat.mock.calls[0][0].system).toContain('"id":"w2"');
     expect(providers.chat.mock.calls[0][0].system).not.toContain('"id":"b"');
-    expect(res.body.reply).toMatch(/Check before applying: "A" and "B" would overlap/);
+    expect(res.body.reply).toMatch(/Check before applying: "A" moved down under "B" to make room/);
     expect(providers.chat.mock.calls[0][0].system).toContain('bar 280×200');
   });
 
@@ -420,36 +468,29 @@ describe('POST /api/ai/reports/:id/chat', () => {
     await chat(owner);
     // The owner of the workspace is its admin, hence the second tool.
     expect(providers.chat.mock.calls[0][0].tools.map((t) => t.name).filter((n) => n !== 'read_help'))
-      .toEqual(['propose_widgets', 'propose_custom_visual', 'propose_action']);
+      .toEqual(['propose_widgets', 'propose_design_changes', 'propose_custom_visual', 'propose_action', 'ask_user']);
     expect(queryCached).not.toHaveBeenCalled();
   });
 
-  test('the mode picks the toolset, and a tool of the other mode is refused', async () => {
-    const restyle = call('propose_design_changes', { summary: 's', ops: [{ op: 'report_settings', set: { theme: 'dark' } }] });
-    providers.chat.mockResolvedValueOnce(restyle).mockResolvedValueOnce(say('Switch to Design.'));
-    const visuals = await chat(owner, { ...ASK, pageContext: { themes: ['light', 'dark'] } });
-    expect(visuals.body).toEqual({ reply: 'Switch to Design.', proposals: [] });
-    expect(providers.chat.mock.calls[1][0].messages.find((m) => m.role === 'tool').isError).toBe(true);
-    const visualsPrompt = providers.chat.mock.calls[0][0].system;
-
-    providers.chat.mockReset();
-    providers.chat.mockResolvedValueOnce(call('propose_widgets', { widgets: [BAR] })).mockResolvedValueOnce(say('Switch to Visuals.'));
-    const design = await chat(owner, { ...ASK, mode: 'design' });
-    expect(design.body.proposals).toEqual([]);
+  // One conversation for the visuals and the look of the page: the request
+  // says which tool answers it, there is no mode to pick first (Jonathan).
+  test('visuals and look share one conversation: both tools offered, a whole report only in the studio', async () => {
+    const restyle = call('propose_design_changes', { reading: { layout: false, colors: false, theme: true }, summary: 's', ops: [{ op: 'report_settings', set: { theme: 'dark' } }] });
+    providers.chat.mockResolvedValueOnce(restyle);
+    const res = await chat(owner, { ...ASK, pageContext: { themes: ['light', 'dark'], theme: 'light', widgets: [] } });
+    expect(res.body.proposals[0]).toMatchObject({ kind: 'design', ops: [{ op: 'report_settings', set: { theme: 'dark' } }] });
     const sent = providers.chat.mock.calls[0][0];
-    // No data tool and no schema either: a restyle has no use for them.
-    expect(sent.tools.map((t) => t.name).filter((n) => n !== 'read_help')).toEqual(['propose_design_changes']);
-    expect(sent.system).not.toContain('items.amt_sum');
-    expect(sent.system).not.toContain('propose_widgets');
-    // The chart-choice guide is dead weight when no chart can be proposed.
-    expect(sent.system).not.toContain('Choosing the visual');
-    expect(visualsPrompt).toContain('Choosing the visual');
-    expect(visualsPrompt).toContain('No built-in type draws');
-    // An unknown mode is the default one, never a third behaviour.
+    expect(sent.tools.map((t) => t.name)).toEqual(expect.arrayContaining(['propose_widgets', 'propose_design_changes']));
+    expect(sent.system).toContain('Choosing the visual');
+    expect(sent.system).toContain('No built-in type draws');
+    expect(sent.system).toContain('The look of the page');
+    // A whole report is the studio's: refused in the editor, whatever `mode` the body carries.
     providers.chat.mockReset();
-    providers.chat.mockResolvedValueOnce(say('ok'));
-    await chat(owner, { ...ASK, mode: 'everything' });
-    expect(providers.chat.mock.calls[0][0].tools.map((t) => t.name)).not.toContain('propose_design_changes');
+    providers.chat.mockResolvedValueOnce(call('propose_report', { reading: { scope: 'report' }, summary: 's', pages: [] })).mockResolvedValueOnce(say('Not here.'));
+    const refused = await chat(owner, { ...ASK, mode: 'design' });
+    expect(refused.body.proposals).toEqual([]);
+    expect(providers.chat.mock.calls[0][0].tools.map((t) => t.name)).not.toContain('propose_report');
+    expect(providers.chat.mock.calls[1][0].messages.find((m) => m.role === 'tool').isError).toBe(true);
   });
 
   test('page context: fetched data is stripped, an oversized page is a 400', async () => {

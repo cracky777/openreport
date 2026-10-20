@@ -1,5 +1,5 @@
 import { useRef, useCallback, useMemo, useState, memo } from 'react';
-import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
+import formatNumber, { abbreviateNumber, formatPlain } from '../../utils/formatNumber';
 import { formatDuration } from '../../utils/formatHuman';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 import { toNumber } from '../../utils/numericValue';
@@ -390,7 +390,7 @@ export default memo(function TableWidget({ data, config, columnOrder, onLoadMore
                         const abbr = abbreviateNumber(numVal, nf.abbreviation || 'none');
                         if (abbr != null) display = abbr;
                         else if (fmt) display = formatNumber(numVal, nf.decimals != null ? { ...fmt, decimals: nf.decimals } : fmt);
-                        else if (nf.decimals != null) display = numVal.toFixed(nf.decimals);
+                        else if (nf.decimals != null) display = formatPlain(numVal, nf.decimals);
                       }
                     }
 

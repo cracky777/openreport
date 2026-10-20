@@ -1,4 +1,4 @@
-import formatNumber from '../../utils/formatNumber';
+import formatNumber, { formatPlain } from '../../utils/formatNumber';
 import { formatDuration } from '../../utils/formatHuman';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 import { toNumber } from '../../utils/numericValue';
@@ -22,7 +22,7 @@ const _hs0 = {
 const _hs1 = { display: 'flex', alignItems: 'center', gap: 0 };
 
 export default function ScorecardWidget({ data, config }) {
-  const hasData = data?.value !== undefined && data?.value !== '';
+  const hasData = data?.value != null && data?.value !== '';
   // Trigger Google Fonts loading for whichever family the user picked. This
   // is a side-effect inside render — fine here because `loadGoogleFont` is
   // idempotent (Set-guarded) and re-running it on every paint costs nothing
@@ -31,7 +31,9 @@ export default function ScorecardWidget({ data, config }) {
   if (config?.labelFontFamily) loadGoogleFont(config.labelFontFamily);
 
   if (!hasData) {
-    if (data?._rowCount === 0) {
+    // No row, or a row with nothing in it (a stock on a day with no data):
+    // the card says so rather than showing its label over a blank.
+    if (data?._rowCount === 0 || data?.value === null) {
       if (config?.hideEmptyMessage) return <div style={emptyStyle} />;
       return <div style={emptyStyle}>{config?.emptyMessage || 'No values'}</div>;
     }
@@ -121,7 +123,7 @@ export default function ScorecardWidget({ data, config }) {
   if (config?.showN1Percent && n1 !== null && !isNaN(rawValue) && pctBase !== 0) {
     const diff = rawValue - n1;
     const pct = (diff / Math.abs(pctBase)) * 100;
-    const txt = (pct > 0 ? '+' : '') + pct.toFixed(1) + '%';
+    const txt = (pct > 0 ? '+' : '') + formatPlain(pct, 1) + '%';
     lines.push(buildLine('percent', pct, txt, config.n1PercentStyle));
   }
 
@@ -166,9 +168,14 @@ export default function ScorecardWidget({ data, config }) {
     </div>
   );
 
+  // Label, figure and comparison lines aligned together: centred by
+  // default, or along the card's left or right edge (`textAlign`) — on the
+  // same line as the title bar's text (12 px in from the card).
+  const align = config?.textAlign === 'left' || config?.textAlign === 'right' ? config.textAlign : 'center';
+  const edge = align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center';
   return (
     <div
-      style={_hs0}
+      style={align === 'center' ? _hs0 : { ..._hs0, alignItems: edge, padding: '16px 4px' }}
     >
       {!labelBelow && labelEl}
       {/* Main row: optional left lines + value + optional right lines.
@@ -193,7 +200,7 @@ export default function ScorecardWidget({ data, config }) {
               // value wraps rather than running out of its card.
               whiteSpace: isNumeric ? 'nowrap' : 'normal',
               overflowWrap: isNumeric ? undefined : 'anywhere',
-              textAlign: 'center',
+              textAlign: align,
               color: config?.valueColor || 'var(--text-primary)',
               fontFamily: config?.valueFontFamily ? fontStack(config.valueFontFamily) : undefined,
             }}
@@ -213,7 +220,7 @@ export default function ScorecardWidget({ data, config }) {
       {labelBelow && labelEl}
       {bottomLines.length > 0 && (
         <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+          display: 'flex', flexDirection: 'column', alignItems: edge, gap: 2,
           marginTop: Math.max(...bottomLines.map((l) => l.spacing), 0),
         }}>
           {bottomLines.map((l, i) => renderLine(l, `b${i}`))}

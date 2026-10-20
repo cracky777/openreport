@@ -22,6 +22,13 @@ const MEASURES = [
     name: 'items.amt_avg_filtered', table: 'items', column: 'amt', aggregation: 'avg', label: 'Moyenne filtrée',
     filterRules: [{ field: 'items.label', op: 'equals', value: 'x' }],
   },
+  { name: 'items.qty_sum', table: 'items', column: 'qty', aggregation: 'sum', label: 'Qty' },
+  // The forms the chat writes (utils/ai/reportMeasures.js): rebuilt from the totals of their two parts.
+  { name: '_calc.gap', table: '', column: '', aggregation: 'custom', expression: '(${items.amt_sum}) - (${items.qty_sum})', label: 'Gap' },
+  { name: '_calc.rate', table: '', column: '', aggregation: 'custom', expression: '100.0 * (${items.amt_sum}) / NULLIF((${items.qty_sum}), 0)', label: 'Rate' },
+  // A product is not: Σ(a × b) ≠ Σa × Σb. Nor an expression over an average.
+  { name: '_calc.prod', table: '', column: '', aggregation: 'custom', expression: '(${items.amt_sum}) * (${items.qty_sum})', label: 'Prod' },
+  { name: '_calc.of_avg', table: '', column: '', aggregation: 'custom', expression: '(${items.amt_avg}) - (${items.qty_sum})', label: 'Of avg' },
 ];
 
 const AMT_BASE = avgAliasBase(decomposeMeasure(MEASURES[1], MEASURES));
@@ -115,6 +122,27 @@ test('the response names the atoms of each measure it decomposed', async () => {
   expect(res.body.totalComponents).toEqual({
     Moyenne: { sum: `${AMT_BASE}_sum`, count: `${AMT_BASE}_count` },
   });
+});
+
+test('a difference or a ratio of two additive measures names its parts; a product or an average part gets none', async () => {
+  const owner = seedUser({ role: 'editor' });
+  const ds = seedDatasource({ userId: owner, dbType: 'postgres' });
+  const model = seedModel({ userId: owner, datasourceId: ds, measures: MEASURES });
+  const res = await request(app).post(`/api/models/${model}/query`).set('x-test-user', owner)
+    .send({ dimensionNames: ['items.label'], measureNames: ['_calc.gap', '_calc.rate', '_calc.prod', '_calc.of_avg'], withTotalComponents: true, sqlOnly: true });
+  expect(res.status).toBe(200);
+  expect(res.body.totalComponents).toEqual({
+    Gap: { op: 'subtract', left: 'tc_items_amt_sum', right: 'tc_items_qty_sum' },
+    Rate: { op: 'percent', left: 'tc_items_amt_sum', right: 'tc_items_qty_sum' },
+  });
+  // One hidden column per part, shared by the two measures.
+  expect(res.body.sql.match(/AS "tc_items_amt_sum"/g)).toHaveLength(1);
+  expect(res.body.sql).toContain('SUM(CAST("items"."qty" AS DOUBLE PRECISION)) AS "tc_items_qty_sum"');
+  // Without the flag, nothing is appended.
+  const bare = await request(app).post(`/api/models/${model}/query`).set('x-test-user', owner)
+    .send({ dimensionNames: ['items.label'], measureNames: ['_calc.gap'], sqlOnly: true });
+  expect(bare.body.totalComponents).toBeUndefined();
+  expect(bare.body.sql).not.toContain('tc_items');
 });
 
 test('a per-widget override to AVG is decomposed too', async () => {

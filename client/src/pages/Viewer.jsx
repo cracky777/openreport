@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import ReportCanvas from '../components/Canvas/ReportCanvas';
 import api, { setEmbedToken } from '../utils/api';
 import { prepareGlobalRulesForWidget } from '../utils/reportFilterRules';
 import { parseFiltersFromUrl, syncFiltersToUrl, parsePrintFiltersFromUrl } from '../utils/urlFilters';
 import { buildWidgetQueryPayload } from '../utils/widgetQueryPayload';
 import { buildWidgetData } from '../utils/widgetDataBuilder';
-import { TbMaximize, TbMinimize, TbRefresh } from 'react-icons/tb';
+import { TbMaximize, TbMinimize, TbPencil, TbRefresh } from 'react-icons/tb';
 import { useTheme } from '../hooks/useTheme';
 import PagesColumn from '../components/PagesColumn/PagesColumn';
 import PagesTabs from '../components/PagesColumn/PagesTabs';
@@ -14,6 +14,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import { STACK_BREAKPOINT } from '../utils/stackedLayout';
 import ExportMenu from '../components/ExportMenu/ExportMenu';
 import BookmarkMenu from '../components/BookmarkMenu/BookmarkMenu';
+import { queriesData, restorable } from '../utils/pageState';
 
 const _hs0 = { padding: 60, textAlign: 'center', color: 'var(--state-danger)' };
 const _hs1 = { padding: 40, color: 'var(--text-disabled)' };
@@ -37,8 +38,21 @@ if (IS_EMBED) {
   setEmbedToken(new URLSearchParams(window.location.search).get('token'));
 }
 
-export default function Viewer() {
-  const { id } = useParams();
+/**
+ * The report as its readers see it. Also the right half of the AI studio
+ * (pages/AiStudio.jsx), which embeds it: `reportId` then names the report,
+ * `embedded` drops the toolbar, `workingCopy` is the studio's working copy of
+ * the report (shown instead of what the server holds: saved or not),
+ * `version` reloads the report after the assistant changed it (the page
+ * shown stays), `onPageChange` tells the studio which page the assistant
+ * is talking about, `showPage` turns to a page the studio names.
+ */
+export default function Viewer({ reportId = null, embedded = false, version = 0, onPageChange, workingCopy = null, pageRef = null, navRef = null, onLayoutEdit = null, showPage = null } = {}) {
+  const { id: routeId } = useParams();
+  const id = reportId || routeId;
+  // Read when `version` says so, not on every render of the studio.
+  const copyRef = useRef(workingCopy);
+  copyRef.current = workingCopy;
   const { getThemeVars } = useTheme();
   const [report, setReport] = useState(null);
   // Small screens: the canvas stacks its widgets (ReportCanvas decides from
@@ -135,8 +149,29 @@ export default function Viewer() {
   const crossFilterSourceRef = useRef(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const canvasRef = useRef(null);
+  // The page node, for whoever embeds the viewer and captures the page (the
+  // studio's review of an applied change reads it after each render).
+  useEffect(() => { if (pageRef) pageRef.current = canvasRef.current; });
+  // The page menu, for the studio's review to see it beside the page.
+  const navWrapRef = useRef(null);
+  useEffect(() => { if (navRef) navRef.current = navWrapRef.current; });
   const [pages, setPages] = useState([]);
+  // The studio lets the author move and resize by hand (asked by Jonathan):
+  // the canvas edits the layout only — a selection, the two layout callbacks
+  // the editor gives it, nothing else of the editor. A gesture ends in the
+  // studio's working copy (`onLayoutEdit`); while it lasts, the page follows.
+  const [selectedWidget, setSelectedWidget] = useState(null);
+  const patchLayout = (updater, commit) => {
+    const idx = currentPageIdxRef.current;
+    const layout = typeof updater === 'function' ? updater((pages[idx] && pages[idx].layout) || []) : updater;
+    setPages((prev) => prev.map((p, i) => (i === idx ? { ...p, layout } : p)));
+    if (commit) onLayoutEdit?.(idx, layout);
+  };
+  const editing = !!onLayoutEdit;
   const [currentPageIdx, setCurrentPageIdx] = useState(0);
+  const currentPageIdxRef = useRef(0);
+  currentPageIdxRef.current = currentPageIdx;
+  useEffect(() => { onPageChange?.(currentPageIdx); }, [currentPageIdx, onPageChange]);
   const pageStateRef = useRef({}); // { [pageIdx]: { widgets, reportFilters, crossHighlight } }
   // Hoisted page-switch — shared by the navigation rail AND the multi-page
   // PDF export loop. Inline-arrow versions captured the closure at render
@@ -152,12 +187,16 @@ export default function Viewer() {
       slicerSelections,
       crossHighlight: crossHighlightRef.current,
     };
-    const saved = pageStateRef.current[idx];
+    // A page left before its rows came back is fetched again (utils/pageState).
+    const kept = pageStateRef.current[idx];
+    const saved = kept && restorable(kept.widgets) ? kept : null;
     setCurrentPageIdx(idx);
     if (saved) {
       // Revisited page: its state already holds this user's fetched data —
-      // restoring it must not trigger a refetch.
-      skipNextRefetch.current = true;
+      // restoring it must not trigger a refetch. Only when the filters do
+      // change: the same object re-renders nothing, the flag outlived the
+      // switch and ate the next page's first fetch (Karim's overview, blank).
+      skipNextRefetch.current = saved.reportFilters !== reportFiltersRef.current;
       setWidgets(saved.widgets);
       setReportFilters(saved.reportFilters);
       setSlicerSelections(saved.slicerSelections || {});
@@ -174,6 +213,15 @@ export default function Viewer() {
       setRefreshCounter((n) => n + 1);
     }
   }, [currentPageIdx, pages, slicerSelections]);
+
+  // The studio turns to the page a card changed, for its review to see it
+  // (`showPage` = { idx, at }, once per `at`; a new page once it is drawn).
+  const shownRequestRef = useRef(0);
+  useEffect(() => {
+    if (!showPage || showPage.at === shownRequestRef.current || showPage.idx >= pages.length) return;
+    shownRequestRef.current = showPage.at;
+    pageSwitchHandler(showPage.idx);
+  }, [showPage, pages.length, pageSwitchHandler]);
 
   // Apply a bookmark: land on its page with its filter selections in one
   // fetch round. A page change deliberately DISCARDS that page's cached
@@ -219,16 +267,20 @@ export default function Viewer() {
       try {
         // ?view=1 counts this open as a read in the usage stats — not for
         // the print renderer, which opens the report to make a PDF of it.
-        const res = await api.get(`/reports/${id}${printMode ? '' : '?view=1'}`);
-        const r = res.data.report;
+        // The studio's working copy needs no fetch, and counts no read.
+        const r = copyRef.current || (await api.get(`/reports/${id}${printMode ? '' : '?view=1'}`)).data.report;
         setReport(r);
 
         // Load pages
         const reportPages = r.pages || r.settings?.pages;
         let firstPageWidgets = {};
+        // A reload after the assistant's change (studio) keeps the page open;
+        // the pages' cached state is from before the change and goes.
+        const kept = version > 0 && reportPages && currentPageIdxRef.current < reportPages.length ? currentPageIdxRef.current : 0;
+        pageStateRef.current = {};
         const startIdx = (printPageIdx != null && reportPages && printPageIdx >= 0 && printPageIdx < reportPages.length)
           ? printPageIdx
-          : 0;
+          : kept;
         if (reportPages && reportPages.length > 0) {
           setPages(reportPages);
           firstPageWidgets = reportPages[startIdx].widgets || {};
@@ -261,12 +313,17 @@ export default function Viewer() {
             setModel(modelRes.data.model);
           } catch { /* model might not be accessible */ }
         }
+        // A reload after a change in the studio: the working copy's widgets
+        // carry no rows of their own (a visual just applied is bare), so the
+        // page is queried again — with the model as it now stands, read just
+        // above, since a file may have joined it since the last round.
+        if (version > 0) setRefreshCounter((n) => n + 1);
       } catch (err) {
         setError(err.response?.data?.error || 'Report not found');
       }
     };
     load();
-  }, [id]);
+  }, [id, version]);
 
   // Slicer filter
   // Slicer search — same contract as Editor.handleSlicerSearch. Lets the
@@ -492,15 +549,17 @@ export default function Viewer() {
     }
   }, [model]);
   useEffect(() => {
+    // An explicit request (a page's first visit, a reload) always fetches.
+    const refreshRequested = refreshCounter !== prevRefreshCounter.current;
     if (skipNextRefetch.current) {
       skipNextRefetch.current = false;
-      prevFiltersJson.current = JSON.stringify(reportFilters || {});
-      prevRefreshCounter.current = refreshCounter;
-      return;
+      if (!refreshRequested) {
+        prevFiltersJson.current = JSON.stringify(reportFilters || {});
+        return;
+      }
     }
     const json = JSON.stringify(reportFilters || {});
     const sourceId = crossFilterSourceRef.current;
-    const refreshRequested = refreshCounter !== prevRefreshCounter.current;
     prevRefreshCounter.current = refreshCounter;
     // Skip only if NOTHING changed: filters identical AND no fresh cross-filter click AND no refresh request
     if (json === prevFiltersJson.current && sourceId === null && !refreshRequested) return;
@@ -524,20 +583,7 @@ export default function Viewer() {
       if (!w) return false;
       if (drillingId && wId !== drillingId) return false;
       if (!refreshRequested && wId === sourceId) return false;
-      const b = w.dataBinding || {};
-      const hasMeas = w.type === 'scatter' ? !!(b.scatterMeasures?.x && b.scatterMeasures?.y)
-        : w.type === 'combo' ? ((b.comboBarMeasures?.length > 0) || (b.comboLineMeasures?.length > 0))
-        : (b.selectedMeasures?.length > 0);
-      const hasMainBinding = (b.selectedDimensions?.length > 0 || hasMeas);
-      // Conditional formatting may need fetching even on a widget that has
-      // only a colour-measure binding (e.g. shapes).
-      const hasColorMeas = !!b.colorMeasure && w.config?.colorCondition?.enabled === true;
-      // Filter widgets always fetch — they need RLS-filtered distinct values
-      // for their bound dimension.
-      if (w.type === 'filter') return hasMainBinding;
-      // A text queries the measures bound to it (printed where it says #tag).
-      if (w.type === 'text') return hasColorMeas || hasMeas;
-      return hasMainBinding || hasColorMeas;
+      return queriesData(w);
     });
     if (toFetch.length > 0) {
       setWidgets((prev) => {
@@ -669,6 +715,7 @@ export default function Viewer() {
   }
   const stackMode = narrowViewport && !printMode && (report.settings?.smallScreens || 'stack') === 'stack';
 
+  const navPosition = report?.settings?.pageNav?.position || 'left';
   return (
     <div style={{
       // Print mode strips the surrounding viewport so Puppeteer's
@@ -681,7 +728,7 @@ export default function Viewer() {
       {/* Viewer toolbar — compact. Hidden in embed mode: the hosting page
           brings its own chrome, and refresh/export/fullscreen are viewer
           tools, not embed audience tools. */}
-      {!IS_EMBED && (
+      {!IS_EMBED && !embedded && (
       <header className="no-print" style={_hs2}>
         <img src="/favicon.png" alt="Open Report" style={_hs3} />
         <span style={_hs4}>{report.title}</span>
@@ -711,6 +758,11 @@ export default function Viewer() {
           <button onClick={toggleFullscreen} style={toolBtnSmall} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
             {isFullscreen ? <TbMinimize size={14} /> : <TbMaximize size={14} />}
           </button>
+          {report.can_edit && (
+            <Link to={`/edit/${report.id}`} style={toolBtnSmall} title="Edit this report" aria-label="Edit this report">
+              <TbPencil size={14} />
+            </Link>
+          )}
         </div>
       </header>
       )}
@@ -720,12 +772,16 @@ export default function Viewer() {
         data-theme={report?.settings?.theme?.key || 'light'}
         style={{
           display: 'flex', flex: 1, minHeight: 0,
-          flexDirection: stackMode ? 'column' : 'row',
+          // The page menu where the report puts it: a bar on top (and always on
+          // a small screen), else a column on the left or the right.
+          flexDirection: stackMode || navPosition === 'top' ? 'column' : navPosition === 'right' ? 'row-reverse' : 'row',
           ...(report?.settings?.theme?.vars || getThemeVars('light')),
         }}
       >
         {(pages.length > 1 || report?.settings?.pageNav?.title || report?.settings?.pageNav?.logo) && (
-          stackMode ? (
+          // A bar stretches across, a column down: the wrapper lays its menu out the same way.
+          <div ref={navWrapRef} style={{ display: 'flex', flexDirection: stackMode || navPosition === 'top' ? 'column' : 'row', flexShrink: 0 }}>
+          {stackMode || navPosition === 'top' ? (
             <PagesTabs
               pages={pages}
               currentPageIdx={currentPageIdx}
@@ -740,12 +796,17 @@ export default function Viewer() {
               onSwitch={pageSwitchHandler}
               config={report?.settings?.pageNav}
             />
-          )
+          )}
+          </div>
         )}
         <ReportCanvas
           layout={pages[currentPageIdx]?.layout || report.layout}
           widgets={widgets}
-          readOnly
+          readOnly={!editing}
+          selectedWidget={editing ? selectedWidget : undefined}
+          onSelectWidget={editing ? setSelectedWidget : undefined}
+          onLayoutChange={editing ? (updater) => patchLayout(updater, true) : undefined}
+          onLayoutChangeLive={editing ? (updater) => patchLayout(updater, false) : undefined}
           settings={report.settings}
           reportFilters={slicerSelections}
           onSlicerFilter={handleSlicerFilter}

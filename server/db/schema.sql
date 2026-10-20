@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS models (
   column_types TEXT NOT NULL DEFAULT '{}',
   -- Incremental rollup refresh window in months (NULL/0 = full rebuild)
   incremental_months INTEGER,
+  -- Business domains of the model: JSON list of catalogue ids (utils/ai/domains)
+  domains TEXT NOT NULL DEFAULT '[]',
   -- Home workspace: editing rights follow the roles held there.
   workspace_id TEXT,
   created_at TEXT DEFAULT (datetime('now')),
@@ -173,6 +175,7 @@ CREATE TABLE IF NOT EXISTS reports (
   cache_built_at TEXT,
   -- 1 until the first save: listed nowhere (utils/reportDrafts.js).
   draft INTEGER NOT NULL DEFAULT 0,
+  owns_model INTEGER NOT NULL DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE

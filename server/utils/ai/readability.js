@@ -42,6 +42,14 @@ const TEXT_KEYS = {
   gaugeLabelColor: 'secondary',
   gaugeAxisColor: 'secondary',
 };
+// The texts a card set in reverse draws on itself, by type: those left unset
+// take the ink that reads on it.
+const CHART_TEXT = ['legendTextColor', 'xAxisLabelColor', 'yAxisLabelColor', 'secondaryYAxisLabelColor', 'headerColor'];
+const INVERTED_KEYS = {
+  scorecard: ['valueColor', 'labelColor'],
+  gauge: ['gaugeValueColor', 'gaugeLabelColor', 'gaugeAxisColor'],
+  filter: ['slicerFontColor'],
+};
 // Drawn without a card of their own unless told otherwise (WidgetItem.jsx).
 const TRANSPARENT_BY_DEFAULT = new Set(['filter', 'image']);
 const HEX = /^#[0-9a-f]{6}/i;
@@ -149,16 +157,31 @@ function readabilityOps(pageContext, ops) {
     const set = {};
     const transparent = typeof config.transparentBg === 'boolean' ? config.transparentBg : TRANSPARENT_BY_DEFAULT.has(widget.type);
     let surface = transparent ? pageSurface : inks.panel;
+    // A dark card on a light page (or the reverse) the proposal itself asks
+    // for — a figure set in reverse to lead the page — is the designer's: its
+    // texts take an ink that reads on it. One only inherited goes back to the
+    // theme's card: the author never chose it (the designer's navy ratio card
+    // came out white, Mutuelle Horizon).
+    let inverted = false;
     if (!transparent && isHex(config.backgroundColor)) {
-      // A card that fights the theme's own text (titles, legends, table cells
-      // all take it) cannot be saved one key at a time: it goes to the theme's.
       if (reads(inks.text, config.backgroundColor)) surface = config.backgroundColor;
+      // Chosen now, or chosen before along with a text that reads on it (the
+      // next card restyling the page turned it white again).
+      else if (proposed.has('backgroundColor') || (!themeChanged && ['valueColor', 'titleColor'].some((k) => isHex(config[k]) && reads(config[k], config.backgroundColor)))) {
+        surface = config.backgroundColor;
+        inverted = true;
+      }
       else set.backgroundColor = inks.panel;
     }
+    const inkOn = reads('#ffffff', surface) ? '#ffffff' : inks.text;
 
     const textKeys = widget.type === 'text' ? { ...TEXT_KEYS, color: 'text' } : TEXT_KEYS;
     for (const [key, ink] of Object.entries(textKeys)) {
-      if (!isHex(config[key]) || reads(config[key], surface)) continue;
+      if (!isHex(config[key])) {
+        if (inverted && (key === 'titleColor' || (INVERTED_KEYS[widget.type] || CHART_TEXT).includes(key))) set[key] = inkOn;
+        continue;
+      }
+      if (reads(config[key], surface)) continue;
       // Chosen in this very proposal: it is what the author asked for, so the
       // hue stays. Inherited from before: it simply goes back to the theme's.
       set[key] = proposed.has(key) ? legible(config[key], surface) : inks[ink];

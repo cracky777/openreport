@@ -101,8 +101,9 @@ function PackPreview() {
 // years compare in one report. Nothing happens until the user says so.
 // `onDecline`: what declining does, worded by `declineLabel` (a caller that
 // was about to build a blank report says so). `onMerged(target)`: the books
-// went into `target`, the source just imported is gone.
-export default function FecPackOffer({ datasourceId, workspaceId, accounting, sameCompany = [], onDecline, onMerged, declineLabel = 'Not now' }) {
+// went into `target`, the source just imported is gone. `onCreated(reportId)`:
+// where the pack goes once made; the report's own page unless said otherwise.
+export default function FecPackOffer({ datasourceId, workspaceId, accounting, sameCompany = [], onDecline, onMerged, onCreated, declineLabel = 'Not now' }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -137,7 +138,8 @@ export default function FecPackOffer({ datasourceId, workspaceId, accounting, sa
   };
   const openPack = () => run(async () => {
     const reportId = await applyFecPack(target?.id || datasourceId, workspaceId);
-    navigate(`/view/${reportId}`);
+    if (onCreated) onCreated(reportId);
+    else navigate(`/view/${reportId}`);
   });
   const merge = () => run(async () => {
     const res = await addFecYearsTo(candidate.id, datasourceId);

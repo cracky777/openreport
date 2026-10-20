@@ -1,4 +1,4 @@
-import formatNumber, { abbreviateNumber } from './formatNumber';
+import formatNumber, { abbreviateNumber, formatShare } from './formatNumber';
 import { formatDuration } from './formatHuman';
 
 // Shared ECharts datalabel formatter. Three different widgets had
@@ -25,7 +25,7 @@ export function buildDataLabel(params, content, abbrMode, fmt, { hideZeros = fal
   if (content === 'name') return params.name || params.seriesName || '';
   if (content === 'nameValue') return `${params.name || params.seriesName || ''}: ${val}`;
   if (content === 'percent') {
-    if (params.percent != null) return params.percent + '%';
+    if (params.percent != null) return formatShare(params.percent) + '%';
     return val;
   }
   return String(val);

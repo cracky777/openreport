@@ -1,6 +1,6 @@
 // Which widget types get which sections — plain data, shared by the sections.
-export const CHART_TYPES = new Set(['bar', 'line', 'combo', 'pie', 'scatter', 'treemap']);
-export const AXIS_TYPES = new Set(['bar', 'line', 'scatter', 'combo']);
+export const CHART_TYPES = new Set(['bar', 'line', 'combo', 'pie', 'scatter', 'treemap', 'waterfall', 'heatmap', 'map']);
+export const AXIS_TYPES = new Set(['bar', 'line', 'scatter', 'combo', 'waterfall']);
 // Widgets with no data binding at all: nothing to filter, limit or colour by
 // value. A text is not one: it binds measures and prints them where it says
 // "#tag".

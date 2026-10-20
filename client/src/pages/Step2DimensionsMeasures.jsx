@@ -3,6 +3,7 @@ import ValidationBadge from '../components/ValidationBadge';
 import { EditIcon, DeleteIcon, ICON_SIZE } from '../components/actionIcons';
 import { readOverride, normalizeStoredType, chevronSvg } from '../utils/modelEditorHelpers';
 import { PERIOD_UNITS, periodShiftOf } from '../utils/periodShift';
+import GlossaryCard from '../components/Glossary/GlossaryCard';
 
 // Step 2 of the model wizard: review/edit the flagged dimensions & measures
 // (types, formats, labels, calculated measures) and the joins summary.
@@ -95,6 +96,7 @@ const calcSaveBtn = {
 
 export default function Step2DimensionsMeasures({
   description, setDescription,
+  domains, setDomains, catalogue,
   dimensions, setDimensions,
   measures, setMeasures,
   joins, setJoins,
@@ -454,6 +456,12 @@ export default function Step2DimensionsMeasures({
             </table>
           )}
         </div>
+
+        <GlossaryCard
+          domains={domains} setDomains={setDomains} catalogue={catalogue}
+          dimensions={dimensions} setDimensions={setDimensions}
+          measures={measures} setMeasures={setMeasures}
+        />
 
         {/* Joins summary */}
         <div style={cardStyle}>

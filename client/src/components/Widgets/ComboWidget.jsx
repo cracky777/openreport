@@ -4,7 +4,7 @@ import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
-import { compareAxisValues } from '../../utils/axisSort';
+import { compareAxisValues, naturalOrder } from '../../utils/axisSort';
 import { calcLabelRotation, categoryLabelRoom, axisLineStyle, alignDualAxes } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { paletteOf, CHART_COLORS as COLORS } from '../../utils/chartPalette';
@@ -15,13 +15,16 @@ import { useChartTheme } from '../../hooks/useChartTheme';
 import WidgetEmptyState from './WidgetEmptyState';
 import { resolveZoneSorts } from '../../utils/chartSorts';
 import { buildValueGradient } from '../../utils/chartGradient';
+import { echartsPosition, placementOf, autoPlacements, inkOn, measureText } from '../../utils/barLabels';
+import { barHighlight } from '../../utils/highlight';
 
 const _hs0 = { flex: 1, minHeight: 0, minWidth: 0 };
 
-export default memo(function ComboWidget({ data, config, chartWidth, onDataClick, highlightValue }) {
+export default memo(function ComboWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
   const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const w = chartWidth || 400;
+  const h = chartHeight || 300;
   const hasData = data?.labels?.length > 0 && (data?.barSeries?.length > 0 || data?.lineSeries?.length > 0);
   const subType = config?.subType || 'stackedCombo';
   const isStacked = subType === 'stackedCombo';
@@ -85,9 +88,13 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
       getValueColor = buildValueGradient(gradient, flatValues);
     }
 
+    // The palette in the order the chart is drawn: bars first, then lines —
+    // each kept in its stable order. By name alone, "Charge" (a line) took
+    // the first color meant for "Nombre" (the bars), Mutuelle Horizon.
+    const byStable = (a, b) => getStableIdx(a) - getStableIdx(b);
+    const drawOrder = [...[...allBarNames].sort(byStable), ...[...allLineNames].sort(byStable)];
     const colorMap = {};
-    allBarNames.forEach((n) => { colorMap[n] = customColors[n] || palette[getStableIdx(n) % palette.length]; });
-    allLineNames.forEach((n) => { colorMap[n] = customColors[n] || palette[getStableIdx(n) % palette.length]; });
+    drawOrder.forEach((n, i) => { colorMap[n] = customColors[n] || palette[i % palette.length]; });
     const getColor = (name) => colorMap[name] || customColors[name] || palette[getStableIdx(name) % palette.length];
 
     let labels = [...data.labels];
@@ -112,6 +119,12 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
       const { labels: sorted, indices } = sortDateLabels(labels, null, datePart);
       sortedIndices = indices.map((i) => sortedIndices[i]);
       labels = sorted;
+    } else {
+      const natural = naturalOrder(labels);
+      if (natural) {
+        sortedIndices = natural.map((i) => sortedIndices[i]);
+        labels = natural.map((i) => labels[i]);
+      }
     }
 
     const rawLabels = [...labels];
@@ -162,6 +175,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
       barSeries.forEach((s, i) => {
         const color = getColor(s.name);
         allLegendItems.push({ name: s.name, color });
+        const marks = barHighlight(config, sortedIndices.map((idx) => s.values[idx] || 0), rawLabels);
         const nzCounts = nonZeroCounts;
         const nzIndices = seriesNonZeroIndex[i];
         const sortedValues = sortedIndices.map((idx) => s.values[idx] || 0);
@@ -199,7 +213,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
               return {
                 type: 'rect',
                 shape: { x, y, width, height: barHeight },
-                style: { ...api.style(), fill: useGradient ? getValueColor(value) : color, opacity: dimmed ? 0.3 : 1 },
+                style: { ...api.style(), fill: marks.colorAt(catIdx) || (useGradient ? getValueColor(value) : color), opacity: dimmed ? 0.3 : 1 },
               };
             }
 
@@ -213,27 +227,56 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
             return {
               type: 'rect',
               shape: { x, y: top[1], width: barWidth, height: base[1] - top[1] },
-              style: { ...api.style(), fill: useGradient ? getValueColor(value) : color, opacity: dimmed ? 0.3 : 1 },
+              style: { ...api.style(), fill: marks.colorAt(catIdx) || (useGradient ? getValueColor(value) : color), opacity: dimmed ? 0.3 : 1 },
             };
           },
         });
       });
     } else {
       // Stacked or single bar: standard ECharts bar series
+      // Labels along the bar whatever its direction, and best fit by
+      // default (utils/barLabels) — as on the bar chart.
+      const placement = placementOf(config);
+      const barTop = Math.max(0, ...barSeries.flatMap((s) => s.values.map((v) => Math.abs(v || 0)))) * 1.1;
+      const plotLength = earlyIsHoriz ? w * 0.65 : h - 70;
       barSeries.forEach((s) => {
         const color = getColor(s.name);
         allLegendItems.push({ name: s.name, color });
+        const vals = sortedIndices.map((idx) => s.values[idx] || 0);
+        const marks = barHighlight(config, vals, rawLabels);
+        const labelled = showDataLabels || (marks.any && config?.highlight?.label === true);
+        const fmt = data._measureFormats?.[s.name];
+        const places = !isStacked && labelled && placement === 'auto'
+          ? autoPlacements({
+            values: vals, max: barTop, length: plotLength, along: earlyIsHoriz, textHeight: dataLabelFontSize + 2,
+            texts: vals.map((v) => abbreviateNumber(v, valueAbbr, fmt) ?? formatNumber(v, fmt)),
+            textWidth: (t) => measureText(t, dataLabelFontSize, dataLabelFontFamily),
+          })
+          : null;
         series.push({
           type: 'bar',
           name: s.name,
-          data: useGradient
-            ? sortedIndices.map((idx) => { const v = s.values[idx] || 0; return { value: v, itemStyle: { color: getValueColor(v) } }; })
-            : sortedIndices.map((idx) => s.values[idx] || 0),
+          data: vals.map((v, i) => {
+            const mark = marks.colorAt(i);
+            const fill = mark || (useGradient ? getValueColor(v) : null);
+            const item = { value: v, ...(fill ? { itemStyle: { color: fill } } : {}) };
+            const own = marks.labelAt(i) && !showDataLabels;
+            if (!places && !own) return item;
+            const inside = places ? places[i] === 'inside' : false;
+            return {
+              ...item,
+              label: {
+                ...(own ? { show: true } : {}),
+                ...(places ? { position: echartsPosition(inside ? 'insideTop' : 'top', earlyBarDir) } : {}),
+                ...(inside ? { color: inkOn(fill || color, dataLabelColor) } : {}),
+              },
+            };
+          }),
           stack: isStacked ? 'bar' : undefined,
           itemStyle: { color },
           emphasis: { disabled: true },
           label: {
-            show: showDataLabels, position: 'top', fontSize: dataLabelFontSize, fontFamily: dataLabelFontFamily, color: dataLabelColor,
+            show: showDataLabels, position: isStacked ? 'inside' : echartsPosition(placement, earlyBarDir), fontSize: dataLabelFontSize, fontFamily: dataLabelFontFamily, color: dataLabelColor,
             rotate: dataLabelRotate,
             align: dataLabelRotate > 0 ? 'left' : dataLabelRotate < 0 ? 'right' : 'center',
             formatter: (p) => {
@@ -267,6 +310,8 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
         data: sortedIndices.map((idx) => s.values[idx] || 0),
         [lineValueAxisProp]: showSecondaryAxis ? 1 : 0,
         smooth: smoothLine,
+        // Rounded through every point, never past it: no peak the data does not have.
+        smoothMonotone: 'x',
         lineStyle: { color, width: 2 },
         itemStyle: { color },
         // A label hangs on its symbol: no markers = an invisible one.
@@ -305,7 +350,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
             const v = isObj ? val.value ?? val : val;
             const prevStyle = isObj ? val.itemStyle || {} : {};
             const o = rawLabels[i] === hl ? 1 : 0.3;
-            return { value: v, itemStyle: { ...prevStyle, opacity: o } };
+            return { ...(isObj ? val : {}), value: v, itemStyle: { ...prevStyle, opacity: o } };
           });
         }
       });
@@ -425,7 +470,8 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
       ...xNameCfg,
       axisLabel: { show: true, rotate: xRotate, fontSize: xAxisFontSize, color: xAxisColor, fontFamily: xAxisFontFamily, ...labelRoom.axisLabel },
       position: barDir === 'verticalInverse' ? 'top' : barDir === 'horizontalInverse' ? 'right' : undefined,
-      inverse: barDir === 'horizontalInverse',
+      // Horizontal bars read from the top, like a list (as on the bar chart).
+      inverse: isHoriz,
     };
 
     if (isHoriz) {
@@ -453,12 +499,23 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
     // In isHoriz mode the secondary value axis lives on TOP (xAxis,
     // position 'top'), not on the right — so the +30px reservation
     // moves from baseRight to baseTop. Vertical mode unchanged.
-    const baseTop = barDir === 'verticalInverse' ? 40
-      : (isHoriz && showSecondaryAxis ? 40 : 20);
-    const baseRight = barDir === 'horizontalInverse' ? labelRoom.margin
-      : (!isHoriz && showSecondaryAxis ? 50 : 20);
-    const baseBottom = barDir === 'verticalInverse' ? 15 : (showXAxis ? labelRoom.margin : 15);
-    const baseLeft = barDir === 'horizontalInverse' ? 15 : (isHoriz ? labelRoom.margin : (showYAxis ? 50 : 15));
+    // Room for each axis where it is drawn, by direction: the categories (X
+    // keys) beside horizontal bars, the values under them. An axis turned
+    // off takes no room — the bar chart left the category labels' width as
+    // an empty band under horizontal bars.
+    const catRoom = showXAxis ? labelRoom.margin : 15;
+    const valueRoom = showYAxis ? (isHoriz ? 28 : 50) : 15;
+    const secondRoom = showSecondaryAxis ? (isHoriz ? 40 : 50) : 20;
+    const base = {
+      vertical: { top: 20, right: secondRoom, bottom: catRoom, left: valueRoom },
+      verticalInverse: { top: showXAxis ? 40 : 15, right: secondRoom, bottom: 15, left: valueRoom },
+      horizontal: { top: secondRoom, right: 20, bottom: valueRoom, left: catRoom },
+      horizontalInverse: { top: secondRoom, right: catRoom, bottom: valueRoom, left: 15 },
+    }[barDir] || { top: 20, right: secondRoom, bottom: catRoom, left: valueRoom };
+    const baseTop = base.top;
+    const baseRight = base.right;
+    const baseBottom = base.bottom;
+    const baseLeft = base.left;
     const catExtra = xTitleVal ? 18 : 0;
     const valExtra = yTitleVal ? 20 : 0;
     const secValExtra = (showSecondaryAxis && secYTitleVal) ? 20 : 0;
@@ -485,7 +542,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, onDataClick
     const legendItems = [...allBarNames, ...allLineNames].map((name) => ({ name, color: colorMap[name] }));
 
     return { option: opt, legendItems, rawLabels };
-  }, [data, hasData, isStacked, showXAxis, showYAxis, showDataLabels, dataLabelFontSize, dataLabelColor,
+  }, [data, hasData, isStacked, showXAxis, showYAxis, showDataLabels, dataLabelFontSize, dataLabelColor, config?.highlight, config?.dataLabelPosition, w, h, dataLabelFontFamily,
       valueAbbr, hideZeros, showLegend, legendPosition, gridLineStyle, gridLineWidth, gridLineColor,
       showSecondaryAxis, smoothLine, lineArea, lineSymbol, lineSymbolSize, dataLabelRotate, sortOrder, axisSort, groupBySort, hiddenSeries, highlightValue,
       config?.legendColors, config?.palette, config?.barDirection, config?.yAxisInterval, config?.secondaryYAxisInterval,

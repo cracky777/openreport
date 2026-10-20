@@ -25,6 +25,12 @@ function toWireMessages(messages) {
         content.push({ type: 'tool_use', id: c.id, name: c.name, input: c.args || {} });
       }
       out.push({ role: 'assistant', content });
+    } else if (m.images && m.images.length) {
+      // A page shown to the model (the studio's review of an applied change).
+      out.push({ role: 'user', content: [
+        ...m.images.map((img) => ({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.data } })),
+        { type: 'text', text: m.text || '' },
+      ] });
     } else {
       out.push({ role: 'user', content: m.text || '' });
     }

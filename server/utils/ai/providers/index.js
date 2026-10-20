@@ -2,7 +2,7 @@
 // which provider the admin plugged in.
 //
 // Neutral messages:
-//   { role: 'user', text }
+//   { role: 'user', text, images?: [{ mediaType, data }] }   images: base64, the turn's only (never replayed)
 //   { role: 'assistant', text, toolCalls: [{ id, name, args }] }
 //   { role: 'tool', toolCallId, name, content, isError }
 // Neutral tools: { name, description, parameters (JSON Schema) }.
@@ -11,19 +11,12 @@ const openaiCompat = require('./openaiCompat');
 const anthropic = require('./anthropic');
 const { blockListEnforced, hostIsBlocked, hostResolvesInternally } = require('../../ssrfGuard');
 
+const claudeSubscription = require('./claudeSubscription');
+const { AiProviderError } = require('./error');
+
 const ADAPTERS = { 'openai-compat': openaiCompat, anthropic };
 const TIMEOUT_MS = 60_000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
-
-// What reaches the client and the logs. Built from the status and a short
-// reason only: the upstream body can echo the request, key included.
-class AiProviderError extends Error {
-  constructor(status, message) {
-    super(message);
-    this.name = 'AiProviderError';
-    this.status = status;
-  }
-}
 
 function reasonForStatus(status) {
   if (status === 401 || status === 403) return 'The AI provider rejected the API key';
@@ -107,4 +100,72 @@ async function chatOnce({ config, system, messages, tools }, deps) {
   }
 }
 
-module.exports = { chat, AiProviderError };
+// Four attempts in all: at the failure rate measured below, an author sees the
+// "empty answer" message about once in fifty requests instead of once in three.
+const MAX_EMPTY_RETRIES = 3;
+
+/**
+ * One turn of an assistant: the model is asked until it answers in words or a
+ * tool call ends the turn. One contract for every engine, so the three
+ * assistants (report, model, help) write their tool handling once:
+ *
+ *   execute(call) → { result, end }   result: what the model reads back (JSON-able,
+ *                                     `error` marks a refusal); end: this call
+ *                                     answered the turn (a proposal was taken)
+ *   onWords(text) → string | null     something to push back instead of ending on
+ *                                     these words (a proposal written as prose)
+ *
+ * HTTP providers: the steps are taken here, one chat call each. The Claude
+ * subscription: the SDK takes them, with our tools in its hands.
+ *
+ * @returns {{ ended: 'tool'|'words'|'empty'|'limit', text: string }}
+ *   tool  → text = the words that came with the ending call
+ *   words → the model's answer
+ *   empty → the provider sent nothing, even asked again
+ *   limit → the step budget ran out; text = the last words seen
+ */
+async function runTurn({ config, system, messages, tools, maxSteps, execute, onWords }, deps = {}) {
+  if (config.provider === claudeSubscription.PROVIDER) return claudeSubscription.runTurn({ config, system, messages, tools, maxSteps, execute }, deps);
+  const ask = deps.chat || chat;
+  const convo = messages.map((m) => ({ role: m.role, text: m.text, ...(m.images && m.images.length ? { images: m.images } : {}) }));
+  let emptyRetries = 0;
+  let lastText = '';
+  for (let i = 0; i < maxSteps; i++) {
+    const turn = await ask({ config, system, messages: convo, tools }, deps);
+    lastText = turn.text || lastText;
+    if (!turn.toolCalls.length) {
+      const pushBack = onWords ? onWords(turn.text || '') : null;
+      if (pushBack) {
+        convo.push({ role: 'assistant', text: turn.text });
+        convo.push({ role: 'user', text: pushBack });
+        continue;
+      }
+      // Neither words nor a call. Measured against Mistral (mistral-large, 20
+      // real requests): between one in three and two in three come back HTTP
+      // 200 with finish_reason "error" and zero tokens — their generation
+      // failed, ours is fine. The same request sent again goes through, so
+      // that is what happens: nothing is added to the conversation, the model
+      // is not at fault. Shown as is, the panel would stay blank and the
+      // author could not tell a failure from a slow answer.
+      if (!(turn.text || '').trim()) {
+        if (emptyRetries < MAX_EMPTY_RETRIES) {
+          emptyRetries += 1;
+          continue;
+        }
+        return { ended: 'empty', text: '' };
+      }
+      return { ended: 'words', text: turn.text || '' };
+    }
+    convo.push({ role: 'assistant', text: turn.text, toolCalls: turn.toolCalls });
+    let ended = false;
+    for (const call of turn.toolCalls) {
+      const { result, end } = await execute(call);
+      ended = ended || !!end;
+      convo.push({ role: 'tool', toolCallId: call.id, name: call.name, content: JSON.stringify(result), isError: !!(result && result.error) });
+    }
+    if (ended) return { ended: 'tool', text: turn.text || '' };
+  }
+  return { ended: 'limit', text: lastText };
+}
+
+module.exports = { chat, runTurn, AiProviderError };

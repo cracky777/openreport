@@ -1,10 +1,11 @@
 import { useRef, memo, useMemo } from 'react';
 import { rawTextFor } from '../../utils/rawText';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
+import { markPointOf } from '../../utils/highlight';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
-import { compareAxisValues } from '../../utils/axisSort';
+import { compareAxisValues, naturalOrder } from '../../utils/axisSort';
 import { calcLabelRotation, categoryLabelRoom, axisLineStyle } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { paletteOf, CHART_COLORS_BASIC as COLORS, hexToRgba } from '../../utils/chartPalette';
@@ -39,7 +40,8 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
   const showDataLabels = config?.showDataLabels ?? false;
   const dataLabelContent = config?.dataLabelContent || 'value';
   const dataLabelAbbr = config?.dataLabelAbbr || 'none';
-  const dataLabelPosition = config?.dataLabelPosition || 'top';
+  // 'outside' is the pie's word for it (a design card set it here): the end of the mark.
+  const dataLabelPosition = !config?.dataLabelPosition || config.dataLabelPosition === 'outside' ? 'top' : config.dataLabelPosition;
   const dataLabelRotate = config?.dataLabelRotate ?? 0;
   const dataLabelColor = config?.dataLabelColor || '#475569';
   const dataLabelBgColor = config?.dataLabelBgColor || '#ffffff';
@@ -95,6 +97,12 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
       const { labels: sorted, indices } = sortDateLabels(labels, null, datePart);
       sortedIndices = indices.map((i) => sortedIndices[i]);
       labels = sorted;
+    } else {
+      const natural = naturalOrder(labels);
+      if (natural) {
+        sortedIndices = natural.map((i) => sortedIndices[i]);
+        labels = natural.map((i) => labels[i]);
+      }
     }
 
     // Keep raw labels for cross-filter, format display labels separately
@@ -157,11 +165,15 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
         series.push({
           type: 'line', name: s.name || `Series ${i + 1}`, data: values,
           smooth: config?.smooth ?? true,
+          // Rounded through every point, never past it: no peak the data does not have.
+          smoothMonotone: 'x',
           ...symbolOpts,
           lineStyle: { color: getColor(s.name) },
           itemStyle: { color: getColor(s.name) },
           areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15, color: getColor(s.name) } : undefined,
           stack: isStacked ? 'total' : undefined,
+          // The points that stand out (utils/highlight), on each series.
+          markPoint: markPointOf(config, values, rawLabels, (v) => formatNumber(v, data._measureFormats?.[s.name])),
           // Dense series: a label that would sit on another is dropped
           // rather than printed over it.
           labelLayout: { hideOverlap: true },
@@ -173,11 +185,12 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
       });
     } else if (!hasSeries) {
       series.push({
-        type: 'line', data: sortedIndices.map((i) => data.values[i] || 0), smooth: config?.smooth ?? true,
+        type: 'line', data: sortedIndices.map((i) => data.values[i] || 0), smooth: config?.smooth ?? true, smoothMonotone: 'x',
         ...symbolOpts,
         lineStyle: { color: config?.color || '#5470c6' },
         itemStyle: { color: config?.color || '#5470c6' },
         areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15 } : undefined,
+        markPoint: markPointOf(config, sortedIndices.map((i) => data.values[i] || 0), rawLabels, (v) => formatNumber(v, Object.values(data._measureFormats || {})[0])),
         labelLayout: { hideOverlap: true },
         label: { ...labelOpts, formatter: (p) => {
           if (hideZeros && (p.value == null || p.value === 0)) return '';
@@ -269,7 +282,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
 
     const legendItems = (allSeriesForLegend || []).map((s, i) => ({ name: s.name, color: getColor(s.name, i) }));
     return { option: opt, legendItems, rawLabels };
-  }, [data, subType, showLabels, showLegend, legendPosition, hasData, config?.smooth, config?.color, isArea, isStacked, hideZeros, sortOrder, axisSort, groupBySort,
+  }, [config?.highlight, data, subType, showLabels, showLegend, legendPosition, hasData, config?.smooth, config?.color, isArea, isStacked, hideZeros, sortOrder, axisSort, groupBySort,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, gridLineColor, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelPosition, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, highlightValue, config?.legendColors, config?.palette,
       config?.lineSymbol, config?.lineSymbolSize,

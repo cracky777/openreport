@@ -75,4 +75,34 @@ function windowedColumnAgg(m, whenSql, partition, { dbType, columnTypes }) {
   return `${outer}(${inner}) ${over}`;
 }
 
-module.exports = { groupedRuleFields, partitionExprs, windowAgg, canWindow, windowedColumnAgg };
+// A period the query groups by: a date, a part of one, or a column named as
+// one (a calendar's YearMonth). A running total runs along these.
+const PERIOD = /year|month|quarter|week|period|date|day|time/i;
+const isPeriodDim = (d) => !!d && (/date|time/i.test(String(d.type || '')) || !!d.datePart || PERIOD.test(String(d.column || '')));
+
+/**
+ * `measure.runningTotal`: the aggregate summed from the first period of the
+ * query to each row's, within the other grouped dimensions —
+ * SUM(<agg>) OVER (PARTITION BY the others ORDER BY the periods ROWS UNBOUNDED PRECEDING).
+ * Without a period among the grouped dimensions there is nothing to run
+ * along: the plain aggregate. The `part` is one SELECT item, "<expr> AS <alias>".
+ */
+function runningTotalOver(expr, selectedDimensions, groupByParts) {
+  const order = [];
+  const partition = [];
+  (selectedDimensions || []).forEach((d, i) => {
+    if (!groupByParts[i]) return;
+    (isPeriodDim(d) ? order : partition).push(groupByParts[i]);
+  });
+  if (!order.length) return null;
+  const over = `${partition.length ? `PARTITION BY ${partition.join(', ')} ` : ''}ORDER BY ${order.join(', ')} ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`;
+  return `SUM(${expr}) OVER (${over})`;
+}
+function runningTotalPart(part, selectedDimensions, groupByParts) {
+  const at = part.lastIndexOf(' AS ');
+  if (at < 0) return part;
+  const wrapped = runningTotalOver(part.slice(0, at), selectedDimensions, groupByParts);
+  return wrapped ? `${wrapped}${part.slice(at)}` : part;
+}
+
+module.exports = { groupedRuleFields, partitionExprs, windowAgg, canWindow, windowedColumnAgg, runningTotalPart, runningTotalOver, isPeriodDim };

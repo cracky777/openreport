@@ -286,7 +286,27 @@ function buildDimensionExpr(dim, dbType, columnTypes) {
     : quoteCol(dim.table, dim.column, dbType);
 }
 
+// The days from one date column of a row to another (a claim declared, then
+// closed): each dialect counts them its own way. Both sides go through
+// castToDate, so a text date in the column's format is read first. A row
+// missing either date gives NULL, which AVG / SUM / MIN / MAX leave out.
+function daysBetweenExpr(table, startColumn, endColumn, dbType, columnTypes) {
+  const start = castToDate(quoteCol(table, startColumn, dbType), dbType, getDateFormat(table, startColumn, columnTypes));
+  const end = castToDate(quoteCol(table, endColumn, dbType), dbType, getDateFormat(table, endColumn, columnTypes));
+  switch (dbType) {
+    case 'duckdb': return `DATE_DIFF('day', ${start}, ${end})`;
+    case 'mysql': return `DATEDIFF(${end}, ${start})`;
+    case 'mssql': case 'azure_sql': case 'redshift': case 'snowflake': return `DATEDIFF(day, ${start}, ${end})`;
+    case 'bigquery': return `DATE_DIFF(${end}, ${start}, DAY)`;
+    case 'databricks': return `datediff(${end}, ${start})`;
+    case 'clickhouse': return `dateDiff('day', ${start}, ${end})`;
+    // PostgreSQL, Azure PostgreSQL, Oracle: a date minus a date is a number of days.
+    default: return `(${end} - ${start})`;
+  }
+}
+
 module.exports = {
+  daysBetweenExpr,
   getDateFormat,
   getOverrideType,
   buildDatePartExpr,

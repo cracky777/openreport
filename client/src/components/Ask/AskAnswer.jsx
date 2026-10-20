@@ -3,7 +3,7 @@ import { TbChartBar, TbTable, TbPlus, TbCheck, TbExternalLink, TbThumbUp, TbThum
 import { WIDGET_TYPES } from '../Widgets';
 import WidgetPreview from '../AiPanel/WidgetPreview';
 import { VisualPreview } from '../AiPanel/ProposalCard';
-import { describeShaping, proposedVisuals } from '../../utils/aiProposal';
+import { describeShaping, describeUnderstood, proposedVisuals } from '../../utils/aiProposal';
 
 const NO_SETTINGS = {};
 const SINGLE_HEIGHT = 260;
@@ -87,6 +87,7 @@ export default function AskAnswer({ proposal, model, rating, added, onRate, onAd
           <div style={titleStyle}>{single ? (single.config?.title || WIDGET_TYPES[single.type]?.label) : `${visuals.length} visuals`}</div>
           {shaping ? <div style={subStyle}>{shaping}</div> : null}
           {single?.rationale ? <div style={subStyle}>{single.rationale}</div> : null}
+          {describeUnderstood(proposal.understood, model) ? <div style={subStyle}>{describeUnderstood(proposal.understood, model)}</div> : null}
         </div>
       )}
       {!generated && single ? (

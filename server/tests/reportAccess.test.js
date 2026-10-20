@@ -64,6 +64,19 @@ describe('GET /reports/:id — widget data for non-owners', () => {
     const asOwner = await request(app).get(`/api/reports/${report}`).set('x-test-user', owner);
     expect(asOwner.body.report.widgets.s1.data).toEqual({ value: 42 });
   });
+
+  // The Viewer shows its edit icon on this flag: it must follow the PUT rule.
+  test('can_edit is true only for those who may save the report', async () => {
+    const owner = seedUser({ role: 'editor' });
+    const reader = seedUser({ role: 'viewer' });
+    const ds = seedDatasource({ userId: owner });
+    const model = seedModel({ userId: owner, datasourceId: ds });
+    const report = seedReport({ userId: owner, modelId: model, isPublic: 1 });
+    const canEdit = async (user) => (await request(app).get(`/api/reports/${report}`).set('x-test-user', user)).body.report.can_edit;
+    expect(await canEdit(owner)).toBe(true);
+    expect(await canEdit(seedUser({ role: 'admin' }))).toBe(true);
+    expect(await canEdit(reader)).toBe(false);
+  });
 });
 
 // SECURITY: a copy belongs to the copier. Handing over the source owner's

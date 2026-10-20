@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import Draggable from 'react-draggable';
 import { TbCode, TbCopy, TbRefresh, TbX, TbBug } from 'react-icons/tb';
 import { WIDGET_TYPES } from '../Widgets';
-import { fontStack } from '../../utils/googleFonts';
+import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
 import MaxRowsWarning from '../Widgets/MaxRowsWarning';
 import { evaluateColorCondition } from '../../utils/conditionalFormat';
 import { useBugReport } from '../BugReport/BugReportProvider';
@@ -212,11 +212,18 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
   if (!WidgetType) return null;
 
   const Component = WidgetType.component;
+  // The title's face, loaded wherever the widget is drawn: only the editor's
+  // font picker and two chart types loaded it, so the Viewer fell back.
+  if (widget.config?.titleFontFamily) loadGoogleFont(widget.config.titleFontFamily);
   const dragCancel = DRAG_CANCEL[widget.type] || DEFAULT_DRAG_CANCEL;
   const w = item.w || 400;
   const isAutoHeight = widget.type === 'table' && widget.config?.autoHeight;
   const h = isAutoHeight ? 'auto' : (item.h || 300);
-  const titleHeight = widget.config?.title ? 30 : 0;
+  // The title's place, size, weight and alignment are the author's (and the
+  // designer's): a figure card reads with its caption under the number.
+  const titleSize = widget.config?.titleFontSize || 13;
+  const titleBelow = widget.config?.titlePosition === 'bottom';
+  const titleHeight = widget.config?.title ? Math.max(30, titleSize + 17) : 0;
   // Filter widgets use tighter padding (4px vs 8px) for a more compact look.
   // Text widgets get zero so the configured alignment (left / centre / right
   // and top / middle / bottom) actually reaches the widget's outer edges
@@ -471,18 +478,11 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             </div>
           </div>
         )}
-        {widget.config?.title && (
-          <div style={{
-            padding: '8px 12px 0', fontSize: 13, fontWeight: 600, color: widget.config?.titleColor || 'var(--text-secondary)',
-            fontFamily: widget.config?.titleFontFamily ? fontStack(widget.config.titleFontFamily) : undefined,
-          }}>
-            {widget.config.title}
-          </div>
-        )}
+        {widget.config?.title && !titleBelow && <WidgetTitle config={widget.config} size={titleSize} below={false} />}
         {/* Drag overlay: allows dragging from borders/edges of the widget */}
         {!readOnly && (
           <>
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 8 + (widget.config?.title ? 30 : 0), cursor: 'move', zIndex: 2 }} />
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 8 + (widget.config?.title && !titleBelow ? titleHeight : 0), cursor: 'move', zIndex: 2 }} />
             <div style={_hs0} />
             <div style={_hs1} />
             <div style={_hs2} />
@@ -513,7 +513,10 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
           overflow: 'hidden',
           cursor: 'default',
         }}>
-          <Component
+          {/* Fetching its first rows, a visual has no data yet: its "Select a
+              measure…" placeholder read as a broken page (a cold first page
+              of Karim's report). The spinner says it is loading. */}
+          {widget._loading && widget.data == null ? null : <Component
             data={widget.data}
             config={widget.config}
             chartWidth={contentWidth}
@@ -538,8 +541,9 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             onDataClick={onCrossFilter ? (dimName, value) => onCrossFilter(item.i, dimName, value) : undefined}
             highlightValue={crossHighlight?.widgetId === item.i ? crossHighlight.value : null}
             editable={!readOnly}
-          />
+          />}
         </div>
+        {widget.config?.title && titleBelow && <WidgetTitle config={widget.config} size={titleSize} below />}
 
         {/* Loading spinner doubles as a Cancel button. The rotating ring
             colour reflects the kind of fetch that's actually in flight
@@ -557,7 +561,7 @@ const WidgetItem = memo(function WidgetItem({ item, widget, isSelected, readOnly
             down underneath it so the two don't overlap and the user can
             still see the loading state during a drill refetch. */}
         {widget._loading && (
-          <div style={{
+          <div data-widget-loading="" style={{
             position: 'absolute',
             top: widget.data?._drillDepth > 0 ? 32 : 6,
             left: 6,
@@ -821,6 +825,20 @@ function SqlViewerModal({ sql, onClose }) {
           {sql || '(no SQL captured for this widget)'}
         </pre>
       </div>
+    </div>
+  );
+}
+
+// A widget's title bar: above the visual by default, or under it.
+function WidgetTitle({ config, size, below }) {
+  return (
+    <div style={{
+      padding: below ? '0 12px 8px' : '8px 12px 0', fontSize: size, fontWeight: config.titleWeight || 600,
+      textAlign: config.titleAlign || 'left',
+      color: config.titleColor || 'var(--text-secondary)',
+      fontFamily: config.titleFontFamily ? fontStack(config.titleFontFamily) : undefined,
+    }}>
+      {config.title}
     </div>
   );
 }

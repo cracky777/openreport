@@ -9,6 +9,20 @@ const { createModelConnection } = require('./dbConnector');
 
 const isFileSource = (ds) => !!ds && ds.db_type === 'duckdb' && String(ds.extra_config || '').includes('sourceFile');
 
+// What a source is, in words the assistant can repeat to a business user:
+// 'imported files', 'the PostgreSQL database "shop"', 'the BigQuery dataset "x.y"'.
+// Never the host nor the credentials.
+const KINDS = { postgres: 'PostgreSQL', mysql: 'MySQL', mssql: 'SQL Server', bigquery: 'BigQuery', databricks: 'Databricks', snowflake: 'Snowflake' };
+function describeSource(ds) {
+  if (!ds) return 'its data source';
+  if (isFileSource(ds)) return 'imported files';
+  let extra = {};
+  try { extra = JSON.parse(ds.extra_config || '{}'); } catch { /* an old row: the kind alone */ }
+  const kind = KINDS[ds.db_type] || ds.db_type || 'a';
+  if (ds.db_type === 'bigquery') return extra.dataset ? `the BigQuery dataset "${extra.dataset}"` : 'a BigQuery dataset';
+  return ds.db_name ? `the ${kind} database "${ds.db_name}"` : `a ${kind} database`;
+}
+
 // [{ datasource_id, alias, name, db_name }] in the order they were linked.
 function linkedSourcesOf(modelId) {
   return db.prepare(`
@@ -52,4 +66,4 @@ function connectionForModel(model, datasource) {
   return createModelConnection(datasource, linkedSourcesOf(model.id));
 }
 
-module.exports = { isFileSource, linkedSourcesOf, modelIdsUsing, aliasFor, sourceIdsOf, connectionForModel };
+module.exports = { isFileSource, describeSource, linkedSourcesOf, modelIdsUsing, aliasFor, sourceIdsOf, connectionForModel };

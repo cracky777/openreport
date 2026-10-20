@@ -13,7 +13,7 @@ An open source, self-hosted reporting and data visualization platform, easy to r
 
 **Think Power BI / Looker Studio, but open source and self-hosted.**
 
-**With an AI assistant that never touches your live data.** Ask a question in any language and get a chart, or ask it to lay out a page, join the tables of a new model or explain a feature. It reads only Open Report's pre-aggregated cache, never your database, and works with Anthropic or any OpenAI-compatible server, a local one included. It proposes, you apply.
+**With an AI assistant that never touches your live data.** Ask a question in any language and get a chart, or ask it to lay out a page, join the tables of a new model or explain a feature. It reads only Open Report's pre-aggregated cache, never your database, and works with Anthropic, your own Claude subscription or any OpenAI-compatible server, a local one included. It proposes, you apply.
 
 🧪 **Still in development: we are looking for testers.** [Read more](#what-it-doesnt-do-yet).
 

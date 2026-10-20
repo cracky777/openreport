@@ -62,3 +62,19 @@ export function compareAxisValues(a, b, dimDef, dir = 'asc') {
   else cmp = String(ka).localeCompare(String(kb), undefined, { numeric: true });
   return dir === 'desc' ? -cmp : cmp;
 }
+
+/**
+ * The indices that put labels in the order people read them ("M9" before
+ * "M12"), or null. Only for labels that came in plain alphabetical order —
+ * the server's ORDER BY when nothing was set — so an order a query chose (a
+ * rank, a sort by value) is never undone. CARDIO-PREV's visits read J0, M1,
+ * M12, M3…
+ */
+export function naturalOrder(labels) {
+  for (let i = 1; i < labels.length; i++) {
+    if (String(labels[i - 1]).localeCompare(String(labels[i])) > 0) return null;
+  }
+  const idx = labels.map((_, i) => i)
+    .sort((a, b) => String(labels[a]).localeCompare(String(labels[b]), undefined, { numeric: true }));
+  return idx.some((v, i) => v !== i) ? idx : null;
+}

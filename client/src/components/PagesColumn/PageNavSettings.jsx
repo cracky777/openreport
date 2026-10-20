@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { RecentColorStrip } from '../PropertyPanel/controls';
 import { pushRecentColor } from '../../utils/recentColors';
+import { GOOGLE_FONTS } from '../../utils/googleFonts';
+import { PAGE_ICONS } from '../../utils/pageNav';
+import api from '../../utils/api';
+import { toast } from '../Toast/toast';
 
 const _hs0 = { fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' };
 const _hs1 = { display: 'flex', alignItems: 'center', gap: 6, width: 160 };
@@ -80,7 +84,7 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
     const empty = { default: {}, hover: {}, active: {}, pressed: {}, position: 'left' };
     if (!raw) return empty;
     if (typeof raw === 'string') return { ...empty, default: { image: raw } };
-    const out = { ...empty, position: raw.position || 'left' };
+    const out = { ...empty, position: raw.position || 'left', ...(raw.icon ? { icon: raw.icon } : {}) };
     for (const s of ['default', 'hover', 'active', 'pressed']) {
       const v = raw[s];
       if (typeof v === 'string') out[s] = { image: v };
@@ -92,7 +96,7 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
 
   const writePageCfg = (pageId, cfg) => {
     const next = { ...(config.pageIcons || {}) };
-    const isEmpty = cfg.position === 'left' && STATES.every(({ key }) => {
+    const isEmpty = cfg.position === 'left' && !cfg.icon && STATES.every(({ key }) => {
       const s = cfg[key] || {};
       return !s.image && !s.bg && !s.text && !s.font;
     });
@@ -114,6 +118,25 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
     writePageCfg(pageId, { ...cfg, [state]: nextState });
   };
 
+  // The menu's logo is uploaded like any image of the app (a URL in the
+  // settings, not the picture itself); a cloud build has no upload and
+  // keeps it inline.
+  const uploadLogo = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (import.meta.env.VITE_OPENREPORT_CLOUD) { handleFile(e, (v) => update('logo', v)); return; }
+    const form = new FormData();
+    form.append('image', file);
+    try {
+      const res = await api.post('/images', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      if (res.data?.url) update('logo', res.data.url);
+    } catch (err) {
+      toast(err.response?.data?.error || 'Upload failed');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
   const handleFile = (e, cb) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -132,7 +155,15 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
         </div>
 
         <Section title="Block">
+          <Field label="Menu position">
+            <SegmentedToggle
+              value={config.position || 'left'}
+              onChange={(v) => update('position', v)}
+              options={[{ value: 'left', label: 'Left' }, { value: 'top', label: 'Top' }, { value: 'right', label: 'Right' }]}
+            />
+          </Field>
           <ColorField label="Background" value={config.bgColor} onChange={(v) => update('bgColor', v)} allowTransparent />
+          <ColorField label="Border" value={config.borderColor} onChange={(v) => update('borderColor', v)} />
           <Field label="Width (px)">
             <input
               type="number" min={120} max={320}
@@ -183,6 +214,9 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
               {FONT_OPTIONS.map((f) => (
                 <option key={f.value || 'default'} value={f.value}>{f.label}</option>
               ))}
+              {GOOGLE_FONTS.filter((f) => f.category !== 'system').map((f) => (
+                <option key={f.family} value={f.family}>{f.family}</option>
+              ))}
             </select>
           </Field>
           <Field label="Font size (px)">
@@ -193,6 +227,24 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
               style={inputStyle}
             />
           </Field>
+          <Field label="Font weight">
+            <select value={config.fontWeight || ''} onChange={(e) => update('fontWeight', e.target.value ? parseInt(e.target.value, 10) : undefined)} style={{ ...inputStyle, width: 130 }}>
+              <option value="">Default</option>
+              {[400, 500, 600, 700].map((w) => <option key={w} value={w}>{w}</option>)}
+            </select>
+          </Field>
+          <Field label="Corner radius (px)">
+            <input
+              type="number" min={0} max={20}
+              value={config.itemRadius || 0}
+              onChange={(e) => update('itemRadius', parseInt(e.target.value, 10) || 0)}
+              style={inputStyle}
+            />
+          </Field>
+          <ColorField label="Text" value={config.textColor} onChange={(v) => update('textColor', v)} />
+          <ColorField label="Hover background" value={config.hoverBgColor} onChange={(v) => update('hoverBgColor', v)} allowTransparent />
+          <ColorField label="Open page background" value={config.activeBgColor} onChange={(v) => update('activeBgColor', v)} allowTransparent />
+          <ColorField label="Open page text" value={config.activeTextColor} onChange={(v) => update('activeTextColor', v)} />
         </Section>
 
         <Section title="Header">
@@ -204,11 +256,12 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
               style={inputStyle}
             />
           </Field>
+          <ColorField label="Title color" value={config.titleColor} onChange={(v) => update('titleColor', v)} />
           <Field label="Logo">
             <input
               type="file"
               accept="image/*"
-              onChange={(e) => handleFile(e, (v) => update('logo', v))}
+              onChange={uploadLogo}
               style={_hs4}
             />
           </Field>
@@ -221,6 +274,19 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
               />
               <button onClick={() => update('logo', null)} style={removeBtn}>Remove logo</button>
             </div>
+          )}
+          {config.logo && (
+            <ColorField label="Logo background" value={config.logoBgColor} onChange={(v) => update('logoBgColor', v)} />
+          )}
+          {config.logo && (
+            <Field label="Logo height (px)">
+              <input
+                type="number" min={16} max={120}
+                value={config.logoSize || 28}
+                onChange={(e) => update('logoSize', Math.min(120, Math.max(16, parseInt(e.target.value, 10) || 28)))}
+                style={inputStyle}
+              />
+            </Field>
           )}
           <Field label="Layout">
             <SegmentedToggle
@@ -286,6 +352,16 @@ export default function PageNavSettings({ config, pages, onChange, onClose }) {
 
                 {isOpen && (
                   <div style={_hs8}>
+                    <Field label="Icon">
+                      <select
+                        value={cfg.icon || ''}
+                        onChange={(e) => writePageCfg(p.id, { ...cfg, icon: e.target.value || undefined })}
+                        style={{ ...inputStyle, width: 130 }}
+                      >
+                        <option value="">None</option>
+                        {Object.keys(PAGE_ICONS).map((name) => <option key={name} value={name}>{name}</option>)}
+                      </select>
+                    </Field>
                     <Field label="Image position">
                       <div style={_hs9}>
                         {[

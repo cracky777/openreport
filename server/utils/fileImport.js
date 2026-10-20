@@ -22,6 +22,8 @@ const { detectXaf, importXaf } = require('./accounting/xaf');
 const { detectJpk, importJpk } = require('./accounting/jpk');
 const { applyAccountMap, booksStats } = require('./accounting/accountMap');
 const { importLedger } = require('./accounting/ledger');
+const { applyShape } = require('./fileShape');
+const { buildBookDimensions, DIMENSION_TABLES } = require('./accounting/dimensions');
 
 // Whitelisted CSV parse options. The client sends opaque tokens; we map them
 // here to safe DuckDB fragments so nothing user-supplied is ever interpolated
@@ -179,7 +181,36 @@ async function importTables({ dbInstance, file, ext, body, reserved = [] }) {
     return { tables: [await describeTable(t)], accounting };
   }
 
-  // Many real-world CSVs (e.g. FAOSTAT, exports from Excel) are Windows-1252 /
+  // The decimal separator of a text file, read from its first lines: ',' when
+// the fields are not split by commas and the numbers read like 59,00 with
+// none written 59.00; else nothing, and DuckDB's own guess. (A thousands
+// separator, 1 207,50, stays text: DuckDB reads none.)
+function sniffDecimal(filePath, chosenDelim) {
+  let head = '';
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(65536);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    fs.closeSync(fd);
+    head = buf.toString('latin1', 0, n);
+  } catch { return undefined; /* unreadable: DuckDB will say so */ }
+  const lines = head.split(/\r?\n/).slice(0, 200).filter(Boolean);
+  if (lines.length < 2) return undefined;
+  const delim = chosenDelim || [';', '\t', '|'].find((d) => lines[0].includes(d));
+  if (!delim || delim === ',') return undefined;
+  let commas = 0;
+  let dots = 0;
+  for (const line of lines.slice(1)) {
+    for (const cell of line.split(delim)) {
+      const v = cell.trim().replace(/^"|"$/g, '');
+      if (/^-?\d+,\d{1,6}$/.test(v)) commas += 1;
+      else if (/^-?\d+\.\d+$/.test(v)) dots += 1;
+    }
+  }
+  return commas > 0 && dots === 0 ? ',' : undefined;
+}
+
+// Many real-world CSVs (e.g. FAOSTAT, exports from Excel) are Windows-1252 /
   // Latin-1. Without a chosen encoding, the file's bytes decide: UTF-8 when they
   // are valid UTF-8, Windows-1252 otherwise, rewritten as UTF-8 before DuckDB
   // reads it — its own Latin-1 reader refuses the € of an Excel export. Letting
@@ -191,7 +222,10 @@ async function importTables({ dbInstance, file, ext, body, reserved = [] }) {
     // DuckDB's auto-detection.
     const delim = CSV_DELIMS[body.delimiter];  // undefined = auto-detect
     const header = body.hasHeader === 'false' ? 'false' : 'true';
-    const decimal = CSV_DECIMALS[body.decimalSeparator];
+    // Left on auto, the decimal separator is read from the file itself: a
+    // French export (fields split by ; or tab, amounts like 59,00) came in as
+    // TEXT, and the store's turnover could not be summed (seen in a review).
+    const decimal = CSV_DECIMALS[body.decimalSeparator] || sniffDecimal(file.path, delim);
     const dateformat = CSV_DATEFORMATS[body.dateFormat];
 
     const optList = [`header=${header}`, 'sample_size=-1'];
@@ -269,26 +303,35 @@ async function mapAccounts(dbInstance, table, accounting, accountMap) {
 }
 
 // Write a new database: the tables `keep.tables` of the previous version
-// (`keep.fromPath`), then the uploaded file's. `renameSingleTo`: the name the
+// (`keep.fromPath`, with `keep.raw`, the as-imported copies of its reshaped
+// tables), then the uploaded file's. `renameSingleTo`: the name the
 // file's one table had before a refresh — models address tables by name, and a
 // monthly export whose filename carries the month would otherwise break them.
-// Runs in the child process.
-async function buildDatabase({ outPath, file, ext, body, keep, renameSingleTo, accountMap }) {
+// `shape`: the file's recipe (utils/fileShape.js), applied again to the new
+// export. Runs in the child process.
+async function buildDatabase({ outPath, file, ext, body, keep, renameSingleTo, accountMap, shape }) {
   const duckdb = require('duckdb-async');
   const dbInstance = await duckdb.Database.create(outPath);
   try {
     const kept = keep?.tables || [];
-    if (kept.length) {
+    const keptRaw = keep?.raw || [];
+    if (kept.length || keptRaw.length) {
       await dbInstance.run(`ATTACH '${fwd(keep.fromPath)}' AS prev (READ_ONLY)`);
       for (const t of kept) await dbInstance.run(`CREATE TABLE ${q(t)} AS SELECT * FROM prev.main.${q(t)}`);
+      if (keptRaw.length) await dbInstance.run('CREATE SCHEMA IF NOT EXISTS raw');
+      for (const t of keptRaw) await dbInstance.run(`CREATE TABLE raw.${q(t)} AS SELECT * FROM prev.raw.${q(t)}`);
       await dbInstance.run('DETACH prev');
     }
-    const { tables, accounting = null } = await importTables({ dbInstance, file, ext, body, reserved: kept });
+    let { tables, accounting = null } = await importTables({ dbInstance, file, ext, body, reserved: kept });
     if (renameSingleTo && tables.length === 1 && tables[0].tableName !== renameSingleTo) {
       await dbInstance.run(`ALTER TABLE ${q(tables[0].tableName)} RENAME TO ${q(renameSingleTo)}`);
       tables[0].tableName = renameSingleTo;
     }
+    if (shape) tables = [...await applyShape(dbInstance, shape.table, shape, []), ...tables.filter((t) => t.tableName !== shape.table)];
     const stats = await mapAccounts(dbInstance, tables[0]?.tableName, accounting, accountMap);
+    // Books: the dimensions beside the fact, derived from it (not listed as
+    // the file's own tables — rebuilt whenever the entries are).
+    if (accounting) await buildBookDimensions(dbInstance, tables[0].tableName);
     const own = stats && Object.values(stats)[0];
     return { tables, accounting: own ? { ...accounting, ...own } : accounting };
   } finally {
@@ -329,9 +372,10 @@ async function mergeFecDatabases({ outPath, targetPath, incomingPath, table, rep
     await dbInstance.run('DETACH t');
     await dbInstance.run('DETACH i');
     const stats = await mapAccounts(dbInstance, table, { chart }, accountMap);
+    await buildBookDimensions(dbInstance, table);
     const years = await dbInstance.all(`SELECT FiscalYear AS year, COUNT(*)::INTEGER AS rows FROM ${q(table)} GROUP BY 1 ORDER BY 1`);
     const tables = [];
-    for (const n of [...others, table]) {
+    for (const n of [...others.filter((n) => !DIMENSION_TABLES.includes(n)), table]) {
       const [{ cnt }] = await dbInstance.all(`SELECT COUNT(*)::INTEGER AS cnt FROM ${q(n)}`);
       tables.push({ tableName: n, rowCount: cnt });
     }
@@ -341,6 +385,16 @@ async function mergeFecDatabases({ outPath, targetPath, incomingPath, table, rep
   }
 }
 
+// Every table of a source's file into the open database: those models see
+// (`main`) and the as-imported copies of reshaped tables (`raw`).
+async function copyTables(dbInstance, sourcePath) {
+  await dbInstance.run(`ATTACH '${fwd(sourcePath)}' AS s (READ_ONLY)`);
+  const rows = await dbInstance.all("SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name = 's' AND schema_name IN ('main', 'raw')");
+  if (rows.some((r) => r.schema_name === 'raw')) await dbInstance.run('CREATE SCHEMA IF NOT EXISTS raw');
+  for (const r of rows) await dbInstance.run(`CREATE TABLE ${q(r.schema_name)}.${q(r.table_name)} AS SELECT * FROM s.${q(r.schema_name)}.${q(r.table_name)}`);
+  await dbInstance.run('DETACH s');
+}
+
 // The same books with accounts placed anew (`accountMap`): a copy of the
 // source's file, the map applied to its books' table. Runs in the child
 // process, like every write of a source's file.
@@ -348,12 +402,23 @@ async function reclassifyDatabase({ outPath, sourcePath, table, chart, accountMa
   const duckdb = require('duckdb-async');
   const dbInstance = await duckdb.Database.create(outPath);
   try {
-    await dbInstance.run(`ATTACH '${fwd(sourcePath)}' AS s (READ_ONLY)`);
-    const names = (await dbInstance.all("SELECT table_name FROM duckdb_tables() WHERE database_name = 's' AND schema_name = 'main'")).map((r) => r.table_name);
-    for (const n of names) await dbInstance.run(`CREATE TABLE ${q(n)} AS SELECT * FROM s.main.${q(n)}`);
-    await dbInstance.run('DETACH s');
+    await copyTables(dbInstance, sourcePath);
     await applyAccountMap(dbInstance, table, chart, accountMap);
     return { stats: await booksStats(dbInstance, table) };
+  } finally {
+    await dbInstance.close();
+  }
+}
+
+// One table of the file reshaped by a recipe (utils/fileShape.js), or put
+// back as imported (`shape: null`): a copy of the source's file, the recipe
+// applied. `previousOutputs`: the tables the file's previous recipe wrote.
+async function shapeDatabase({ outPath, sourcePath, table, shape, previousOutputs }) {
+  const duckdb = require('duckdb-async');
+  const dbInstance = await duckdb.Database.create(outPath);
+  try {
+    await copyTables(dbInstance, sourcePath);
+    return { tables: await applyShape(dbInstance, table, shape, previousOutputs || []) };
   } finally {
     await dbInstance.close();
   }
@@ -387,4 +452,4 @@ function buildDatabaseInChild(job) {
   });
 }
 
-module.exports = { buildDatabase, mergeFecDatabases, reclassifyDatabase, buildDatabaseInChild, ACCEPTED_EXTS };
+module.exports = { buildDatabase, mergeFecDatabases, reclassifyDatabase, shapeDatabase, buildDatabaseInChild, ACCEPTED_EXTS };

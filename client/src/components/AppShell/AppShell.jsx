@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { TbShield, TbBell, TbSparkles, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug, TbPlugConnected, TbEye, TbHelp, TbX } from 'react-icons/tb';
+import { useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { TbSparkles, TbEye, TbHelp, TbX } from 'react-icons/tb';
 import api from '../../utils/api';
 import { onAskAssistant } from '../../utils/askAssistant';
 import Tour from '../Tour/Tour';
@@ -10,14 +10,15 @@ import { useGraph } from '../../hooks/graphContext';
 import { useTheme } from '../../hooks/useTheme';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useIsCompact } from '../../hooks/useMediaQuery';
-import { TopbarSwitcher, UserMenuExtras } from '../../cloud';
-import { useBugReport } from '../BugReport/BugReportProvider';
+import { TopbarSwitcher } from '../../cloud';
 import Datasources from '../../pages/Datasources';
 import Models from '../../pages/Models';
 import Dashboard from '../../pages/Dashboard';
 import StepNav from './StepNav';
 import JoinLayer from './JoinLayer';
 import WorkspacePicker from './WorkspacePicker';
+import UserMenu from './UserMenu';
+import ModeSwitch from './ModeSwitch';
 import { STEPS } from './steps';
 import AskPanel from '../Ask/AskPanel';
 
@@ -32,8 +33,8 @@ import AskPanel from '../Ask/AskPanel';
 export default function AppShell({ step }) {
   const navigate = useNavigate();
   const { search } = useLocation();
-  const { user, logout, instance } = useAuth();
-  const { mode: themeMode, resolved: themeResolved, setMode: setThemeMode, themes: availableThemes } = useTheme();
+  const { user } = useAuth();
+  const { resolved: themeResolved } = useTheme();
   const logoSrc = themeResolved === 'dark' ? '/logo-dark.png' : '/logo.png';
 
   // The journey's lists live above the router so that moving between stages
@@ -50,7 +51,6 @@ export default function AppShell({ step }) {
   // which the shell has no business knowing.
   const { canEditOrg } = usePermissions(null, user, null);
 
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
   // Whether this account has the assistant, or may set one up for itself.
   const [askAvailable, setAskAvailable] = useState(false);
   // Open or closed, the panel stays as the user left it from one page to the next.
@@ -82,19 +82,6 @@ export default function AppShell({ step }) {
       .then((res) => setAskAvailable(!!res.data.enabled || res.data.reason === 'setup'))
       .catch(() => { /* the button stays hidden */ });
   }, []);
-  const openBugReport = useBugReport();
-  const userMenuRef = useRef(null);
-  useEffect(() => {
-    if (!userMenuOpen) return;
-    const onDown = (e) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) setUserMenuOpen(false);
-    };
-    const onEsc = (e) => { if (e.key === 'Escape') setUserMenuOpen(false); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onEsc);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onEsc); };
-  }, [userMenuOpen]);
-
   // Sources and Models are org-editor territory, same rule the old nav used.
   const stepAllowed = (key) => (key === 'reports' ? true : canEditOrg);
 
@@ -305,6 +292,11 @@ export default function AppShell({ step }) {
     return () => document.removeEventListener('keydown', onKey);
   });
 
+  // Build or Chat (ModeSwitch): an account on Chat opens on the chat home.
+  // Decided here, after the hooks, and not by a wrapper around the route: the
+  // three stages must stay one mounted shell for the ribbon to slide between them.
+  if (step === 'reports' && user?.ui_mode === 'chat') return <Navigate to="/chat" replace />;
+
   return (
     <div style={shellStyle}>
       <header style={compact ? headerCompactStyle : headerStyle}>
@@ -344,6 +336,7 @@ export default function AppShell({ step }) {
           )}
 
           <nav style={rightGroup}>
+          <ModeSwitch mode="build" compact={compact} />
           {/* The way into the assistant's Help tab, where a newcomer looks for
               help — not a bar they have not learnt to read yet. Without the
               assistant, Help is the user guide itself. */}
@@ -364,133 +357,7 @@ export default function AppShell({ step }) {
               you are, not about where you are in the journey. Null in OSS. */}
           {TopbarSwitcher && <TopbarSwitcher />}
 
-          <div ref={userMenuRef} style={relStyle}>
-            <button
-              onClick={() => setUserMenuOpen((v) => !v)}
-              style={compact ? { ...userPillStyle, ...userPillCompact } : userPillStyle}
-              aria-label="Account" aria-haspopup="menu" aria-expanded={userMenuOpen}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-primary-border)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent-primary-soft)'; }}
-            >
-              <TbUser size={14} color="var(--accent-primary)" />
-              {!compact && <span>{user?.display_name || user?.email}</span>}
-              <TbChevronDown size={12} style={{ transition: 'transform 0.12s', transform: userMenuOpen ? 'rotate(180deg)' : 'none' }} />
-            </button>
-            {userMenuOpen && (
-              <div style={userMenuDropdown}>
-                {/* Alerts need write role — the API refuses viewers, so don't
-                    show them a dead door. */}
-                {(user?.role === 'admin' || user?.role === 'editor') && (
-                  <button
-                    onClick={() => { setUserMenuOpen(false); navigate('/alerts'); }}
-                    style={userMenuItem}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                  >
-                    <TbBell size={15} />
-                    <span>Alerts</span>
-                  </button>
-                )}
-                {user?.role === 'admin' && (
-                  <button
-                    onClick={() => { setUserMenuOpen(false); navigate('/admin'); }}
-                    style={userMenuItem}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                  >
-                    <TbShield size={15} />
-                    <span>Admin</span>
-                  </button>
-                )}
-                {(user?.role === 'admin' || user?.role === 'editor') && <div style={userMenuDivider} />}
-                <div style={userMenuSectionLabel}>Theme</div>
-                <div style={themeListStyle}>
-                  {/* "System" follows the OS preference */}
-                  <button className="btn-hover" onClick={() => setThemeMode('system')} style={themeRowBtn(themeMode === 'system')}>
-                    <span style={themeRowLabel}>
-                      <TbDeviceLaptop size={14} />
-                      <span>System</span>
-                    </span>
-                    {themeMode === 'system' && <span style={autoTagStyle}>auto</span>}
-                  </button>
-                  {Object.entries(availableThemes).map(([key, theme]) => {
-                    const active = themeMode === key;
-                    const Icon = theme.kind === 'dark' ? TbMoon : TbSun;
-                    return (
-                      <button key={key} className="btn-hover" onClick={() => setThemeMode(key)} style={themeRowBtn(active)}>
-                        <span style={themeRowLabel}>
-                          <span style={{
-                            width: 14, height: 14, borderRadius: 3,
-                            background: theme.vars?.['--bg-app'] || '#fff',
-                            border: '1px solid ' + (theme.vars?.['--border-default'] || '#e2e8f0'),
-                            display: 'inline-block',
-                          }} />
-                          <span>{theme.label || key}</span>
-                        </span>
-                        {active && <Icon size={12} style={accentStyle} />}
-                      </button>
-                    );
-                  })}
-                </div>
-                {UserMenuExtras && (
-                  <>
-                    <div style={userMenuDivider} />
-                    <UserMenuExtras onNavigate={() => setUserMenuOpen(false)} />
-                  </>
-                )}
-                <div style={userMenuDivider} />
-                {/* Only shown when the instance has the API on AND this account
-                    passes the role floor — no point offering a door it cannot
-                    open. Both flags come from /auth/me. */}
-                {instance?.apiEnabled && instance?.apiAllowed && (
-                  <button
-                    onClick={() => { setUserMenuOpen(false); navigate('/api-tokens'); }}
-                    style={userMenuItem}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                  >
-                    <TbPlugConnected size={15} />
-                    <span>API tokens</span>
-                  </button>
-                )}
-                {/* Le signalement général vit ici plutôt que dans l'en-tête : on
-                    le cherche quand on en a besoin, il n'a pas à occuper une
-                    barre qu'on regarde en permanence. Le signalement qui compte
-                    vraiment part de l'erreur elle-même, où il emporte son
-                    contexte (voir Canvas/WidgetItem). */}
-                {!compact && step === 'reports' && (
-                  <button
-                    onClick={() => { setUserMenuOpen(false); homeTour.start(); }}
-                    style={userMenuItem}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                  >
-                    <TbHelp size={15} />
-                    <span>Show me around</span>
-                  </button>
-                )}
-                <button
-                  onClick={() => { setUserMenuOpen(false); openBugReport({ Step: step || '' }); }}
-                  style={userMenuItem}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                >
-                  <TbBug size={15} />
-                  <span>Report a bug</span>
-                </button>
-                <div style={userMenuDivider} />
-                <button
-                  onClick={() => { setUserMenuOpen(false); logout(); }}
-                  style={userMenuItem}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                >
-                  <TbLogout size={15} />
-                  <span>Logout</span>
-                </button>
-              </div>
-            )}
-          </div>
+          <UserMenu compact={compact} where={step || ''} onShowAround={!compact && step === 'reports' ? () => homeTour.start() : null} />
           </nav>
         </div>
 
@@ -638,7 +505,6 @@ const leftGroup = { display: 'flex', alignItems: 'center', gap: 12, flex: 1, min
 const rightGroup = { display: 'flex', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'flex-end' };
 const logoStyle = { height: 28 };
 const logoMarkStyle = { height: 26, width: 26, objectFit: 'contain', flexShrink: 0 };
-const relStyle = { position: 'relative' };
 // The viewport clips the stages sideways while they slide, and owns the vertical
 // scroll. Scrolling used to belong to each column, which put the scrollbar at
 // the column's edge — a good 100px short of the window, floating in the middle
@@ -684,16 +550,11 @@ const panelStyle = {
   display: 'flex', flexShrink: 0, minWidth: 0,
   transition: 'opacity var(--stage-ms) ease-out',
 };
-const themeListStyle = { display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 8px 8px' };
-const themeRowLabel = { display: 'inline-flex', alignItems: 'center', gap: 8 };
-const autoTagStyle = { fontSize: 9, color: 'var(--text-muted)' };
-const accentStyle = { color: 'var(--accent-primary)' };
 // Icon-only, a nav button shrinks to about 35x27 — under the thumb it wants to
 // be square and nearer 40. Only the padding changes; the rest is shared.
 const navBtnCompact = {
   padding: 0, width: 40, height: 40, justifyContent: 'center', flexShrink: 0,
 };
-const userPillCompact = { padding: 0, width: 40, height: 40, justifyContent: 'center', gap: 2, flexShrink: 0 };
 const navBtnStyled = {
   display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
   background: 'transparent', border: 'none', borderRadius: 7,
@@ -728,32 +589,5 @@ function askBtnStyle(active, compact) {
     ...navBtnStyled, ...(compact ? navBtnCompact : null),
     color: active ? 'var(--accent-primary)' : navBtnStyled.color,
     background: active ? 'var(--accent-primary-soft)' : 'transparent',
-  };
-}
-const userPillStyle = {
-  display: 'inline-flex', alignItems: 'center', gap: 6,
-  padding: '6px 10px', borderRadius: 8,
-  background: 'var(--accent-primary-soft)', border: '1px solid var(--accent-primary-border)',
-  fontSize: 12, color: 'var(--accent-primary-text)', fontWeight: 500,
-  cursor: 'pointer', transition: 'background 0.12s',
-};
-const userMenuDropdown = {
-  position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 200,
-  minWidth: 220, background: 'var(--bg-panel)', border: '1px solid var(--border-default)',
-  borderRadius: 10, boxShadow: 'var(--shadow-md)', padding: '6px 0',
-};
-const userMenuSectionLabel = { fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '6px 12px 4px' };
-const userMenuDivider = { height: 1, background: 'var(--border-default)', margin: '4px 0' };
-const userMenuItem = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)', textAlign: 'left', transition: 'background 0.12s' };
-function themeRowBtn(active) {
-  return {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    width: '100%', padding: '6px 8px', fontSize: 12, fontWeight: active ? 600 : 500,
-    border: '1px solid ' + (active ? 'var(--accent-primary)' : 'transparent'),
-    borderRadius: 6,
-    background: active ? 'var(--accent-primary-soft)' : 'transparent',
-    color: active ? 'var(--accent-primary-text)' : 'var(--text-secondary)',
-    cursor: 'pointer', transition: 'background 0.12s, border-color 0.12s',
-    textAlign: 'left',
   };
 }

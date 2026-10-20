@@ -3,6 +3,7 @@ import { TbChevronsLeft, TbChevronsRight, TbSettings } from 'react-icons/tb';
 import { AddIcon, ICON_SIZE } from '../actionIcons';
 import ConfirmDeleteButton from '../ConfirmDeleteButton/ConfirmDeleteButton';
 import PageNavSettings from './PageNavSettings';
+import { navFont, navStateColors, pageIconOf } from '../../utils/pageNav';
 
 const _hs0 = {
           flex: 1,
@@ -42,13 +43,6 @@ const STORAGE_KEY = 'openreport.pagesColumn.collapsed';
 const TRANSITION_DURATION_MS = 120;
 export const PAGES_COLUMN_TRANSITION_MS = TRANSITION_DURATION_MS + 40; // small buffer for the canvas pin
 
-// Default state colors when no per-page override exists. Theme-aware via CSS vars.
-const STATE_DEFAULTS = {
-  default: { bg: 'transparent',         text: 'var(--text-muted)' },
-  hover:   { bg: 'var(--bg-subtle)',    text: 'var(--accent-primary)' },
-  active:  { bg: 'var(--bg-active)',    text: 'var(--accent-primary)' },
-  pressed: { bg: 'var(--bg-active)',    text: 'var(--accent-primary)' },
-};
 
 export default function PagesColumn({
   pages,
@@ -108,7 +102,11 @@ export default function PagesColumn({
 
   // All-pages-level (default for every page button) styling
   const fontSize = c.fontSize || 12;
-  const fontFamily = c.fontFamily || 'inherit';
+  const fontFamily = navFont(c.fontFamily);
+  // On the right of the pages (the viewer's `position`), its edge is on the left.
+  const edge = c.position === 'right' ? 'borderLeft' : 'borderRight';
+  const edgeColor = c.borderColor || 'var(--border-default)';
+  const radius = c.itemRadius || 0;
   const buttonSize = c.buttonSize || 32;
 
   // Resolve a per-page per-state value. The pageIcons map can hold:
@@ -138,7 +136,7 @@ export default function PagesColumn({
 
   const showHeader = !!(c.title || c.logo);
   const width = isSinglePageEdit ? SINGLE_PAGE_WIDTH : (isCollapsed ? COLLAPSED_WIDTH : blockWidth);
-  const titleColor = 'var(--text-primary)';
+  const titleColor = c.titleColor || 'var(--text-primary)';
 
   // Page-list vertical alignment as a 0-100 grow ratio shared by both flex spacers.
   // Accept both legacy string values ('top' | 'center' | 'bottom') and new numeric (0-100).
@@ -183,7 +181,7 @@ export default function PagesColumn({
           width,
           flexShrink: 0,
           backgroundColor: containerBg,
-          borderRight: '1px solid var(--border-default)',
+          [edge]: `1px solid ${edgeColor}`,
           display: 'flex',
           flexDirection: 'column',
           fontFamily,
@@ -205,12 +203,19 @@ export default function PagesColumn({
           const justifyMap = { left: 'flex-start', center: 'center', right: 'flex-end' };
           const itemsAlign = justifyMap[headerAlign] || 'flex-start';
           const isVertical = !isCollapsed && headerLayout === 'vertical';
+          // A company's logo is often a wide wordmark: its height is the
+          // menu's (logoSize), its width its own, within the column.
           const logoNode = c.logo && (
             <img src={c.logo} alt="" style={{
-              width: isCollapsed ? 24 : 28,
-              height: isCollapsed ? 24 : 28,
+              // The plate's padding counts in the box: within the column, never past it.
+              height: isCollapsed ? 24 : (c.logoSize || 28) + (c.logoBgColor ? 12 : 0),
+              width: isCollapsed ? 24 : 'auto',
+              maxWidth: '100%',
               objectFit: 'contain',
-              flexShrink: 0,
+              flexShrink: isVertical ? 1 : 0,
+              minWidth: 0,
+              boxSizing: 'border-box',
+              ...(c.logoBgColor ? { background: c.logoBgColor, padding: isCollapsed ? 2 : '6px 10px', borderRadius: 6 } : {}),
             }} />
           );
           const titleNode = !isCollapsed && c.title && (
@@ -268,8 +273,9 @@ export default function PagesColumn({
             const iconPosition = getIconPosition(page.id);
             const isCenterPos = iconPosition === 'center' && !isCollapsed;
             const flexDir = isCenterPos ? 'column' : (iconPosition === 'right' && !isCollapsed ? 'row-reverse' : 'row');
-            const bg = resolveStateValue(page.id, state, 'bg') || STATE_DEFAULTS[state].bg;
-            const color = resolveStateValue(page.id, state, 'text') || STATE_DEFAULTS[state].text;
+            const Glyph = icon ? null : pageIconOf(c, page.id);
+            const bg = resolveStateValue(page.id, state, 'bg') || navStateColors(c, state).bg;
+            const color = resolveStateValue(page.id, state, 'text') || navStateColors(c, state).text;
             const itemFont = resolveStateValue(page.id, state, 'font') || fontFamily;
             const isEditing = editMode && editingIdx === idx;
 
@@ -301,7 +307,9 @@ export default function PagesColumn({
                   color,
                   borderLeft: active ? `3px solid ${color}` : '3px solid transparent',
                   fontSize,
-                  fontWeight: active ? 600 : 400,
+                  fontWeight: active ? Math.max(600, c.fontWeight || 0) : (c.fontWeight || 400),
+                  borderRadius: radius,
+                  margin: radius ? '1px 6px' : 0,
                   fontFamily: itemFont,
                   justifyContent: isCenterPos ? 'center' : (isCollapsed ? 'center' : 'flex-start'),
                   textAlign: isCenterPos ? 'center' : 'left',
@@ -315,6 +323,8 @@ export default function PagesColumn({
                     alt=""
                     style={_hs2}
                   />
+                ) : Glyph ? (
+                  <Glyph size={Math.round(fontSize * 1.35)} style={{ flexShrink: 0 }} aria-hidden="true" />
                 ) : isCollapsed ? (
                   <span style={_hs3}>{idx + 1}</span>
                 ) : null}

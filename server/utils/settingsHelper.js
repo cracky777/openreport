@@ -283,10 +283,11 @@ function setAiConfig(patch) {
 
 // The provider half of a config — where, which model, which key — validated
 // and applied in place. The instance's config and a user's own share it: same
-// rules, same encryption, one place to get them wrong.
-function applyAiProviderPatch(next, p) {
+// rules, same encryption, one place to get them wrong. `allowed` widens the
+// providers for a user's own config (the Claude subscription exists only there).
+function applyAiProviderPatch(next, p, allowed = AI_PROVIDERS) {
   if (p.provider !== undefined) {
-    if (!AI_PROVIDERS.includes(p.provider)) throw new Error(`Provider must be one of: ${AI_PROVIDERS.join(', ')}`);
+    if (!allowed.includes(p.provider)) throw new Error(`Provider must be one of: ${allowed.join(', ')}`);
     next.provider = p.provider;
   }
   // A form sends back every field, changed or not: only a changed one is

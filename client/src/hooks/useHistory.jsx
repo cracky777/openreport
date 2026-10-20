@@ -56,6 +56,14 @@ export function useHistory(initialState) {
     }
   }, []);
 
+  // A new starting point (a document just loaded): nothing before it to undo to.
+  const reset = useCallback((next) => {
+    historyRef.current = [next];
+    indexRef.current = 0;
+    stateRef.current = next;
+    setState(next);
+  }, []);
+
   const canUndo = indexRef.current > 0;
   const canRedo = indexRef.current < historyRef.current.length - 1;
 
@@ -64,7 +72,7 @@ export function useHistory(initialState) {
   // actually change. Without this, consumers with an effect keyed on the whole
   // object (e.g. Editor's cache-warming poll) re-fire on every render.
   return useMemo(
-    () => ({ state, set, setSilent, undo, redo, canUndo, canRedo }),
-    [state, set, setSilent, undo, redo, canUndo, canRedo],
+    () => ({ state, set, setSilent, undo, redo, reset, canUndo, canRedo }),
+    [state, set, setSilent, undo, redo, reset, canUndo, canRedo],
   );
 }

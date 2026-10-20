@@ -3,6 +3,7 @@ import {
   TbFileTypeCsv, TbFileSpreadsheet, TbJson, TbDatabase, TbFileText, TbFileCertificate, TbFileUnknown,
 } from 'react-icons/tb';
 import { DEFAULT_IMPORT_OPTIONS, importKind } from '../components/ImportOptions/ImportOptions';
+import { FILE_IMPORT_ACCEPT } from './sourceFiles';
 
 // One file of a selection, told apart from a same-named one.
 export const fileKey = (f) => `${f.name}-${f.size}-${f.lastModified || 0}`;
@@ -32,6 +33,14 @@ export function typeOf(name) {
 export const optionsKind = (file) => (isFec(file.name) ? 'other' : importKind(file.name));
 
 // A workbook whose sheets are known but none is ticked: nothing to import.
+// The files a drop adds to a list: those the import knows, not already there.
+export function acceptFiles(files, picked) {
+  const accepted = FILE_IMPORT_ACCEPT.split(',');
+  const fresh = Array.from(picked || []).filter((f) => accepted.includes(`.${f.name.split('.').pop().toLowerCase()}`)
+    && !files.some((x) => x.name === f.name && x.size === f.size));
+  return fresh.length ? [...files, ...fresh] : files;
+}
+
 export const missingSheets = (files, optionsFor) => files.some((f) => {
   const o = optionsFor(f);
   return optionsKind(f) === 'excel' && o._sheetNames?.length > 0 && !(o.sheets?.length);

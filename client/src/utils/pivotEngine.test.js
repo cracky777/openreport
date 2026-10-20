@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { resolveCell, pivotData } from './pivotEngine';
+import { resolveCell, pivotData, rebuildTotal } from './pivotEngine';
 
 // The accumulator shape pivotData builds internally.
 const acc = ({ sum = 0, count = 0, min = Infinity, max = -Infinity } = {}) => ({ sum, count, min, max });
@@ -87,6 +87,27 @@ describe('total components', () => {
       rawRows: ROWS, rowDims: ['Country'], colDims: [], measures: ['Avg'],
     });
     expect(p.grandTotal._avg_h_sum).toBeUndefined();
+  });
+});
+
+describe('rebuildTotal', () => {
+  // The accumulators of a bucket, keyed by the atoms' aliases.
+  const bucket = (sales, target) => ({ tc_sales: acc({ sum: sales, count: 2 }), tc_target: acc({ sum: target, count: 2 }) });
+  test('a difference, a ratio and a percentage are the operation on the two totals, never a sum of per-row results', () => {
+    expect(rebuildTotal({ op: 'subtract', left: 'tc_sales', right: 'tc_target' }, bucket(1200, 1000))).toBe(200);
+    expect(rebuildTotal({ op: 'add', left: 'tc_sales', right: 'tc_target' }, bucket(1200, 1000))).toBe(2200);
+    expect(rebuildTotal({ op: 'divide', left: 'tc_sales', right: 'tc_target' }, bucket(1200, 1000))).toBe(1.2);
+    expect(rebuildTotal({ op: 'percent', left: 'tc_sales', right: 'tc_target' }, bucket(1200, 1000))).toBe(120);
+  });
+  test('a side with no row counts for 0; a zero divisor or an empty bucket shows nothing', () => {
+    expect(rebuildTotal({ op: 'subtract', left: 'tc_sales', right: 'tc_target' }, { tc_sales: acc({ sum: 50, count: 1 }) })).toBe(50);
+    expect(rebuildTotal({ op: 'percent', left: 'tc_sales', right: 'tc_target' }, { tc_target: acc({ sum: 400, count: 1 }) })).toBe(0);
+    expect(rebuildTotal({ op: 'percent', left: 'tc_sales', right: 'tc_target' }, bucket(10, 0))).toBeNull();
+    expect(rebuildTotal({ op: 'subtract', left: 'tc_sales', right: 'tc_target' }, {})).toBeNull();
+  });
+  test('an average is Σsum / Σcount, empty when nothing was measured', () => {
+    expect(rebuildTotal({ sum: 's', count: 'n' }, { s: acc({ sum: 300, count: 3 }), n: acc({ sum: 3, count: 3 }) })).toBe(100);
+    expect(rebuildTotal({ sum: 's', count: 'n' }, { s: acc(), n: acc() })).toBeNull();
   });
 });
 

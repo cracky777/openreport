@@ -184,6 +184,10 @@ export default function ModelEditor() {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  // The business glossary (server utils/glossary.js): the model's domains; the
+  // fields carry their own role, synonyms and description.
+  const [domains, setDomains] = useState([]);
+  const [catalogue, setCatalogue] = useState([]);
   const [datasource, setDatasource] = useState(null);
   const [model, setModel] = useState(null);
   const [tableSearch, setTableSearch] = useState('');
@@ -299,6 +303,7 @@ export default function ModelEditor() {
         setModel(m);
         setName(m.name);
         setDescription(m.description || '');
+        setDomains(m.domains || []);
         setSelectedTables(m.selected_tables || []);
         setTablePositions(m.table_positions || {});
         setDimensions(m.dimensions || []);
@@ -683,6 +688,9 @@ export default function ModelEditor() {
     api.get('/ai/status').then((res) => setAiStatus(res.data)).catch(() => { /* the button stays hidden */ })
   ), []);
   useEffect(() => { refreshAiStatus(); }, [refreshAiStatus]);
+  useEffect(() => {
+    api.get('/models/business-domains').then((res) => setCatalogue(res.data.domains || [])).catch(() => { /* the glossary then offers no roles */ });
+  }, []);
   const aiAvailable = !!aiStatus && (aiStatus.enabled || aiStatus.reason === 'setup');
   // Opened on arrival (`?assistant=`), it is open before the header exists —
   // the page shows "Loading model…" first: measured again once it is there, or
@@ -699,11 +707,12 @@ export default function ModelEditor() {
     available: allTables.filter((t) => !selectedTables.includes(t)),
     joins,
     roles: Object.fromEntries(Object.entries(tablePositions).filter(([, p]) => p && p.tableType).map(([t, p]) => [t, p.tableType])),
-    dimensions: dimensions.filter((d) => d.table && d.column).map((d) => ({ table: d.table, column: d.column })),
-    measures: measures.filter((m) => m.table && m.column).map((m) => ({ table: m.table, column: m.column, aggregation: m.aggregation })),
-  }), [selectedTables, tableColumns, allTables, joins, tablePositions, dimensions, measures]);
+    dimensions: dimensions.filter((d) => d.table && d.column).map((d) => ({ table: d.table, column: d.column, role: d.role })),
+    measures: measures.filter((m) => m.table && m.column).map((m) => ({ table: m.table, column: m.column, aggregation: m.aggregation, role: m.role })),
+    domains,
+  }), [selectedTables, tableColumns, allTables, joins, tablePositions, dimensions, measures, domains]);
   const applyAssistantProposal = useCallback(async (proposal) => {
-    const next = applyModelProposal({ joins, dimensions, measures, tablePositions }, proposal, {
+    const next = applyModelProposal({ joins, dimensions, measures, tablePositions, domains }, proposal, {
       typeOf: (t, c) => effectiveColumnType(t, c, dataTypeOf(t, c)).type,
       dataTypeOf,
     });
@@ -711,6 +720,9 @@ export default function ModelEditor() {
     setDimensions(next.dimensions);
     setMeasures(next.measures);
     setTablePositions(next.tablePositions);
+    setDomains(next.domains);
+    // The glossary is read in step 3: show it when that is all that changed.
+    if ((proposal.domains || (proposal.glossary || []).length) && !(proposal.joins || []).length && !(proposal.fields || []).length && !(proposal.measures || []).length) setStep(2);
     // Joins, roles and positions are drawn on the diagram: show it.
     if ((proposal.joins || []).length || (proposal.removeJoins || []).length || Object.keys(proposal.tableRoles || {}).length || proposal.positions) setStep(1);
     // Added tables come in as if ticked by hand: columns loaded and flagged,
@@ -727,7 +739,7 @@ export default function ModelEditor() {
       }
     }
     return true;
-  }, [joins, dimensions, measures, tablePositions, effectiveColumnType, dataTypeOf, allTables, selectedTables, enterStep1]);
+  }, [joins, dimensions, measures, tablePositions, domains, effectiveColumnType, dataTypeOf, allTables, selectedTables, enterStep1]);
 
   // Both guards are advisory — the user may legitimately know better than a
   // 100k-row sample. They used to be two blocking prompts in a row, so a model
@@ -769,7 +781,7 @@ export default function ModelEditor() {
         return d;
       });
       await api.put(`/models/${id}`, {
-        name, description, selected_tables: selectedTables,
+        name, description, domains, selected_tables: selectedTables,
         table_positions: tablePositions, dimensions: dimensionsToSave, measures, joins, rls,
         column_types: columnTypes,
       });
@@ -814,7 +826,7 @@ export default function ModelEditor() {
       // Persist whatever the user has on screen first (so the new report
       // sees the freshly-flagged dimensions / measures, not stale data).
       await api.put(`/models/${id}`, {
-        name, description, selected_tables: selectedTables,
+        name, description, domains, selected_tables: selectedTables,
         table_positions: tablePositions, dimensions, measures, joins, rls,
         column_types: columnTypes,
       });
@@ -1174,6 +1186,7 @@ export default function ModelEditor() {
       {step === 2 && (
         <Step2DimensionsMeasures
           description={description} setDescription={setDescription}
+          domains={domains} setDomains={setDomains} catalogue={catalogue}
           dimensions={dimensions} setDimensions={setDimensions}
           measures={measures} setMeasures={setMeasures}
           joins={joins} setJoins={setJoins}

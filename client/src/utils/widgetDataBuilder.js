@@ -325,7 +325,27 @@ export function buildWidgetData({
       return { name: m?.label || m?.name || name, role: 'value', format: m?.format, sourceName: name };
     });
     newData = { rows, fields: { dimensions: dimsMeta, measures: measMeta } };
-  } else if (w.type === 'pie' || w.type === 'treemap' || w.type === 'waterfall') {
+  } else if (w.type === 'heatmap') {
+    // A measure at each crossing of two dimensions: columns from the axis,
+    // rows from the legend well. Cells are [column, row, value]; an empty
+    // crossing is no cell at all, not a zero.
+    const fk = (label) => keys.find((k) => k === label) || null;
+    const xKey = dims.length > 0 ? fk(gl(dims[0], effectiveModel?.dimensions)) : null;
+    const yKey = grpBy.length > 0 ? fk(gl(grpBy[0], effectiveModel?.dimensions)) : null;
+    const mKey = meass.length > 0 ? fk(gl(meass[0], effectiveModel?.measures)) : null;
+    if (xKey && mKey) {
+      const xLabels = [...new Set(rows.map((r) => String(r[xKey] ?? '')))];
+      const yLabels = yKey ? [...new Set(rows.map((r) => String(r[yKey] ?? '')))] : [gl(meass[0], effectiveModel?.measures)];
+      const xi = new Map(xLabels.map((l, i) => [l, i]));
+      const yi = new Map(yLabels.map((l, i) => [l, i]));
+      newData = {
+        xLabels,
+        yLabels,
+        cells: rows.map((r) => [xi.get(String(r[xKey] ?? '')), yKey ? yi.get(String(r[yKey] ?? '')) : 0, numOf(r, mKey)]),
+      };
+      if (yKey) newData._legendName = grpBy[0];
+    }
+  } else if (w.type === 'pie' || w.type === 'treemap' || w.type === 'waterfall' || w.type === 'map') {
     // `?? ''` like every other label path in this file: String(null) renders the
     // word "null" as a slice name, which reads as a category rather than as a
     // missing one.

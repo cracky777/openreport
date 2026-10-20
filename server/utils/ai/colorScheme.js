@@ -54,9 +54,9 @@ const HARMONY_NOTES = {
 };
 
 const SURFACES = {
-  light: { background: '#ffffff', text: '#0f172a', track: '#e2e8f0', lightness: [0.45, 0.68] },
+  light: { background: '#ffffff', page: '#f8fafc', text: '#0f172a', track: '#e2e8f0', lightness: [0.45, 0.68] },
   // `background` is what a chart is drawn on — the widget card (--bg-panel).
-  dark: { background: '#111827', text: '#f1f5f9', track: '#334155', lightness: [0.62, 0.8] },
+  dark: { background: '#111827', page: '#0b1120', text: '#f1f5f9', track: '#334155', lightness: [0.62, 0.8] },
 };
 
 // The editor's own accent: what a page is based on when nobody names a color.
@@ -252,6 +252,31 @@ function roleOf(widget, dimensions) {
   return Array.isArray(b.selectedMeasures) && b.selectedMeasures.length > 1 ? 'qualitative' : 'single';
 }
 
+// Widgets that are the page's dressing, never restyled by the rule.
+const DRESSING_TYPES = new Set(['text', 'shape', 'image']);
+// What a title must reach on its card (WCAG, normal text).
+const TEXT_CONTRAST = 4.5;
+
+// A color as a mark of this surface can show it: as it is when it already
+// stands out enough, else pulled toward the text color until it does.
+function readableOn(hex, surface, marks) {
+  if (!HEX.test(hex || '')) return null;
+  for (let w = 1; w >= 0.3; w -= 0.1) {
+    const c = mix(hex, surface.text, w);
+    if (contrast(c, surface.background) >= marks.contrast) return c;
+  }
+  return null;
+}
+
+// The ink of titles: the base, deep enough to be read as text.
+function inkOf(accent, surface) {
+  for (let w = 0.7; w >= 0; w -= 0.1) {
+    const c = mix(accent, surface.text, w);
+    if (contrast(c, surface.background) >= TEXT_CONTRAST) return c;
+  }
+  return surface.text;
+}
+
 /**
  * The rule. For every widget of the page, the `update_config` a consistent
  * page needs — nothing for a type it has no business coloring (text, image,
@@ -263,7 +288,7 @@ function roleOf(widget, dimensions) {
  * @param {object[]} dimensions the model's dimensions ({ name, label, type }), to tell ordered series from categories
  * @returns {object[]|null}     update_config operations, or null for an unknown harmony
  */
-function colorOps(harmony, baseHex, pageContext, dimensions = []) {
+function colorOps(harmony, baseHex, pageContext, dimensions = [], { accentHex = null, frame = false } = {}) {
   if (!Object.prototype.hasOwnProperty.call(HARMONIES, harmony)) return null;
   const surface = SURFACES[pageContext.theme === 'dark' ? 'dark' : 'light'];
   // The accent is the same everywhere — it is what ties the page together —
@@ -273,6 +298,8 @@ function colorOps(harmony, baseHex, pageContext, dimensions = []) {
   // fight it, a tint says "same family" and stays readable on both themes.
   const soft = mix(accent, surface.background, 0.14);
   const faint = mix(accent, surface.background, 0.08);
+  const border = mix(accent, surface.background, 0.3);
+  const titleInk = inkOf(accent, surface);
 
   const ops = [];
   for (const widget of pageContext.widgets) {
@@ -282,8 +309,19 @@ function colorOps(harmony, baseHex, pageContext, dimensions = []) {
       const series = harmonySeries(role === 'sequential' ? 'monochromatic' : harmony, baseHex, surface, marksOf(widget));
       // Per-series overrides are cleared: they would keep the old colors on
       // exactly the series the author looks at most. Ctrl+Z brings them back.
-      set = { palette: series, legendColors: {} };
+      // A second brand color: the series a comparison sets against the first
+      // (actual against last year, a line against the bars) — never in a
+      // ramp, where it would break the order the hue shows.
+      const second = role === 'qualitative' && readableOn(accentHex, surface, marksOf(widget));
+      set = { palette: second ? [series[0], second, ...series.slice(1).filter((c) => delta(c, second) >= MIN_DELTA)] : series, legendColors: {} };
       if (role === 'single') set.color = accent;
+    } else if (widget.type === 'heatmap' || widget.type === 'map') {
+      // A scale of the accent, from a tint toward the card (pale on a light
+      // page, dark on a dark one) to the accent itself; cells and areas parted
+      // by the card's own color.
+      set = { scaleColor: accent, scaleLowColor: mix(accent, surface.background, 0.15) };
+      if (widget.type === 'heatmap') set.cellBorderColor = surface.background;
+      else Object.assign(set, { mapEmptyColor: surface.track, mapBorderColor: surface.background });
     } else if (widget.type === 'gauge') {
       set = { gaugeColor: accent, gaugeTrackColor: surface.track };
     } else if (widget.type === 'filter') {
@@ -291,8 +329,16 @@ function colorOps(harmony, baseHex, pageContext, dimensions = []) {
     } else if (widget.type === 'table' || widget.type === 'pivotTable') {
       set = { tableConfig: { header: { bgColor: soft, fontColor: surface.text }, rows: { hoverColor: faint } } };
     }
+    // The frame too, when the look is the brand's: titles in a dark shade of
+    // the base, a border of its tint — on the dressing (text, shape, image)
+    // never, that is the author's composition.
+    if (frame && !DRESSING_TYPES.has(widget.type)) {
+      set = { ...(set || {}), titleColor: titleInk, borderEnabled: true, borderColor: border };
+    }
     if (set) ops.push({ op: 'update_config', widgetId: widget.id, set });
   }
+  // The page under the cards, a breath of the base: the cards stand out on it.
+  if (frame) ops.push({ op: 'report_settings', set: { pageBackground: mix(accent, surface.page, 0.06) } });
   return ops;
 }
 module.exports = { HARMONIES, HARMONY_NOTES, SURFACES, MARKS, DEFAULT_BASE, colorOps, harmonySeries, roleOf, contrast, delta, toLch, fromLch };

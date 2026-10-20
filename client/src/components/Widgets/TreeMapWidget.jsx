@@ -1,6 +1,7 @@
 import { useRef, memo, useMemo } from 'react';
 import { rawTextFor } from '../../utils/rawText';
-import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
+import formatNumber, { abbreviateNumber, formatPlain } from '../../utils/formatNumber';
+import { barHighlight } from '../../utils/highlight';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { applyTopN } from '../../utils/topNGroup';
@@ -81,20 +82,22 @@ export default memo(function TreeMapWidget({ data, config, onDataClick, highligh
       if (dataLabelContent === 'value') return String(val);
       if (dataLabelContent === 'nameValue') return `${params.name}\n${val}`;
       if (dataLabelContent === 'percent' && params.treePathInfo) {
-        const pct = ((params.value / total) * 100).toFixed(1);
+        const pct = formatPlain((params.value / total) * 100, 1);
         return `${pct}%`;
       }
       return params.name;
     };
 
-    const treeData = items.map((it) => ({
+    // A tile that stands out (utils/highlight).
+    const marks = barHighlight(config, items.map((it) => it.value), items.map((it) => it.name));
+    const treeData = items.map((it, i) => ({
       name: it.name,
       value: it.value,
       _isOthers: it._isOthers,
       itemStyle: {
         color: it._isOthers
           ? OTHERS_COLOR
-          : (useGradient ? getValueColor(it.value) : getColor(it.name)),
+          : (marks.colorAt(i) || (useGradient ? getValueColor(it.value) : getColor(it.name))),
         borderColor: showBorder ? borderColor : 'transparent',
         borderWidth: showBorder ? borderWidth : 0,
         opacity: highlightValue && it.name !== highlightValue ? 0.3 : 1,
@@ -108,7 +111,7 @@ export default memo(function TreeMapWidget({ data, config, onDataClick, highligh
         formatter: (params) => {
           const v = rawTextFor(data, params.seriesName, params.name)
             ?? (isDur && typeof params.value === 'number' ? formatDuration(params.value) : formatNumber(params.value, fmt));
-          const pct = ((params.value / total) * 100).toFixed(1);
+          const pct = formatPlain((params.value / total) * 100, 1);
           return `${params.marker} ${params.name}: <b>${v}</b> (${pct}%)`;
         },
       },
@@ -143,7 +146,7 @@ export default memo(function TreeMapWidget({ data, config, onDataClick, highligh
     return { option: opt };
   }, [data, hasData, sortOrder, axisSort, showDataLabels, dataLabelContent, dataLabelAbbr, dataLabelColor, dataLabelSize, config?.dataLabelRotate, showBorder, borderColor, borderWidth, highlightValue, config?.legendColors, config?.palette,
       topNEnabled, topN, othersLabel,
-      config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
+      config?.highlight, config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 
   const option = memoResult?.option;
 

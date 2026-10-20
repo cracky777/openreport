@@ -1,6 +1,7 @@
 import { useRef, memo, useMemo } from 'react';
 import { rawTextFor } from '../../utils/rawText';
-import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
+import formatNumber, { abbreviateNumber, formatShare } from '../../utils/formatNumber';
+import { barHighlight } from '../../utils/highlight';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
@@ -38,6 +39,7 @@ export default memo(function PieWidget({ data, config, onDataClick, highlightVal
   const allItemNames = useMemo(() => (data?.items || []).map((it) => it?.name).filter((n) => n != null), [data?.items]);
   const { getStableIdx } = useStableColorOrder(allItemNames.join('|'), allItemNames);
 
+  const shape = ['pie', 'donut', 'rose', 'funnel'].includes(config?.subType) ? config.subType : (config?.donut ? 'donut' : 'pie');
   const memoResult = useMemo(() => {
     if (!hasData) return { option: null, legendItems: [] };
     const fmt = Object.values(data._measureFormats || {})[0];
@@ -62,7 +64,7 @@ export default memo(function PieWidget({ data, config, onDataClick, highlightVal
           ?? abbreviateNumber(params.value, dataLabelAbbr, fmt) ?? formatNumber(params.value, fmt));
       if (dataLabelContent === 'name') return params.name;
       if (dataLabelContent === 'nameValue') return `${params.name}: ${val}`;
-      if (dataLabelContent === 'percent') return `${params.percent}%`;
+      if (dataLabelContent === 'percent') return `${formatShare(params.percent)}%`;
       return val;
     };
 
@@ -94,6 +96,7 @@ export default memo(function PieWidget({ data, config, onDataClick, highlightVal
       visibleItems = applyTopN(visibleItems, { enabled: topNEnabled, n: topN, label: othersLabel });
     }
 
+    const marks = barHighlight(config, visibleItems.map((it) => it.value), visibleItems.map((it) => it.name));
     const opt = {
       tooltip: {
         trigger: 'item',
@@ -101,18 +104,22 @@ export default memo(function PieWidget({ data, config, onDataClick, highlightVal
         formatter: (params) => {
           const v = rawTextFor(data, params.seriesName, params.name)
             ?? (isDur && typeof params.value === 'number' ? formatDuration(params.value) : formatNumber(params.value, fmt));
-          return `${params.marker} ${params.name}: <b>${v}</b> (${params.percent}%)`;
+          return `${params.marker} ${params.name}: <b>${v}</b> (${formatShare(params.percent)}%)`;
         },
       },
       legend: { show: false },
       series: [{
-        type: 'pie',
-        radius: config?.donut ? ['30%', '65%'] : '65%',
-        center: ['50%', '50%'],
-        data: visibleItems.map((it) => {
+        // `subType`: pie, donut, rose (slices sized by value too) or funnel
+        // (stages that lose volume, largest first). `donut` is the older switch.
+        ...(shape === 'funnel'
+          ? { type: 'funnel', sort: 'descending', gap: 2, left: '10%', width: '80%', top: 10, bottom: 10, minSize: '8%' }
+          : { type: 'pie', radius: shape === 'donut' ? ['38%', '68%'] : shape === 'rose' ? ['15%', '70%'] : '65%', center: ['50%', '50%'], ...(shape === 'rose' ? { roseType: 'radius' } : {}) }),
+        data: visibleItems.map((it, i) => {
+          // A slice that stands out (utils/highlight), its value printed alone when asked.
+          const mark = it._isOthers ? null : marks.colorAt(i);
           const color = it._isOthers
             ? OTHERS_COLOR
-            : (useGradient ? getValueColor(it.value) : getColor(it.name));
+            : (mark || (useGradient ? getValueColor(it.value) : getColor(it.name)));
           return {
             ...it,
             itemStyle: {
@@ -120,12 +127,13 @@ export default memo(function PieWidget({ data, config, onDataClick, highlightVal
               color,
               opacity: highlightValue ? (it.name === highlightValue ? 1 : 0.3) : 1,
             },
+            ...(marks.labelAt(i) && !showDataLabels ? { label: { show: true } } : {}),
           };
         }),
         emphasis: { disabled: true },
         label: {
           show: showDataLabels,
-          position: config?.dataLabelPosition || 'outside',
+          position: shape === 'funnel' ? 'inside' : (config?.dataLabelPosition || 'outside'),
           fontSize: config?.dataLabelFontSize ?? 12,
           fontFamily: dataLabelFontFamily,
           formatter: buildLabel,
@@ -151,10 +159,10 @@ export default memo(function PieWidget({ data, config, onDataClick, highlightVal
       color: it._isOthers ? OTHERS_COLOR : getColor(it.name, i),
     }));
     return { option: opt, legendItems };
-  }, [data, hasData, showLegend, legendPosition, config?.donut, showDataLabels, dataLabelContent,
+  }, [data, hasData, showLegend, legendPosition, shape, showDataLabels, dataLabelContent,
       dataLabelAbbr, dataLabelRotate, dataLabelColor, dataLabelBgColor, dataLabelBgOpacity, hiddenSeries, sortOrder, axisSort, highlightValue, config?.legendColors, config?.palette, config?.dataLabelPosition,
       topNEnabled, topN, othersLabel,
-      config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
+      config?.highlight, config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];

@@ -5,7 +5,8 @@ vi.mock('./api', () => ({ default: { post: vi.fn(), put: vi.fn() } }));
 vi.mock('./accountingPack', async (actual) => ({ ...(await actual()), addFecYearsTo: vi.fn() }));
 
 const { addFecYearsTo } = await import('./accountingPack');
-const { mergeFecUploads } = await import('./multiFileImport');
+const { mergeFecUploads, uploadEach } = await import('./multiFileImport');
+const api = (await import('./api')).default;
 
 const fec = (id, siren, fiscalYear) => ({ data: { datasource: { id }, accounting: { kind: 'fec', siren, fiscalYear } } });
 const saft = (id, companyId, fiscalYear, chart = 'ns4102') => ({ data: { datasource: { id }, accounting: { kind: 'saft', chart, companyId, fiscalYear } } });
@@ -36,5 +37,25 @@ describe('mergeFecUploads', () => {
     const books = await mergeFecUploads(results);
     expect(addFecYearsTo.mock.calls).toEqual([['n1', 'n2']]);
     expect(books.map((b) => b.datasource.id)).toEqual(['n1', 'f']);
+  });
+});
+
+describe('uploadEach', () => {
+  const taken = () => Object.assign(new Error('taken'), { response: { status: 409, data: { error: 'A datasource named "x" already exists.' } } });
+  const sentNames = () => api.post.mock.calls.map(([, form]) => form.get('name'));
+  beforeEach(() => api.post.mockReset());
+
+  it('in the chat, a name already taken becomes "name (2)": a file dropped again is imported', async () => {
+    api.post.mockRejectedValueOnce(taken()).mockResolvedValueOnce({ data: { datasource: { id: 'd2' } } });
+    const [r] = await uploadEach([new File(['a,b'], 'ventes.csv', { type: 'text/csv' })], { freeName: true });
+    expect(sentNames()).toEqual(['ventes', 'ventes (2)']);
+    expect(r.data.datasource.id).toBe('d2');
+  });
+
+  it('elsewhere the refusal stands, said on the file', async () => {
+    api.post.mockRejectedValueOnce(taken());
+    const [r] = await uploadEach([new File(['a,b'], 'ventes.csv', { type: 'text/csv' })]);
+    expect(sentNames()).toEqual(['ventes']);
+    expect(r.error).toMatch(/already exists/);
   });
 });

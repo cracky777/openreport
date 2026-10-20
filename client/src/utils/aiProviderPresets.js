@@ -4,8 +4,14 @@
 //
 // modelExample is only a placeholder: model names age faster than this file,
 // so nothing is ever pre-filled or validated against it.
+//
+// `personalOnly`: a user's own provider and never the instance's — the Claude
+// subscription is one person's plan, paid by its Agent SDK credit, set up with
+// the token `claude setup-token` prints instead of a URL and an API key.
+export const SUBSCRIPTION = 'claude-subscription';
 export const PRESETS = [
   { key: 'anthropic', label: 'Anthropic (Claude)', provider: 'anthropic', baseUrl: 'https://api.anthropic.com', modelExample: 'claude-sonnet-5' },
+  { key: SUBSCRIPTION, label: 'Claude subscription (Pro / Max)', provider: SUBSCRIPTION, baseUrl: '', modelExample: 'sonnet', personalOnly: true },
   { key: 'openai', label: 'OpenAI', provider: 'openai-compat', baseUrl: 'https://api.openai.com/v1', modelExample: 'gpt-4.1' },
   { key: 'mistral', label: 'Mistral', provider: 'openai-compat', baseUrl: 'https://api.mistral.ai/v1', modelExample: 'mistral-large-latest' },
   { key: 'ollama', label: 'Ollama (local)', provider: 'openai-compat', baseUrl: 'http://localhost:11434/v1', modelExample: 'qwen2.5:14b' },

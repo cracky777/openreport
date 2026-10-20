@@ -20,4 +20,8 @@ describe('patching the AI settings', () => {
     // Sent back unchanged, a valid URL passes as it is.
     expect(patchAiConfig(configured, { baseUrl: 'http://llm.test/v1', model: 'm', enabled: false }).enabled).toBe(false);
   });
+
+  test('the Claude subscription is a user\'s own provider, never the instance\'s', () => {
+    expect(() => patchAiConfig(null, { provider: 'claude-subscription', apiKey: 'sk-ant-oat01-x' })).toThrow(/Provider must be one of/);
+  });
 });

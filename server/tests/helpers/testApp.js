@@ -12,7 +12,7 @@ function buildApp() {
   app.use(express.json());
   app.use((req, _res, next) => {
     const uid = req.headers['x-test-user'];
-    const user = uid ? db.prepare('SELECT id, email, display_name, role FROM users WHERE id = ?').get(String(uid)) : null;
+    const user = uid ? db.prepare('SELECT id, email, display_name, role, ui_mode FROM users WHERE id = ?').get(String(uid)) : null;
     if (user) { req.user = user; req.isAuthenticated = () => true; }
     else { req.isAuthenticated = () => false; }
     // Passport establishes the session via req.login after /register; stub it

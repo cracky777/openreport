@@ -4,7 +4,8 @@
 // type-switch transform, so changing visuals keeps the common fields — and
 // their order — instead of dropping them.
 
-const LEGEND_TYPES = new Set(['bar', 'line', 'combo', 'scatter']);
+// The heatmap's rows are its legend well: the same second dimension.
+const LEGEND_TYPES = new Set(['bar', 'line', 'combo', 'scatter', 'heatmap']);
 
 export const usesLegend = (type) => LEGEND_TYPES.has(type);
 // The pivot widget is registered as 'pivotTable' (index.jsx); 'pivot' is kept

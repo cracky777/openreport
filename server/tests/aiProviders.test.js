@@ -189,3 +189,151 @@ describe('provider errors', () => {
     }
   });
 });
+
+describe('the turn runner (HTTP engines)', () => {
+  const { runTurn } = require('../utils/ai/providers');
+  const config = { provider: 'openai-compat', baseUrl: 'http://llm.test/v1', model: 'm1', apiKey: KEY };
+  const base = { config, system: 's', messages: [{ role: 'user', text: 'q' }], tools: TOOLS };
+  const calls = (...names) => ({ text: '', toolCalls: names.map((n, i) => ({ id: `c${i}`, name: n, args: {}, argsError: null })), usage: null });
+
+  test('a call that ends the turn ends it; the others get their result and the model goes on', async () => {
+    const chat = jest.fn()
+      .mockResolvedValueOnce(calls('read'))
+      .mockResolvedValueOnce({ text: 'Here.', toolCalls: [{ id: 'c9', name: 'propose', args: {}, argsError: null }], usage: null });
+    const execute = jest.fn((call) => (call.name === 'propose' ? { result: { ok: true }, end: true } : { result: { rows: [] } }));
+    expect(await runTurn({ ...base, maxSteps: 5, execute }, { chat })).toEqual({ ended: 'tool', text: 'Here.' });
+    expect(execute).toHaveBeenCalledTimes(2);
+    // The second step carries the first call's result back, in the neutral shape
+    // (the conversation is one array, grown in place: read it by position).
+    expect(chat.mock.calls[1][0].messages[2]).toEqual({ role: 'tool', toolCallId: 'c0', name: 'read', content: '{"rows":[]}', isError: false });
+  });
+
+  test('words end it, the step budget bounds it, an empty answer is asked again then reported', async () => {
+    const words = jest.fn().mockResolvedValue({ text: 'Done.', toolCalls: [], usage: null });
+    expect(await runTurn({ ...base, maxSteps: 3, execute: () => ({ result: {} }) }, { chat: words })).toEqual({ ended: 'words', text: 'Done.' });
+    const forever = jest.fn().mockResolvedValue(calls('read'));
+    expect(await runTurn({ ...base, maxSteps: 2, execute: () => ({ result: {} }) }, { chat: forever })).toEqual({ ended: 'limit', text: '' });
+    expect(forever).toHaveBeenCalledTimes(2);
+    const empty = jest.fn().mockResolvedValue({ text: '', toolCalls: [], usage: null });
+    expect(await runTurn({ ...base, maxSteps: 6, execute: () => ({ result: {} }) }, { chat: empty })).toEqual({ ended: 'empty', text: '' });
+    expect(empty).toHaveBeenCalledTimes(4);
+  });
+
+  test('onWords pushes back instead of ending, and the push-back joins the conversation', async () => {
+    const chat = jest.fn()
+      .mockResolvedValueOnce({ text: '{"widgets": []}', toolCalls: [], usage: null })
+      .mockResolvedValueOnce({ text: 'ok', toolCalls: [], usage: null });
+    let nudged = false;
+    const onWords = (t) => { if (nudged || !t.includes('widgets')) return null; nudged = true; return 'Call the tool.'; };
+    expect(await runTurn({ ...base, maxSteps: 3, execute: () => ({ result: {} }), onWords }, { chat })).toEqual({ ended: 'words', text: 'ok' });
+    expect(chat.mock.calls[1][0].messages.slice(-2)).toEqual([{ role: 'assistant', text: '{"widgets": []}' }, { role: 'user', text: 'Call the tool.' }]);
+  });
+});
+
+describe('the Claude subscription engine (Agent SDK)', () => {
+  const { runTurn } = require('../utils/ai/providers');
+  const TOKEN = 'sk-ant-oat01-my-plan-token';
+  const config = { provider: 'claude-subscription', baseUrl: '', model: '', apiKey: TOKEN };
+  const PING = { name: 'ping', description: 'd', parameters: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] } };
+  const messages = [{ role: 'user', text: 'first' }, { role: 'assistant', text: '[Asked the user: which?]' }, { role: 'user', text: 'now this' }];
+  const last = messages.slice(-1);
+
+  // A scripted SDK: `steps` are what the model does — a tool call (our handler
+  // runs, as the SDK would run it) or words — then the result it ends on.
+  function fakeSdk(steps, result = { subtype: 'success', result: '' }) {
+    const seen = { handled: [] };
+    return {
+      seen,
+      tool: (name, description, inputSchema, handler) => ({ name, description, inputSchema, handler }),
+      createSdkMcpServer: (o) => ({ type: 'sdk', name: o.name, instance: { tools: o.tools } }),
+      query({ prompt, options }) {
+        Object.assign(seen, { prompt, options });
+        const tools = options.mcpServers.openreport.instance.tools;
+        return (async function* run() {
+          for (const step of steps) {
+            if (step.call) {
+              yield { type: 'assistant', parent_tool_use_id: null, message: { content: [...(step.text ? [{ type: 'text', text: step.text }] : []), { type: 'tool_use', name: `mcp__openreport__${step.call}`, input: step.args }] } };
+              seen.handled.push(await tools.find((t) => t.name === step.call).handler(step.args, {}));
+            } else {
+              yield { type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'text', text: step.text }] } };
+            }
+          }
+          yield { type: 'result', errors: [], ...result };
+        }());
+      },
+    };
+  }
+
+  beforeAll(() => { jest.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterAll(() => { jest.restoreAllMocks(); });
+
+  test('our tools run in the SDK, our prompt with them — and nothing of Claude Code', async () => {
+    const sdk = fakeSdk([{ call: 'ping', args: { ok: true }, text: 'Pinging.' }, { text: 'Done.' }]);
+    const execute = jest.fn(() => ({ result: { ok: true }, end: true }));
+    process.env.ANTHROPIC_API_KEY = 'sk-instance-key';
+    const turn = await runTurn({ config, system: 'SYSTEM', messages, tools: [PING], maxSteps: 4, execute }, { sdk });
+    delete process.env.ANTHROPIC_API_KEY;
+    expect(turn).toEqual({ ended: 'tool', text: 'Done.' });
+    expect(execute).toHaveBeenCalledWith({ id: '', name: 'ping', args: { ok: true }, argsError: null });
+    expect(sdk.seen.handled[0]).toEqual({ content: [{ type: 'text', text: '{"ok":true}' }] });
+    const { options, prompt } = sdk.seen;
+    expect(options).toMatchObject({ systemPrompt: 'SYSTEM', tools: [], settingSources: [], persistSession: false, maxTurns: 5, permissionMode: 'default' });
+    expect(options.allowedTools).toBeUndefined();
+    expect(options.model).toBeUndefined();
+    expect(options.env.CLAUDE_CODE_OAUTH_TOKEN).toBe(TOKEN);
+    expect(options.env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(await options.canUseTool('Bash', {}, {})).toMatchObject({ behavior: 'deny' });
+    expect(await options.canUseTool('mcp__openreport__ping', {}, {})).toEqual({ behavior: 'allow' });
+    // The whole conversation travels as one prompt, the last message last.
+    expect(prompt).toMatch(/User: first\nAssistant: \[Asked the user: which\?\]\n\nUser: now this$/);
+    // The MCP tool carries the JSON Schema of ours, as a zod shape.
+    expect(Object.keys(options.mcpServers.openreport.instance.tools[0].inputSchema)).toEqual(['ok']);
+  });
+
+  test('a refusal is an error the model reads; words alone end in words; a named model is passed on', async () => {
+    const sdk = fakeSdk([{ call: 'ping', args: { ok: false } }, { text: 'Sorry.' }], { subtype: 'success', result: 'Sorry.' });
+    const turn = await runTurn({ config: { ...config, model: 'opus' }, system: 's', messages: last, tools: [PING], maxSteps: 2, execute: () => ({ result: { error: 'no' } }) }, { sdk });
+    expect(turn).toEqual({ ended: 'words', text: 'Sorry.' });
+    expect(sdk.seen.handled[0]).toEqual({ content: [{ type: 'text', text: '{"error":"no"}' }], isError: true });
+    expect(sdk.seen.options.model).toBe('opus');
+    expect(sdk.seen.prompt).toBe('now this');
+  });
+
+  test('the SDK\'s failures are provider errors — short, and never with the token', async () => {
+    const failing = (result) => runTurn({ config, system: 's', messages: last, tools: [PING], maxSteps: 2, execute: () => ({ result: {} }) }, { sdk: fakeSdk([], result) }).catch((e) => e);
+    const refused = await failing({ subtype: 'error_during_execution', errors: [`invalid credential ${TOKEN}`] });
+    expect(refused).toBeInstanceOf(AiProviderError);
+    expect(refused).toMatchObject({ status: 502, message: expect.stringMatching(/claude setup-token/) });
+    expect(refused.message).not.toContain(TOKEN);
+    expect((await failing({ subtype: 'error_during_execution', errors: ['usage limit reached'] })).message).toMatch(/credit/);
+    expect((await failing({ subtype: 'error_max_budget_usd', errors: [] })).message).toMatch(/budget/);
+    expect(await failing({ subtype: 'error_max_turns' })).toEqual({ ended: 'limit', text: '' });
+    // This SDK throws when the steps run out; a call that already ended the turn still counts.
+    const outOfSteps = { ...fakeSdk([]), query: () => ({ [Symbol.asyncIterator]: () => ({ next: async () => { throw new Error('Claude Code returned an error result: Reached maximum number of turns (1)'); } }) }) };
+    expect(await runTurn({ config, system: 's', messages: last, tools: [PING], maxSteps: 1, execute: () => ({ result: {} }) }, { sdk: outOfSteps })).toEqual({ ended: 'limit', text: '' });
+    const throwing = (message) => runTurn({ config, system: 's', messages: last, tools: [PING], maxSteps: 2, execute: () => ({ result: {} }) }, { sdk: { ...fakeSdk([]), query() { throw new Error(message); } } }).catch((e) => e);
+    expect(await throwing('spawn ENOENT')).toMatchObject({ status: 502, message: 'Claude could not be started on this server' });
+    // A spawn that fails (the OS, not the binary) is tried three times in all; the third failure is the end.
+    const LAUNCH = 'Claude Code native binary at C:/x/claude.exe exists but failed to launch. This usually means the binary does not match this system libc';
+    const flaky = (failures) => { const ok = fakeSdk([{ text: 'Up.' }]); let n = 0; return { ...ok, calls: () => n, query(q) { n += 1; if (n <= failures) throw new Error(LAUNCH); return ok.query(q); } }; };
+    const twice = flaky(2);
+    expect(await runTurn({ config, system: 's', messages: last, tools: [PING], maxSteps: 2, execute: () => ({ result: {} }) }, { sdk: twice, launchRetryMs: 0 })).toEqual({ ended: 'words', text: 'Up.' });
+    expect(twice.calls()).toBe(3);
+    const thrice = flaky(3);
+    expect(await runTurn({ config, system: 's', messages: last, tools: [PING], maxSteps: 2, execute: () => ({ result: {} }) }, { sdk: thrice, launchRetryMs: 0 }).catch((e) => e)).toMatchObject({ status: 502, message: 'Claude could not be started on this server' });
+    expect(thrice.calls()).toBe(3);
+    // The SDK throws on an auth failure instead of ending on an error result: same reason for the user.
+    expect(await throwing(`Claude Code returned an error result: Failed to authenticate. API Error: 401 OAuth access token is invalid. ${TOKEN}`)).toMatchObject({ status: 502, message: expect.stringMatching(/refused the subscription token/) });
+  });
+
+  test('one binary at a time per token: a second turn waits for the first, another token does not', async () => {
+    let running = 0;
+    let peak = 0;
+    const slow = { ...fakeSdk([]), query() { running += 1; peak = Math.max(peak, running); return { [Symbol.asyncIterator]: async function* it() { await new Promise((r) => setTimeout(r, 30)); running -= 1; yield { type: 'result', subtype: 'success', result: 'ok' }; } }; } };
+    const go = (apiKey) => runTurn({ config: { ...config, apiKey }, system: 's', messages: last, tools: [PING], maxSteps: 2, execute: () => ({ result: {} }) }, { sdk: slow });
+    await Promise.all([go('tok-a'), go('tok-a'), go('tok-a')]);
+    expect(peak).toBe(1);
+    await Promise.all([go('tok-a'), go('tok-b')]);
+    expect(peak).toBe(2);
+  });
+});

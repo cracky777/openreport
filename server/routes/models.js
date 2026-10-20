@@ -7,7 +7,9 @@ const {
   extractColumnRefsFromExpression,
   preWrapIntervalRefs,
 } = require('../utils/columnTypeResolver');
-const { canAccessReport, canAccessModel, canWriteModel, canReadModel } = require('./reports');
+const { canAccessReport, canAccessModel, canWriteModel, canReadModel, canBuildOnModel } = require('./reports');
+const { cleanDomains, catalogueForClient } = require('../utils/ai/domains');
+const { sanitizeFields, applyGlossaryPatch } = require('../utils/glossary');
 const { getQueryTimeoutMs } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
@@ -35,18 +37,20 @@ const {
 const { buildScalarClause } = require('../utils/sqlBuilder/filterClause');
 const { buildMultiFactBody } = require('../utils/sqlBuilder/multiFact');
 const { buildFromClause } = require('../utils/sqlBuilder/fromClause');
+const { groupedDimMeasure, readsDistinctRows, reachesPerPeriod } = require('../utils/sqlBuilder/dimMeasure');
 const { joinTypeMismatch } = require('../utils/joinTypes');
 const { isFileSource, linkedSourcesOf, aliasFor, sourceIdsOf, connectionForModel } = require('../utils/modelSources');
 const { buildTopNOrderLimit } = require('../utils/sqlBuilder/orderLimit');
 const { dimensionTables, expressionTables, dimensionAggregate, fanOutTables } = require('../utils/sqlBuilder/dimensionTables');
 const { normalizeRows } = require('../utils/rowNormalize');
 const { sortValueAlias } = require('../utils/sqlBuilder/measureSortValue');
-const { computeRealFacts, computeJoinedTables, computeConnectedComponents } = require('../utils/sqlBuilder/joinGraph');
+const { computeRealFacts, computeJoinedTables, computeConnectedComponents, conformedDimension } = require('../utils/sqlBuilder/joinGraph');
 const { buildOverrideSubquery } = require('../utils/sqlBuilder/overrideSubquery');
 const { rejectIfNameTaken } = require('../utils/nameUniqueness');
 const { emitMeasureSelects } = require('../utils/sqlBuilder/measureSelect');
-const { groupedRuleFields, partitionExprs, windowAgg, canWindow, windowedColumnAgg } = require('../utils/sqlBuilder/windowMeasure');
+const { groupedRuleFields, partitionExprs, windowAgg, canWindow, windowedColumnAgg, runningTotalOver, isPeriodDim } = require('../utils/sqlBuilder/windowMeasure');
 const periodShift = require('../utils/sqlBuilder/periodShift');
+const lastValue = require('../utils/sqlBuilder/lastValue');
 const wsAccess = require('../utils/workspaceAccess');
 const { tablesReachableFrom, getAllowedRlsKeys } = require('../utils/rls');
 const { parseModel } = require('../db/modelRow');
@@ -148,6 +152,12 @@ router.get('/', authFor('read'), (req, res) => {
   res.json({ models: wsAccess.listVisibleModels(wsAccess.actorOf(req)) });
 });
 
+// The business catalogue the glossary picks from. Before /:id, which would
+// otherwise take "business-domains" for a model id.
+router.get('/business-domains', requireAuth, (_req, res) => {
+  res.json({ domains: catalogueForClient() });
+});
+
 // Get single model with full details (owner, global admin, or anyone with access to a report using it)
 // Anonymous callers go straight to the per-model gate: public-report viewers
 // and embed tokens are legitimate readers of a model's METADATA (the Viewer
@@ -209,7 +219,10 @@ router.put('/:id', authFor('write'), (req, res) => {
   if (!model || outOfScope(model, req)) return res.status(404).json({ error: 'Model not found' });
   if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
 
-  const { name, description, selected_tables, table_positions, dimensions, measures, joins, rls, column_types, dateColumn, datasourceId, incrementalMonths } = req.body;
+  const { name, description, selected_tables, table_positions, joins, rls, column_types, dateColumn, datasourceId, incrementalMonths, domains } = req.body;
+  // Glossary attributes ride on the fields: kept only when they fit the catalogue.
+  const dimensions = sanitizeFields(req.body.dimensions, 'dimension');
+  const measures = sanitizeFields(req.body.measures, 'measure');
   if (rejectIfNameTaken('model', name, req, res, req.params.id)) return;
   // Row-level security decides who sees what: a workspace admin's call, not an editor's.
   if (rls !== undefined && denyUnless(wsAccess.canManageModel(model, wsAccess.actorOf(req)), res, 'Only a workspace admin can change row-level security')) return;
@@ -241,6 +254,7 @@ router.put('/:id', authFor('write'), (req, res) => {
       column_types = COALESCE(?, column_types),
       date_column = CASE WHEN ? = 1 THEN ? ELSE date_column END,
       incremental_months = CASE WHEN ? = 1 THEN ? ELSE incremental_months END,
+      domains = COALESCE(?, domains),
       updated_at = datetime('now')
     WHERE id = ?
   `).run(
@@ -263,6 +277,7 @@ router.put('/:id', authFor('write'), (req, res) => {
         ? Math.min(60, Math.round(Number(incrementalMonths)))
         : null)
       : null,
+    domains !== undefined ? JSON.stringify(cleanDomains(domains)) : null,
     req.params.id
   );
 
@@ -296,9 +311,30 @@ router.put('/:id', authFor('write'), (req, res) => {
       joins: JSON.parse(updated.joins),
       rls: JSON.parse(updated.rls || '{}'),
       column_types: JSON.parse(updated.column_types || '{}'),
+      domains: JSON.parse(updated.domains || '[]'),
       dateColumn: updated.date_column || null,
     },
   });
+});
+
+// The business glossary (utils/glossary.js), patched field by field. Open to
+// whoever may USE the model, not only edit it: a reader who tells the
+// assistant which column holds the shipping cost teaches it for everyone.
+// Only role, synonyms and description change here — never an expression, a
+// join or a type — and nothing is rebuilt: a word added to a field changes no
+// query.
+router.put('/:id/glossary', authFor('read'), (req, res) => {
+  const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
+  if (!row || outOfScope(row, req)) return res.status(404).json({ error: 'Model not found' });
+  if (!canBuildOnModel(row, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
+  const model = parseModel(row);
+  const out = applyGlossaryPatch(model, req.body);
+  if (out.errors.length && !out.changed) return res.status(400).json({ error: out.errors.join('; ') });
+  if (out.changed) {
+    db.prepare("UPDATE models SET dimensions = ?, measures = ?, domains = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(JSON.stringify(out.dimensions), JSON.stringify(out.measures), JSON.stringify(out.domains), row.id);
+  }
+  res.json({ domains: out.domains, dimensions: out.dimensions, measures: out.measures, warnings: out.errors });
 });
 
 // Models-as-code: export the semantic layer as a versionable YAML file.
@@ -372,16 +408,17 @@ router.post('/import', authFor('write'), (req, res) => {
   db.prepare(`
     INSERT INTO models (id, user_id, datasource_id, name, description, selected_tables,
                         table_positions, dimensions, measures, joins, rls, column_types,
-                        date_column, incremental_months, workspace_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        date_column, incremental_months, domains, workspace_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id, req.user.id, dsId, fields.name, fields.description,
     JSON.stringify(fields.selected_tables), JSON.stringify(fields.table_positions),
-    JSON.stringify(fields.dimensions), JSON.stringify(fields.measures),
+    JSON.stringify(sanitizeFields(fields.dimensions, 'dimension')), JSON.stringify(sanitizeFields(fields.measures, 'measure')),
     JSON.stringify(fields.joins), JSON.stringify(fields.rls), JSON.stringify(fields.column_types),
     fields.date_column || '',
     // Same coherence rule as PUT: a window without a date column is inert.
     fields.date_column ? fields.incremental_months : null,
+    JSON.stringify(cleanDomains(fields.domains)),
     targetWs
   );
   if (typeof cloudHooks.onModelCreate === 'function') cloudHooks.onModelCreate(req, id);
@@ -1319,16 +1356,40 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   // overrideRefInfos collects override-mode references so the post-FROM step
   // can substitute the placeholders with subqueries.
   const overrideRefInfos = [];
+  // Measures of a dimension table referenced from an expression (see the inliner).
+  const dimRefInfos = [];
+  let dimensionTablesOf = null;
+  const isDimensionTable = (t) => {
+    if (!dimensionTablesOf) {
+      const facts = computeRealFacts(allJoins);
+      dimensionTablesOf = new Set([...computeJoinedTables(allJoins)].filter((x) => !facts.has(x)));
+    }
+    return dimensionTablesOf.has(t);
+  };
   // Sealed SQL of shifted measures referenced from an expression, spliced
   // back into the final statement (see inlineMeasureRefs).
   const periodRefs = [];
+  // Measures read on their last date (utils/sqlBuilder/lastValue.js): the
+  // date column of each, its condition a marker until the FROM is built.
+  const lastDates = [];
+  function lastDateOf(m) {
+    if (!m || m.aggregation === 'custom' || m.overrideFilters) return null;
+    const d = lastValue.lastDateDim(m, allDimensions);
+    if (!d) return null;
+    registerDimTables(d);
+    const expr = buildDimensionExpr(d, dbType, columnTypes);
+    const at = lastDates.indexOf(expr);
+    return lastValue.marker(at >= 0 ? at : lastDates.push(expr) - 1);
+  }
   // The period rules the handler itself creates below the WHERE. A rule is
   // read as SQL only through this set, so nothing shaped like one in a
   // request body (report extras carry filterRules) can smuggle SQL in.
   const periodRuleSet = new WeakSet();
   function inlineMeasureRefs(expression, pathStack = []) {
     if (!expression) return expression;
-    return String(expression).replace(/\$\{\s*([^}]+?)\s*\}/g, (match, name) => {
+    // A referenced running total keeps its window inside the expression it
+    // feeds (a cumulative balance is a cumulative debit minus a cumulative credit).
+    const resolve = (match, name) => {
       const trimmed = name.trim();
       if (pathStack.includes(trimmed)) {
         throw new Error(`Cyclic measure reference: ${[...pathStack, trimmed].join(' → ')}`);
@@ -1347,6 +1408,14 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       const rules = (Array.isArray(target.filterRules) ? target.filterRules : [])
         .filter((r) => targetShifted || !periodRuleSet.has(r));
       const hasRules = rules.length > 0;
+      // A stock read on its last date keeps that condition wherever it is referenced.
+      const lastDate = lastDateOf(target);
+      if (lastDate && !hasRules && target.table && target.column) {
+        tablesUsed.add(target.table);
+        return target.aggregation === 'count'
+          ? `COUNT(CASE WHEN ${lastDate} THEN ${quoteCol(target.table, target.column, dbType)} END)`
+          : aggregateSql(target.aggregation, `CASE WHEN ${lastDate} THEN ${quoteCol(target.table, target.column, dbType)} END`);
+      }
       // Filtered measure (intersection): wrap aggregate(s) with CASE WHEN.
       // This branch handles BOTH bare aggregations (sum/avg/count/…) AND
       // custom-expression filtered measures — the latter get every
@@ -1357,7 +1426,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       if (hasRules && !target.overrideFilters) {
         const clauses = rules.map(buildRuleClause).filter(Boolean);
         if (clauses.length > 0) {
-          const whenSql = clauses.join(' AND ');
+          const whenSql = [...clauses, ...(lastDate ? [lastDate] : [])].join(' AND ');
           // A rule on a grouped dimension: the figure is spread over the
           // other grouped dimensions, as the SELECT does (windowMeasure.js).
           const ruleFields = groupedRuleFields(rules, selectedDimensions);
@@ -1420,6 +1489,14 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       if (target.aggregation === 'custom' && target.expression) {
         return `(${inlineMeasureRefs(target.expression, [...pathStack, trimmed])})`;
       }
+      // A measure on a dimension table inside an expression: read on the
+      // distinct rows each group reaches (sqlBuilder/dimMeasure.js), a marker
+      // until the FROM is built. Through the join a product's threshold was
+      // counted once per movement (Karim: a gap of −5 919 instead of 1 389).
+      if (target.table && target.column && isDimensionTable(target.table) && readsDistinctRows(target, target.table, allJoins)) {
+        const known = dimRefInfos.findIndex((r) => r.target.name === target.name);
+        return `__DIM_REF_${known >= 0 ? known : dimRefInfos.push({ target }) - 1}__`;
+      }
       // Regular measure paths. `count` follows the standalone semantics
       // (measureSelect.js): COUNT(col) — non-null count — when a column was
       // picked, COUNT(*) for the no-column / legacy '*' shapes. The rollup
@@ -1435,9 +1512,16 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       }
       if (target.table && target.column) {
         tablesUsed.add(target.table);
+        if (target.times || target.since) return buildMeasureAggExpr(target, { dbType, columnTypes });
         return aggregateSql(target.aggregation, quoteCol(target.table, target.column, dbType));
       }
       return match;
+    };
+    return String(expression).replace(/\$\{\s*([^}]+?)\s*\}/g, (match, name) => {
+      const out = resolve(match, name);
+      const target = allMeasures.find((mm) => mm.name === name.trim()) || allMeasures.find((mm) => mm.label === name.trim());
+      if (!target || !target.runningTotal || typeof out !== 'string' || /^__/.test(out)) return out;
+      return runningTotalOver(out, selectedDimensions, groupByParts) || out;
     });
   }
 
@@ -1551,8 +1635,14 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     const rollupPlanner = require('../utils/rollupPlanner');
     const __tRollup = Date.now();
     let rollupResult;
-    const windowedMeasure = (measureNames || []).some((mn) => {
+    // A measure read on its last date asks the data which date that is: never a rollup either.
+    // A per-period target reads its periods on the facts (dimMeasure.js): never a rollup either.
+    // A product of two columns (`times`) or a delay between two (`since`) has no atom in a rollup either.
+    const windowedMeasure = lastValue.reachesLastValue(measureNames, allMeasures) || reachesPerPeriod(measureNames, allMeasures)
+      || lastValue.reachedMeasures(measureNames, allMeasures).some((m) => m.times || m.since) || (measureNames || []).some((mn) => {
       const def = allMeasures.find((mm) => mm && mm.name === mn);
+      // A running total is a window too: never served by a rollup.
+      if (def && def.runningTotal) return true;
       return def && Array.isArray(def.filterRules) && !def.overrideFilters
         && groupedRuleFields(def.filterRules, (dimensionNames || []).map((name) => ({ name }))).size > 0;
     });
@@ -1629,9 +1719,12 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   }
 
   // Preserve the order from the request (axis first, then legend)
-  const selectedDimensions = dimensionNames
+  // Measures of two facts or more: a fact's foreign key is read as the key of
+  // the dimension it joins, which every fact reaches (joinGraph.conformedDimension).
+  const factsMeasured = new Set(lastValue.reachedMeasures(measureNames, allMeasures).map((m) => m.table).filter((t) => computeRealFacts(allJoins).has(t)));
+  const selectedDimensions = (dimensionNames
     ? dimensionNames.map((name) => allDimensions.find((d) => d.name === name)).filter(Boolean)
-    : [];
+    : []).map((d) => (factsMeasured.size > 1 && conformedDimension(d, allJoins, allDimensions)) || d);
   // Fields that name a table — what a calculated expression is scanned against.
   const fieldsWithTable = [...allDimensions, ...allMeasures].filter((x) => x && x.table);
   // Calculated dimensions are checked where they are used rather than at save
@@ -1720,9 +1813,29 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   // and the client falls back to blanking the total.
   const totalComponents = {};
   if (withTotalComponents) {
-    const { decomposeMeasure, avgAliasBase } = require('../utils/measureType');
+    const { decomposeMeasure, avgAliasBase, parseArithmetic, isAdditive } = require('../utils/measureType');
     const seen = new Set();
-    for (const m of [...selectedMeasures]) {
+    const asked = [...selectedMeasures];
+    // A difference, a ratio or a percentage of two additive measures (the
+    // form the chat writes): its two parts ride along under hidden aliases,
+    // and the pivot rebuilds each total as the operation on the two totals —
+    // a column of attainment rates was summed, or blanked, before.
+    const partAlias = (ref) => `tc_${ref.name.replace(/\W+/g, '_')}`;
+    for (const m of asked) {
+      if (m.aggregation !== 'custom' || (m.filterRules || []).length || m.runningTotal || m.periodShift) continue;
+      const parts = parseArithmetic(m.expression);
+      if (!parts) continue;
+      const left = allMeasures.find((x) => x.name === parts.left);
+      const right = allMeasures.find((x) => x.name === parts.right);
+      if (!isAdditive(left) || !isAdditive(right)) continue;
+      totalComponents[m.label || m.name] = { op: parts.op, left: partAlias(left), right: partAlias(right) };
+      for (const ref of [left, right]) {
+        if (seen.has(partAlias(ref))) continue;
+        seen.add(partAlias(ref));
+        selectedMeasures.push({ ...ref, name: partAlias(ref), label: partAlias(ref), widenFloat: true });
+      }
+    }
+    for (const m of asked) {
       const spec = decomposeMeasure(m, allMeasures);
       if (!spec || spec.type !== 'avg') continue;
       const base = avgAliasBase(spec);
@@ -1981,7 +2094,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     allDimensions, allFieldsForLookup, dbType, columnTypes,
     selectParts, tablesUsed, dimOnlyMeasureInfos, overrideMeasureInfos, groupByParts,
     inlineMeasureRefs, buildRuleClause,
-    components, dimTables, selectedDimensions,
+    components, dimTables, selectedDimensions, lastDateOf, allJoins,
   });
   if (measureErr) return res.status(400).json(measureErr);
 
@@ -2070,6 +2183,9 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       const ownRulesH = Array.isArray(measDef.filterRules) && !measDef.overrideFilters
         ? measDef.filterRules.map(buildRuleClause).filter(Boolean)
         : [];
+      // A stock ranked on its last date, as it is shown.
+      const lastDateH = lastDateOf(measDef);
+      if (lastDateH) ownRulesH.push(lastDateH);
       const whenH = ownRulesH.length > 0 ? ownRulesH.join(' AND ') : null;
       const wrapH = (inner) => (whenH ? `CASE WHEN ${whenH} THEN ${inner} END` : inner);
       const baseAggExpr = effAggH === 'count'
@@ -2104,7 +2220,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
           xGrainTopN = { aggExpr, n, direction: f.op === 'top_n' ? 'DESC' : 'ASC' };
         }
       } else if (!topNOverride) {
-        topNOverride = { aggExpr, n, direction: f.op === 'top_n' ? 'DESC' : 'ASC' };
+        topNOverride = { aggExpr, n, direction: f.op === 'top_n' ? 'DESC' : 'ASC', measureName: f.field };
       }
       continue;
     }
@@ -2149,15 +2265,21 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   // grain (see rollupPlanner.js `subFor`). Mirror that on the live path:
   // aggregate each fact independently at the requested grain, then FULL JOIN
   // the per-fact results on the dimension aliases (CROSS JOIN for a grainless
-  // scorecard). Strictly gated to the clean common case; anything exotic
-  // (custom/HLL/override/filtered measures, x-grain HAVING, measure
-  // HAVING/TopN, RLS, distinct, or a dim/filter not conformed to every fact)
-  // falls back to the existing single-query path below, unchanged.
-  const multiFactBody = buildMultiFactBody({
+  // scorecard). A measure's own rules and a custom expression are computed
+  // inside its fact's subquery; a filter on a dimension a fact cannot reach
+  // is left out of that fact's subquery, as the rollup planner does. Anything
+  // else exotic (HLL/override measures, a measure spanning two facts, x-grain
+  // HAVING, measure HAVING/TopN, RLS, distinct, a grouping dimension not
+  // conformed to every fact) falls back to the single-query path below — and
+  // so does a measure read on its last date, whose subquery repeats the FROM.
+  const multiFactBody = lastDates.length || lastValue.reachesLastValue(selectedMeasures.map((m) => m.name), allMeasures)
+    || reachesPerPeriod(selectedMeasures.map((m) => m.name), allMeasures) ? null : buildMultiFactBody({
     selectedMeasures, selectedDimensions, realFacts, whereParts,
     allDimensions, allJoins, dbType, columnTypes,
     rlsApplies, distinct, topNOverride, havingParts,
     measureFiltersDeferred, havingGrainDims, dimOnlyMeasureInfos,
+    allMeasures, allFieldsForLookup, tablesOfDimension: (d) => dimensionTables(d, fieldsWithTable),
+    inlineMeasureRefs, buildRuleClause,
   });
 
   // Build FROM + JOINs (greedy join-graph traversal + snowflake bridging) in
@@ -2198,6 +2320,9 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   // set on the pre-FROM paths); here that write is dead but the clause SQL must
   // stay identical.
   const overrideSubqueryDeps = { whereParts, fromClause, buildRuleClause, dbType, columnTypes };
+  // The last date's subquery reads the query as it stands now: same FROM,
+  // same WHERE (slicers and RLS), before the X-grain test below joins it.
+  const lastDateQuery = { fromClause, where: whereParts.map((w) => w.sql), periods: lastValue.periodGroups(selectedDimensions, groupByParts) };
 
   // Fill in dim-only measure placeholders. Each becomes a scalar subquery
   // that runs against the measure's primary dim table alone, with only
@@ -2208,8 +2333,40 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   // RLS-controlled, the model should mark it RLS via a different
   // mechanism; we don't have one today and counts on a public dim are
   // fine.)
+  // Grouped by fields it joins to, the measure is read per group instead
+  // (sqlBuilder/dimMeasure.js): a join of the main query only.
+  let dimMeasureJoins = '';
+  // Whether a dimension table's measure reads the whole table (dimMeasure.js
+  // `direct`): every filter of the query on its own fields or on a period,
+  // none of them a security clause.
+  const directRead = (table) => {
+    if (rlsApplies) return null;
+    const own = [];
+    for (const w of whereParts) {
+      const d = w.field && allDimensions.find((dd) => dd.name === w.field);
+      if (!d) return null;
+      if (d.table === table) own.push(w.sql);
+      else if (!isPeriodDim(d)) return null;
+    }
+    return { whereSql: own.join(' AND ') };
+  };
   for (const info of dimOnlyMeasureInfos) {
     const { m, index, primaryTable, label } = info;
+    const perGroup = info.distinctRows && groupedDimMeasure({
+      m, primaryTable, n: index, label, allJoins, tablesUsed, selectedDimensions, selectedMeasures,
+      whereSql: whereParts.map((w) => w.sql).join(' AND '), dbType, columnTypes, allDimensions, direct: directRead(primaryTable),
+    });
+    if (perGroup) {
+      dimMeasureJoins += perGroup.join;
+      selectParts[index] = perGroup.select;
+      continue;
+    }
+    // The table's total ignores the RLS clause: never for a secured reader
+    // (measureSelect only routes one here when distinct rows can be read).
+    if (rlsApplies) {
+      selectParts[index] = `NULL AS ${quoteAlias(label, dbType)}`;
+      continue;
+    }
     const sameTableWhere = whereParts
       .filter((w) => {
         if (!w.field) return false;
@@ -2327,8 +2484,24 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   const allMeasuresDimOnly = selectedMeasures.length > 0
     && dimOnlyMeasureInfos.length === selectedMeasures.length;
   const dimOnlyShortCircuit = allMeasuresDimOnly && selectedDimensions.length === 0;
+  // The dimension-table measures expressions referenced (`__DIM_REF_n__`):
+  // read per group, their joins on the main query; spliced in below.
+  const dimRefValues = dimRefInfos.map(({ target }, i) => {
+    const r = groupedDimMeasure({
+      m: target, primaryTable: target.table, n: `r${i}`, label: target.label || target.name, allJoins, tablesUsed, selectedDimensions, selectedMeasures,
+      whereSql: whereParts.map((w) => w.sql).join(' AND '), dbType, columnTypes, allDimensions, direct: directRead(target.table),
+    });
+    if (!r) return 'NULL';
+    dimMeasureJoins += r.join;
+    return r.value;
+  });
+  // A computed measure made only of dimension-table measures (patients
+  // included / the centres' inclusion target) leaves the main query no table
+  // to read: its parts are scalar subqueries, so is the whole ("FROM
+  // undefined" on CARDIO-PREV's progress).
+  const scalarOnly = dimOnlyShortCircuit || (!multiFactBody && tablesUsed.size === 0 && selectedDimensions.length === 0 && dimRefInfos.length > 0);
   let sql;
-  if (dimOnlyShortCircuit) {
+  if (scalarOnly) {
     // Scalar subqueries only: no table of its own to read. Oracle still wants
     // one named (DUAL); the others accept the bare SELECT.
     const scalarFrom = capabilities(dbType).scalarFrom;
@@ -2338,7 +2511,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     // each per-fact subquery already carries them). ORDER BY / LIMIT below.
     sql = multiFactBody.sql;
   } else {
-    sql = `SELECT ${useDistinct ? 'DISTINCT ' : ''}${selectParts.join(', ')} FROM ${fromClause}`;
+    sql = `SELECT ${useDistinct ? 'DISTINCT ' : ''}${selectParts.join(', ')} FROM ${fromClause}${dimMeasureJoins}`;
     if (whereParts.length > 0) {
       sql += ` WHERE ${whereParts.map((w) => w.sql).join(' AND ')}`;
     }
@@ -2366,7 +2539,8 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   } else if (topNOverride) {
     // Top/Bottom N replaces both the default ORDER BY and the configured LIMIT
     // with a dialect-aware ORDER BY <aggExpr> <dir> [NULLS handling] + limit.
-    sql += buildTopNOrderLimit(topNOverride, dbType);
+    // The drill-across body exposes the measure by its alias: it ranks on that.
+    sql += buildTopNOrderLimit(multiFactBody && multiFactBody.rankAlias ? { ...topNOverride, aggExpr: multiFactBody.rankAlias } : topNOverride, dbType);
   } else {
     // Stable ordering across refetches. Every group-by dimension has to be in
     // the ORDER BY, not just the first: two rows sharing the first dimension
@@ -2381,7 +2555,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       sql += multiFactBody.orderByAliases ? ` ORDER BY ${multiFactBody.orderByAliases}` : ' ORDER BY 1';
     } else if (groupByParts.length > 0) {
       sql += ` ORDER BY ${groupByParts.join(', ')}`;
-    } else if (selectParts.length > 0 && !dimOnlyShortCircuit) {
+    } else if (selectParts.length > 0 && !scalarOnly) {
       // A FROM-less select of scalar subqueries is one row: nothing to order,
       // and BigQuery refuses an ORDER BY there.
       sql += ` ORDER BY 1`;
@@ -2395,7 +2569,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     const parsedLimit = parseInt(limit, 10) || 0;
     if (isRollupBuilderRequest && parsedLimit <= 0) {
       builderUncapped = true;
-    } else if (dimOnlyShortCircuit) {
+    } else if (scalarOnly) {
       // One row by construction — and SQL Server's OFFSET…FETCH would need
       // the ORDER BY skipped above.
       builderCapLimit = 1;
@@ -2422,6 +2596,8 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   for (let guard = 0; periodRefs.length && /__PERIOD_REF_\d+__/.test(sql) && guard < 20; guard++) {
     sql = sql.replace(/__PERIOD_REF_(\d+)__/g, (_, i) => periodRefs[Number(i)] || 'NULL');
   }
+  sql = lastValue.spliceLastDates(sql, lastDates, lastDateQuery);
+  sql = sql.replace(/__DIM_REF_(\d+)__/g, (_, i) => dimRefValues[Number(i)] || 'NULL');
 
   // sqlOnly mode — return the assembled SQL without executing. Useful for
   // inspecting a slow / hanging query from the editor without waiting for
@@ -2571,6 +2747,8 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       dimensionKeys: new Set(selectedDimensions.map((d) => d.label || d.name)),
       coerceNumbers: !isRollupBuilderRequest,
     });
+    // The rank measure the drill-across carried for its ORDER BY is not a column of the visual.
+    if (multiFactBody && multiFactBody.rankAlias === quoteAlias('__rank', dbType)) for (const r of rows) delete r.__rank;
     // Store in cache so the next identical request hits warm. We skip
     // empty / very-large payloads in stats but still cache them — an
     // empty result is still a meaningful answer to the user.

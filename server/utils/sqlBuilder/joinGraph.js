@@ -95,4 +95,24 @@ function sameComponent(comp, a, b) {
   return (comp.get(a) || a) === (comp.get(b) || b);
 }
 
-module.exports = { computeRealFacts, computeJoinedTables, measurePrimaryTable, computeConnectedComponents, sameComponent };
+// A fact's foreign key stands for the key of the dimension it joins
+// (sales.store = stores.store, many to one): a visual combining two facts by
+// it is grouped by the dimension both reach, so each fact is aggregated on
+// its own. Grouped by the first fact's column, the second fact was joined
+// through the shared dimension and summed once per row of the first (Marché
+// Plus: a basket of 2.70 € instead of 62 €). Keeps the field's name and label.
+function conformedDimension(d, allJoins, allDimensions) {
+  if (!d || d.expression || d.datePart || !d.table || !d.column) return null;
+  for (const j of allJoins || []) {
+    const c = (j && j.cardinality) || {};
+    let table = null; let column = null;
+    if (j.from_table === d.table && j.from_column === d.column && c.from === '*' && c.to === '1') { table = j.to_table; column = j.to_column; }
+    else if (j.to_table === d.table && j.to_column === d.column && c.to === '*' && c.from === '1') { table = j.from_table; column = j.from_column; }
+    if (!table) continue;
+    const own = (allDimensions || []).find((x) => x && x.table === table && x.column === column && !x.datePart && !x.expression);
+    return { ...(own || {}), table, column, name: d.name, label: d.label, type: d.type || (own && own.type) };
+  }
+  return null;
+}
+
+module.exports = { computeRealFacts, computeJoinedTables, measurePrimaryTable, computeConnectedComponents, sameComponent, conformedDimension };

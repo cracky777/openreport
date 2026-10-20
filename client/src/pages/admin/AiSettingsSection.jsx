@@ -153,7 +153,7 @@ export default function AiSettingsSection({ endpoints = INSTANCE_AI_ENDPOINTS, o
           <p style={rowHint}>Anthropic natively, or any server that speaks the OpenAI chat-completions API.</p>
         </div>
         <select value={preset} onChange={(e) => choosePreset(e.target.value)} style={input}>
-          {PRESETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+          {PRESETS.filter((p) => !p.personalOnly).map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
         </select>
       </div>
 

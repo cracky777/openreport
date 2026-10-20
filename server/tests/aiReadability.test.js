@@ -134,3 +134,21 @@ describe('through the design proposal, the author\'s request end to end', () => 
     expect(contrast(kpi.valueColor, kpi.backgroundColor)).toBeGreaterThanOrEqual(MIN_TEXT_CONTRAST);
   });
 });
+
+// A figure set in reverse to lead the page (navy card, light text) on a light
+// theme: the designer's choice stays, and what it left unset reads on it.
+test('a dark card the proposal asks for on a light page is kept, its texts made to read on it', () => {
+  const page = { theme: 'light', widgets: [{ id: 'ratio', type: 'scorecard', config: { title: 'Ratio' } }, { id: 'old', type: 'scorecard', config: { backgroundColor: '#0A2344' } }] };
+  const set = Object.fromEntries(readabilityOps(page, [{ op: 'update_config', widgetId: 'ratio', set: { backgroundColor: '#0A2344', valueColor: '#ffffff' } }]).map((op) => [op.widgetId, op.set]));
+  expect(set.ratio.backgroundColor).toBeUndefined();
+  expect(set.ratio.valueColor).toBeUndefined();
+  expect(set.ratio.titleColor).toBe('#ffffff');
+  expect(set.ratio.labelColor).toBe('#ffffff');
+  // Inherited, never chosen: back to the theme's card.
+  expect(set.old.backgroundColor).toBe(THEMES.light.panel);
+  // Chosen by an earlier card with its own light text: the next card keeps it.
+  const later = { theme: 'light', widgets: [{ id: 'ratio', type: 'scorecard', config: { backgroundColor: '#0A2344', valueColor: '#FFFFFF' } }] };
+  const again = readabilityOps(later, [{ op: 'update_config', widgetId: 'ratio', set: { valueSize: 40 } }]);
+  expect(again[0].set.backgroundColor).toBeUndefined();
+  expect(again[0].set.titleColor).toBe('#ffffff');
+});

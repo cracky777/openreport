@@ -6,7 +6,7 @@ import DropZone from '../../DropZone/DropZone';
 import { hasData, isChart } from './visualTypes';
 import { TableConditionalPart } from './tableParts';
 import { WaterfallColorsPart } from './waterfallParts';
-import { paletteOf } from '../../../utils/chartPalette';
+import { paletteOf, tintOf, CHART_COLORS_BASIC } from '../../../utils/chartPalette';
 
 const seriesList = { display: 'flex', flexDirection: 'column', gap: 8 };
 const seriesRow = { borderBottom: '1px solid var(--border-subtle)', paddingBottom: 6 };
@@ -125,6 +125,55 @@ function SeriesPart({ widget, updateConfig, inputStyle }) {
 
 // Widget-level colour rules on a measure of the report — the frame (or the
 // figure, per visual) takes the colour of the first rule the value meets.
+// Bars that stand out (utils/highlight): the largest or smallest, those
+// well above the average, or categories by name — a rule on the bars shown,
+// so it holds when the filters change.
+function HighlightPart({ widget, updateConfig, inputStyle }) {
+  const hl = widget.config?.highlight || {};
+  const set = (patch) => updateConfig('highlight', { ...hl, ...patch });
+  const on = hl.enabled === true;
+  return (
+    <SubSection label="Highlight">
+      <Field label="Make bars stand out">
+        <input type="checkbox" checked={on} onChange={(e) => set({ enabled: e.target.checked })} />
+      </Field>
+      {on && (
+        <>
+          <Field label="Which">
+            <select value={hl.mode || 'top'} onChange={(e) => set({ mode: e.target.value })} style={{ ...inputStyle, marginBottom: 0 }}>
+              <option value="top">The largest</option>
+              <option value="bottom">The smallest</option>
+              <option value="above">Above the average by</option>
+              <option value="values">These categories</option>
+            </select>
+          </Field>
+          {(hl.mode || 'top') === 'top' || hl.mode === 'bottom' ? (
+            <Field label="How many">
+              <input type="number" min={1} max={10} value={hl.n ?? 1} onChange={(e) => set({ n: Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1)) })} style={{ ...inputStyle, marginBottom: 0, width: 60 }} />
+            </Field>
+          ) : hl.mode === 'above' ? (
+            <Field label="Over the average (%)">
+              <input type="number" min={5} max={500} value={hl.above ?? 50} onChange={(e) => set({ above: Math.max(5, Math.min(500, parseInt(e.target.value, 10) || 50)) })} style={{ ...inputStyle, marginBottom: 0, width: 60 }} />
+            </Field>
+          ) : (
+            <Field label="Categories">
+              <input type="text" value={(hl.values || []).join(', ')} placeholder="2025-06, Paris"
+                onChange={(e) => set({ values: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })}
+                style={{ ...inputStyle, marginBottom: 0 }} />
+            </Field>
+          )}
+          <Field label="Color">
+            <ColorInput value={hl.color || '#e11d48'} onChange={(v) => set({ color: v })} allowTransparent={false} />
+          </Field>
+          <Field label="Show its value">
+            <input type="checkbox" checked={hl.label === true} onChange={(e) => set({ label: e.target.checked })} />
+          </Field>
+        </>
+      )}
+    </SubSection>
+  );
+}
+
 function ConditionalPart({ ctx }) {
   const { widget, widgetId, onUpdate, binding, updateBinding, updateConfig, fieldInfos, measureInfos, handleAggChange, inputStyle, styles } = ctx;
   const cfg = widget.config || {};
@@ -210,6 +259,35 @@ export default function ColorsSection({ ctx }) {
         <ConditionalPart ctx={ctx} />
       </>
     );
+  } else if (type === 'heatmap' || type === 'map') {
+    // A scale, low to high: the high end leads, the low one is its pale tint
+    // until chosen.
+    const high = cfg.scaleColor || paletteOf(cfg, CHART_COLORS_BASIC)[0];
+    body = (
+      <>
+        <Field label="High values">
+          <ColorInput value={high} onChange={(v) => updateConfig('scaleColor', v)} allowTransparent={false} />
+        </Field>
+        <Field label="Low values">
+          <ColorInput value={cfg.scaleLowColor || tintOf(high)} onChange={(v) => updateConfig('scaleLowColor', v)} allowTransparent={false} />
+        </Field>
+        {type === 'map' && (
+          <>
+            <Field label="No data">
+              <ColorInput value={cfg.mapEmptyColor || '#eef1f5'} onChange={(v) => updateConfig('mapEmptyColor', v)} allowTransparent={false} />
+            </Field>
+            <Field label="Borders">
+              <ColorInput value={cfg.mapBorderColor || '#ffffff'} onChange={(v) => updateConfig('mapBorderColor', v)} allowTransparent={false} />
+            </Field>
+          </>
+        )}
+        {type === 'heatmap' && (
+          <Field label="Cell borders">
+            <ColorInput value={cfg.cellBorderColor || '#ffffff'} onChange={(v) => updateConfig('cellBorderColor', v)} allowTransparent={false} />
+          </Field>
+        )}
+      </>
+    );
   } else if (isChart(type)) {
     body = (
       <>
@@ -219,6 +297,7 @@ export default function ColorsSection({ ctx }) {
           </Field>
         )}
         <SeriesPart widget={widget} updateConfig={updateConfig} inputStyle={inputStyle} />
+        {['bar', 'combo', 'line', 'pie', 'treemap', 'scatter'].includes(type) && <HighlightPart widget={widget} updateConfig={updateConfig} inputStyle={inputStyle} />}
         {type !== 'line' && <GradientPart widget={widget} updateConfig={updateConfig} />}
         <ConditionalPart ctx={ctx} />
       </>

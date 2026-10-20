@@ -28,7 +28,7 @@ passport.serializeUser((user, done) => {
 });
 
 passport.deserializeUser((id, done) => {
-  const user = db.prepare('SELECT id, email, display_name, role FROM users WHERE id = ?').get(id);
+  const user = db.prepare('SELECT id, email, display_name, role, ui_mode FROM users WHERE id = ?').get(id);
   done(null, user || null);
 });
 

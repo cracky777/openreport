@@ -1,0 +1,30 @@
+import { describe, test, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { normalizePlace, indexArea, bestArea, MAP_AREAS } from './geo';
+
+// The files the map widget fetches, read from disk.
+const indexes = Object.fromEntries(MAP_AREAS.map(({ value, file }) => [
+  value,
+  indexArea(value, JSON.parse(readFileSync(new URL(`../../public/geo/${file}`, import.meta.url), 'utf8'))),
+]));
+
+describe('places matched by name', () => {
+  test('accents, case, hyphens and "St" do not get in the way', () => {
+    expect(normalizePlace("Provence-Alpes-Côte d'Azur")).toBe('provence alpes cote d azur');
+    expect(normalizePlace('St-Étienne')).toBe(normalizePlace('Saint-Étienne'));
+  });
+
+  test('each column finds its map: regions, départements, countries in French, towns', () => {
+    expect(bestArea(['Grand Est', 'Nouvelle-Aquitaine', "Provence-Alpes-Côte d'Azur"], indexes)).toBe('fr-regions');
+    expect(bestArea(['Rhône', 'Nord', 'Gironde'], indexes)).toBe('fr-departements');
+    expect(bestArea(['Allemagne', 'Royaume-Uni', 'Espagne', 'France'], indexes)).toBe('world');
+    expect(bestArea(['Lyon', 'Vénissieux', 'Corbas', 'Nice'], indexes)).toBe('fr-communes');
+  });
+
+  test('a town is placed where the most populated of its namesakes is', () => {
+    const lyon = indexes['fr-communes'].get(normalizePlace('Lyon'));
+    expect(lyon.coord[1]).toBeGreaterThan(45.7);
+    expect(lyon.coord[1]).toBeLessThan(45.8);
+    expect(indexes.world.get(normalizePlace('DEU'))).toBe('Germany');
+  });
+});

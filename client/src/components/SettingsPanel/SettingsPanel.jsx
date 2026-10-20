@@ -265,6 +265,32 @@ export default function SettingsPanel({ settings, onSettingsChange, onClose }) {
           </Field>
           {!settings.transparentBg && (
             <>
+              {/* Same shape as a widget's gradientBg; an image, when set, covers it. */}
+              <Field label="Gradient">
+                <input
+                  type="checkbox"
+                  checked={settings.gradientBg?.enabled ?? false}
+                  onChange={(e) => update('gradientBg', { ...(settings.gradientBg || {}), enabled: e.target.checked })}
+                />
+              </Field>
+              {settings.gradientBg?.enabled && (
+                <>
+                  <Field label="Angle (°)">
+                    <input
+                      type="number" min={0} max={360}
+                      value={settings.gradientBg.angle ?? 180}
+                      onChange={(e) => update('gradientBg', { ...settings.gradientBg, angle: parseIntOrNull(e.target.value) })}
+                      style={inputStyle}
+                    />
+                  </Field>
+                  <Field label="Color 1">
+                    <ColorInput value={settings.gradientBg.color1 || '#ffffff'} onChange={(v) => update('gradientBg', { ...settings.gradientBg, color1: v })} allowTransparent={false} />
+                  </Field>
+                  <Field label="Color 2">
+                    <ColorInput value={settings.gradientBg.color2 || '#e2e8f0'} onChange={(v) => update('gradientBg', { ...settings.gradientBg, color2: v })} allowTransparent={false} />
+                  </Field>
+                </>
+              )}
               <Field label="Image">
                 <input
                   type="file"

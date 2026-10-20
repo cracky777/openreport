@@ -1,5 +1,6 @@
 import { useRef, memo, useMemo } from 'react';
 import formatNumber from '../../utils/formatNumber';
+import { barHighlight } from '../../utils/highlight';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
@@ -87,14 +88,16 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
       return Math.max(4, Math.round(4 + ratio * (symbolSize * 3 - 4)));
     };
 
-    const buildData = (pts) => pts.map((p) => ({
+    // A point that stands out (utils/highlight), by its Y value or its name.
+    const buildData = (pts) => { const marks = barHighlight(config, pts.map((p) => p.y), pts.map((p) => p.label)); return pts.map((p, i) => ({
       value: [p.x, p.y],
       _label: p.label,
       _rawLabel: p.label,
       _size: p.size,
       symbolSize: scaleSize(p.size),
-      ...(useGradient ? { itemStyle: { color: getValueColor(p) } } : {}),
-    }));
+      ...(marks.colorAt(i) ? { itemStyle: { color: marks.colorAt(i) } } : useGradient ? { itemStyle: { color: getValueColor(p) } } : {}),
+      ...(marks.labelAt(i) && !showDataLabels ? { label: { show: true } } : {}),
+    })); };
 
     let seriesList;
     if (hasSeries) {
@@ -159,14 +162,14 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
         type: 'value', show: showXAxis,
         name: (config?.showXAxisTitle ?? config?.showXHeader ?? true) ? (config?.xAxisTitle ?? data._xLabel ?? '') : '', nameLocation: 'center', nameGap: 25,
         nameTextStyle: { fontSize: config?.headerFontSize ?? 12, color: config?.headerColor || '#475569', fontWeight: config?.headerBold ? 'bold' : 'normal', fontFamily: headerFontFamily },
-        axisLabel: { show: true, fontSize: config?.xAxisLabelFontSize ?? 11, color: config?.xAxisLabelColor || '#64748b', fontFamily: xAxisFontFamily },
+        axisLabel: { show: true, fontSize: config?.xAxisLabelFontSize ?? 11, color: config?.xAxisLabelColor || '#64748b', fontFamily: xAxisFontFamily, formatter: (v) => formatNumber(v) },
         splitLine: { lineStyle: { type: 'dashed', color: chartTheme.grid } },
       },
       yAxis: {
         type: 'value', show: showYAxis,
         name: (config?.showYAxisTitle ?? config?.showYHeader ?? true) ? (config?.yAxisTitle ?? data._yLabel ?? '') : '', nameLocation: 'center', nameGap: 35,
         nameTextStyle: { fontSize: config?.headerFontSize ?? 12, color: config?.headerColor || '#475569', fontWeight: config?.headerBold ? 'bold' : 'normal', fontFamily: headerFontFamily },
-        axisLabel: { show: true, fontSize: config?.yAxisLabelFontSize ?? 11, color: config?.yAxisLabelColor || '#64748b', fontFamily: yAxisFontFamily },
+        axisLabel: { show: true, fontSize: config?.yAxisLabelFontSize ?? 11, color: config?.yAxisLabelColor || '#64748b', fontFamily: yAxisFontFamily, formatter: (v) => formatNumber(v) },
         splitLine: { lineStyle: { type: 'dashed', color: chartTheme.grid } },
       },
       series: seriesList,
@@ -180,7 +183,7 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
     return { option: opt, legendItems };
     } catch (e) { console.error('ScatterWidget error:', e); return { option: null, legendItems: [] }; }
   }, [data, hasData, config?.color, showXAxis, showYAxis, symbolSize, showDataLabels, config?.dataLabelRotate, config?.dataLabelFontSize, showLegend, legendPosition, hiddenSeries, highlightValue, config?.legendColors, config?.palette, config?.legendSymbols, config?.legendImages, config?.xAxisTitle, config?.yAxisTitle, config?.headerFontSize, config?.headerColor, config?.headerBold, config?.showXHeader, config?.showYHeader, config?.showXAxisTitle, config?.showYAxisTitle, config?.xAxisLabelFontSize, config?.xAxisLabelColor, config?.yAxisLabelFontSize, config?.yAxisLabelColor,
-      config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor, chartTheme.grid]);
+      config?.highlight, config?.valueGradient?.enabled, config?.valueGradient?.minColor, config?.valueGradient?.maxColor, chartTheme.grid]);
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];

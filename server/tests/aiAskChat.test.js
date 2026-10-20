@@ -116,16 +116,16 @@ describe('POST /api/ai/models/:id/chat', () => {
     await chat(owner);
     const { tools } = providers.chat.mock.calls[0][0];
     // read_help comes with the user guide (help.md), when there is one.
-    expect(tools.map((t) => t.name).filter((n) => n !== 'read_help')).toEqual(['query_cached_data', 'propose_widgets', 'propose_action']);
+    expect(tools.map((t) => t.name).filter((n) => n !== 'read_help')).toEqual(['query_cached_data', 'propose_widgets', 'propose_report', 'propose_action', 'ask_user']);
     const item = tools[1].parameters.properties.widgets.items;
-    expect(Object.keys(item.properties)).toEqual(['type', 'subType', 'title', 'answers', 'topN', 'bottomN', 'rankBy', 'filters', 'timePeriod', 'drill', 'sort', 'limit', 'binding', 'rationale']);
+    expect(Object.keys(item.properties)).toEqual(['type', 'subType', 'title', 'fieldNames', 'fieldDecimals', 'answers', 'topN', 'bottomN', 'rankBy', 'filters', 'timePeriod', 'drill', 'sort', 'limit', 'binding', 'rationale']);
   });
 
   test('schema-only sharing offers no data tool', async () => {
     setAiConfig({ dataSharing: 'schema' });
     providers.chat.mockResolvedValueOnce(say('ok'));
     await chat(owner);
-    expect(providers.chat.mock.calls[0][0].tools.map((t) => t.name).filter((n) => n !== 'read_help')).toEqual(['propose_widgets', 'propose_action']);
+    expect(providers.chat.mock.calls[0][0].tools.map((t) => t.name).filter((n) => n !== 'read_help')).toEqual(['propose_widgets', 'propose_report', 'propose_action', 'ask_user']);
   });
 
   // Asked to change the joins, it cannot: it points to the model assistant —
@@ -447,7 +447,8 @@ describe('POST /api/ai/models/:id/chat', () => {
     const res = await chat(owner);
     const [w] = res.body.proposals[0].widgets;
     expect(w.dataBinding.widgetFilters).toBeUndefined();
-    expect(w.config.sortOrder).toBeUndefined();
+    // No ranking asked: no top N — the categories are still sorted by value (dress.js).
+    expect(w.config.sortOrder).toBe('desc');
   });
 
   test('a tool that needs a page is refused', async () => {

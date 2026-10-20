@@ -59,6 +59,27 @@ describe('pointing to the model assistant', () => {
   });
 });
 
+// Data the model lacks is taken as a file in the conversation (AddFileCard),
+// not in the model editor — on a model built on files, by who may change it.
+describe('adding a file to the model', () => {
+  const add = (ctx) => validateActionProposal({ userAsked: 'do', action: 'add_file_to_model', summary: 's', request: 'Sales against budget' }, ctx);
+
+  test('the card, with the request to go on with, for who may change a model on files', () => {
+    expect(add({ canEditModel: true, fileModel: true })).toEqual({ action: { action: 'add_file_to_model', summary: 's', request: 'Sales against budget' }, errors: [] });
+    // Asked how: the card goes with the explanation, it does nothing by itself.
+    expect(validateActionProposal({ userAsked: 'how', action: 'add_file_to_model', summary: 's' }, { canEditModel: true, fileModel: true }).action).toMatchObject({ action: 'add_file_to_model' });
+  });
+
+  test('no card for a model on a database, nor for who cannot change the model', () => {
+    // The source is named: the user hears which database, not "a database".
+    const refused = add({ canEditModel: true, fileModel: false, sourceLabel: 'the BigQuery dataset "shop"' }).errors.join(' ');
+    expect(refused).toMatch(/reads the BigQuery dataset "shop"/);
+    expect(refused).toMatch(/Start a new report/);
+    expect(add({ canEditModel: false, fileModel: true }).errors.join(' ')).toMatch(/owner or an admin/);
+    expect(add({ canEditModel: true, fileModel: true, allowed: ACTIONS_FOR.help }).action).toBeNull();
+  });
+});
+
 // The first steps, from the Assistant panel: forms to open, a model or a report
 // to start. Each assistant hands over only its own; a form may go with a "how?".
 describe('bringing data in and starting a report, as cards', () => {
@@ -79,7 +100,7 @@ describe('bringing data in and starting a report, as cards', () => {
     expect(validateActionProposal(report, { allowed: ACTIONS_FOR.ask }).action).toMatchObject({ action: 'create_report', request: 'Sales by region' });
     expect(validateActionProposal(report, { allowed: ACTIONS_FOR.help }).action).toBeNull();
     // The report editor keeps the two it had.
-    expect(validateActionProposal(report).errors.join(' ')).toMatch(/action must be one of schedule_cache_refresh, open_model_assistant$/);
+    expect(validateActionProposal(report).errors.join(' ')).toMatch(/action must be one of schedule_cache_refresh, open_model_assistant, add_file_to_model, add_image$/);
     expect(validateActionProposal({ userAsked: 'do', action: 'schedule_cache_refresh', frequency: 'daily', summary: 's' }, { allowed: ACTIONS_FOR.help }).action).toBeNull();
   });
 });

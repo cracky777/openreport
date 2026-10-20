@@ -1,5 +1,8 @@
 // The accounting pack offered after the import of books (a FEC, a SAF-T): a
-// model over their `entries` table and one report of six pages. What differs
+// model over their `entries` table — a star: the entries are the fact, joined
+// to the accounts, journals, parties and calendar tables the import writes
+// beside them (accounting/dimensions.js), which another fact can share — and
+// one report of six pages. What differs
 // between charts of accounts comes from charts.js. Built as a plan, like a .pbit import: the
 // client walks the usual create routes (/models/import, /reports/import), so
 // every rule those enforce applies here too.
@@ -31,10 +34,38 @@ function partyRule(chart, side, rule) {
 }
 const partyName = (chart, side) => (chart[`${side}Lines`] ? '' : ` (${chart[`${side}Prefix`]})`);
 
+// Where each field of the books lives in the star: a key's description on
+// its dimension table, the months and the fiscal year on the calendar (so a
+// year slicer reaches every fact that shares it); what is not named here is
+// a column of the entries themselves (their place in the income statement
+// included: the closing entries stand apart from their account's lines).
+const STAR = {
+  CompteNum: ['accounts', 'CompteNum'], CompteLib: ['accounts', 'CompteLib'], Account: ['accounts', 'Account'], AccountClass: ['accounts', 'AccountClass'],
+  JournalCode: ['journals', 'JournalCode'], JournalLib: ['journals', 'JournalLib'],
+  CompAuxNum: ['parties', 'CompAuxNum'], CompAuxLib: ['parties', 'CompAuxLib'],
+  Period: ['calendar', 'YearMonth'], Quarter: ['calendar', 'Quarter'], FiscalYear: ['calendar', 'FiscalYear'],
+};
+const fieldName = (t, c) => (STAR[c] ? `${STAR[c][0]}.${STAR[c][1]}` : `${t}.${c}`);
+const JOINS = (t) => [
+  { from_table: t, from_column: 'CompteNum', to_table: 'accounts', to_column: 'CompteNum' },
+  { from_table: t, from_column: 'JournalCode', to_table: 'journals', to_column: 'JournalCode' },
+  { from_table: t, from_column: 'CompAuxNum', to_table: 'parties', to_column: 'CompAuxNum' },
+  { from_table: t, from_column: 'EcritureDate', to_table: 'calendar', to_column: 'Date' },
+].map((j) => ({ ...j, cardinality: { from: '*', to: '1' } }));
+// The fact in the middle of the diagram, its dimensions on either side.
+const POSITIONS = (t) => ({
+  [t]: { x: 560, y: 200, tableType: 'fact' },
+  accounts: { x: 40, y: 40, tableType: 'dimension' }, journals: { x: 40, y: 360, tableType: 'dimension' },
+  parties: { x: 1080, y: 40, tableType: 'dimension' }, calendar: { x: 1080, y: 360, tableType: 'dimension' },
+});
+
 function buildModelFields(t, name, accounting) {
   const chart = chartOf(accounting);
   const currencyFormat = money(accounting?.currency);
-  const dim = (column, label, type = 'string') => ({ name: `${t}.${column}`, table: t, column, type, label });
+  const dim = (column, label, type = 'string') => {
+    const [table, col] = STAR[column] || [t, column];
+    return { name: fieldName(t, column), table, column: col, type, label };
+  };
   const dimensions = [
     dim('Line', 'P&L line'),
     dim('Section', 'Section'),
@@ -45,9 +76,16 @@ function buildModelFields(t, name, accounting) {
     dim('AccountClass', 'Account class'),
     dim('LineNo', 'Line number', 'integer'),
     dim('Period', 'Month'),
+    dim('Quarter', 'Quarter'),
     dim('FiscalYear', 'Fiscal year', 'integer'),
-    { name: '_date.month_name', table: t, column: 'EcritureDate', type: 'string', label: 'Month name', datePartOf: `${t}.EcritureDate`, datePart: 'name_month' },
-    { name: '_date.year', table: t, column: 'EcritureDate', type: 'integer', label: 'Year', datePartOf: `${t}.EcritureDate`, datePart: 'num_year' },
+    { name: '_date.month_name', table: 'calendar', column: 'Date', type: 'string', label: 'Month name', datePartOf: 'calendar.Date', datePart: 'name_month' },
+    { name: '_date.year', table: 'calendar', column: 'Date', type: 'integer', label: 'Year', datePartOf: 'calendar.Date', datePart: 'num_year' },
+    { name: 'calendar.Date', table: 'calendar', column: 'Date', type: 'date', label: 'Date' },
+    // The same classification carried by the account itself, for any other fact joined to the accounts (a budget).
+    { name: 'accounts.Statement', table: 'accounts', column: 'Statement', type: 'string', label: 'Statement (account)', description: 'The statement the account belongs to, carried by the account: use it to read a budget or any fact joined to the accounts by statement. The entries have their own Statement, where closing entries stand apart.' },
+    { name: 'accounts.Section', table: 'accounts', column: 'Section', type: 'string', label: 'Section (account)', description: 'The section of the account itself, for a budget or any fact joined to the accounts.' },
+    { name: 'accounts.Line', table: 'accounts', column: 'Line', type: 'string', label: 'P&L line (account)', description: 'The income statement line of the account itself: a budget by line, a budgeted EBITDA (lines up to its number) or net income, is read through it.' },
+    { name: 'accounts.LineNo', table: 'accounts', column: 'LineNo', type: 'integer', label: 'Line number (account)', description: 'The number of that line, in the order of the income statement: a budgeted total is the budget on the lines up to the number of its line.' },
     dim('EcritureDate', 'Entry date', 'date'),
     dim('JournalCode', 'Journal code'),
     dim('JournalLib', 'Journal'),
@@ -64,9 +102,9 @@ function buildModelFields(t, name, accounting) {
   ];
 
   const col = (c) => `"${t}"."${c}"`;
-  const rule = (field, op, value, values = []) => ({ field: `${t}.${field}`, isMeasure: false, op, value, values });
+  const rule = (field, op, value, values = []) => ({ field: fieldName(t, field), isMeasure: false, op, value, values });
   const upToLine = (no) => [rule('LineNo', 'lte', String(no))];
-  const amount = (name, label, filterRules) => ({ name, label, table: t, column: 'Amount', aggregation: 'sum', dataType: 'decimal', format: currencyFormat, ...(filterRules ? { filterRules, overrideFilters: false } : {}) });
+  const amount = (name, label, filterRules, description) => ({ name, label, table: t, column: 'Amount', aggregation: 'sum', dataType: 'decimal', format: currencyFormat, ...(description ? { description } : {}), ...(filterRules ? { filterRules, overrideFilters: false } : {}) });
   const signFlipped = (name, label, filterRules, description) => ({ name, label, table: '', column: '', aggregation: 'custom', expression: `-SUM(${col('Amount')})`, format: currencyFormat, filterRules, overrideFilters: false, description });
 
   const measures = [
@@ -74,25 +112,25 @@ function buildModelFields(t, name, accounting) {
     { name: `${t}.Debit_sum`, label: 'Debit', table: t, column: 'Debit', aggregation: 'sum', dataType: 'decimal', format: currencyFormat },
     { name: `${t}.Credit_sum`, label: 'Credit', table: t, column: 'Credit', aggregation: 'sum', dataType: 'decimal', format: currencyFormat },
     { name: '_calc.balance', label: 'Balance', table: '', column: '', aggregation: 'custom', expression: `SUM(${col('Debit')}) - SUM(${col('Credit')})`, format: currencyFormat, description: 'Debit minus credit, as a trial balance shows it.' },
-    amount('_calc.revenue', 'Revenue', [rule('LineNo', 'in', '', chart.REVENUE_LINES.map(String))]),
+    amount('_calc.revenue', 'Revenue', [rule('LineNo', 'in', '', chart.REVENUE_LINES.map(String))], `Actual revenue: the sales lines of the income statement (line number${chart.REVENUE_LINES.length > 1 ? 's' : ''} ${chart.REVENUE_LINES.join(', ')}). A budget of sales is the budget on the same line numbers of the accounts.`),
     signFlipped('_calc.expenses', 'Expenses', [rule('LineNo', 'in', '', expenseLines(chart).map(String))], 'The expense lines of the income statement, as a positive amount.'),
-    ...chart.TOTALS.map((s) => amount(`_calc.${s.key}`, s.label, upToLine(s.afterLine))),
+    ...chart.TOTALS.map((s) => amount(`_calc.${s.key}`, s.label, upToLine(s.afterLine), `Actual ${s.label.toLowerCase()}: the income statement added up down to line number ${s.afterLine}. Its budget is the budget on the accounts whose line number is ${s.afterLine} or less.`)),
     { name: '_calc.netMargin', label: 'Net margin', table: '', column: '', aggregation: 'custom', expression: '${_calc.netIncome} * 100.0 / NULLIF(${_calc.revenue}, 0)', format: { decimals: 1, thousandSep: ' ', prefix: '', suffix: ' %' } },
     signFlipped('_calc.receivables', 'Customer balance', [partyRule(chart, 'receivable', rule)], 'What customers owe: debit minus credit of their accounts.'),
     amount('_calc.payables', 'Supplier balance', [partyRule(chart, 'payable', rule)]),
   ];
   // Income and expenses alike are added up as credit − debit: an income line
   // is positive, an expense negative, and their sum is the result.
-  measures[0].description = 'Credit minus debit: income positive, expenses negative.';
+  measures[0].description = 'Credit minus debit of every line, income positive, expenses negative. Over all accounts it adds up to ZERO (every entry balances): never the actual on its own — use Revenue, Expenses, EBITDA, Operating income, Net income, or this amount filtered on a Statement, a Section or a P&L line.';
 
   return {
     name,
     description: chart.origin,
-    selected_tables: [t],
-    table_positions: {},
+    selected_tables: [t, 'accounts', 'journals', 'parties', 'calendar'],
+    table_positions: POSITIONS(t),
     dimensions,
     measures,
-    joins: [],
+    joins: JOINS(t),
     rls: {},
     column_types: {},
     date_column: `${t}.EcritureDate`,
@@ -115,7 +153,7 @@ function makePage(id, name) {
 // cards); with several years a page compares them side by side.
 function buildReport(t, { title, accounting }) {
   const chart = chartOf(accounting);
-  const f = (c) => `${t}.${c}`;
+  const f = (c) => fieldName(t, c);
   const filterOn = (c, op, value, values = []) => ({ field: f(c), isMeasure: false, op, value, values });
   const incomeStatement = filterOn('Statement', 'in', '', ['Income statement']);
   const expensesOnly = filterOn('LineNo', 'in', '', expenseLines(chart).map(String));
@@ -140,13 +178,15 @@ function buildReport(t, { title, accounting }) {
 
   // Slicers sit right-aligned on the title row. A year slicer picks one year
   // and opens on the latest; a search slicer filters on the text typed.
-  const yearSlicer = { dim: 'FiscalYear', title: 'Fiscal year', w: 150, config: { slicerStyle: 'dropdown', multiSelect: false, opensOn: 'latest', showSearch: false } };
+  // The calendar runs years ahead of the books (a budget may use them): the
+  // slicer lists the books' own years, else it opened on an empty 2030.
+  const yearSlicer = { dim: 'FiscalYear', title: 'Fiscal year', w: 150, config: { slicerStyle: 'dropdown', multiSelect: false, opensOn: 'latest', showSearch: false }, filters: years.length ? [filterOn('FiscalYear', 'in', '', years.map(String))] : [] };
   const searchSlicer = (dim, title, w = 220, searchMatch = 'contains') => ({ dim, title, w, config: { slicerStyle: 'search', searchMatch, searchPlaceholder: `Search ${title.toLowerCase()}…` } });
   const header = (page, text, slicers = []) => {
     let right = 1124;
     for (const sl of slicers) {
       right -= sl.w;
-      page.add(right, 4, sl.w, 64, { type: 'filter', dataBinding: { selectedDimensions: [f(sl.dim)] }, config: { title: sl.title, transparentBg: true, borderEnabled: false, ...sl.config } });
+      page.add(right, 4, sl.w, 64, { type: 'filter', dataBinding: { selectedDimensions: [f(sl.dim)], ...(sl.filters && sl.filters.length ? { widgetFilters: sl.filters } : {}) }, config: { title: sl.title, transparentBg: true, borderEnabled: false, ...sl.config } });
       right -= 16;
     }
     page.add(16, 12, right - 16, 48, { type: 'text', data: { text }, config: { fontSize: 22, textAlign: 'left', color: 'var(--text-primary)', transparentBg: true, borderEnabled: false } });
@@ -296,7 +336,12 @@ function buildReport(t, { title, accounting }) {
 // `tableName`: the books' table in the source; `modelName`: a name still free.
 function buildFecPack({ datasourceName, tableName, accounting, modelName }) {
   const fields = buildModelFields(tableName, modelName, accounting);
-  const title = `${datasourceName} — Accounts`;
+  // Named after the company and its years, not after the file: a FEC carries
+  // no company name, so the SIREN stands for it until the author renames the report.
+  const years = Array.isArray(accounting?.years) && accounting.years.length ? accounting.years : (accounting?.fiscalYear ? [accounting.fiscalYear] : []);
+  const span = years.length > 1 ? `${years[0]}–${years[years.length - 1]}` : years[0] || '';
+  const who = accounting?.companyId || accounting?.siren || datasourceName;
+  const title = `Accounts ${span} · ${who}`.replace(/\s+·/, ' ·').trim();
   return {
     model: { name: modelName, yaml: modelToYaml(fields, datasourceName) },
     report: { title, bundle: buildReport(tableName, { title, accounting }) },

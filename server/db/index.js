@@ -61,6 +61,9 @@ safeMigrate("ALTER TABLE reports ADD COLUMN cache_built_at TEXT");
 // 1 until the report's first save: a report created and never saved is listed
 // nowhere, and deleted when its editor is left (utils/reportDrafts.js).
 safeMigrate("ALTER TABLE reports ADD COLUMN draft INTEGER NOT NULL DEFAULT 0");
+// 1 on a draft whose model was made for it (files dropped in Chat mode): the
+// model goes with the draft, or it stays behind as an orphan.
+safeMigrate("ALTER TABLE reports ADD COLUMN owns_model INTEGER NOT NULL DEFAULT 0");
 safeMigrate("ALTER TABLE datasources ADD COLUMN extra_config TEXT DEFAULT '{}'");
 safeMigrate("ALTER TABLE models ADD COLUMN date_column TEXT DEFAULT ''");
 safeMigrate("ALTER TABLE models ADD COLUMN rls TEXT NOT NULL DEFAULT '{}'");
@@ -95,6 +98,8 @@ safeMigrate("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc ON users(oidc_iss,
 // encrypted like a datasource password. On the row, so both go with the account.
 safeMigrate("ALTER TABLE users ADD COLUMN ai_denied INTEGER NOT NULL DEFAULT 0");
 safeMigrate("ALTER TABLE users ADD COLUMN ai_config TEXT");
+// Build or Chat: the face of the app this account opens on (routes/auth.js, /me/ui-mode).
+safeMigrate("ALTER TABLE users ADD COLUMN ui_mode TEXT");
 // 👍 / 👎 on the assistant's answers (utils/ai/feedback.js). The question and the
 // shape of the proposal only — never the answer's text, which can quote data.
 db.exec(`CREATE TABLE IF NOT EXISTS ai_feedback (
@@ -117,6 +122,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS ai_feedback (
 // re-queries the source only for the last N months and carries the older
 // partition rows over from the previous generation file.
 safeMigrate("ALTER TABLE models ADD COLUMN incremental_months INTEGER");
+// The business domains of a model (utils/ai/domains): JSON list of catalogue
+// ids. The fields' own roles, synonyms and descriptions sit on the
+// dimensions / measures JSON (utils/glossary.js).
+safeMigrate("ALTER TABLE models ADD COLUMN domains TEXT NOT NULL DEFAULT '[]'");
 // Home workspace of sources and models (utils/workspaceAccess.js). Rows
 // without one are rehomed into their owner's personal workspace at boot
 // (personalWorkspace.backfillPersonalWorkspaces) or lazily on first read.

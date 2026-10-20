@@ -1,5 +1,6 @@
 import { memo, useMemo, useState } from 'react';
-import { pivotData, flattenHeaderLevels, resolveCell } from '../../utils/pivotEngine';
+import { hexToRgba } from '../../utils/chartPalette';
+import { pivotData, flattenHeaderLevels, resolveCell, rebuildTotal } from '../../utils/pivotEngine';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration } from '../../utils/formatHuman';
 import { fontStack, loadGoogleFont } from '../../utils/googleFonts';
@@ -75,13 +76,14 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate, on
   const measures = data?._measures || [];
   const hasData = rawRows?.length > 0 && measures.length > 0;
 
-  // SUM/COUNT atoms of the averages the server decomposed, keyed by measure.
-  // Accumulated alongside the measures so any total — cell, row, column,
-  // sub-total, grand — can be rebuilt as Σsum/Σcount.
+  // The atoms the server appended, keyed by measure: SUM/COUNT of an average,
+  // the two parts of a difference or a ratio. Accumulated alongside the
+  // measures so any total — cell, row, column, sub-total, grand — is rebuilt
+  // from them (pivotEngine.rebuildTotal).
   const totalComponents = data?._totalComponents || null;
   const totalComponentCols = useMemo(() => (
     totalComponents
-      ? Object.values(totalComponents).flatMap((c) => [c.sum, c.count])
+      ? Object.values(totalComponents).flatMap((c) => (c.op ? [c.left, c.right] : [c.sum, c.count]))
       : []
   ), [totalComponents]);
 
@@ -216,6 +218,33 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate, on
     walk(rowTree);
     return out;
   }, [pivot, rowTree, measures, tc.columns]);
+  // A heatmap (`config.heatmap`, set by the author or the designer): each
+  // cell of the body tinted by its value among the measure's cells — two
+  // dimensions crossed read at a glance. A conditional rule still wins.
+  const heat = config?.heatmap?.enabled ? config.heatmap : null;
+  const heatRange = useMemo(() => {
+    if (!heat || !pivot) return {};
+    const out = {};
+    for (const rows of Object.values(pivot.cellMap || {})) {
+      for (const cells of Object.values(rows || {})) {
+        for (const m of measures) {
+          const v = Number(resolveCell(cells?.[m], pivot.getFn(m)));
+          if (!Number.isFinite(v)) continue;
+          const r = out[m] || (out[m] = { min: v, max: v });
+          r.min = Math.min(r.min, v); r.max = Math.max(r.max, v);
+        }
+      }
+    }
+    return out;
+  }, [heat, pivot, measures]);
+  const heatStyle = (m, value) => {
+    const r = heatRange[m];
+    const v = Number(value);
+    if (!heat || !r || !Number.isFinite(v)) return {};
+    const k = r.max > r.min ? (v - r.min) / (r.max - r.min) : 0.5;
+    const alpha = 0.08 + 0.77 * k;
+    return { backgroundColor: hexToRgba(heat.color || '#2563eb', Math.round(alpha * 100)), ...(alpha > 0.55 ? { color: '#ffffff' } : {}) };
+  };
   const conditionalStyle = (m, depth, value) => {
     const rules = tc.columns?.[m]?.conditionalFormatting;
     return rules?.length ? (getConditionalStyle(rules, value, levelValues[m]?.[depth] || []).style || {}) : {};
@@ -258,10 +287,8 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate, on
     // operations on the displayed values — and every one of those is wrong on a
     // column of averages. That setting still governs the measures with no atoms.
     if (comp) {
-      const s = resolveCell(accs?.[comp.sum], 'sum');
-      const n = resolveCell(accs?.[comp.count], 'sum');
-      // n = 0 means every value under this total was NULL: empty, not zero.
-      return (s == null || !n) ? '' : formatVal(s / n, measure);
+      const v = rebuildTotal(comp, accs);
+      return v == null ? '' : formatVal(v, measure);
     }
     if (nonAdditive.has(measure)) return '—';
     return formatVal(resolveCell(accs?.[measure], getFn(measure)), measure);
@@ -413,7 +440,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate, on
               {li === 0 && (
                 <th rowSpan={colLevels.length + (numMeasures > 1 ? 1 : 0)}
                   style={{ ...getHeaderStyle('Rows', 0), minWidth: 160, backgroundColor: 'var(--accent-primary-soft)', color: 'var(--accent-primary-text)' }}>
-                  {getColumnDisplayName(tc, 'Rows') !== 'Rows' ? getColumnDisplayName(tc, 'Rows') : rowDims.join(' / ')}
+                  {getColumnDisplayName(tc, 'Rows') !== 'Rows' ? getColumnDisplayName(tc, 'Rows') : rowDims.map((d) => getColumnDisplayName(tc, d)).join(' / ')}
                   {renderResizeHandle('Rows')}
                 </th>
               )}
@@ -468,7 +495,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate, on
           {colDims.length === 0 && (
             <tr>
               <th style={{ ...getHeaderStyle('Rows'), minWidth: 160, backgroundColor: 'var(--accent-primary-soft)', color: 'var(--accent-primary-text)' }}>
-                {getColumnDisplayName(tc, 'Rows') !== 'Rows' ? getColumnDisplayName(tc, 'Rows') : rowDims.join(' / ')}
+                {getColumnDisplayName(tc, 'Rows') !== 'Rows' ? getColumnDisplayName(tc, 'Rows') : rowDims.map((d) => getColumnDisplayName(tc, d)).join(' / ')}
                 {renderResizeHandle('Rows')}
               </th>
               {measures.map((m, mi) => (
@@ -606,6 +633,7 @@ export default memo(function PivotTableWidget({ data, config, onConfigUpdate, on
                         padding: cellPad, textAlign: 'right', fontSize: 12,
                         color: 'var(--text-secondary)', borderBottom: hBorder, borderRight: vBorder,
                         ...(valueCellWrapStyle(m) || {}),
+                        ...heatStyle(m, val),
                         ...conditionalStyle(m, node.depth, val),
                       }}>
                         {formatVal(val, m)}

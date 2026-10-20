@@ -4,6 +4,7 @@ import { ThemeProvider } from './hooks/useTheme';
 import { GraphProvider } from './hooks/useGraph';
 import Login from './pages/Login';
 import Editor from './pages/Editor';
+import AiStudio from './pages/AiStudio';
 import Viewer from './pages/Viewer';
 import ModelEditor from './pages/ModelEditor';
 import Admin from './pages/Admin';
@@ -70,7 +71,9 @@ const router = createBrowserRouter([
       // screen. They stay separate routes so deep links and the editors' back
       // buttons keep working.
       { path: '/', element: <PrivateRoute><AppShell step="reports" /></PrivateRoute> },
+      { path: '/chat', element: <PrivateRoute><AiStudio /></PrivateRoute> },
       { path: '/edit/:id', element: <PrivateRoute><Editor /></PrivateRoute> },
+      { path: '/studio/:id', element: <PrivateRoute><AiStudio /></PrivateRoute> },
       { path: '/datasources', element: <PrivateRoute><AppShell step="sources" /></PrivateRoute> },
       { path: '/models', element: <PrivateRoute><AppShell step="models" /></PrivateRoute> },
       { path: '/models/:id', element: <PrivateRoute><ModelEditor /></PrivateRoute> },

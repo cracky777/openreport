@@ -30,6 +30,7 @@ function modelToYaml(model, datasourceName, linkedSources = []) {
     ...(linkedSources.length ? { linked_sources: linkedSources.map((l) => ({ alias: l.alias, datasource: l.name })) } : {}),
     date_column: model.date_column || null,
     incremental_months: model.incremental_months || null,
+    ...(Array.isArray(model.domains) && model.domains.length ? { domains: model.domains } : {}),
     tables: model.selected_tables || [],
     dimensions: model.dimensions || [],
     measures: model.measures || [],
@@ -124,6 +125,9 @@ function yamlToModelFields(text) {
   if (doc.date_column != null && typeof doc.date_column !== 'string') {
     throw new Error('"date_column" must be a string');
   }
+  if (doc.domains != null && !(Array.isArray(doc.domains) && doc.domains.every((d) => typeof d === 'string'))) {
+    throw new Error('"domains" must be a list of domain ids');
+  }
   const linked = doc.linked_sources ?? [];
   // An alias is written into table names and SQL: an identifier, never "__".
   const validLink = (l) => isPlainObject(l) && typeof l.datasource === 'string'
@@ -145,6 +149,7 @@ function yamlToModelFields(text) {
     table_positions: doc.table_positions || {},
     date_column: doc.date_column || null,
     incremental_months: months || null,
+    domains: doc.domains || [],
   };
 }
 

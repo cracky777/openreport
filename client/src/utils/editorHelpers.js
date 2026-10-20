@@ -39,6 +39,7 @@ export function convertData(data, fromType, toType) {
     case 'pie':
     case 'treemap':
     case 'waterfall':
+    case 'map':
       return { items: labels.map((name, i) => ({ name, value: values[i] || 0 })) };
     case 'table':
       return {
@@ -54,6 +55,7 @@ export function convertData(data, fromType, toType) {
     case 'pivotTable':
     case 'scatter':
     case 'combo':
+    case 'heatmap':
       // Needs specific data format — clear data to force a refetch
       return {};
     default:

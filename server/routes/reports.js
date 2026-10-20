@@ -2,7 +2,7 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { authFor } = require('../middleware/auth');
 const db = require('../db');
-const { purgeStaleDrafts, withoutDrafts } = require('../utils/reportDrafts');
+const { purgeStaleDrafts, dropDraft, withoutDrafts } = require('../utils/reportDrafts');
 const { ensurePersonalWorkspace } = require('../utils/personalWorkspace');
 const { getPublicSharingPolicy } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
@@ -13,6 +13,7 @@ const usage = require('../utils/usage');
 const { parseModel } = require('../db/modelRow');
 const { appendWidgets } = require('../utils/reportAppend');
 const { buildEffectiveModel } = require('../utils/ai/effectiveModel');
+const { formatOverrides } = require('../utils/ai/dress');
 const { validateWidgetsProposal } = require('../utils/ai/validateProposal');
 const { layoutNew } = require('../utils/ai/arrangeLayout');
 const { shapingArgsOf } = require('../utils/ai/widgetShaping');
@@ -275,10 +276,10 @@ function rejectIfReportTitleTaken(workspaceId, title, res, excludeId) {
 //
 // Suffixes " (2)", " (3)"… and keeps counting, so the free slot left by a
 // deleted "(2)" is reused rather than skipped.
-function uniqueReportTitle(workspaceId, title) {
+function uniqueReportTitle(workspaceId, title, excludeId = null) {
   const base = typeof title === 'string' ? title.trim() : '';
   if (!base || !workspaceId) return base;
-  const taken = (t) => !!db.prepare('SELECT id FROM reports WHERE workspace_id = ? AND title = ? COLLATE NOCASE AND draft = 0').get(workspaceId, t);
+  const taken = (t) => !!db.prepare(`SELECT id FROM reports WHERE workspace_id = ? AND title = ? COLLATE NOCASE AND draft = 0${excludeId ? ' AND id != ?' : ''}`).get(...[workspaceId, t, ...(excludeId ? [excludeId] : [])]);
   if (!taken(base)) return base;
   // Bounded: a workspace that somehow holds 999 of the same name gets the
   // plain title back and the usual uniqueness error, rather than a hung loop.
@@ -390,6 +391,8 @@ router.get('/:id', (req, res) => {
       widgets,
       settings: parsedSettings,
       pages,
+      // Lets the Viewer offer its way to the editor to those who may use it.
+      can_edit: !!req.user && canEditReport(report, req.user, req),
     },
   });
 });
@@ -578,7 +581,7 @@ router.post('/import', authFor('read'), (req, res) => {
 // Create report
 router.post('/', authFor('read'), (req, res) => {
   const id = uuidv4();
-  const { title, modelId, workspaceId, settings, autoTitle, draft } = req.body;
+  const { title, modelId, workspaceId, settings, autoTitle, draft, ownsModel: madeForIt } = req.body;
 
   if (!modelId) {
     return res.status(400).json({ error: 'A data model is required' });
@@ -613,8 +616,12 @@ router.post('/', authFor('read'), (req, res) => {
   // A blank report from the "New report" dialog is a draft until its first
   // save; one that arrives with content (duplicate, import, the assistant) is not.
   purgeStaleDrafts();
-  db.prepare('INSERT INTO reports (id, user_id, model_id, title, workspace_id, settings, draft) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-    id, req.user.id, modelId, finalTitle || 'Untitled Report', targetWs, initialSettings, draft === true ? 1 : 0
+  // A model may go with the draft only when its caller could delete it and no
+  // report stands on it yet: never someone's model reached by a forged flag.
+  const ownsModel = draft === true && madeForIt === true && canWriteModel(model, req.user, req)
+    && wsAccess.canManageModel(model, wsAccess.actorOf(req)) && !db.prepare('SELECT 1 FROM reports WHERE model_id = ? LIMIT 1').get(modelId);
+  db.prepare('INSERT INTO reports (id, user_id, model_id, title, workspace_id, settings, draft, owns_model) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+    id, req.user.id, modelId, finalTitle || 'Untitled Report', targetWs, initialSettings, draft === true ? 1 : 0, ownsModel ? 1 : 0
   );
   stampNewReport(req, id);
 
@@ -670,7 +677,8 @@ router.put('/:id', authFor('read'), (req, res) => {
     return res.status(403).json({ error: 'Not authorized for this model' });
   }
 
-  const { title, layout, widgets, settings, is_public, live_mode, workspace_id, pages } = req.body;
+  const { layout, widgets, settings, is_public, live_mode, workspace_id, pages } = req.body;
+  let { title } = req.body;
 
 
   // Publishing exposes the MODEL, not just this report: /query answers anonymous
@@ -702,9 +710,12 @@ router.put('/:id', authFor('read'), (req, res) => {
     // Landing where it was shared: the share becomes its home.
     db.prepare('DELETE FROM workspace_reports WHERE report_id = ? AND workspace_id = ?').run(req.params.id, workspace_id);
   }
-  // Title stays unique within the (possibly new) workspace.
-  if (title !== undefined
-    && rejectIfReportTitleTaken(workspace_id !== undefined ? workspace_id : report.workspace_id, title, res, req.params.id)) return;
+  // Title stays unique within the (possibly new) workspace. One the app or the
+  // assistant gave (`autoTitle`: the studio's report named by its card) takes a
+  // free "(2)" instead — Save was refused over a name nobody typed.
+  const targetWs = workspace_id !== undefined ? workspace_id : report.workspace_id;
+  if (title !== undefined && req.body.autoTitle === true) title = uniqueReportTitle(targetWs, title, req.params.id) || title;
+  else if (title !== undefined && rejectIfReportTitleTaken(targetWs, title, res, req.params.id)) return;
 
   // Only build a settings payload when the caller actually supplied one.
   // Returning null lets the COALESCE keep the existing row value — otherwise
@@ -775,6 +786,18 @@ router.put('/:id', authFor('read'), (req, res) => {
 // browser holds of an assistant proposal, so it is trusted no more than the
 // model's own arguments were: rebuilt through the same validator, against the
 // model as THIS report sees it, and placed by the server. All or nothing.
+// The formats the assistant's visuals need for measures the model leaves bare
+// (utils/ai/dress.js), under the report's own overrides, which win.
+function withFormats(settings, widgets, effective) {
+  const added = formatOverrides(widgets, effective);
+  if (!Object.keys(added).length) return settings;
+  const current = settings.measureOverrides || {};
+  const merged = { ...current };
+  // What the user asked the assistant for (`chosen`) wins over them.
+  for (const [name, { chosen, ...patch }] of Object.entries(added)) merged[name] = { ...patch, ...(current[name] || {}), ...(chosen || {}) };
+  return { ...settings, measureOverrides: merged };
+}
+
 router.post('/:id/widgets', authFor('read'), (req, res) => {
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
   if (!report || !canAccessReport(report, req.user, req)) return res.status(404).json({ error: 'Report not found' });
@@ -807,7 +830,7 @@ router.post('/:id/widgets', authFor('read'), (req, res) => {
     // written over.
     const fresh = db.prepare('SELECT layout, widgets, settings FROM reports WHERE id = ?').get(report.id);
     const next = appendWidgets(
-      { settings: JSON.parse(fresh.settings), layout: JSON.parse(fresh.layout), widgets: JSON.parse(fresh.widgets) },
+      { settings: withFormats(JSON.parse(fresh.settings), widgets, effective), layout: JSON.parse(fresh.layout), widgets: JSON.parse(fresh.widgets) },
       widgets, { pageId }, uuidv4,
     );
     snapshotReportVersion(report.id, req.user.id);
@@ -962,8 +985,7 @@ router.delete('/:id/draft', authFor('read'), (req, res) => {
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
   if (!report || !canAccessReport(report, req.user, req)) return res.status(404).json({ error: 'Report not found' });
   if (!canWriteReport(report, req.user, req)) return res.status(403).json({ error: 'Access denied' });
-  const { changes } = db.prepare('DELETE FROM reports WHERE id = ? AND draft = 1').run(req.params.id);
-  res.json({ deleted: changes > 0 });
+  res.json({ deleted: dropDraft(req.params.id) > 0 });
 });
 
 router.delete('/:id', authFor('read'), (req, res) => {

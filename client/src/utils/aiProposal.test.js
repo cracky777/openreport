@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyWidgetsProposal, applyDesignProposal, applyVisualProposal, samplePreviewData, buildPageContext, unknownFields, describeProposal, describeShaping,
-  keepChoices, designChoice,
+  keepChoices, designChoice, describeUnderstood, withMeasureFormats, applyDesignToPages,
 } from './aiProposal';
 
 const widgetTypes = {
@@ -154,11 +154,14 @@ describe('buildPageContext', () => {
       palette: ['#5470c6'],
     });
     expect(ctx).toEqual({
+      pageId: null,
+      pageName: '',
       pageWidth: 1140,
       pageHeight: 800,
       themes: ['light', 'dark'],
       theme: 'dark',
       pageBackground: '#000000',
+      pageNav: {},
       palette: ['#5470c6'],
       widgets: [{
         id: 'a', type: 'bar', title: 'T', dataBinding: { selectedMeasures: ['m'] },
@@ -167,7 +170,22 @@ describe('buildPageContext', () => {
         shape: { slicerStyle: undefined, orientation: undefined, dateLayout: undefined, subType: undefined },
         merged: true,
       }],
+      // No other page given: none sent.
+      otherPages: [],
     });
+  });
+
+  // Their layout goes to the server, which sets a visual added to one of them
+  // into it; the prompt leaves it out (server prompt.js).
+  it('sends the other pages with their look and layout, never their rows', () => {
+    const ctx = buildPageContext({
+      layout: [], widgets: {}, pageWidth: 1140, pageHeight: 800, settings: {}, themes: {}, palette: [],
+      otherPages: [{ id: 'p2', name: 'Costs', layout: [{ i: 'b', x: 10, y: 10, w: 100, h: 80 }], widgets: { b: { type: 'line', config: { title: 'Cost', color: '#000000' }, data: { rows: [1] } } } }],
+    });
+    expect(ctx.otherPages).toEqual([{ id: 'p2', name: 'Costs', widgets: [{
+      id: 'b', type: 'line', title: 'Cost', dataBinding: {}, layout: { x: 10, y: 10, w: 100, h: 80 }, config: { title: 'Cost', color: '#000000' },
+      shape: { slicerStyle: undefined, orientation: undefined, dateLayout: undefined, subType: undefined }, merged: false,
+    }] }]);
   });
 });
 
@@ -201,6 +219,14 @@ describe('applyDesignProposal', () => {
     expect(out.widgets.a.dataBinding).toEqual({ selectedMeasures: ['m'] });
     expect(out.layout[0]).toEqual({ i: 'a', x: 20, y: 120, w: 400, h: 300, z: 4 });
     expect(out).toMatchObject({ settings: null, applied: 3, skipped: 0 });
+  });
+
+  it('a box below the page is kept, and the page grows to the height the server measured', () => {
+    const out = applyDesignProposal({ pageHeight: 1300, ops: [{ op: 'move', widgetId: 'a', x: 20, y: 900, w: 400, h: 300 }] }, state());
+    expect(out.layout[0]).toMatchObject({ i: 'a', x: 20, y: 900, w: 400, h: 300 });
+    expect(out.settings.pageHeight).toBe(1300);
+    // A height no larger than the page's changes nothing.
+    expect(applyDesignProposal({ pageHeight: 10, ops: [{ op: 'update_config', widgetId: 'a', set: { title: 'T' } }] }, state()).settings).toBeNull();
   });
 
   it('never writes a key outside the look, nor a non-hex color', () => {
@@ -265,6 +291,9 @@ describe('describeProposal', () => {
     expect(describeProposal(bar)).toBe('[Proposed — not applied yet: bar/stacked "Sales" {"selectedDimensions":["t.d"],"selectedMeasures":["t.m"]}]');
     expect(describeProposal(bar, 'dismissed')).toContain('dismissed by the user');
     expect(describeProposal({ kind: 'design', summary: 'KPI first.', ops: [{}, {}] }, 'applied')).toBe('[Proposed — applied by the user: 2 design change(s): KPI first.]');
+    // The review's own verdict: the model is told what the user did with it.
+    expect(describeProposal({ kind: 'undo', reason: 'The trend fell to the bottom.' }, 'applied')).toBe('[Offered to undo the change (The trend fell to the bottom.) — the user took the change back]');
+    expect(describeProposal({ kind: 'undo', reason: '' }, 'dismissed')).toContain('the user kept the change');
   });
 
   it('never carries the code of a generated visual, and stays short', () => {
@@ -312,7 +341,7 @@ describe('design: colors beyond the series', () => {
 
   it('the page context carries the table look, not the columns', () => {
     const ctx = buildPageContext({ ...state, palette: [] });
-    expect(ctx.widgets[0].config.tableConfig).toEqual({ header: { bgColor: '#f8fafc' }, rows: { striped: true } });
+    expect(ctx.widgets[0].config.tableConfig).toEqual({ header: { bgColor: '#f8fafc', fontSize: 14 }, rows: { striped: true } });
   });
 });
 describe('design: report settings that change nothing', () => {
@@ -408,5 +437,98 @@ describe('unticking lines of a card', () => {
   it('the next turn hears only what was kept, and that the rest was turned down', () => {
     const kept = keepChoices(design, new Set(['scheme', 'layout']));
     expect(describeProposal(design, { status: 'partial', kept })).toBe('[Proposed — partly applied by the user — only what follows was kept, the rest turned down: 1 design change(s): s]');
+  });
+});
+
+describe('the guided path on the cards', () => {
+  it('a question is recorded for the next turn, the answer being the user\'s own message', () => {
+    expect(describeProposal({ kind: 'question', question: 'Which trade?', options: [{ label: 'E-commerce', value: 'ecommerce' }, { label: 'Retail' }] }, 'answered'))
+      .toBe('[Asked the user: "Which trade?" — options: E-commerce | Retail]');
+  });
+
+  it('what was understood reads as one line, fields by their labels', () => {
+    const model = { dimensions: [{ name: 'orders.utm', label: 'UTM' }], measures: [] };
+    expect(describeUnderstood({ domain: { id: 'ecommerce', label: 'E-commerce' }, objective: { id: 'acquisition', label: 'Acquisition' }, roles: [{ role: 'ecommerce.source', label: 'Acquisition source', field: 'orders.utm' }, { role: 'x', label: 'Other', field: 'ghost' }] }, model))
+      .toBe('Understood: E-commerce · Acquisition · Acquisition source = UTM · Other = ghost');
+    expect(describeUnderstood(null, model)).toBe('');
+    expect(describeUnderstood({ roles: [] }, model)).toBe('');
+  });
+});
+
+describe('a whole report on the card', () => {
+  it('reads back with its pages and what the user did', () => {
+    const report = { kind: 'report', title: 'Shop', pages: [{ name: 'Overview', widgets: [{}, {}] }, { name: 'Products', widgets: [{}] }] };
+    expect(describeProposal(report)).toBe('[Proposed report — not created yet: "Shop", pages: Overview (2 visuals); Products (1 visuals)]');
+    expect(describeProposal(report, 'applied')).toMatch(/created by the user/);
+  });
+});
+
+describe('withMeasureFormats', () => {
+  it('adds the formats a card brings, under the report\'s own overrides', () => {
+    const settings = { measureOverrides: { 'm.sale': { label: 'Mine' } } };
+    const proposal = { measureOverrides: { 'm.sale': { format: { decimals: 0 }, label: 'Revenue' }, 'm.n': { format: { decimals: 2 } } } };
+    expect(withMeasureFormats(settings, proposal).measureOverrides).toEqual({ 'm.sale': { format: { decimals: 0 }, label: 'Mine' }, 'm.n': { format: { decimals: 2 } } });
+    expect(withMeasureFormats(settings, { measureOverrides: {} })).toBe(settings);
+  });
+});
+
+describe('applyDesignToPages: a design proposal across the report', () => {
+  const pages = [
+    { id: 'p1', name: 'One', layout: [{ i: 'a', x: 0, y: 0, w: 300, h: 200 }], widgets: { a: { type: 'bar', config: {} } } },
+    { id: 'p2', name: 'Two', layout: [{ i: 'b', x: 0, y: 0, w: 300, h: 200 }], widgets: { b: { type: 'bar', config: {} } } },
+  ];
+  const env = { pages, currentIdx: 0, settings: {}, pageWidth: 1140, pageHeight: 800, themes: {} };
+
+  it('lands each operation on the page that holds its widget, the rest untouched', () => {
+    const r = applyDesignToPages({ kind: 'design', ops: [
+      { op: 'update_config', widgetId: 'a', set: { color: '#111111' } },
+      { op: 'update_config', widgetId: 'b', pageId: 'p2', set: { color: '#222222' } },
+    ] }, env);
+    expect(r.applied).toBe(2);
+    expect(r.pages[0].widgets.a.config.color).toBe('#111111');
+    expect(r.pages[1].widgets.b.config.color).toBe('#222222');
+    expect(r.pages[1].layout).toBe(pages[1].layout);
+  });
+
+  it('sizes a widget of another page on that page, the page shown untouched', () => {
+    const r = applyDesignToPages({ kind: 'design', ops: [{ op: 'move', widgetId: 'b', pageId: 'p2', x: 0, y: 0, w: 220, h: 120 }] }, env);
+    expect(r.applied).toBe(1);
+    expect(r.pages[1].layout[0]).toMatchObject({ i: 'b', x: 0, y: 0, w: 220, h: 120 });
+    expect(r.pages[0]).toBe(pages[0]);
+  });
+
+  it('skips an operation for a page that is gone rather than landing it on the page shown', () => {
+    const r = applyDesignToPages({ kind: 'design', ops: [{ op: 'update_config', widgetId: 'b', pageId: 'p9', set: { color: '#222222' } }] }, env);
+    expect(r.applied).toBe(0);
+    expect(r.skipped).toBe(1);
+    expect(r.pages).toEqual(pages);
+  });
+});
+
+describe('design: a text restyled as a whole', () => {
+  // A title made in navy kept its navy under a card that set it light: the
+  // runs' own color won over the widget's (the assistant saw `color` set and
+  // the text unchanged).
+  const state = {
+    layout: [{ i: 'x', x: 0, y: 0, w: 600, h: 60, z: 1 }],
+    widgets: { x: { type: 'text', config: { textAlign: 'left' }, data: { text: 'NordLog', runs: [{ text: 'NordLog', fontSize: 24, bold: true, color: '#142D5A' }] } } },
+    settings: {}, pageWidth: 1140, pageHeight: 800, themes: {},
+  };
+  const apply = (set) => applyDesignProposal({ ops: [{ op: 'update_config', widgetId: 'x', set }] }, state);
+
+  it('the runs let go of the color the card sets, and keep the rest', () => {
+    const { widgets } = apply({ color: '#f1f5f9' });
+    expect(widgets.x.config.color).toBe('#f1f5f9');
+    expect(widgets.x.data.runs).toEqual([{ text: 'NordLog', fontSize: 24, bold: true }]);
+  });
+
+  it('the same for the font, its size, bold and italic', () => {
+    const { widgets } = apply({ fontFamily: 'Poppins', fontSize: 28 });
+    expect(widgets.x.config).toMatchObject({ fontFamily: 'Poppins', fontSize: 28 });
+    expect(widgets.x.data.runs).toEqual([{ text: 'NordLog', bold: true, color: '#142D5A' }]);
+  });
+
+  it('a card that touches no text style leaves the runs as they are', () => {
+    expect(apply({ textAlign: 'center' }).widgets.x.data).toBe(state.widgets.x.data);
   });
 });

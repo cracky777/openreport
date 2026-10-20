@@ -11,6 +11,7 @@
 // caller can emit a single 400 — never touches res. Covered by
 // tests/sqlSnapshot*, tests/queryErrors.
 const { measurePrimaryTable, sameComponent } = require('./joinGraph');
+const { readsDistinctRows } = require('./dimMeasure');
 const { expressionTables } = require('./dimensionTables');
 const { firstAggregate, looksTextual, sortValueAlias } = require('./measureSortValue');
 const { preWrapIntervalRefs } = require('../columnTypeResolver');
@@ -18,7 +19,7 @@ const {
   transformAggregates, dialectNumericCast, applyNumericCast, buildMeasureAggExpr,
 } = require('./measureAgg');
 const { quoteAlias, quoteCol } = require('../sqlDialect');
-const { groupedRuleFields, partitionExprs, windowAgg, canWindow, windowedColumnAgg } = require('./windowMeasure');
+const { groupedRuleFields, partitionExprs, windowAgg, canWindow, windowedColumnAgg, runningTotalPart } = require('./windowMeasure');
 
 function emitMeasureSelects(ctx) {
   const {
@@ -26,10 +27,21 @@ function emitMeasureSelects(ctx) {
     allDimensions, allFieldsForLookup, dbType, columnTypes,
     selectParts, tablesUsed, dimOnlyMeasureInfos, overrideMeasureInfos, groupByParts,
     inlineMeasureRefs, buildRuleClause,
-    components, dimTables, selectedDimensions,
+    components, dimTables, selectedDimensions, allJoins = [],
+    lastDateOf = () => null,
   } = ctx;
 
   for (const m of selectedMeasures) {
+    // A stock read on its last date (lastValue.js): its condition, a marker
+    // until the FROM is built, joins the measure's own rules.
+    const lastDate = lastDateOf(m);
+    // A running total wraps whatever the branches below emit for the measure.
+    const before = selectParts.length;
+    const running = () => {
+      if (m.runningTotal && selectParts.length > before && typeof selectParts[before] === 'string') {
+        selectParts[before] = runningTotalPart(selectParts[before], selectedDimensions, groupByParts);
+      }
+    };
     // Dim-only fast path. Skip the normal selectParts emission AND skip
     // the `tablesUsed.add` — the dim is queried by the scalar subquery
     // independently, so adding it here would needlessly force the join
@@ -39,13 +51,14 @@ function emitMeasureSelects(ctx) {
     // override mode, custom-with-refs); those go through the dedicated
     // paths below.
     const primaryTable = measurePrimaryTable(m);
-    // RLS gate: the dim-only subquery is independent of the outer WHERE
-    // and would silently bypass an RLS clause (the clause references the
-    // RLS table, which the subquery's FROM doesn't include). For
-    // RLS-restricted users we fall through to the regular structured
-    // path so the outer WHERE enforces it — the measure may be
-    // fact-inflated but it's never leaky. Owners/admins (rlsApplies =
-    // false) get the clean subquery path.
+    // RLS gate: the scalar total reads the dim table alone and would bypass
+    // the RLS clause. A row-level-secured reader gets the measure on the
+    // distinct rows their query reaches (sqlBuilder/dimMeasure.js: the same
+    // FROM and WHERE, RLS clause included), grouped or not — never a total.
+    // Its table is registered so the RLS reachability check covers it (an
+    // unreachable table denies everything). Where distinct rows cannot be
+    // read (a custom expression, no declared `1` side): the regular join
+    // path, fact-inflated but never leaky.
     // A measure whose table sits in a DIFFERENT join component than every
     // grouping dimension can't be aggregated per group — pulling it into the
     // main FROM would cross-join it (Cartesian product → each group shows a
@@ -60,12 +73,18 @@ function emitMeasureSelects(ctx) {
     const isDimOnlyCandidate = primaryTable
       && ((joinedTables.has(primaryTable) && !realFacts.has(primaryTable)) || disconnectedFromDims)
       && !(Array.isArray(m.filterRules) && m.filterRules.length > 0)
-      && !rlsApplies;
+      && !lastDate
+      && (!rlsApplies || (!disconnectedFromDims && readsDistinctRows(m, primaryTable, allJoins)));
     if (isDimOnlyCandidate) {
+      if (rlsApplies) tablesUsed.add(primaryTable);
       dimOnlyMeasureInfos.push({
         index: selectParts.length,
         m,
         primaryTable,
+        // Joined to the grouping dimensions, or read under RLS: on the
+        // distinct rows the query reaches, not as the table's total.
+        // A per-period target always: its total adds each period's (dimMeasure.js).
+        distinctRows: rlsApplies || (!disconnectedFromDims && (selectedDimensions.length > 0 || !!m.perPeriod)),
         label: m.label || m.name,
       });
       selectParts.push(null);
@@ -114,7 +133,7 @@ function emitMeasureSelects(ctx) {
     if (Array.isArray(m.filterRules) && m.filterRules.length > 0 && !m.overrideFilters) {
       const clauses = m.filterRules.map(buildRuleClause).filter(Boolean);
       if (clauses.length > 0) {
-        const whenSql = clauses.join(' AND ');
+        const whenSql = [...clauses, ...(lastDate ? [lastDate] : [])].join(' AND ');
         // A rule on a dimension the visual groups by replaces that grouping
         // rather than narrowing it: the figure is spread over the partition
         // of the other dimensions (see windowMeasure.js).
@@ -161,6 +180,7 @@ function emitMeasureSelects(ctx) {
           const windowed = partition ? windowedColumnAgg(m, whenSql, partition, { dbType, columnTypes }) : null;
           selectParts.push(`${windowed || buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql: whenSql })} AS ${quoteAlias(m.label || m.name, dbType)}`);
         }
+        running();
         continue; // handled
       }
       // No clauses survived (e.g. all rules pointed at non-existent fields)
@@ -219,6 +239,10 @@ function emitMeasureSelects(ctx) {
       const rawCol = quoteCol(m.table, m.column, dbType);
       selectParts.push(`${rawCol} AS ${quoteAlias(m.label || m.name, dbType)}`);
       groupByParts.push(rawCol);
+    } else if (lastDate && m.table && m.column) {
+      selectParts.push(m.aggregation === 'count'
+        ? `COUNT(CASE WHEN ${lastDate} THEN ${quoteCol(m.table, m.column, dbType)} END) AS ${quoteAlias(m.label || m.name, dbType)}`
+        : `${buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql: lastDate })} AS ${quoteAlias(m.label || m.name, dbType)}`);
     } else if (m.aggregation === 'count') {
       // COUNT(*) when no column is specified (or the legacy '*' sentinel),
       // COUNT(table.column) — non-null count — when a column was picked
@@ -239,6 +263,7 @@ function emitMeasureSelects(ctx) {
       // duckdb (mysql/mssql have no interval type; BQ flattens post-query).
       selectParts.push(`${buildMeasureAggExpr(m, { dbType, columnTypes })} AS ${quoteAlias(m.label || m.name, dbType)}`);
     }
+    running();
   }
   return null;
 }

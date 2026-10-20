@@ -146,6 +146,17 @@ router.post('/logout', (req, res) => {
   });
 });
 
+// Build or Chat (client components/AppShell/ModeSwitch): the face of the app
+// this account opens on, kept here so it follows the user from one browser
+// to the next.
+const UI_MODES = ['build', 'chat'];
+router.put('/me/ui-mode', requireAuth, (req, res) => {
+  const mode = req.body && req.body.mode;
+  if (!UI_MODES.includes(mode)) return res.status(400).json({ error: `Mode must be one of: ${UI_MODES.join(', ')}` });
+  db.prepare('UPDATE users SET ui_mode = ? WHERE id = ?').run(mode, req.user.id);
+  res.json({ ui_mode: mode });
+});
+
 router.get('/me', requireAuth, (req, res) => {
   // `instance` = non-sensitive instance-wide policy the client UI adapts to
   // (e.g. hiding the "Share public link" action). Enforcement stays server-side.

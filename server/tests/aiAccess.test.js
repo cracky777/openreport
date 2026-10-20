@@ -50,7 +50,7 @@ describe('AI assistant access', () => {
       const res = await as(alice).status();
       expect(res.body).toEqual({
         enabled: false, dataSharing: 'schema', source: null, reason: 'setup',
-        personal: { provider: 'openai-compat', baseUrl: '', model: '', hasApiKey: false, keyError: null },
+        personal: { provider: 'openai-compat', baseUrl: '', model: '', hasApiKey: false, configured: false, keyError: null },
       });
       expect((await as(alice).chat()).status).toBe(409);
     });
@@ -68,7 +68,7 @@ describe('AI assistant access', () => {
 
     test('the key is encrypted at rest and readable by no one — not its owner, not an admin', async () => {
       const saved = await as(alice).save(OWN);
-      expect(saved.body.personal).toEqual({ provider: 'openai-compat', baseUrl: OWN.baseUrl, model: OWN.model, hasApiKey: true, keyError: null });
+      expect(saved.body.personal).toEqual({ provider: 'openai-compat', baseUrl: OWN.baseUrl, model: OWN.model, hasApiKey: true, configured: true, keyError: null });
       const row = db.prepare('SELECT ai_config FROM users WHERE id = ?').get(alice).ai_config;
       expect(row).not.toContain(OWN.apiKey);
       expect(JSON.parse(row).apiKey).toMatch(/^enc:v1:/);
@@ -96,6 +96,42 @@ describe('AI assistant access', () => {
       await as(alice).save(OWN);
       await as(alice).forget();
       expect((await as(alice).status()).body).toMatchObject({ enabled: false, reason: 'setup', personal: { hasApiKey: false } });
+    });
+
+    test('a Claude subscription is set up with a token alone, and the turn runs on the Agent SDK with that token', async () => {
+      const claudeSubscription = require('../utils/ai/providers/claudeSubscription');
+      expect((await as(alice).save({ provider: 'claude-subscription' })).status).toBe(400);
+      const saved = await as(alice).save({ provider: 'claude-subscription', apiKey: 'sk-ant-oat01-alice' });
+      expect(saved.body.personal).toEqual({ provider: 'claude-subscription', baseUrl: '', model: '', hasApiKey: true, configured: true, keyError: null });
+      expect((await as(alice).status()).body).toMatchObject({ enabled: true, source: 'personal' });
+
+      const seen = {};
+      jest.spyOn(claudeSubscription, 'loadSdk').mockResolvedValue({
+        tool: (name, description, inputSchema, handler) => ({ name, handler }),
+        createSdkMcpServer: (o) => ({ instance: { tools: o.tools } }),
+        query: ({ prompt, options }) => { Object.assign(seen, { prompt, options }); return (async function* () { yield { type: 'result', subtype: 'success', result: 'From the SDK.' }; }()); },
+      });
+      const res = await as(alice).chat();
+      expect(res.status).toBe(200);
+      expect(res.body.reply).toBe('From the SDK.');
+      expect(seen.options.env.CLAUDE_CODE_OAUTH_TOKEN).toBe('sk-ant-oat01-alice');
+      expect(seen.options.tools).toEqual([]);
+      // Pasted from a terminal that wrapped the line: saved whole anyway.
+      await as(alice).save({ provider: 'claude-subscription', apiKey: 'sk-ant-oat01-ali\n ce' });
+      await as(alice).chat();
+      expect(seen.options.env.CLAUDE_CODE_OAUTH_TOKEN).toBe('sk-ant-oat01-alice');
+      expect(seen.prompt).toBe('Sales?');
+      expect(providers.chat).not.toHaveBeenCalled();
+      claudeSubscription.loadSdk.mockRestore();
+    });
+
+    test('the instance cannot be set to a subscription, and a key does not survive a change of provider', async () => {
+      const res = await request(app).put('/api/admin/settings/ai').set('x-test-user', admin).send({ provider: 'claude-subscription', apiKey: 'sk-ant-oat01-admin' });
+      expect(res.status).toBe(400);
+      await as(alice).save(OWN);
+      expect((await as(alice).save({ provider: 'claude-subscription', apiKey: 'sk-ant-oat01-alice' })).body.personal).toMatchObject({ hasApiKey: true });
+      // Back to an OpenAI-compatible server without a key: the token did not come along.
+      expect((await as(alice).save({ provider: 'openai-compat', baseUrl: OWN.baseUrl, model: OWN.model })).body.personal).toMatchObject({ provider: 'openai-compat', hasApiKey: false, configured: true });
     });
   });
 

@@ -14,6 +14,8 @@
  * utils/ai/cachedQuery.js), so it can never see more than they can.
  */
 
+const { cleanPageNav } = require('../utils/ai/pageNav');
+const { FONT_FAMILIES } = require('../utils/ai/fonts');
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { requireAuth } = require('../middleware/auth');
@@ -33,7 +35,9 @@ const { withFloors } = require('../utils/ai/arrangeLayout');
 const aiFeedback = require('../utils/ai/feedback');
 const { cleanDraft, runModelChat } = require('../utils/ai/modelAssistant');
 const { runHelpChat } = require('../utils/ai/helpAssistant');
-const { connectionForModel } = require('../utils/modelSources');
+const { connectionForModel, isFileSource, describeSource, linkedSourcesOf } = require('../utils/modelSources');
+const { outputsOf } = require('../utils/fileShape');
+const wsAccess = require('../utils/workspaceAccess');
 
 const router = express.Router();
 
@@ -97,6 +101,43 @@ function cleanMessages(raw) {
   return out[out.length - 1].role === 'user' ? out : null;
 }
 
+// Two captures of the page at most (before and after a change), JPEG or PNG,
+// base64, 1.5 MB each: anything else is a bad request, never silently dropped.
+// The page before and after, and every page in small when the change reached several.
+const MAX_IMAGES = 3;
+const MAX_IMAGE_CHARS = 2 * 1024 * 1024;
+const IMAGE_TYPES = new Set(['image/jpeg', 'image/png']);
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+function cleanImages(raw) {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw) || raw.length > MAX_IMAGES) return null;
+  const out = [];
+  for (const img of raw) {
+    if (!img || !IMAGE_TYPES.has(img.mediaType) || typeof img.data !== 'string') return null;
+    if (!img.data.length || img.data.length > MAX_IMAGE_CHARS || !BASE64.test(img.data)) return null;
+    out.push({ mediaType: img.mediaType, data: img.data });
+  }
+  return out;
+}
+
+// Images the user added to the conversation (uploaded by the browser on the
+// image route): the names the assistant may place, each with the URL the
+// upload gave. Anything else — a name without our upload path — is dropped.
+const MAX_ASSETS = 20;
+const ASSET_URL = /^\/uploads\/images\/[A-Za-z0-9._-]+$/;
+function cleanAssets(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const a of raw.slice(0, MAX_ASSETS)) {
+    if (!a || typeof a.name !== 'string' || typeof a.url !== 'string' || !ASSET_URL.test(a.url)) continue;
+    const name = a.name.trim().slice(0, 80);
+    // Its colors, read by the browser (utils/imageColors.js): #rrggbb only.
+    const colors = Array.isArray(a.colors) ? a.colors.filter((c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)).slice(0, 3) : [];
+    if (name && !out.some((x) => x.name === name)) out.push({ name, url: a.url, ...(colors.length ? { colors } : {}) });
+  }
+  return out;
+}
+
 // The editor's UNSAVED page, so the assistant sees what the author sees. Each
 // widget is re-projected onto the keys the prompt needs: `data` (fetched rows)
 // must not ride along, whatever the client sent.
@@ -115,11 +156,51 @@ function pickShape(raw) {
   return out;
 }
 
+const MAX_OTHER_PAGES = 20;
+// The report's other pages, like the page shown, layout included: a visual
+// added to one is set into it (reportChanges), and a design card restyles,
+// sizes and places their widgets (validateDesignProposal).
+function cleanOtherPages(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, MAX_OTHER_PAGES)
+    .map((p) => ({
+      id: String((p && p.id) || ''),
+      name: String((p && p.name) || '').slice(0, 80),
+      widgets: cleanWidgets(Array.isArray(p && p.widgets) ? p.widgets.slice(0, MAX_CONTEXT_WIDGETS) : []),
+    }))
+    .filter((p) => p.id);
+}
+
 function cleanPageContext(raw) {
   const src = raw && typeof raw === 'object' ? raw : {};
   const list = Array.isArray(src.widgets) ? src.widgets : [];
   if (list.length > MAX_CONTEXT_WIDGETS) return null;
-  const widgets = list.map((w) => ({
+  const widgets = cleanWidgets(list);
+  const size = (v, fallback) => (Number.isFinite(Number(v)) && Number(v) >= 200 ? Math.round(Number(v)) : fallback);
+  const slugs = (v) => (Array.isArray(v) ? v.filter((s) => typeof s === 'string' && SLUG.test(s)).slice(0, 30) : []);
+  const ctx = {
+    pageWidth: size(src.pageWidth, 1140),
+    pageHeight: size(src.pageHeight, 800),
+    themes: slugs(src.themes),
+    theme: slugs([src.theme])[0] || null,
+    pageBackground: HEX.test(src.pageBackground) ? src.pageBackground : null,
+    palette: Array.isArray(src.palette) ? src.palette.filter((c) => HEX.test(c)).slice(0, 20) : [],
+    widgets,
+    otherPages: cleanOtherPages(src.otherPages),
+    // The page shown, for a change of the report that names its pages (the studio).
+    pageId: typeof src.pageId === 'string' ? src.pageId.slice(0, 80) : null,
+    pageName: String(src.pageName || '').slice(0, 80),
+    // The report's page menu: its look and its icons (utils/ai/pageNav.js).
+    pageNav: cleanPageNav(src.pageNav, (v) => (v === null ? null : FONT_FAMILIES.has(v) ? v : undefined)),
+  };
+  if (Buffer.byteLength(JSON.stringify(ctx)) <= MAX_CONTEXT_BYTES) return ctx;
+  // Too much with the other pages: the page shown alone, as before them.
+  ctx.otherPages = [];
+  return Buffer.byteLength(JSON.stringify(ctx)) > MAX_CONTEXT_BYTES ? null : ctx;
+}
+
+function cleanWidgets(list) {
+  return list.map((w) => ({
     id: String((w && w.id) || ''),
     type: String((w && w.type) || ''),
     title: String((w && w.title) || '').slice(0, 200),
@@ -133,18 +214,6 @@ function cleanPageContext(raw) {
     shape: pickShape(w && w.shape),
     merged: !!(w && w.merged),
   }));
-  const size = (v, fallback) => (Number.isFinite(Number(v)) && Number(v) >= 200 ? Math.round(Number(v)) : fallback);
-  const slugs = (v) => (Array.isArray(v) ? v.filter((s) => typeof s === 'string' && SLUG.test(s)).slice(0, 30) : []);
-  const ctx = {
-    pageWidth: size(src.pageWidth, 1140),
-    pageHeight: size(src.pageHeight, 800),
-    themes: slugs(src.themes),
-    theme: slugs([src.theme])[0] || null,
-    pageBackground: HEX.test(src.pageBackground) ? src.pageBackground : null,
-    palette: Array.isArray(src.palette) ? src.palette.filter((c) => HEX.test(c)).slice(0, 20) : [],
-    widgets,
-  };
-  return Buffer.byteLength(JSON.stringify(ctx)) > MAX_CONTEXT_BYTES ? null : ctx;
 }
 
 router.get('/status', requireAuth, (req, res) => {
@@ -178,15 +247,18 @@ router.delete('/personal', requireAuth, (req, res) => {
 // answers but cannot call a tool could never propose anything.
 router.post('/personal/test', requireAuth, chatLimiter, async (req, res) => {
   const access = resolveAccess(req);
-  if (access.source !== 'personal') return res.json({ ok: false, toolCalling: false, error: 'Save a base URL and a model first' });
+  if (access.source !== 'personal') return res.json({ ok: false, toolCalling: false, error: 'Save your provider first' });
   try {
-    const turn = await aiProviders.chat({
+    let pinged = false;
+    await aiProviders.runTurn({
       config: access.config,
       system: 'This is a connectivity check. Call the `ping` tool with ok=true.',
       messages: [{ role: 'user', text: 'ping' }],
       tools: [aiTools.PING],
-    });
-    res.json({ ok: true, toolCalling: turn.toolCalls.some((c) => c.name === 'ping') });
+      maxSteps: 1,
+      execute: (call) => { pinged = pinged || call.name === 'ping'; return { result: { ok: true }, end: true }; },
+    }, { chat: aiProviders.chat });
+    res.json({ ok: true, toolCalling: pinged });
   } catch (err) {
     const known = err instanceof aiProviders.AiProviderError;
     if (!known) console.error('[ai personal test]', err);
@@ -226,6 +298,12 @@ router.post('/reports/:reportId/chat', requireAuth, chatLimiter, async (req, res
   if (!messages) return res.status(400).json({ error: 'Invalid conversation' });
   const pageContext = cleanPageContext(req.body && req.body.pageContext);
   if (!pageContext) return res.status(400).json({ error: 'The page is too large for the assistant' });
+  // The studio's review of an applied change: the page before and after, as
+  // images, for this turn only (the browser masks the values when the
+  // instance shares no data). Never replayed: the conversation keeps words.
+  const images = req.body.studio === true ? cleanImages(req.body.images) : [];
+  if (images === null) return res.status(400).json({ error: 'Invalid images' });
+  if (images.length) messages[messages.length - 1] = { ...messages[messages.length - 1], images };
 
   const report = { id: row.id, title: row.title, model_id: row.model_id, settings: safeJSON(row.settings, {}) };
   const effective = buildEffectiveModel(parseModel(modelRow), report.settings);
@@ -238,16 +316,42 @@ router.post('/reports/:reportId/chat', requireAuth, chatLimiter, async (req, res
     effective,
     messages,
     pageContext: withFloors(pageContext, effective),
-    mode: req.body.mode === 'design' ? 'design' : 'visuals',
+    mode: 'report',
+    // The AI studio talks about a whole report: it may be handed pages too;
+    // "Build the full report" pressed there admits nothing else.
+    allowReport: req.body.studio === true,
+    requireReport: req.body.studio === true && req.body.intent === 'report',
+    // `reviewOf: 'report'`: the first page of a whole report the studio just created.
+    review: images.length > 0 && req.body.review === true ? (req.body.reviewOf === 'report' ? 'report' : true) : false,
+    // The last image is every page of the report in small (AiStudio withSheet).
+    sheet: req.body.review === true && req.body.reviewSheet === true && images.length >= 2,
+    assets: cleanAssets(req.body.assets),
     // Custom visuals live in a workspace library, and only its admins may
     // add code to it — so only they are offered a visual to add.
     canWriteVisuals: canManageVisuals(row.workspace_id, req),
     // Only decides whether a card to the model assistant is offered: the
     // model editor checks it again, as does saving the model.
     canEditModel: canWriteModel(modelRow, req.user, req),
+    ...sourceOf(modelRow),
     library: libraryOf(row.workspace_id),
   }));
 });
+
+// Only a model built on an imported file can take another file (models.js
+// refuses to mix a database and a file): decides whether that card is offered,
+// and otherwise what the assistant names when it says why not.
+function sourceOf(modelRow) {
+  const ds = db.prepare('SELECT db_type, db_name, extra_config FROM datasources WHERE id = ?').get(modelRow.datasource_id);
+  return { fileModel: isFileSource(ds), sourceLabel: describeSource(ds) };
+}
+
+// The recipes of an imported source's files (utils/fileShape.js), by the
+// fact table each one writes.
+function recipesOf(sourceId) {
+  const ds = db.prepare('SELECT extra_config FROM datasources WHERE id = ?').get(sourceId);
+  const files = (safeJSON(ds && ds.extra_config, {}) || {}).files;
+  return (Array.isArray(files) ? files : []).map((f) => f && f.shape).filter((s) => s && s.output && s.table);
+}
 
 // The landing-page assistant: a conversation about a MODEL, with no report
 // and no page. Open to whoever may build a report on that model — not to
@@ -280,8 +384,10 @@ router.post('/models/:modelId/chat', requireAuth, chatLimiter, async (req, res) 
     messages,
     pageContext: cleanPageContext({}),
     mode: 'ask',
+    requireReport: req.body.intent === 'report',
     canWriteVisuals: canManageVisuals(wsId, req),
     canEditModel: canWriteModel(modelRow, req.user, req),
+    ...sourceOf(modelRow),
     library: libraryOf(wsId),
   }));
 });
@@ -310,7 +416,42 @@ router.post('/models/:modelId/model-chat', requireAuth, chatLimiter, async (req,
     conn = conn || connectionForModel(modelRow, datasource);
     return conn.getColumns(table);
   } : null;
-  return answer(res, runModelChat({ config, modelName: modelRow.name, draft, messages, getColumns }));
+  // The tables of imported files, as the model names them: what the
+  // assistant may propose to reshape — when the caller can apply such a card
+  // (`shapes: true`, the studio's Model tab). Their first rows are readable
+  // where the instance shares data values with the provider, by whoever may
+  // read the model's data.
+  let fileTables = {};
+  let getSample = null;
+  if (req.body.shapes === true && datasource && isFileSource(datasource)) {
+    try {
+      conn = conn || connectionForModel(modelRow, datasource);
+      const linked = linkedSourcesOf(modelRow.id);
+      // A table a recipe wrote: the fact may be reshaped again — from the file
+      // as imported, so its recipe travels with it; the dimensions and the
+      // calendar it made are not tables of the file.
+      const recipes = {};
+      const derived = new Set();
+      for (const [prefix, sourceId] of [['', datasource.id], ...linked.map((l) => [`${l.alias}__`, l.datasource_id])]) {
+        for (const shape of recipesOf(sourceId)) {
+          recipes[prefix + shape.output] = shape;
+          outputsOf(shape).slice(1).forEach((t) => derived.add(prefix + t));
+        }
+      }
+      for (const name of await conn.getTables()) {
+        if (derived.has(name)) continue;
+        const link = linked.find((l) => name.startsWith(`${l.alias}__`));
+        const entry = link ? { sourceId: link.datasource_id, table: name.slice(link.alias.length + 2) } : { sourceId: datasource.id, table: name };
+        fileTables[name] = recipes[name] ? { ...entry, table: recipes[name].table, shape: recipes[name] } : entry;
+      }
+    } catch { fileTables = {}; /* the file unreadable: no reshaping offered this turn */ }
+    if (config.dataSharing === 'schema+cache' && wsAccess.canAccessModelData(modelRow, wsAccess.actorOf(req))) {
+      getSample = (table, n) => conn.query(`SELECT * FROM "${String(table).replace(/"/g, '""')}" LIMIT ${Math.min(20, Math.max(1, Number(n) || 20))}`);
+    }
+  }
+  // `report: true`: a report sits beside the model (the studio's Model tab), so
+  // what belongs to a report is handed to its assistant instead of the editor.
+  return answer(res, runModelChat({ config, modelName: modelRow.name, draft, messages, getColumns, fileTables, getSample, report: req.body.report === true }));
 });
 
 // Help with the tool itself, for anyone who has the assistant — a viewer, or a

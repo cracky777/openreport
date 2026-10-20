@@ -86,4 +86,29 @@ describe('Report drafts', () => {
     expect(del.status).toBe(200);
     expect(db.prepare('SELECT 1 FROM reports WHERE id = ?').get(draft)).toBeUndefined();
   });
+
+  // Files dropped in Chat mode make a model for the draft: abandoned on a
+  // reload, the draft was purged and the model stayed, an orphan.
+  test('a draft made with its model takes it along; any other model stays', async () => {
+    const { u, model, create } = await setup();
+    const left = (await create({ title: 'Chat draft', draft: true, ownsModel: true })).body.report.id;
+    expect((await request(app).delete(`/api/reports/${left}/draft`).use(as(u))).body.deleted).toBe(true);
+    expect(db.prepare('SELECT 1 FROM models WHERE id = ?').get(model)).toBeUndefined();
+
+    // A model already under a report is never the draft's, whatever it says.
+    const other = await setup();
+    await other.create({ title: 'Saved', draft: false });
+    const d2 = (await other.create({ title: 'Second', draft: true, ownsModel: true })).body.report.id;
+    db.prepare("UPDATE reports SET created_at = datetime('now', '-2 days') WHERE id = ?").run(d2);
+    await other.create({ title: 'Trigger', draft: true });
+    expect(db.prepare('SELECT 1 FROM reports WHERE id = ?').get(d2)).toBeUndefined();
+    expect(db.prepare('SELECT 1 FROM models WHERE id = ?').get(other.model)).toBeTruthy();
+
+    // Saved, the draft is a report: its model stays.
+    const third = await setup();
+    const d3 = (await third.create({ title: 'Kept', draft: true, ownsModel: true })).body.report.id;
+    await request(app).put(`/api/reports/${d3}`).use(as(third.u)).send({ title: 'Kept', layout: [], widgets: {}, settings: {} });
+    await request(app).delete(`/api/reports/${d3}/draft`).use(as(third.u));
+    expect(db.prepare('SELECT 1 FROM models WHERE id = ?').get(third.model)).toBeTruthy();
+  });
 });

@@ -7,6 +7,10 @@
 // The report and Ask assistants do not change the data model: that is the
 // model assistant's job, in the model editor. Asked to, they hand over a card
 // that opens it — only to who may change the model; the others are told who can.
+// One exception, asked for by Jonathan: data the model lacks (a budget, targets)
+// is not a trip to the model editor. On a model built on imported files, the
+// card takes the file in the conversation, links it to the model and finds how
+// it joins the model's tables, which the user confirms (AiPanel/AddFileCard).
 //
 // The model never writes a cron expression: it says how often, which day and
 // at what time; the server builds the expression and checks it.
@@ -21,14 +25,16 @@
 
 const { validateCron } = require('../cacheSchedules');
 
-const ACTIONS = ['schedule_cache_refresh', 'open_model_assistant', 'connect_database', 'import_file', 'build_model', 'create_report'];
+const ACTIONS = ['schedule_cache_refresh', 'open_model_assistant', 'add_file_to_model', 'add_image', 'connect_database', 'import_file', 'build_model', 'create_report'];
 // What each assistant may hand over.
 const ACTIONS_FOR = {
-  editor: ['schedule_cache_refresh', 'open_model_assistant'],
-  ask: ['schedule_cache_refresh', 'open_model_assistant', 'create_report', 'connect_database', 'import_file'],
+  editor: ['schedule_cache_refresh', 'open_model_assistant', 'add_file_to_model', 'add_image'],
+  ask: ['schedule_cache_refresh', 'open_model_assistant', 'add_file_to_model', 'create_report', 'connect_database', 'import_file'],
   help: ['connect_database', 'import_file', 'build_model'],
 };
-const OPENS_A_FORM = new Set(['connect_database', 'import_file']);
+// add_image: a card where the user drops the picture (a logo) the request
+// needs and the conversation lacks; the assistant then goes on with it.
+const OPENS_A_FORM = new Set(['connect_database', 'import_file', 'add_file_to_model', 'add_image']);
 const FREQUENCIES = ['hourly', 'daily', 'weekly', 'monthly'];
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const TIME = /^([01]?\d|2[0-3]):([0-5]\d)$/;
@@ -54,11 +60,18 @@ function scheduleOf(args) {
   return { cron: `${m} ${h} ${monthDay} * *`, schedule: { frequency, monthDay, time: hhmm } };
 }
 
+// A file cannot join a model that reads a database: what the assistant tells a
+// business user instead, naming the source (never "a database" alone) and the
+// two ways out, in plain words.
+const noFileOn = (sourceLabel) => `no card: this report reads ${sourceLabel}, and a file cannot be joined to a database. Tell the user so in plain words, naming that source, then the two ways: (1) whoever manages that database adds the data as a table in it, and the model's owner adds that table in the model editor; (2) start a new report from files — in Chat, Start a new report, then drop an export of this data and the new file together, and OpenReport joins them. Nothing else.`;
+
 /**
- * @param {{canEditModel?: boolean, allowed?: string[]}} ctx whether the user may change the data model; the actions this assistant may hand over
+ * @param {{canEditModel?: boolean, fileModel?: boolean, sourceLabel?: string, allowed?: string[]}} ctx whether the user may change the data model;
+ *        whether the model is built on imported files (the only ones a file can join), else what it reads, in words;
+ *        the actions this assistant may hand over
  * @returns {{ action: object|null, errors: string[] }} `action` is what the card applies
  */
-function validateActionProposal(args, { canEditModel = false, allowed = ACTIONS_FOR.editor } = {}) {
+function validateActionProposal(args, { canEditModel = false, fileModel = false, sourceLabel = 'a database', allowed = ACTIONS_FOR.editor } = {}) {
   const a = args && typeof args === 'object' ? args : {};
   if (!allowed.includes(a.action)) return { action: null, errors: [`action must be one of ${allowed.join(', ')}`] };
   // Asked "how do I schedule a report?", a real model scheduled one: the user
@@ -70,6 +83,10 @@ function validateActionProposal(args, { canEditModel = false, allowed = ACTIONS_
   }
   const summary = typeof a.summary === 'string' ? a.summary.slice(0, MAX_SUMMARY) : '';
   const request = typeof a.request === 'string' ? a.request.trim().slice(0, MAX_REQUEST) : '';
+  if (a.action === 'add_file_to_model') {
+    if (!canEditModel) return { action: null, errors: ['this user cannot change the data model: no card — say in one sentence that its owner or an admin can add that data to the model'] };
+    if (!fileModel) return { action: null, errors: [noFileOn(sourceLabel)] };
+  }
   if (OPENS_A_FORM.has(a.action)) return { action: { action: a.action, summary, request }, errors: [] };
   if (a.action === 'build_model' || a.action === 'create_report') {
     if (!request) return { action: null, errors: [`${a.action} needs request: what the user wants, in their words`] };

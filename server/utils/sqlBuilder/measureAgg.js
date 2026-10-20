@@ -4,7 +4,7 @@
 // the handler closure). Covered by tests/sqlSnapshot + tests/measureAgg.
 const { quoteCol, normalizeAggregation, capabilities } = require('../sqlDialect');
 const { castToNumber } = require('./casts');
-const { getOverrideType } = require('./datePart');
+const { getOverrideType, daysBetweenExpr } = require('./datePart');
 
 // Walk a SQL expression and replace each top-level aggregate (SUM/AVG/
 // MIN/MAX/COUNT) by `transform(fn, arg)`. Paren-aware: tracks depth so a
@@ -97,17 +97,29 @@ function widenFloat(inner, dbType) {
 // wraps the column in a CASE for conditional-filter measures. Returns the
 // expression string (no alias). NB: the HAVING path keeps its own copy — its
 // COUNT/effAgg handling diverges.
-function buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql = null }) {
+function measureColumnSql(m, { dbType, columnTypes }) {
   const rawCol = quoteCol(m.table, m.column, dbType);
+  // A row's product of two columns of the table (`times`: a quantity × a unit
+  // price), summed: the revenue of ticket lines, which the sum of the
+  // quantities times the sum of the prices is not (Maison Gaspard).
+  // The days from the row's `since` date to its `column` date (declared → closed):
+  // the delay the AI could not compute (Mutuelle Horizon's claim handling).
+  if (m.since) return daysBetweenExpr(m.table, m.since, m.column, dbType, columnTypes);
+  if (m.times) return `(${dialectNumericCast(rawCol, dbType)} * ${dialectNumericCast(quoteCol(m.table, m.times, dbType), dbType)})`;
   const ovType = getOverrideType(m.table, m.column, columnTypes);
   const isInterval = String(m.dataType || '').toLowerCase() === 'interval' || ovType === 'interval';
-  let colExpr = rawCol;
-  if (ovType === 'integer' || ovType === 'decimal' || ovType === 'number') {
-    colExpr = castToNumber(rawCol, dbType, ovType, m.dataType);
-  } else if (m.widenFloat && !isInterval) {
-    // Set only on the synthetic atoms of an average — see widenFloat above.
-    colExpr = widenFloat(rawCol, dbType);
-  }
+  if (ovType === 'integer' || ovType === 'decimal' || ovType === 'number') return castToNumber(rawCol, dbType, ovType, m.dataType);
+  // Set only on the synthetic atoms of an average — see widenFloat above.
+  if (m.widenFloat && !isInterval) return widenFloat(rawCol, dbType);
+  return rawCol;
+}
+
+// `columnSql`: the column already read (and cast) by an inner query, which the
+// aggregate takes in place of `<table>.<column>` — measureColumnSql's output.
+function buildMeasureAggExpr(m, { dbType, columnTypes, caseWhenSql = null, columnSql = null }) {
+  const ovType = getOverrideType(m.table, m.column, columnTypes);
+  const isInterval = String(m.dataType || '').toLowerCase() === 'interval' || ovType === 'interval';
+  const colExpr = columnSql || measureColumnSql(m, { dbType, columnTypes });
   const agg = normalizeAggregation(m.aggregation);
   const aggExpr = aggregateSql(agg, caseWhenSql ? `CASE WHEN ${caseWhenSql} THEN ${colExpr} END` : colExpr);
   // A distinct count is a number whatever the column holds.
@@ -123,4 +135,4 @@ function aggregateSql(agg, inner) {
   return fn === 'count_distinct' ? `COUNT(DISTINCT ${inner})` : `${fn.toUpperCase()}(${inner})`;
 }
 
-module.exports = { transformAggregates, dialectNumericCast, applyNumericCast, buildMeasureAggExpr, aggregateSql };
+module.exports = { transformAggregates, dialectNumericCast, applyNumericCast, buildMeasureAggExpr, measureColumnSql, aggregateSql };

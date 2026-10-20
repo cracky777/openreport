@@ -148,7 +148,23 @@ describe('Accounting pack', () => {
     expect([k.Revenue, k['Gross margin'], k['Value added'], k.EBITDA, k['Operating income'], k['Net income'], k.Expenses].map(Number))
       .toEqual([1000, -300, 700, 300, 250, 250, 750]);
 
-    const parties = await q({ dimensionNames: ['entries.CompAuxLib'], measureNames: ['_calc.receivables', '_calc.payables'] });
+    // The star: parties and accounts are dimension tables beside the entries.
+    const saved = (await request(app).get(`/api/models/${modelId}`).use(as(u))).body.model;
+    expect(saved.selected_tables).toEqual(['entries', 'accounts', 'journals', 'parties', 'calendar']);
+    expect(saved.joins.map((j) => `${j.from_column}>${j.to_table}`)).toEqual(['CompteNum>accounts', 'JournalCode>journals', 'CompAuxNum>parties', 'EcritureDate>calendar']);
+    expect(saved.table_positions.entries.tableType).toBe('fact');
+    // The calendar runs years ahead of the books: a budget joins it too.
+    const span = await request(app).post(`/api/datasources/${dsId}/query`).use(as(u)).send({ sql: 'SELECT MIN("Year") AS a, MAX("Year") AS b FROM calendar' });
+    expect([Number(span.body.rows[0].a), Number(span.body.rows[0].b)]).toEqual([2025, 2030]);
+    // Books closing on 31/12: the fiscal year of a day is its year, years ahead included.
+    const fy = await request(app).post(`/api/datasources/${dsId}/query`).use(as(u)).send({ sql: `SELECT "Date", FiscalYear FROM calendar WHERE "Date" IN (DATE '2025-03-01', DATE '2027-11-30') ORDER BY 1` });
+    expect(fy.body.rows.map((r) => Number(r.FiscalYear))).toEqual([2025, 2027]);
+    // The account carries its own place in the statements, for a budget joined to it.
+    const acc = await request(app).post(`/api/datasources/${dsId}/query`).use(as(u)).send({ sql: `SELECT CompteNum, Statement, Line, LineNo FROM accounts WHERE CompteNum IN ('706000', '411')` });
+    expect(acc.body.rows.map((r) => [r.CompteNum, r.Statement, Number(r.LineNo)])).toEqual([['411', 'Balance sheet', 104], ['706000', 'Income statement', 3]]);
+    expect(buildModelFields('entries', 'm').dimensions.find((d) => d.name === 'accounts.Line')).toMatchObject({ table: 'accounts', column: 'Line', label: 'P&L line (account)' });
+    expect(buildModelFields('entries', 'm').dimensions.find((d) => d.label === 'Fiscal year')).toMatchObject({ name: 'calendar.FiscalYear', table: 'calendar', column: 'FiscalYear' });
+    const parties = await q({ dimensionNames: ['parties.CompAuxLib'], measureNames: ['_calc.receivables', '_calc.payables'] });
     const byParty = Object.fromEntries(parties.body.rows.map((r) => [r['Third party'], r]));
     expect(Number(byParty['Party CLI1']['Customer balance'])).toBe(0);
     expect(Number(byParty['Party FOU1']['Supplier balance'])).toBe(360);
@@ -158,7 +174,7 @@ describe('Accounting pack', () => {
     expect(r.body.report.settings.pages.map((p) => p.name)).toEqual(['Overview', 'Income statement', 'Management balances', 'Customers & suppliers', 'Trial balance', 'General ledger']);
 
     // A search slicer's text reaches /query as a contains rule, whatever its case.
-    const searched = await q({ dimensionNames: ['entries.Account'], measureNames: ['entries.Amount_sum'], widgetFilters: [{ field: 'entries.Account', isMeasure: false, op: 'contains', value: 'SALAR', values: [] }] });
+    const searched = await q({ dimensionNames: ['accounts.Account'], measureNames: ['entries.Amount_sum'], widgetFilters: [{ field: 'accounts.Account', isMeasure: false, op: 'contains', value: 'SALAR', values: [] }] });
     expect(searched.body.rows.map((row) => row.Account)).toEqual(['641100 Salaries']);
 
     // Offered twice, the pack takes the next free model name.
@@ -222,9 +238,25 @@ describe('Several fiscal years of the same books', () => {
     const pack = await request(app).get(`/api/upload/${target}/fec-pack`).use(as(u));
     expect(pack.body.accounting.years).toEqual([2024, 2025]);
     expect(pack.body.plan.report.bundle.report.pages.map((p) => p.name)).toContain('Year over year');
+    // The year slicer lists the books' years only: the calendar runs to 2030 for a budget.
+    const slicer = Object.values(pack.body.plan.report.bundle.report.pages[0].widgets).find((w) => w.type === 'filter' && w.config.title === 'Fiscal year');
+    expect(slicer.dataBinding).toMatchObject({ selectedDimensions: ['calendar.FiscalYear'], widgetFilters: [{ field: 'calendar.FiscalYear', op: 'in', values: ['2024', '2025'] }] });
     const m = await request(app).post('/api/models/import').use(as(u)).send({ yaml: pack.body.plan.model.yaml, datasourceId: target });
-    const byYear = await request(app).post(`/api/models/${m.body.model.id}/query`).use(as(u)).send({ dimensionNames: ['entries.FiscalYear'], measureNames: ['_calc.revenue', '_calc.netIncome'] });
+    const byYear = await request(app).post(`/api/models/${m.body.model.id}/query`).use(as(u)).send({ dimensionNames: ['calendar.FiscalYear'], measureNames: ['_calc.revenue', '_calc.netIncome'] });
     expect(byYear.body.rows.map((r) => [Number(r['Fiscal year']), Number(r.Revenue), Number(r['Net income'])])).toEqual([[2024, 1000, 250], [2025, 1000, 250]]);
+  });
+
+  test('books closing on 30 June: the calendar reads the fiscal year from the closing day', async () => {
+    const u = seedUser({ role: 'admin' });
+    // The 2025 fiscal year runs from 1 July 2024 to 30 June 2025: the rows dated past June move back a year.
+    // The opening balances are dated 1 July 2024, the closing entries 30 June 2025, the rest moves back a year past June.
+    const text = fecFile().toString('latin1').replaceAll('20250101', '20240701').replaceAll('20251231', '20250630').replace(/2025(\d{2})(\d{2})/g, (m, mm, dd) => (Number(mm) > 6 ? `2024${mm}${dd}` : m));
+    const up = await upload(u, '555555555FEC20250630.txt', Buffer.from(text, 'latin1'));
+    expect(up.status).toBe(201);
+    expect(up.body.accounting.closingDate).toBe('2025-06-30');
+    const q = (sqlText) => request(app).post(`/api/datasources/${up.body.datasource.id}/query`).use(as(u)).send({ sql: sqlText });
+    const fy = await q(`SELECT "Date", FiscalYear FROM calendar WHERE "Date" IN (DATE '2024-09-01', DATE '2025-03-01', DATE '2025-06-30', DATE '2025-07-01') ORDER BY 1`);
+    expect(fy.body.rows.map((r) => Number(r.FiscalYear))).toEqual([2025, 2025, 2025, 2026]);
   });
 
   test('an account renamed between two years stays one account, under its latest label', async () => {

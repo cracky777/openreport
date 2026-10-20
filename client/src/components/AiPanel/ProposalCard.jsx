@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { TbCheck, TbPlus, TbPalette, TbArrowsMove, TbStack2, TbBrush, TbArrowBackUp, TbPuzzle, TbBulb, TbEye } from 'react-icons/tb';
 import { WIDGET_TYPES, CustomVisualWidget } from '../Widgets';
-import { samplePreviewData, describeShaping, MAX_LISTED_MOVES, designChoice, keepChoices } from '../../utils/aiProposal';
+import { samplePreviewData, describeShaping, describeUnderstood, MAX_LISTED_MOVES, designChoice, keepChoices } from '../../utils/aiProposal';
 import WidgetPreview from './WidgetPreview';
 
 const cardStyle = {
@@ -54,17 +54,26 @@ function fieldLabels(binding, model) {
   return [...new Set(names)].map(label).join(' · ');
 }
 
-const OP_ICONS = { update_config: TbPalette, move: TbArrowsMove, z_order: TbStack2, report_settings: TbBrush };
+const HEX_COLOR = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
+const OP_ICONS = { update_config: TbPalette, move: TbArrowsMove, z_order: TbStack2, report_settings: TbBrush, page_nav: TbBrush };
 
 function describeValue(key, v) {
   if (typeof v === 'string' && v.startsWith('#')) return <><span style={swatchStyle(v)} />{v}</>;
   if (key === 'palette' && Array.isArray(v)) return <>{v.map((c, i) => <span key={i} style={swatchStyle(c)} />)}</>;
   if (key === 'legendColors' && v && !Object.keys(v).length) return 'reset to the palette';
   if (key === 'tableConfig' && v && typeof v === 'object') {
-    const colors = Object.values(v).flatMap((group) => Object.values(group)).filter((c) => typeof c === 'string');
+    // Only colors get a swatch: a font name or a size drew an empty square.
+    const colors = Object.values(v).flatMap((group) => Object.values(group)).filter((c) => typeof c === 'string' && HEX_COLOR.test(c));
     return <>{Object.keys(v).join(', ')} {colors.slice(0, 8).map((c, i) => <span key={i} style={swatchStyle(c)} />)}</>;
   }
-  if (v && typeof v === 'object') return `${Object.keys(v).length} series`;
+  if ((key === 'legendColors' || key === 'legendSymbols') && v && typeof v === 'object') return `${Object.keys(v).length} series`;
+  // A gradient, a shadow, a N-1 style: what it says, in a few words.
+  if (v && typeof v === 'object') {
+    return <>{Object.entries(v).map(([k, x], i) => (
+      <span key={k}>{i ? ' · ' : ''}{k === 'enabled' ? (x ? 'on' : 'off') : typeof x === 'string' && HEX_COLOR.test(x) ? <span style={swatchStyle(x)} /> : `${k} ${x}`}</span>
+    ))}</>;
+  }
+  if (v === null) return 'default';
   return String(v);
 }
 
@@ -84,8 +93,15 @@ function DesignOp({ op, titleOf, choice }) {
   if (op.op === 'move') what = `Move to ${op.x}, ${op.y} — ${op.w} × ${op.h}`;
   else if (op.op === 'z_order') what = op.to === 'front' ? 'Bring to front' : 'Send to back';
   else {
-    what = Object.entries(op.set || {}).map(([k, v], i) => (
-      <span key={k}>{i > 0 ? ' · ' : ''}{k}: {describeValue(k, v)}</span>
+    // A page_nav op also names the icons it gives the pages, and its logo.
+    const icons = Object.values(op.icons || {});
+    const entries = [
+      ...Object.entries(op.set || {}),
+      ...(icons.length ? [['icons', icons.map((n) => n || 'none').join(', ')]] : []),
+      ...(op.logo !== undefined ? [['logo', op.logo ? 'the image you added' : 'none']] : []),
+    ];
+    what = entries.map(([k, v], i) => (
+      <span key={k}>{i > 0 ? ' · ' : ''}{k}: {k === 'icons' || k === 'logo' ? v : describeValue(k, v)}</span>
     ));
   }
   return (
@@ -93,7 +109,7 @@ function DesignOp({ op, titleOf, choice }) {
       <Choice choice={choice} />
       <Icon size={15} style={iconStyle} />
       <div style={{ minWidth: 0 }}>
-        <div style={titleStyle}>{op.op === 'report_settings' ? 'Report' : titleOf(op.widgetId)}</div>
+        <div style={titleStyle}>{op.op === 'report_settings' ? 'Report' : op.op === 'page_nav' ? 'Page menu' : `${titleOf(op.widgetId, op)}${op.page ? ` · ${op.page}` : ''}`}</div>
         <div style={metaStyle}>{what}</div>
       </div>
     </div>
@@ -174,7 +190,8 @@ export default function ProposalCard({ proposal, model, widgets, reportId, setti
 
   const isDesign = proposal.kind === 'design';
   const isVisual = proposal.kind === 'customVisual';
-  const titleOf = (id) => widgets?.[id]?.config?.title || WIDGET_TYPES[widgets?.[id]?.type]?.label || 'Widget';
+  // A widget of another page is not in `widgets`: the server names it on the operation.
+  const titleOf = (id, op) => widgets?.[id]?.config?.title || op?.title || WIDGET_TYPES[widgets?.[id]?.type]?.label || 'Widget';
   // A whole-page arrangement is one decision, not twelve: past a few, the
   // moves read as a single line and the pixel detail stays out of the card.
   const moves = isDesign ? proposal.ops.filter((op) => op.op === 'move') : [];
@@ -207,6 +224,7 @@ export default function ProposalCard({ proposal, model, widgets, reportId, setti
   return (
     <div style={cardStyle}>
       {isDesign && proposal.summary ? <div style={rationaleStyle}>{proposal.summary}</div> : null}
+      {describeUnderstood(proposal.understood, model) ? <div style={rationaleStyle}>{describeUnderstood(proposal.understood, model)}</div> : null}
       {isDesign && proposal.advice?.length ? (
         <div style={adviceStyle}>
           <div style={adviceTitleStyle}><TbBulb size={13} /> For you to decide</div>
@@ -258,7 +276,7 @@ export default function ProposalCard({ proposal, model, widgets, reportId, setti
                 <Choice choice={choiceFor(`w${i}`)} />
                 <Icon size={16} style={iconStyle} />
                 <div style={{ minWidth: 0 }}>
-                  <div style={titleStyle}>{w.config?.title || WIDGET_TYPES[w.type]?.label || w.type}</div>
+                  <div style={titleStyle}>{w.config?.title || (w.type === 'text' ? String(w.data?.text || '').slice(0, 60) : '') || (w.type === 'image' ? w.config?.alt : '') || WIDGET_TYPES[w.type]?.label || w.type}</div>
                   <div style={metaStyle}>{fieldLabels(w.dataBinding, model)}</div>
                   {describeShaping(w.dataBinding, model) ? <div style={metaStyle}>{describeShaping(w.dataBinding, model)}</div> : null}
                   {w.rationale ? <div style={rationaleStyle}>{w.rationale}</div> : null}

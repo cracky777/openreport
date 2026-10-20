@@ -48,6 +48,7 @@ function parseModel(row) {
     joins:           safeParse(row.joins, []),
     rls:             safeParse(row.rls, {}),
     column_types:    safeParse(row.column_types, {}),
+    domains:         safeParse(row.domains, []),
   };
 }
 

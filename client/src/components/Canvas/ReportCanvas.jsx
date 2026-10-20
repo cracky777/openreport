@@ -12,6 +12,16 @@ import { useMediaQuery } from '../../hooks/useMediaQuery';
 // Inner padding of the stacked (small-screen) column.
 const STACK_PAD = 12;
 
+// The page's own image, else its gradient (settings.gradientBg, the shape a
+// widget's frame uses), over its color.
+function pageBackgroundImage(settings) {
+  if (settings.transparentBg) return 'none';
+  if (settings.backgroundImage) return `url(${settings.backgroundImage})`;
+  const g = settings.gradientBg;
+  if (g?.enabled) return `linear-gradient(${g.angle ?? 180}deg, ${g.color1 || '#ffffff'}, ${g.color2 || '#e2e8f0'})`;
+  return 'none';
+}
+
 
 
 export default function ReportCanvas({
@@ -664,7 +674,7 @@ export default function ReportCanvas({
             transform: scale < 1 ? `scale(${scale})` : undefined,
             transformOrigin: 'top left',
             backgroundColor: settings.transparentBg ? 'transparent' : (settings.backgroundColor || 'var(--bg-canvas)'),
-            backgroundImage: !settings.transparentBg && settings.backgroundImage ? `url(${settings.backgroundImage})` : 'none',
+            backgroundImage: pageBackgroundImage(settings),
             backgroundSize: settings.backgroundSize || 'cover',
             backgroundPosition: 'center',
             backgroundRepeat: settings.backgroundSize === 'repeat' ? 'repeat' : 'no-repeat',

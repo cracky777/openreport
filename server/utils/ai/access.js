@@ -18,11 +18,18 @@
 // "The instance" is a scope: its stored config and whether this user is denied
 // in it. The cloud edition passes its own — the organization the request runs
 // in, set up by that organization's admins (cloudHooks.resolveAiScope).
+//
+// The Claude subscription (providers/claudeSubscription.js) is a personal
+// provider and nothing else: a Pro / Max plan is one person's, its token pays
+// that person's turns. Neither the instance nor an organization can be set to
+// it (settingsHelper.AI_PROVIDERS leaves it out).
 
 const db = require('../../db');
-const { storedAiConfig, effectiveAiConfig, publicAiConfigOf, applyAiProviderPatch, clearAiKey } = require('../settingsHelper');
+const { AI_PROVIDERS, storedAiConfig, effectiveAiConfig, publicAiConfigOf, applyAiProviderPatch, clearAiKey } = require('../settingsHelper');
+const { PROVIDER: SUBSCRIPTION } = require('./providers/claudeSubscription');
 
 const PERSONAL_DEFAULTS = { provider: 'openai-compat', baseUrl: '', model: '', apiKey: '' };
+const PERSONAL_PROVIDERS = [...AI_PROVIDERS, SUBSCRIPTION];
 
 function storedPersonal(userId) {
   const row = db.prepare('SELECT ai_config FROM users WHERE id = ?').get(userId);
@@ -35,7 +42,8 @@ function storedPersonal(userId) {
   return { ...PERSONAL_DEFAULTS, ...(stored && typeof stored === 'object' ? stored : {}) };
 }
 
-const isConfigured = (cfg) => !!(cfg.baseUrl && cfg.model);
+// The subscription has no URL: the token is the whole setup, the model the plan's default unless named.
+const isConfigured = (cfg) => (cfg.provider === SUBSCRIPTION ? !!cfg.apiKey : !!(cfg.baseUrl && cfg.model));
 
 function isDenied(userId) {
   const row = db.prepare('SELECT ai_denied FROM users WHERE id = ?').get(userId);
@@ -74,13 +82,26 @@ function resolveForUser(user, scope = instanceScope(user)) {
 /** What the user may read back of their own provider. Never the key. */
 function publicPersonal(userId) {
   const cfg = storedPersonal(userId);
-  return { provider: cfg.provider, baseUrl: cfg.baseUrl, model: cfg.model, hasApiKey: !!cfg.apiKey, keyError: clearAiKey(cfg).keyError };
+  return { provider: cfg.provider, baseUrl: cfg.baseUrl, model: cfg.model, hasApiKey: !!cfg.apiKey, configured: isConfigured(cfg), keyError: clearAiKey(cfg).keyError };
 }
 
 function setPersonal(userId, patch) {
+  const p = patch && typeof patch === 'object' ? patch : {};
   const next = storedPersonal(userId);
-  applyAiProviderPatch(next, patch && typeof patch === 'object' ? patch : {});
-  if (!isConfigured(next)) throw new Error('Set a base URL and a model');
+  // A key belongs to the provider it was made for: changing provider drops it,
+  // so an OpenAI key never passes for a Claude token.
+  if (p.provider !== undefined && p.provider !== next.provider) next.apiKey = '';
+  const subscription = (p.provider !== undefined ? p.provider : next.provider) === SUBSCRIPTION;
+  // No base URL for the subscription; its model may stay empty (the plan's default).
+  applyAiProviderPatch(next, subscription ? { ...p, baseUrl: undefined, model: undefined } : p, PERSONAL_PROVIDERS);
+  if (subscription) {
+    next.baseUrl = '';
+    if (p.model !== undefined) next.model = String(p.model == null ? '' : p.model).trim().slice(0, 200);
+    // A token never holds whitespace; one copied from a terminal often holds a
+    // line break where the line wrapped. Saved as the token it was meant to be.
+    if (typeof p.apiKey === 'string' && /\s/.test(p.apiKey.trim())) applyAiProviderPatch(next, { apiKey: p.apiKey.replace(/\s+/g, '') }, PERSONAL_PROVIDERS);
+  }
+  if (!isConfigured(next)) throw new Error(subscription ? 'Paste the token that `claude setup-token` prints' : 'Set a base URL and a model');
   db.prepare('UPDATE users SET ai_config = ? WHERE id = ?').run(JSON.stringify(next), userId);
   return publicPersonal(userId);
 }

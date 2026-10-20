@@ -17,6 +17,12 @@ function toWireMessages(system, messages) {
         }));
       }
       out.push(msg);
+    } else if (m.images && m.images.length) {
+      // A page shown to the model (the studio's review of an applied change).
+      out.push({ role: 'user', content: [
+        { type: 'text', text: m.text || '' },
+        ...m.images.map((img) => ({ type: 'image_url', image_url: { url: `data:${img.mediaType};base64,${img.data}` } })),
+      ] });
     } else {
       out.push({ role: 'user', content: m.text || '' });
     }

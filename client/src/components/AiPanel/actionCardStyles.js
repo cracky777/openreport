@@ -21,4 +21,13 @@ export const applyBtn = (active) => ({
   border: 'none', borderRadius: 8, color: '#fff', background: 'var(--accent-primary)',
   cursor: active ? 'pointer' : 'default', opacity: active ? 1 : 0.5,
 });
+// One answer of a closed question (QuestionCard, the chat home's first questions).
+export const chipsStyle = { display: 'flex', flexWrap: 'wrap', gap: 6 };
+export const chip = (picked, disabled) => ({
+  padding: '5px 11px', fontSize: 12, borderRadius: 999, cursor: disabled ? 'default' : 'pointer',
+  border: `1px solid ${picked ? 'var(--accent-primary)' : 'var(--border-default)'}`,
+  background: picked ? 'var(--accent-primary)' : 'var(--bg-panel)',
+  color: picked ? '#fff' : disabled ? 'var(--text-disabled)' : 'var(--text-primary)',
+  fontWeight: picked ? 600 : 500,
+});
 export const doneStyle = { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: 'var(--state-success)' };

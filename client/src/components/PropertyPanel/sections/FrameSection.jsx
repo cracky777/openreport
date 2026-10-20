@@ -22,6 +22,31 @@ export default function FrameSection({ ctx }) {
       <Field label="Title color">
         <ColorInput value={cfg.titleColor || '#475569'} onChange={(v) => updateConfig('titleColor', v)} />
       </Field>
+      <Field label="Title size" vertical>
+        <RangeInput min={10} max={28} value={cfg.titleFontSize ?? 13}
+          onChange={(e) => updateConfig('titleFontSize', parseIntOrNull(e.target.value))} suffix="px" />
+      </Field>
+      <Field label="Title weight">
+        <select value={cfg.titleWeight || 600} onChange={(e) => updateConfig('titleWeight', Number(e.target.value))} style={{ ...inputStyle, marginBottom: 0 }}>
+          <option value={400}>Regular</option>
+          <option value={500}>Medium</option>
+          <option value={600}>Semibold</option>
+          <option value={700}>Bold</option>
+        </select>
+      </Field>
+      <Field label="Title alignment">
+        <select value={cfg.titleAlign || 'left'} onChange={(e) => updateConfig('titleAlign', e.target.value)} style={{ ...inputStyle, marginBottom: 0 }}>
+          <option value="left">Left</option>
+          <option value="center">Center</option>
+          <option value="right">Right</option>
+        </select>
+      </Field>
+      <Field label="Title position">
+        <select value={cfg.titlePosition || 'top'} onChange={(e) => updateConfig('titlePosition', e.target.value)} style={{ ...inputStyle, marginBottom: 0 }}>
+          <option value="top">Above the visual</option>
+          <option value="bottom">Below the visual</option>
+        </select>
+      </Field>
       <SubSection label="Border">
         <Field label="Show border">
           <input type="checkbox" checked={borderOn} onChange={(e) => updateConfig('borderEnabled', e.target.checked)} />

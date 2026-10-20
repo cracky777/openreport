@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { TbLink, TbUnlink, TbTable, TbTablePlus, TbTag, TbSum, TbLayoutGrid, TbCheck } from 'react-icons/tb';
+import { TbLink, TbUnlink, TbTable, TbTablePlus, TbTag, TbSum, TbLayoutGrid, TbCheck, TbBriefcase, TbBook2 } from 'react-icons/tb';
 import { keepModelChoices } from '../../utils/modelProposal';
 
 const cardStyle = {
@@ -7,6 +7,8 @@ const cardStyle = {
   background: 'var(--bg-app)', border: '1px solid var(--border-default)',
 };
 const summaryStyle = { fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.45 };
+// A table of a linked file is "alias__table" to the model: shown by its own name.
+const shown = (t) => String(t).split('__').pop();
 const groupStyle = { display: 'flex', gap: 8, alignItems: 'flex-start' };
 const iconStyle = { flexShrink: 0, marginTop: 1, color: 'var(--accent-primary)' };
 const groupTitleStyle = { fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' };
@@ -49,7 +51,8 @@ function Group({ icon: Icon, title, items, choose, dropped }) {
  * What the model assistant proposes, grouped by kind. Applying it changes the
  * editor, like doing it by hand would; the model is saved with Save, as usual.
  */
-export default function ModelProposalCard({ proposal, onApply, onOutcome }) {
+/** @param {boolean} [saved]  applying writes the model at once (the studio's model assistant): no save to ask for */
+export default function ModelProposalCard({ proposal, onApply, onOutcome, saved = false }) {
   const [state, setState] = useState('open');
   // The lines the author unticked, by the keys keepModelChoices reads.
   const [dropped, setDropped] = useState(() => new Set());
@@ -57,15 +60,17 @@ export default function ModelProposalCard({ proposal, onApply, onOutcome }) {
   const finish = (next) => { setState(next); onOutcome?.(next); };
   if (state === 'dismissed') return <div style={itemStyle}>Dismissed</div>;
 
-  const tables = (proposal.addTables || []).map((t) => ({ key: `table:${t}`, text: t }));
-  const joins = (proposal.joins || []).map((j, i) => ({ key: `join${i}`, text: `${j.from_table}.${j.from_column} → ${j.to_table}.${j.to_column} (${CARD[j.cardinality.from]} to ${CARD[j.cardinality.to]})` }));
-  const removed = (proposal.removeJoins || []).map((j, i) => ({ key: `remove${i}`, text: `${j.from_table}.${j.from_column} → ${j.to_table}.${j.to_column}` }));
-  const roles = Object.entries(proposal.tableRoles || {}).map(([t, r]) => ({ key: `role:${t}`, text: `${t}: ${r === 'fact' ? 'FACT' : 'DIM'}` }));
+  const tables = (proposal.addTables || []).map((t) => ({ key: `table:${t}`, text: shown(t) }));
+  const joins = (proposal.joins || []).map((j, i) => ({ key: `join${i}`, text: `${shown(j.from_table)}.${j.from_column} → ${shown(j.to_table)}.${j.to_column} (${CARD[j.cardinality.from]} to ${CARD[j.cardinality.to]})` }));
+  const removed = (proposal.removeJoins || []).map((j, i) => ({ key: `remove${i}`, text: `${shown(j.from_table)}.${j.from_column} → ${shown(j.to_table)}.${j.to_column}` }));
+  const roles = Object.entries(proposal.tableRoles || {}).map(([t, r]) => ({ key: `role:${t}`, text: `${shown(t)}: ${r === 'fact' ? 'FACT' : 'DIM'}` }));
   const asLabel = { dimension: 'dimension', measure: 'measure (sum)', none: 'not used' };
-  const fields = (proposal.fields || []).map((f, i) => ({ key: `field${i}`, text: `${f.table}.${f.column} → ${asLabel[f.as]}` }));
-  const measures = (proposal.measures || []).map((m, i) => ({ key: `measure${i}`, text: `${m.label || m.column}: ${m.aggregation.toUpperCase()}(${m.table}.${m.column})` }));
+  const fields = (proposal.fields || []).map((f, i) => ({ key: `field${i}`, text: `${shown(f.table)}.${f.column} → ${asLabel[f.as]}${f.dateParts ? `, by ${f.dateParts.map((p) => p.replace(/_/g, ' ')).join(', ')}` : ''}` }));
+  const measures = (proposal.measures || []).map((m, i) => ({ key: `measure${i}`, text: `${m.label || m.column}: ${m.aggregation.toUpperCase()}(${shown(m.table)}.${m.column})` }));
   const diagram = proposal.positions ? [{ key: 'positions', text: 'Tables arranged: facts in the middle, their dimensions around' }] : [];
-  const lineCount = tables.length + joins.length + removed.length + roles.length + fields.length + measures.length + diagram.length;
+  const domains = proposal.domains ? [{ key: 'domains', text: proposal.domains.length ? proposal.domains.join(', ') : 'none' }] : [];
+  const glossary = (proposal.glossary || []).map((g, i) => ({ key: `glossary${i}`, text: `${shown(g.table)}.${g.column}${g.role ? ` = ${g.role}` : ''}${g.description ? ` — ${g.description}` : ''}` }));
+  const lineCount = tables.length + joins.length + removed.length + roles.length + fields.length + measures.length + diagram.length + domains.length + glossary.length;
   const choose = state === 'open' && lineCount > 1 ? (key) => setDropped((prev) => {
     const next = new Set(prev);
     if (next.has(key)) next.delete(key); else next.add(key);
@@ -95,8 +100,10 @@ export default function ModelProposalCard({ proposal, onApply, onOutcome }) {
       <Group icon={TbTag} title="Columns" items={fields} {...group} />
       <Group icon={TbSum} title="Measures" items={measures} {...group} />
       <Group icon={TbLayoutGrid} title="Diagram" items={diagram} {...group} />
+      <Group icon={TbBriefcase} title="Business domains" items={domains} {...group} />
+      <Group icon={TbBook2} title="Glossary" items={glossary} {...group} />
       {state === 'applied' ? (
-        <span style={doneStyle}><TbCheck size={14} /> Applied — Save the model to keep it</span>
+        <span style={doneStyle}><TbCheck size={14} /> {saved ? 'Applied and saved to the model' : 'Applied — Save the model to keep it'}</span>
       ) : (
         <div style={actionsStyle}>
           <button style={quietBtn} onClick={() => finish('dismissed')}>Dismiss</button>

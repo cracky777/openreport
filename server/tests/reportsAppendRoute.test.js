@@ -54,7 +54,9 @@ describe('adding widgets to a saved report', () => {
     expect(settings.theme).toBe('dark');
     expect(settings.pages[0].layout).toEqual([{ i: id, x: 20, y: 20, w: 560, h: 360, z: 1 }]);
     // Nothing of the config the browser sent survives but what the validator builds.
-    expect(settings.pages[0].widgets[id].config).toEqual({ title: 'Sales', subType: 'stacked', showLegend: true, showXAxisTitle: false, showYAxisTitle: false });
+    expect(settings.pages[0].widgets[id].config).toEqual({ title: 'Sales', subType: 'stacked', showLegend: false, legendPosition: 'top', sortOrder: 'desc', valueAbbreviation: 'auto', showXAxisTitle: false, showYAxisTitle: false });
+    // The measure has no format in the model: the report gets one (utils/ai/dress.js).
+    expect(settings.measureOverrides['items.amt_sum'].format.decimals).toBe(0);
     expect(layout).toEqual(settings.pages[0].layout);
     expect(widgets).toEqual(settings.pages[0].widgets);
     expect(db.prepare('SELECT COUNT(*) AS n FROM report_versions WHERE report_id = ?').get(report).n).toBe(1);

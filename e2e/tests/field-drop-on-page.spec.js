@@ -80,7 +80,7 @@ test('a dimension dropped on that scorecard turns it into a bar chart of it', as
   await done();
 });
 
-// "Suggest" hands the visual's fields to the editor's assistant, in Visuals mode.
+// "Suggest" hands the visual's fields to the editor's assistant.
 test('Suggest on the new visual asks the assistant which visual fits its fields', async ({ page }) => {
   const provider = await F.startScriptedProvider(() => ({ name: 'read_help', arguments: { topics: ['visuals'] } }));
   try {
@@ -91,7 +91,6 @@ test('Suggest on the new visual asks the assistant which visual fits its fields'
     await dropMeasureOnPage(page, spot);
     await page.getByRole('toolbar', { name: 'Show as' }).getByRole('button', { name: 'Suggest' }).click();
     await expect(page.getByText(`Which visual best shows ${F.MEASURE_LABEL}? Propose it.`)).toBeVisible({ timeout: 20000 });
-    await expect(page.getByRole('tab', { name: 'Visuals' })).toHaveAttribute('aria-selected', 'true');
     await done();
   } finally {
     await page.request.put('/api/admin/settings/ai', { data: { enabled: false } });

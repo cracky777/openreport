@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 
 /**
- * Lets a panel be resized by dragging a handle on its left edge.
- * Returns { width, handleProps } — spread `handleProps` on a thin div positioned at the left edge.
+ * Lets a panel be resized by dragging a handle on its edge: the left edge of
+ * a panel docked on the right (the default), the right edge of one docked on
+ * the left (`side: 'left'`).
+ * Returns { width, handleProps } — spread `handleProps` on a thin div.
  *
  * Width is persisted in localStorage under `storageKey`.
  */
-export function useResizableWidth({ storageKey, defaultWidth, min = 180, max = 600, onDragStart, onDragEnd }) {
+export function useResizableWidth({ storageKey, defaultWidth, min = 180, max = 600, onDragStart, onDragEnd, side = 'right' }) {
   const [width, setWidth] = useState(() => {
     if (typeof window === 'undefined') return defaultWidth;
     try {
@@ -30,7 +32,8 @@ export function useResizableWidth({ storageKey, defaultWidth, min = 180, max = 6
   useEffect(() => {
     const onMove = (e) => {
       if (!draggingRef.current) return;
-      const delta = startRef.current.x - e.clientX; // dragging LEFT widens (panel is on the right edge)
+      // Dragging away from the panel's own edge widens it.
+      const delta = side === 'left' ? e.clientX - startRef.current.x : startRef.current.x - e.clientX;
       const next = Math.max(min, Math.min(max, startRef.current.w + delta));
       setWidth(next);
     };
@@ -47,7 +50,7 @@ export function useResizableWidth({ storageKey, defaultWidth, min = 180, max = 6
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
     };
-  }, [min, max]);
+  }, [min, max, side]);
 
   const startDrag = (e) => {
     draggingRef.current = true;
@@ -61,7 +64,7 @@ export function useResizableWidth({ storageKey, defaultWidth, min = 180, max = 6
   const handleProps = {
     onMouseDown: startDrag,
     style: {
-      position: 'absolute', top: 0, left: -3, bottom: 0, width: 6,
+      position: 'absolute', top: 0, ...(side === 'left' ? { right: -3 } : { left: -3 }), bottom: 0, width: 6,
       cursor: 'col-resize', zIndex: 5,
       // Subtle hover hint
       background: 'transparent',

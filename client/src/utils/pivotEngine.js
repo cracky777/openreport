@@ -51,6 +51,33 @@ function accumulate(target, measures, row) {
  * Build a header tree for multi-level dimensions.
  * Returns [{ value, children, leafCount }]
  */
+// A total the server's atoms rebuild exactly: an average as Σsum / Σcount,
+// a difference, ratio or percentage of two additive measures as the
+// operation on the two totals (`totalComponents` of the query response).
+// `accs` is the bucket's measure → accumulator map. Null = nothing to show.
+export function rebuildTotal(comp, accs) {
+  if (!comp) return null;
+  if (comp.op) {
+    const l = resolveCell(accs?.[comp.left], 'sum');
+    const r = resolveCell(accs?.[comp.right], 'sum');
+    if (l == null && r == null) return null;
+    // A side with no row counts for 0, as the query itself reads it.
+    const a = l ?? 0;
+    const b = r ?? 0;
+    switch (comp.op) {
+      case 'add': return a + b;
+      case 'subtract': return a - b;
+      case 'divide': return b ? a / b : null;
+      case 'percent': return b ? (100 * a) / b : null;
+      default: return null;
+    }
+  }
+  const s = resolveCell(accs?.[comp.sum], 'sum');
+  const n = resolveCell(accs?.[comp.count], 'sum');
+  // n = 0 means every value under this total was NULL: empty, not zero.
+  return (s == null || !n) ? null : s / n;
+}
+
 export function buildHeaderTree(keys) {
   const root = [];
   for (const [, vals] of keys) {

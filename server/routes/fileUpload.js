@@ -15,6 +15,7 @@ const { buildDatabaseInChild, ACCEPTED_EXTS } = require('../utils/fileImport');
 const { utf8CopyPath } = require('../utils/textFile');
 const { buildFecPack } = require('../utils/accounting/fecPack');
 const { targetsOf } = require('../utils/accounting/accountMap');
+const { validateShape, outputsOf } = require('../utils/fileShape');
 const { CHART_NAMES } = require('../utils/accounting/charts');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
@@ -251,8 +252,12 @@ function versionPath(dsId) {
 async function refreshFile(req, res, ds, extra, files, replacing) {
   const file = req.file;
   const ext = path.extname(file.originalname).toLowerCase();
-  const keptTables = files.filter((_, i) => i !== replacing).flatMap((f) => f.tables.map((t) => t.tableName));
+  const keptFiles = files.filter((_, i) => i !== replacing);
+  const keptTables = keptFiles.flatMap((f) => f.tables.map((t) => t.tableName));
   const previous = files[replacing].tables.map((t) => t.tableName);
+  // A reshaped file: the new export takes the name its recipe reads, and
+  // the recipe runs again on it.
+  const shape = files[replacing].shape || null;
   const oldPath = ds.db_name;
   const newPath = versionPath(ds.id);
 
@@ -262,9 +267,10 @@ async function refreshFile(req, res, ds, extra, files, replacing) {
       file: { path: file.path, originalname: file.originalname },
       ext,
       body: withLedger(req.body, files[replacing]),
-      keep: { fromPath: oldPath, tables: keptTables },
-      renameSingleTo: previous.length === 1 ? previous[0] : null,
+      keep: { fromPath: oldPath, tables: keptTables, raw: keptFiles.filter((f) => f.shape).map((f) => f.shape.table) },
+      renameSingleTo: shape ? shape.table : (previous.length === 1 ? previous[0] : null),
       accountMap: mapOf(extra),
+      shape,
     });
     dropUpload(file);
 
@@ -274,6 +280,7 @@ async function refreshFile(req, res, ds, extra, files, replacing) {
       importedAt: new Date().toISOString(),
       tables: tables.map((t) => ({ tableName: t.tableName, rowCount: t.rowCount })),
       ...(accounting ? { accounting } : {}),
+      ...(shape ? { shape } : {}),
     };
     const nextFiles = files.map((f, i) => (i === replacing ? entry : f));
     // One statement: the datasource must never name a file whose contents it
@@ -578,6 +585,47 @@ router.put('/:id/accounts', authFor('write'), async (req, res) => {
     res.json({ mapped: Object.keys(map).length, files: nextExtra.files.map((x) => ({ sourceFile: x.sourceFile, accounting: x.accounting })) });
   } catch (err) {
     res.status(500).json({ error: `Mapping failed: ${String(err?.message || err).replace(/[^\x20-\x7E\r\n\t]/g, '?').slice(0, 300)}` });
+  }
+});
+
+// Reshape one table of the file into a fact and its dimensions: the recipe
+// the assistant proposed and the user validated (utils/fileShape.js), applied
+// to a new version of the file in the import process, kept on the file's
+// entry and replayed on every refresh. `shape: null` puts the table back as
+// imported. The same bar as refreshing the file: it rewrites the source.
+router.post('/:id/shape', authFor('write'), async (req, res) => {
+  const ds = getDatasource(req.params.id, req);
+  if (!ds) return res.status(404).json({ error: 'Datasource not found' });
+  if (!wsAccess.canManageDatasource(ds, wsAccess.actorOf(req))) return res.status(403).json({ error: 'Only a workspace admin can reshape this file' });
+  let extra = {};
+  try { extra = JSON.parse(ds.extra_config || '{}'); } catch { /* malformed row — rejected just below */ }
+  if (ds.db_type !== 'duckdb' || !extra.sourceFile) return res.status(400).json({ error: 'This datasource is a live connection, not an imported file.' });
+  const table = typeof req.body?.table === 'string' ? req.body.table : '';
+  const files = filesOf(extra);
+  // The file the table belongs to: as imported, or already reshaped from it.
+  const at = files.findIndex((f) => (f.shape ? f.shape.table === table : f.tables.some((t) => t.tableName === table)));
+  if (at < 0) return res.status(404).json({ error: `Table ${table.slice(0, 60)} is not a table of this file` });
+  const entry = files[at];
+  const previousOutputs = entry.shape ? outputsOf(entry.shape) : [table];
+  let shape = null;
+  if (req.body.shape !== null) {
+    const taken = files.flatMap((f) => f.tables.map((t) => t.tableName)).filter((t) => !previousOutputs.includes(t));
+    const checked = validateShape({ ...(req.body.shape && typeof req.body.shape === 'object' ? req.body.shape : {}), table }, { taken });
+    if (!checked.shape) return res.status(400).json({ error: checked.errors.join('; ') });
+    shape = checked.shape;
+  } else if (!entry.shape) return res.status(400).json({ error: 'This table was not reshaped' });
+  const oldPath = ds.db_name;
+  const newPath = versionPath(ds.id);
+  try {
+    const { tables } = await buildDatabaseInChild({ kind: 'shape', outPath: newPath, sourcePath: oldPath, table, shape, previousOutputs });
+    const { shape: _was, ...rest } = entry;
+    const next = { ...rest, tables: [...tables, ...entry.tables.filter((t) => !previousOutputs.includes(t.tableName))], ...(shape ? { shape } : {}) };
+    const nextFiles = files.map((f, i) => (i === at ? next : f));
+    db.prepare('UPDATE datasources SET db_name = ?, extra_config = ? WHERE id = ?').run(newPath, JSON.stringify(extraFromFiles(extra, nextFiles)), ds.id);
+    await switchedVersion(req, ds.id, oldPath);
+    res.json({ tables, files: nextFiles });
+  } catch (err) {
+    res.status(500).json({ error: `Reshaping failed: ${String(err?.message || err).replace(/[^\x20-\x7E\r\n\t]/g, '?').slice(0, 300)}` });
   }
 });
 

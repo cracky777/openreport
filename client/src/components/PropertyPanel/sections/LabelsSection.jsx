@@ -42,13 +42,22 @@ function DataLabelsPart({ widget, updateConfig, inputStyle }) {
                   <option value="outside">Outside</option>
                   <option value="inside">Inside</option>
                 </select>
-              ) : (
-                <select value={cfg.dataLabelPosition || 'top'} onChange={(e) => updateConfig('dataLabelPosition', e.target.value)} style={{ ...inputStyle, marginBottom: 0 }}>
-                  <option value="top">Above</option>
-                  <option value="inside">Inside, middle</option>
-                  <option value="insideTop">Inside, top</option>
-                  <option value="insideBottom">Inside, bottom</option>
-                </select>
+              ) : t === 'bar' ? (
+                  // Along the bar, whatever its direction (utils/barLabels).
+                  <select value={!cfg.dataLabelPosition || cfg.dataLabelPosition === 'outside' ? 'auto' : cfg.dataLabelPosition} onChange={(e) => updateConfig('dataLabelPosition', e.target.value)} style={{ ...inputStyle, marginBottom: 0 }}>
+                    <option value="auto">Best fit (outside, inside when there is no room)</option>
+                    <option value="top">Outside, at the end</option>
+                    <option value="insideTop">Inside, at the end</option>
+                    <option value="inside">Inside, middle</option>
+                    <option value="insideBottom">Inside, at the base</option>
+                  </select>
+                ) : (
+                  <select value={cfg.dataLabelPosition || 'top'} onChange={(e) => updateConfig('dataLabelPosition', e.target.value)} style={{ ...inputStyle, marginBottom: 0 }}>
+                    <option value="top">Above</option>
+                    <option value="inside">Inside, middle</option>
+                    <option value="insideTop">Inside, top</option>
+                    <option value="insideBottom">Inside, bottom</option>
+                  </select>
               )}
             </Field>
           )}
@@ -87,7 +96,7 @@ export default function LabelsSection({ ctx }) {
 
   if (isChart(type)) {
     const axisFormat = type === 'bar' || type === 'line' || type === 'combo' || type === 'waterfall';
-    const labelFormat = type === 'bar' || type === 'line' || type === 'pie' || type === 'treemap' || type === 'waterfall';
+    const labelFormat = type === 'bar' || type === 'line' || type === 'pie' || type === 'treemap' || type === 'waterfall' || type === 'heatmap' || type === 'map';
     body = (
       <>
         <DataLabelsPart widget={widget} updateConfig={updateConfig} inputStyle={inputStyle} />

@@ -13,11 +13,17 @@ const noteStyle = {
 // The proposed visual itself, drawn by the component the canvas will use, on
 // the rows the canvas will get. Read-only: no handler is wired, so clicking a
 // bar in a proposal cannot cross-filter the page behind it.
+// The page's dressing has no rows to fetch: drawn as it is, on its own data.
+const DECOR = new Set(['text', 'shape', 'image']);
+const DECOR_HEIGHT = 60;
+
 export default function WidgetPreview({ widget, model, reportId, settings, height }) {
   const boxRef = useRef(null);
   const [width, setWidth] = useState(0);
-  const { data, loading, error } = useWidgetPreview(widget, { model, reportId, settings });
-  const h = height || PREVIEW_HEIGHTS[widget.type] || DEFAULT_HEIGHT;
+  const decor = DECOR.has(widget.type);
+  const fetched = useWidgetPreview(widget, { model, reportId, settings, enabled: !decor });
+  const { data, loading, error } = decor ? { data: { ...(widget.data || {}), _rowCount: 1 }, loading: false, error: null } : fetched;
+  const h = height || (decor ? DECOR_HEIGHT : PREVIEW_HEIGHTS[widget.type] || DEFAULT_HEIGHT);
 
   useEffect(() => {
     const el = boxRef.current;

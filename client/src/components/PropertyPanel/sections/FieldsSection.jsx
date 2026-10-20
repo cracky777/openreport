@@ -86,6 +86,23 @@ export default function FieldsSection({ ctx }) {
         {roleZone('Size', 'scatterSize', scatter.size, setScatterMeas('size'), removeScatterMeas('size'))}
       </>
     );
+  } else if (type === 'heatmap') {
+    zones = (
+      <>
+        {axisZone('Columns', { multiple: false })}
+        <DropZone label="Rows" accepts={['dimension']} fields={groupBy} zoneName="groupBy"
+          onDrop={handleDrop('groupBy')} onRemove={handleRemoveGroupBy} onReorder={handleReorder('groupBy')} fieldInfos={fieldInfos} />
+        {valuesZone('Value', false)}
+      </>
+    );
+  } else if (type === 'map') {
+    zones = (
+      <>
+        <DropZone label="Location" accepts={['dimension']} fields={selectedDims} zoneName="category"
+          onDrop={handleDrop('category')} onRemove={handleRemove} onReorder={handleReorder('dims')} fieldInfos={fieldInfos} />
+        {valuesZone('Value', false)}
+      </>
+    );
   } else if (type === 'pie' || type === 'treemap' || type === 'waterfall') {
     zones = (
       <>

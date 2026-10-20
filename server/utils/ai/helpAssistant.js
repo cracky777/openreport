@@ -10,7 +10,6 @@ const { helpTopics, readHelp } = require('./help');
 const { validateActionProposal, ACTIONS_FOR } = require('./actions');
 
 const MAX_ITERATIONS = 4;
-const MAX_EMPTY_RETRIES = 3;
 const ROLES = ['admin', 'editor', 'viewer'];
 
 function buildHelpPrompt({ role, topics, canAct }) {
@@ -47,36 +46,25 @@ async function runHelpChat({ config, role, messages }, deps = {}) {
   const toolset = [tools.helpToolFor(topics), ...(canAct ? [tools.actionToolFor(ACTIONS_FOR.help)] : [])];
   const system = buildHelpPrompt({ role: knownRole, topics, canAct });
   let repaired = false;
-  const convo = messages.map((m) => ({ role: m.role, text: m.text }));
-  let emptyRetries = 0;
-  let lastText = '';
-
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const turn = await chat({ config, system, messages: convo, tools: toolset }, deps);
-    lastText = turn.text || lastText;
-    if (!turn.toolCalls.length) {
-      // Same provider quirk as the other assistants: an empty answer is sent again.
-      if (!(turn.text || '').trim() && emptyRetries < MAX_EMPTY_RETRIES) { emptyRetries += 1; continue; }
-      return { reply: turn.text || 'The AI provider returned an empty answer. Try again, or rephrase the question.', proposals: [] };
-    }
-    convo.push({ role: 'assistant', text: turn.text, toolCalls: turn.toolCalls });
-    let card = null;
-    for (const call of turn.toolCalls) {
-      let result;
-      if (call.argsError) result = { error: call.argsError };
-      else if (call.name === 'read_help') result = readHelp(call.args && call.args.topics);
-      else if (call.name === 'propose_action' && canAct) {
-        const { action, errors } = validateActionProposal(call.args, { allowed: ACTIONS_FOR.help });
-        if (action) { card = { kind: 'action', ...action }; result = { ok: true }; }
-        // One repair round, then what was said stands without a card.
-        else result = { error: repaired ? errors.join('; ') : `Fix this and call propose_action again: ${errors.join('; ')}` };
-        if (!action) repaired = true;
-      } else result = { error: `Unknown tool: ${String(call.name).slice(0, 40)}` };
-      convo.push({ role: 'tool', toolCallId: call.id, name: call.name, content: JSON.stringify(result), isError: !!result.error });
-    }
-    if (card) return { reply: turn.text || '', proposals: [card] };
-  }
-  return { reply: lastText || 'I could not finish within the allowed number of steps. Try a narrower question.', proposals: [] };
+  let card = null;
+  const execute = (call) => {
+    let result;
+    if (call.argsError) result = { error: call.argsError };
+    else if (call.name === 'read_help') result = readHelp(call.args && call.args.topics);
+    else if (call.name === 'propose_action' && canAct) {
+      const { action, errors } = validateActionProposal(call.args, { allowed: ACTIONS_FOR.help });
+      if (action) { card = { kind: 'action', ...action }; result = { ok: true }; }
+      // One repair round, then what was said stands without a card.
+      else result = { error: repaired ? errors.join('; ') : `Fix this and call propose_action again: ${errors.join('; ')}` };
+      if (!action) repaired = true;
+    } else result = { error: `Unknown tool: ${String(call.name).slice(0, 40)}` };
+    return { result, end: !!card };
+  };
+  const turn = await providers.runTurn({ config, system, messages, tools: toolset, maxSteps: MAX_ITERATIONS, execute }, { ...deps, chat });
+  if (card) return { reply: turn.text || '', proposals: [card] };
+  if (turn.ended === 'empty') return { reply: 'The AI provider returned an empty answer. Try again, or rephrase the question.', proposals: [] };
+  if (turn.ended === 'limit') return { reply: turn.text || 'I could not finish within the allowed number of steps. Try a narrower question.', proposals: [] };
+  return { reply: turn.text || '', proposals: [] };
 }
 
 module.exports = { buildHelpPrompt, runHelpChat };

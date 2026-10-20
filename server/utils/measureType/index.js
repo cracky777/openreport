@@ -45,6 +45,7 @@ const {
   effectiveMeasureName,
 } = require('./plan');
 const { compileExpression, extractRefs } = require('./exprParse');
+const { parseArithmetic, isAdditive } = require('./arithmetic');
 
 module.exports = {
   effectiveMeasureName,
@@ -64,4 +65,6 @@ module.exports = {
   hllAliasBase,
   compileExpression,
   extractRefs,
+  parseArithmetic,
+  isAdditive,
 };

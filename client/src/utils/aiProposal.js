@@ -11,6 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { clampPos, findFreeSlot } from './pageBounds';
 import { applyContainerToGroup, pickContainer } from './mergeContainer';
 import { describeModelProposal } from './modelProposal';
+import { describePageNav, withPageNav } from './pageNav';
 
 const GRID = 20;
 
@@ -41,6 +42,35 @@ export function proposedVisuals(proposal) {
   if (!proposal) return [];
   if (proposal.kind === 'customVisual') return [{ type: 'customVisual', config: { title: proposal.manifest.name }, dataBinding: proposal.dataBinding }];
   return proposal.kind === 'widgets' ? proposal.widgets || [] : [];
+}
+
+/**
+ * What the assistant understood of an open request, in one line the user can
+ * check: "Understood: E-commerce · Acquisition and conversion · Acquisition source = UTM".
+ */
+export function describeUnderstood(understood, model) {
+  if (!understood) return '';
+  const label = (name) => [...(model?.dimensions || []), ...(model?.measures || [])].find((f) => f.name === name)?.label || name;
+  const parts = [
+    understood.domain?.label,
+    understood.objective?.label,
+    ...(understood.roles || []).map((r) => `${r.label} = ${label(r.field)}`),
+  ].filter(Boolean);
+  return parts.length ? `Understood: ${parts.join(' · ')}` : '';
+}
+
+/**
+ * The report settings with the formats a proposal brings for measures the
+ * model leaves bare (server utils/ai/dress.js). The report's own overrides win.
+ */
+export function withMeasureFormats(settings, proposal) {
+  const added = proposal?.measureOverrides;
+  if (!added || !Object.keys(added).length) return settings;
+  const current = settings?.measureOverrides || {};
+  const merged = { ...current };
+  // What the user asked the assistant for (`chosen`: decimals) wins over them.
+  for (const [name, { chosen, ...patch }] of Object.entries(added)) merged[name] = { ...patch, ...(current[name] || {}), ...(chosen || {}) };
+  return { ...(settings || {}), measureOverrides: merged };
 }
 
 /** What a proposed visual keeps of the data, in words: "Top 5 by Amount · Label contains fr · Last 12 months". */
@@ -77,6 +107,9 @@ function defaultSizeOf(widgetTypes, type) {
  *
  * @returns {{ layout, widgets, newIds } | { error: string }}
  */
+// The page's dressing: no data, placed to the pixel where the proposal put it.
+const DECOR_TYPES = new Set(['text', 'shape', 'image']);
+
 export function applyWidgetsProposal(proposal, { layout, widgets, pageWidth, pageHeight, effectiveModel, widgetTypes }, makeId = uuidv4) {
   const list = proposal?.widgets || [];
   if (!list.length) return { error: 'Nothing to apply' };
@@ -98,13 +131,102 @@ export function applyWidgetsProposal(proposal, { layout, widgets, pageWidth, pag
       ? { x: w.layout.x, y: w.layout.y }
       : { x: Math.max(0, Math.round((pageWidth - size.w) / 2)), y: Math.max(0, Math.round((pageHeight - size.h) / 2)) };
     const start = clampPos(wanted.x, wanted.y, size.w, size.h, pageWidth, pageHeight);
-    const pos = findFreeSlot(nextLayout, start.x, start.y, size.w, size.h, pageWidth, pageHeight);
-    z += 1;
-    nextLayout.push({ i: id, ...pos, ...size, z });
-    nextWidgets[id] = { type: w.type, data: {}, dataBinding: { ...w.dataBinding }, config: { ...w.config } };
+    // The page's dressing goes where its box says, a shape behind everything
+    // (a band under a group of visuals), the rest in front; a data visual
+    // takes the nearest free slot.
+    const decor = DECOR_TYPES.has(w.type);
+    const pos = decor && w.layout ? { x: start.x, y: start.y } : findFreeSlot(nextLayout, start.x, start.y, size.w, size.h, pageWidth, pageHeight);
+    if (w.type !== 'shape') z += 1;
+    nextLayout.push({ i: id, ...pos, ...size, z: w.type === 'shape' ? 0 : z });
+    nextWidgets[id] = { type: w.type, data: w.data ? { ...w.data } : {}, dataBinding: { ...w.dataBinding }, config: { ...w.config } };
     newIds.push(id);
   }
   return { layout: nextLayout, widgets: nextWidgets, newIds };
+}
+
+// The frame a replaced visual keeps: how it sits on the page, not what it shows.
+const FRAME_KEYS = ['backgroundColor', 'transparentBg', 'borderEnabled', 'borderColor', 'borderRadius', 'titleColor'];
+const frameOf = (config) => Object.fromEntries(FRAME_KEYS.filter((k) => config?.[k] !== undefined).map((k) => [k, config[k]]));
+
+/**
+ * Apply a change of the report as a whole (kind 'reportChanges', server
+ * utils/ai/reportChanges.js): page by page, visuals removed, replaced in
+ * their slot (the frame kept), moved where the server laid them, added at
+ * the place it gave them; pages added, renamed, removed. One new list of
+ * pages, so the studio keeps it as one undo step. What no longer fits (a
+ * widget or a page gone since) is skipped and counted. The last page is
+ * never removed.
+ * @returns {{ pages: object[], applied: number, skipped: number } | { error: string }}
+ */
+// A text widget that holds the report's title (the Finance package heads its
+// pages with it) follows a rename.
+const retitle = (page, from, to) => {
+  if (!from || !to || from === to) return page;
+  const widgets = { ...(page.widgets || {}) };
+  let changed = false;
+  for (const [id, w] of Object.entries(widgets)) {
+    if (w && w.type === 'text' && String(w.data?.text || '').trim() === from) { widgets[id] = { ...w, data: { ...w.data, text: to } }; changed = true; }
+  }
+  return changed ? { ...page, widgets } : page;
+};
+
+export function applyReportChanges(proposal, { pages, currentIdx, pageWidth, pageHeight, effectiveModel, widgetTypes, title = '' }, makeId = uuidv4) {
+  const entries = proposal?.pages || [];
+  const unknown = entries.flatMap((p) => [...(p.add || []), ...(p.replace || []).map((r) => r.widget)]).flatMap((w) => unknownFields(w, effectiveModel));
+  if (unknown.length) return { error: `Not in this report's model: ${[...new Set(unknown)].join(', ')}` };
+  // The page may grow with what is laid out on it.
+  const height = Math.max(pageHeight, Number(proposal.pageHeight) || 0);
+  let list = pages.map((p) => ({ ...p }));
+  const removedPages = new Set();
+  let applied = 0;
+  let skipped = 0;
+  for (const entry of entries) {
+    if (entry.isNew) {
+      const made = applyWidgetsProposal({ widgets: entry.add || [] }, { layout: [], widgets: {}, pageWidth, pageHeight: height, effectiveModel, widgetTypes }, makeId);
+      if (made.error) { skipped += 1; continue; }
+      list.push({ id: `page-${makeId()}`, name: entry.name || `Page ${list.length + 1}`, layout: made.layout, widgets: made.widgets });
+      applied += 1;
+      continue;
+    }
+    const idx = entry.shown ? currentIdx : list.findIndex((p) => p.id === entry.pageId);
+    const page = list[idx];
+    if (!page) { skipped += 1; continue; }
+    if (entry.remove) { removedPages.add(page.id); applied += 1; continue; }
+    let layout = [...(page.layout || [])];
+    let widgets = { ...(page.widgets || {}) };
+    for (const id of entry.removeWidgets || []) {
+      if (!widgets[id]) { skipped += 1; continue; }
+      delete widgets[id];
+      layout = layout.filter((it) => it.i !== id);
+      applied += 1;
+    }
+    for (const { widgetId, widget } of entry.replace || []) {
+      const old = widgets[widgetId];
+      if (!old) { skipped += 1; continue; }
+      widgets[widgetId] = { type: widget.type, data: widget.data ? { ...widget.data } : {}, dataBinding: { ...widget.dataBinding }, config: { ...frameOf(old.config), ...widget.config } };
+      applied += 1;
+    }
+    for (const op of entry.moves || []) {
+      if (!layout.some((it) => it.i === op.widgetId)) { skipped += 1; continue; }
+      const w = Math.min(op.w, pageWidth);
+      const h = Math.min(op.h, height);
+      const rect = { ...clampPos(op.x, op.y, w, h, pageWidth, height), w, h };
+      layout = layout.map((it) => (it.i === op.widgetId ? { ...it, ...rect } : it));
+      applied += 1;
+    }
+    if ((entry.add || []).length) {
+      const made = applyWidgetsProposal({ widgets: entry.add }, { layout, widgets, pageWidth, pageHeight: height, effectiveModel, widgetTypes }, makeId);
+      if (made.error) skipped += 1;
+      else { layout = made.layout; widgets = made.widgets; applied += entry.add.length; }
+    }
+    const name = entry.rename || page.name;
+    if (entry.rename) applied += 1;
+    list[idx] = { ...page, name, layout, widgets };
+  }
+  if (removedPages.size && removedPages.size < list.length) list = list.filter((p) => !removedPages.has(p.id));
+  else if (removedPages.size) { skipped += removedPages.size; applied -= removedPages.size; }
+  if (proposal.title && title) list = list.map((p) => retitle(p, title, proposal.title));
+  return { pages: list, applied, skipped };
 }
 
 /**
@@ -165,6 +287,38 @@ export function describeProposal(proposal, outcome) {
   // Applied in part: the model is told only what was kept.
   if (outcome && typeof outcome === 'object') return describeProposal(outcome.kept, 'partial');
   if (proposal.kind === 'model') return describeModelProposal(proposal, outcome);
+  if (proposal.kind === 'shape') {
+    const status = { applied: 'applied by the user: the file is reshaped and the model saved', dismissed: 'dismissed by the user' }[outcome] || 'not applied yet';
+    return `[Proposed reshaping of ${proposal.table} — ${status}: ${proposal.lines.join('; ')}]`.slice(0, 1500);
+  }
+  if (proposal.kind === 'undo') {
+    const status = { applied: 'the user took the change back', dismissed: 'the user kept the change' }[outcome] || 'not decided yet';
+    return `[Offered to undo the change (${proposal.reason || 'no reason given'}) — ${status}]`.slice(0, 600);
+  }
+  // The answer is the user's next message: only the question is recorded.
+  if (proposal.kind === 'question') return `[Asked the user: ${JSON.stringify(proposal.question)} — options: ${proposal.options.map((o) => o.label).join(' | ')}]`.slice(0, 600);
+  if (proposal.kind === 'reportChanges') {
+    const status = { applied: 'applied by the user', dismissed: 'dismissed by the user' }[outcome] || 'not applied yet';
+    const pages = (proposal.pages || []).map((p) => {
+      const what = p.remove ? ['removed'] : [
+        p.rename && `renamed ${JSON.stringify(p.rename)}`,
+        p.add.length && `added ${p.add.map((w) => JSON.stringify(w.config?.title || w.type)).join(', ')}`,
+        p.replace.length && `replaced ${p.replace.length} by ${p.replace.map((r) => JSON.stringify(r.widget.config?.title || r.widget.type)).join(', ')}`,
+        p.removeWidgets.length && `removed ${p.removeWidgets.length}`,
+        p.laidOut ? 'laid out again' : p.moves.length && `${p.moves.length} moved to make room`,
+      ].filter(Boolean);
+      return `${p.isNew ? 'new page' : 'page'} ${JSON.stringify(p.name)}: ${what.join(', ')}`;
+    });
+    const extras = [
+      ...(proposal.title ? [`report renamed ${JSON.stringify(proposal.title)}`] : []),
+      ...((proposal.measures || []).length ? [`measures defined: ${proposal.measures.map((m) => `${m.name} (${m.label})`).join(', ')}`] : []),
+    ];
+    return `[Proposed changes to the report — ${status}: ${String(proposal.summary || '').slice(0, 200)} ${[...extras, ...pages].join('; ')}]`.slice(0, 1500);
+  }
+  if (proposal.kind === 'report') {
+    const status = outcome === 'applied' ? 'created by the user' : outcome === 'dismissed' ? 'dismissed by the user' : 'not created yet';
+    return `[Proposed report — ${status}: ${JSON.stringify(proposal.title)}, pages: ${proposal.pages.map((p) => `${p.name} (${p.widgets.length} visuals)`).join('; ')}]`.slice(0, 1500);
+  }
   const status = {
     applied: 'applied by the user', reverted: 'applied by the user', dismissed: 'dismissed by the user',
     partial: 'partly applied by the user — only what follows was kept, the rest turned down',
@@ -188,17 +342,38 @@ export function describeProposal(proposal, outcome) {
 // list with a type per key; here it guards what leaves the browser (a config
 // also carries image data) and what a proposal may write.
 export const DESIGN_KEYS = [
-  'title', 'showLegend', 'legendPosition', 'color', 'legendColors', 'showDataLabels', 'dataLabelColor',
-  'dataLabelFontSize', 'valueColor', 'valueSize', 'labelColor', 'labelSize', 'showXAxis', 'showXAxisTitle',
-  'xAxisTitle', 'showYAxis', 'showYAxisTitle', 'yAxisTitle', 'smooth', 'donut', 'backgroundColor',
-  'transparentBg', 'borderEnabled', 'borderColor', 'borderRadius',
-  'xAxisLabelColor', 'yAxisLabelColor', 'secondaryYAxisLabelColor', 'headerColor', 'dataLabelBgColor',
-  'dataLabelBgOpacity', 'gridLineStyle', 'gridLineWidth', 'gridLineColor', 'xAxisLineColor', 'yAxisLineColor', 'secondaryYAxisLineColor', 'gaugeColor', 'gaugeTrackColor', 'gaugeThresholdColor',
-  'gaugeOverColor', 'gaugeConditionalColor', 'gaugeValueColor', 'gaugeLabelColor', 'gaugeAxisColor',
-  'slicerFontColor', 'slicerSelectedColor', 'slicerSelectedBg', 'shapeFill', 'shapeStroke', 'lineColor',
-  'mergeSeparatorColor', 'tableConfig', 'palette', 'legendTextColor', 'titleColor',
+  'title', 'titleColor', 'titleFontFamily', 'titleFontSize', 'titleWeight', 'titleAlign', 'titlePosition', 'backgroundColor', 'transparentBg', 'gradientBg',
+  'borderEnabled', 'borderColor', 'borderRadius', 'shadow', 'mergeSeparatorColor', 'color', 'legendColors',
+  'palette', 'legendSymbols', 'valueGradient', 'heatmap', 'increaseColor', 'decreaseColor', 'totalColor',
+  'showDataLabels', 'dataLabelContent', 'dataLabelPosition', 'dataLabelRotate', 'dataLabelFontSize',
+  'dataLabelColor', 'dataLabelFontFamily', 'dataLabelBgColor', 'dataLabelBgOpacity', 'dataLabelAbbr',
+  'valueAbbreviation', 'showColumnNames', 'axisLabelOverflow', 'showXAxis', 'showYAxis', 'showSecondaryAxis',
+  'showXAxisTitle', 'showYAxisTitle', 'showSecondaryYAxisTitle', 'xAxisTitle', 'yAxisTitle',
+  'secondaryYAxisTitle', 'xAxisLineColor', 'yAxisLineColor', 'secondaryYAxisLineColor', 'xAxisLabelRotate',
+  'xAxisLabelFontSize', 'yAxisLabelFontSize', 'secondaryYAxisLabelFontSize', 'xAxisLabelColor',
+  'yAxisLabelColor', 'secondaryYAxisLabelColor', 'xAxisLabelFontFamily', 'yAxisLabelFontFamily',
+  'secondaryYAxisLabelFontFamily', 'headerFontSize', 'headerColor', 'headerFontFamily', 'headerBold',
+  'gridLineStyle', 'gridLineWidth', 'gridLineColor', 'showLegend', 'legendPosition', 'legendFontFamily',
+  'legendTextColor', 'barDirection', 'smooth', 'showArea', 'lineSymbol', 'lineSymbolSize', 'donut',
+  'symbolSize', 'showItemBorder', 'itemBorderColor', 'itemBorderWidth', 'showTotal', 'totalLabel',
+  'gaugeColor', 'gaugeTrackColor', 'gaugeThresholdColor', 'gaugeOverColor', 'gaugeConditionalColor',
+  'gaugeDirection', 'gaugeArcWidth', 'gaugeArcSpan', 'gaugeArcRounded', 'gaugeShowValue', 'gaugeValueSize',
+  'gaugeValueColor', 'gaugeValueFontFamily', 'gaugeShowLabel', 'gaugeLabelSize', 'gaugeLabelColor',
+  'gaugeLabelFontFamily', 'gaugeShowMinMax', 'gaugeAxisSize', 'gaugeAxisColor', 'gaugeAxisOutset',
+  'gaugeAxisCenterPull', 'dateLayout', 'orientation', 'showSearch', 'showSelectAll', 'searchPlaceholder',
+  'slicerFontSize', 'slicerFontColor', 'slicerFontFamily', 'slicerSelectedColor', 'slicerSelectedBg',
+  'labelPosition', 'showValue', 'valueSize', 'valueColor', 'valueFontFamily', 'valueWeight', 'showLabel',
+  'labelSize', 'labelColor', 'labelFontFamily', 'showN1Value', 'showN1Difference', 'showN1Percent',
+  'n1ValueStyle', 'n1DifferenceStyle', 'n1PercentStyle', 'padding', 'fontSize', 'fontFamily', 'bold', 'italic', 'textAlign', 'verticalAlign',
+  'shapeFill', 'shapeStroke', 'shapeStrokeWidth', 'shapeOpacity', 'lineColor', 'lineThickness',
+  'lineRotation', 'arrowDirection', 'fit', 'rotation', 'tableConfig',
+  'highlight', 'scaleColor', 'scaleLowColor', 'showScale', 'cellGap', 'cellRadius', 'cellBorderColor', 'mapEmptyColor', 'mapBorderColor', 'mapBubbleMax',
 ];
 const DESIGN_KEY_SET = new Set(DESIGN_KEYS);
+// A text widget's config key → the run key that overrides it (utils/textRuns runStyle).
+const TEXT_RUN_KEYS = { color: 'color', fontSize: 'fontSize', fontFamily: 'fontFamily', bold: 'bold', italic: 'italic' };
+export const PAGE_LOOK_KEYS = ['gradientBg', 'surroundColor', 'showBorder', 'borderRadius', 'showShadow', 'transparentBg'];
+const MERGED_OBJECTS = new Set(['gradientBg', 'shadow', 'valueGradient', 'n1ValueStyle', 'n1DifferenceStyle', 'n1PercentStyle']);
 const HEX = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
 const COLOR_KEYS_BY_NAME = new Set(['color', 'slicerSelectedBg', 'shapeFill', 'shapeStroke']);
 // `gaugeConditionalColor` is the one "…Color" that is a switch, not a color.
@@ -209,11 +384,11 @@ const isColorKey = (k) => k !== 'gaugeConditionalColor'
 // widths, conditional formatting) and `freeze` are the author's: they neither
 // leave the browser nor can a proposal write them.
 const TABLE_LOOK = {
-  header: ['fontColor', 'bgColor', 'fontBold'],
-  values: ['fontColor', 'bgColor'],
-  rows: ['striped', 'stripeColor1', 'stripeColor2', 'bgColor', 'hoverColor'],
-  grid: ['horizontalLines', 'horizontalColor', 'verticalLines', 'verticalColor', 'outerBorder', 'outerBorderColor'],
-  totals: ['bgColor', 'fontColor', 'borderTopColor'],
+  header: ['show', 'fontSize', 'fontColor', 'fontFamily', 'fontBold', 'fontItalic', 'bgColor', 'alignment', 'verticalAlignment', 'wordWrap'],
+  values: ['fontSize', 'fontColor', 'fontFamily', 'fontBold', 'fontItalic', 'bgColor', 'alignment', 'verticalAlignment', 'wordWrap'],
+  rows: ['height', 'striped', 'stripeColor1', 'stripeColor2', 'bgColor', 'hoverHighlight', 'hoverColor'],
+  grid: ['horizontalLines', 'horizontalColor', 'horizontalWidth', 'verticalLines', 'verticalColor', 'verticalWidth', 'outerBorder', 'outerBorderColor', 'outerBorderWidth', 'cellPadding'],
+  totals: ['bgColor', 'fontColor', 'fontBold', 'borderTopColor'],
 };
 
 function pickTableLook(tableConfig) {
@@ -222,7 +397,8 @@ function pickTableLook(tableConfig) {
     const picked = {};
     for (const k of keys) {
       const v = tableConfig?.[group]?.[k];
-      if (v === undefined || (isColorKey(k) ? !HEX.test(v) : typeof v !== 'boolean')) continue;
+      // Typed by the server; here only plain values pass (never an object or image data).
+      if (v === undefined || (isColorKey(k) ? !HEX.test(v) : (v !== null && !['boolean', 'number', 'string'].includes(typeof v)))) continue;
       picked[k] = v;
     }
     if (Object.keys(picked).length) out[group] = picked;
@@ -264,8 +440,17 @@ export function applyDesignProposal(proposal, { layout, widgets, settings, pageW
   let nextSettings = null;
   let applied = 0;
   let skipped = 0;
+  // The boxes may run past the page: it grows to the height the server measured.
+  const height = Math.max(pageHeight, Number(proposal?.pageHeight) || 0);
+  if (height > pageHeight) nextSettings = { ...(settings || {}), pageHeight: height };
 
   for (const op of proposal?.ops || []) {
+    // The page menu (utils/pageNav.js): its look and an icon per page.
+    if (op.op === 'page_nav') {
+      nextSettings = withPageNav(nextSettings || settings, op);
+      applied += 1;
+      continue;
+    }
     if (op.op === 'report_settings') {
       // Only what actually changes: "switch to light" on a light report is not
       // a change, and would leave the card offering to revert nothing.
@@ -277,6 +462,13 @@ export function applyDesignProposal(proposal, { layout, widgets, settings, pageW
       const background = op.set?.pageBackground || '';
       if (HEX.test(background) && background.toLowerCase() !== String(current.backgroundColor || '').toLowerCase()) {
         patch.backgroundColor = background;
+      }
+      // The rest of the page's look (server PAGE_LOOK, typed there).
+      for (const k of PAGE_LOOK_KEYS) {
+        const v = op.set?.[k];
+        if (v === undefined) continue;
+        if (k === 'gradientBg') { if (v && typeof v === 'object') patch.gradientBg = { ...(current.gradientBg || {}), ...v }; continue; }
+        if (k === 'surroundColor' ? (v === null || HEX.test(v)) : ['boolean', 'number'].includes(typeof v)) patch[k] = v;
       }
       if (!Object.keys(patch).length) { skipped += 1; continue; }
       nextSettings = { ...(nextSettings || settings), ...patch };
@@ -302,10 +494,22 @@ export function applyDesignProposal(proposal, { layout, widgets, settings, pageW
           continue;
         }
         if (isColorKey(k) && !HEX.test(v)) continue;
+        // A gradient, a shadow, a N-1 style: merged, so turning a shadow on
+        // keeps the blur and color the author chose. legendColors / legendSymbols
+        // are maps that replace (an empty one clears the overrides).
+        if (MERGED_OBJECTS.has(k) && v && typeof v === 'object') { set[k] = { ...(widget.config?.[k] || {}), ...v }; continue; }
         set[k] = v;
       }
       if (!Object.keys(set).length) { skipped += 1; continue; }
-      const updated = { ...widget, config: { ...(widget.config || {}), ...set } };
+      // A text's runs carry their own style, which wins over the widget's: a
+      // title made in navy kept its navy under a design card that set it light
+      // (the assistant saw `color` set and the text unchanged). Restyling a
+      // text restyles all of it: the runs let go of what the card sets.
+      const runKeys = widget.type === 'text' ? Object.keys(set).map((k) => TEXT_RUN_KEYS[k]).filter(Boolean) : [];
+      const data = runKeys.length && Array.isArray(widget.data?.runs)
+        ? { ...widget.data, runs: widget.data.runs.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !runKeys.includes(k)))) }
+        : widget.data;
+      const updated = { ...widget, ...(data !== widget.data ? { data } : {}), config: { ...(widget.config || {}), ...set } };
       nextWidgets = { ...nextWidgets, [op.widgetId]: updated };
       // Restyling one half of a merged block would split it back into two
       // cards: the container half of the edit follows the whole group.
@@ -318,8 +522,8 @@ export function applyDesignProposal(proposal, { layout, widgets, settings, pageW
       // Size first, then position: the page edge moves the widget back in
       // rather than squeezing it, which is what a resize gesture would do.
       const w = Math.min(op.w, pageWidth);
-      const h = Math.min(op.h, pageHeight);
-      const rect = { ...clampPos(op.x, op.y, w, h, pageWidth, pageHeight), w, h };
+      const h = Math.min(op.h, height);
+      const rect = { ...clampPos(op.x, op.y, w, h, pageWidth, height), w, h };
       nextLayout = nextLayout.map((it) => (it.i === op.widgetId ? { ...it, ...rect } : it));
       applied += 1;
     } else if (op.op === 'z_order') {
@@ -332,6 +536,38 @@ export function applyDesignProposal(proposal, { layout, widgets, settings, pageW
     }
   }
   return { layout: nextLayout, widgets: nextWidgets, settings: nextSettings, applied, skipped };
+}
+
+/**
+ * A design proposal across the report: each operation lands on the page
+ * that holds its widget (`pageId`, set by the server for the other pages;
+ * none = the page shown), report settings with the page shown. One result
+ * for the whole report, so the studio keeps it as one undo step.
+ * @returns {{ pages: object[], settings: object|null, applied: number, skipped: number }}
+ */
+export function applyDesignToPages(proposal, { pages, currentIdx, settings, pageWidth, pageHeight, themes }) {
+  const current = pages[currentIdx];
+  const byPage = new Map();
+  let skipped = 0;
+  for (const op of proposal?.ops || []) {
+    const id = op.pageId && op.pageId !== current?.id ? op.pageId : current?.id;
+    // A page gone since the proposal: its change is dropped, not landed elsewhere.
+    if (!pages.some((p) => p.id === id)) { skipped += 1; continue; }
+    if (!byPage.has(id)) byPage.set(id, []);
+    byPage.get(id).push(op);
+  }
+  let applied = 0;
+  let nextSettings = null;
+  const next = pages.map((p) => {
+    const ops = byPage.get(p.id);
+    if (!ops) return p;
+    const r = applyDesignProposal({ ...proposal, ops }, { layout: p.layout || [], widgets: p.widgets || {}, settings, pageWidth, pageHeight, themes });
+    applied += r.applied;
+    skipped += r.skipped;
+    if (r.settings) nextSettings = r.settings;
+    return r.applied ? { ...p, layout: r.layout, widgets: r.widgets } : p;
+  });
+  return { pages: next, settings: nextSettings, applied, skipped };
 }
 
 // Past this many moves, a card shows a whole-page arrangement as one line.
@@ -364,28 +600,41 @@ export function keepChoices(proposal, dropped) {
  * What the assistant is told about the page being edited: bindings, geometry
  * and the current look. Fetched rows (`widget.data`) stay in the browser.
  */
-export function buildPageContext({ layout, widgets, pageWidth, pageHeight, settings, themes, palette }) {
+export function buildPageContext({ layout, widgets, pageWidth, pageHeight, settings, themes, palette, otherPages = [], pageId = null, pageName = '' }) {
   return {
     pageWidth,
     pageHeight,
+    // Which page is shown: a change of the report names its pages (the studio).
+    pageId,
+    pageName,
     themes: Object.keys(themes || {}),
     theme: settings?.theme?.key || null,
     pageBackground: settings?.backgroundColor || null,
+    // The page menu's look and icons, never an image.
+    pageNav: describePageNav(settings?.pageNav),
     palette: palette || [],
-    widgets: layout.filter((it) => widgets[it.i]).map((it) => {
-      const w = widgets[it.i];
-      return {
-        id: it.i,
-        type: w.type,
-        title: w.config?.title || '',
-        dataBinding: w.dataBinding || {},
-        layout: { x: it.x, y: it.y, w: it.w, h: it.h },
-        config: pickDesign(w.config),
-        // Not look, but what decides how much room the widget needs: a
-        // calendar filter and a dropdown filter are the same type.
-        shape: { slicerStyle: w.config?.slicerStyle, orientation: w.config?.orientation, dateLayout: w.config?.dateLayout, subType: w.config?.subType },
-        merged: !!w.config?.mergeGroup,
-      };
-    }),
+    widgets: layout.filter((it) => widgets[it.i]).map((it) => describeWidget(it, widgets[it.i])),
+    // The report's other pages, so a style or a size asked for the whole
+    // report reaches them, and a visual added to one is set into it.
+    otherPages: otherPages.map((p) => ({
+      id: p.id,
+      name: p.name || '',
+      widgets: (p.layout || []).filter((it) => (p.widgets || {})[it.i]).map((it) => describeWidget(it, p.widgets[it.i])),
+    })),
+  };
+}
+
+function describeWidget(it, w) {
+  return {
+    id: it.i,
+    type: w.type,
+    title: w.config?.title || '',
+    dataBinding: w.dataBinding || {},
+    layout: { x: it.x, y: it.y, w: it.w, h: it.h },
+    config: pickDesign(w.config),
+    // Not look, but what decides how much room the widget needs: a
+    // calendar filter and a dropdown filter are the same type.
+    shape: { slicerStyle: w.config?.slicerStyle, orientation: w.config?.orientation, dateLayout: w.config?.dateLayout, subType: w.config?.subType },
+    merged: !!w.config?.mergeGroup,
   };
 }

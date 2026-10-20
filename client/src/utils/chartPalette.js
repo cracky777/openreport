@@ -46,3 +46,10 @@ export function hexToRgba(hex, opacity) {
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r},${g},${b},${opacity / 100})`;
 }
+
+// A pale version of a `#RRGGBB` colour — `share` of it over white: the low
+// end of a scale whose high end is the colour itself (heatmap, map).
+export function tintOf(hex, share = 0.12) {
+  const mix = (i) => Math.round(255 - (255 - parseInt(hex.slice(i, i + 2), 16)) * share).toString(16).padStart(2, '0');
+  return `#${mix(1)}${mix(3)}${mix(5)}`;
+}

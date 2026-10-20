@@ -25,7 +25,7 @@ import { slicerFilters, sameSelections } from '../utils/slicerFilters';
 import { convertData, buildSnapshot } from '../utils/editorHelpers';
 import { transformBinding } from '../utils/widgetZones';
 import { findFreeSlot, topZ } from '../utils/pageBounds';
-import { applyWidgetsProposal, applyDesignProposal, applyVisualProposal, buildPageContext } from '../utils/aiProposal';
+import { applyWidgetsProposal, applyDesignProposal, applyVisualProposal, buildPageContext, withMeasureFormats } from '../utils/aiProposal';
 import { CHART_COLORS } from '../utils/chartPalette';
 import AiPanel from '../components/AiPanel/AiPanel';
 import { DOCK_SLIDE_MS } from '../components/SlidingDock/dockTiming';
@@ -1357,6 +1357,8 @@ export default function Editor() {
   pageStateRef.current = {
     layout, widgets, settings, themes: availableThemes, palette: CHART_COLORS,
     pageWidth: settings.pageWidth || 1140, pageHeight: settings.pageHeight || 800,
+    // The look of the other pages: a style request is about the whole report.
+    otherPages: pages.filter((_, i) => i !== currentPageIdx).map((p) => ({ id: p.id, name: p.name, ...(pagesDataRef.current[p.id] || { layout: [], widgets: {} }) })),
   };
   const getAiPageContext = useCallback(() => buildPageContext(pageStateRef.current), []);
 
@@ -1388,16 +1390,32 @@ export default function Editor() {
     }
     if (proposal.kind === 'design') {
       const before = pageStateRef.current.settings;
-      const result = applyDesignProposal(proposal, pageStateRef.current);
-      if (!result.applied) {
-        toast('None of these changes fits the page any more');
+      const here = pages[currentPageIdx]?.id;
+      const mine = (proposal.ops || []).filter((op) => !op.pageId || op.pageId === here);
+      const theirs = (proposal.ops || []).filter((op) => op.pageId && op.pageId !== here);
+      const result = applyDesignProposal({ ...proposal, ops: mine }, pageStateRef.current);
+      // The other pages are not on the canvas: their data changes in place,
+      // outside the undo stack, and the next save carries it.
+      let elsewhere = 0;
+      for (const p of pages) {
+        const ops = theirs.filter((op) => op.pageId === p.id);
+        if (!ops.length) continue;
+        const data = pagesDataRef.current[p.id] || { layout: [], widgets: {} };
+        const r = applyDesignProposal({ ...proposal, ops }, { ...pageStateRef.current, layout: data.layout, widgets: data.widgets });
+        if (r.applied) { pagesDataRef.current[p.id] = { layout: r.layout, widgets: r.widgets }; elsewhere += r.applied; }
+      }
+      if (!result.applied && !elsewhere) {
+        toast('None of these changes fits the report any more');
         return null;
       }
-      setLayoutAndWidgets(result.layout, result.widgets);
-      if (result.settings) setSettings(result.settings);
+      if (result.applied) {
+        setLayoutAndWidgets(result.layout, result.widgets);
+        if (result.settings) setSettings(result.settings);
+      }
       const skipped = result.skipped ? ` (${result.skipped} no longer applicable)` : '';
+      const onOthers = elsewhere ? ` ${elsewhere} change${elsewhere > 1 ? 's' : ''} landed on other pages, outside Ctrl+Z.` : '';
       return {
-        note: `Applied${skipped} — Ctrl+Z undoes layout and style.`,
+        note: `Applied${skipped} — Ctrl+Z undoes layout and style.${onOthers}`,
         // Report settings are not in the undo stack: the card keeps the way back.
         revertSettings: result.settings
           ? () => setSettings((s) => ({ ...s, theme: before.theme, backgroundColor: before.backgroundColor }))
@@ -1419,8 +1437,10 @@ export default function Editor() {
     // over a conversation the author is still in the middle of. They pick the
     // visual up when they want to work on it.
     setLayoutAndWidgets(result.layout, result.widgets);
+    // Formats for the measures the model leaves bare, under the report's own.
+    if (proposal.measureOverrides && Object.keys(proposal.measureOverrides).length) setSettings((s) => withMeasureFormats(s, proposal));
     return { note: 'Added to the page — Ctrl+Z to undo' };
-  }, [effectiveModel, setLayoutAndWidgets, report?.workspace_id]);
+  }, [effectiveModel, setLayoutAndWidgets, report?.workspace_id, pages, currentPageIdx]);
 
   // ── Frame-merge of adjacent visuals ─────────────────────────────────
   // Membership lives on each member's config.mergeGroup; the separator

@@ -101,6 +101,16 @@ function targetsFor({ widget, fieldName, fieldType, model }) {
     case 'waterfall':
       return isDim ? list([dimZone('Category'), singleMeasure('Value')]) : list([singleMeasure('Value')]);
 
+    // One place, one value: a second place takes the first one's well.
+    case 'map':
+      return isDim ? list([single('Location', 'selectedDimensions', [fieldName]), singleMeasure('Value')]) : list([singleMeasure('Value')]);
+
+    // Columns then rows, one dimension each: the first free one by default.
+    case 'heatmap':
+      return isDim
+        ? list([single('Columns', 'selectedDimensions', [fieldName]), single('Rows', 'groupBy', [fieldName]), singleMeasure('Value')], dims.length ? 1 : 0)
+        : list([singleMeasure('Value')]);
+
     case 'table': {
       // One well for both kinds: the field becomes a column, and the order the
       // columns are drawn in has to learn about it too.

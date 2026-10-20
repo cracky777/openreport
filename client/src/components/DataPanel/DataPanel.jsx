@@ -1123,14 +1123,12 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
                 style={{ ...editInput, width: 50 }} />
             </div>
             <div style={editRow}>
-              <span style={editLabel}>Thousands sep.</span>
-              <select value={editForm.thousandSep}
+              <span style={editLabel} title="Separators follow the reader's language">Group thousands</span>
+              <select value={editForm.thousandSep === '' ? '' : ' '}
                 onChange={(e) => setEditForm({ ...editForm, thousandSep: e.target.value })}
                 style={{ ...editInput, width: 70 }}>
-                <option value=" ">Space</option>
-                <option value=",">Comma</option>
-                <option value=".">Dot</option>
-                <option value="">None</option>
+                <option value=" ">Yes</option>
+                <option value="">No</option>
               </select>
             </div>
             <div style={editRow}>

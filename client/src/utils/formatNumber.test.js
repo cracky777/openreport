@@ -1,26 +1,45 @@
-import { describe, test, expect } from 'vitest';
-import formatNumber, { abbreviateNumber } from './formatNumber';
+import { describe, test, expect, vi, afterEach, beforeEach } from 'vitest';
+import formatNumber, { abbreviateNumber, formatPlain, formatShare } from './formatNumber';
+
+// The separators are the reader's: the language of the browser that opens the
+// report decides them, whatever the format says.
+const as = (language) => vi.stubGlobal('navigator', { language });
+afterEach(() => vi.unstubAllGlobals());
+const NB = ' ';
 
 describe('formatNumber', () => {
-  test('the decimal separator follows the format, not a hardcoded point', () => {
-    // The bug this guards: the thousands separator was configurable and the
-    // decimal one was always '.', so a report on the French convention read
-    // "1 234.56" — two number conventions in one widget.
-    expect(formatNumber(1234.56, { decimals: 2, thousandSep: ' ', decimalSep: ',' })).toBe('1 234,56');
-    expect(formatNumber(1234.56, { decimals: 2, thousandSep: '.', decimalSep: ',' })).toBe('1.234,56');
-    expect(formatNumber(1234.56, { decimals: 2, thousandSep: ',', decimalSep: '.' })).toBe('1,234.56');
+  test('the separators follow the language the report is opened in', () => {
+    // "92.48" on a French report: the decimal separator was the format's,
+    // and every visual that skipped the format kept the point.
+    as('fr-FR');
+    expect(formatNumber(1234.56, { decimals: 2, thousandSep: ',', decimalSep: '.' })).toBe(`1${NB}234,56`);
+    as('en-US');
+    expect(formatNumber(1234.56, { decimals: 2, thousandSep: ' ', decimalSep: ',' })).toBe('1,234.56');
+    as('de-DE');
+    expect(formatNumber(1234.56, { decimals: 2 })).toBe('1.234,56');
   });
 
-  test('the default stays the point, so reports already written do not move', () => {
-    expect(formatNumber(1234.56, { decimals: 2 })).toBe('1 234.56');
+  test('a format without grouping keeps none', () => {
+    as('fr-FR');
+    expect(formatNumber(2025, { decimals: 0, thousandSep: '' })).toBe('2025');
+  });
+
+  test('percentages and abbreviations too', () => {
+    as('fr-FR');
+    expect(formatPlain(12.345, 1)).toBe('12,3');
+    expect(formatShare(12.5)).toBe('12,5');
+    expect(formatShare(20)).toBe('20');
+    expect(abbreviateNumber(1500, 'auto')).toBe('1,5K');
   });
 
   test('prefix and suffix wrap the formatted number', () => {
-    expect(formatNumber(1234.5, { decimals: 1, prefix: '€', suffix: ' HT' })).toBe('€1 234.5 HT');
+    as('en-US');
+    expect(formatNumber(1234.5, { decimals: 1, prefix: '€', suffix: ' HT' })).toBe('€1,234.5 HT');
   });
 
   test('no decimals means no separator at all', () => {
-    expect(formatNumber(1234, { decimals: 0, decimalSep: ',' })).toBe('1 234');
+    as('en-US');
+    expect(formatNumber(1234, { decimals: 0 })).toBe('1,234');
   });
 
   test('null and NaN do not render as numbers', () => {
@@ -30,6 +49,7 @@ describe('formatNumber', () => {
 });
 
 describe('abbreviateNumber', () => {
+  beforeEach(() => as('en-US'));
   test('auto picks the unit from the magnitude', () => {
     expect(abbreviateNumber(1500, 'auto')).toBe('1.5K');
     expect(abbreviateNumber(2_500_000, 'auto')).toBe('2.5M');

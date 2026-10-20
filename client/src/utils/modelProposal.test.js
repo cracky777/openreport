@@ -27,6 +27,18 @@ describe('applyModelProposal', () => {
     positions: { orders: { x: 560, y: 40 }, customers: { x: 40, y: 40 } },
   };
 
+  it('a date with its breakdowns: one dimension per part beside the date, named after the column', () => {
+    const out = applyModelProposal(state, { fields: [{ table: 'orders', column: 'ordered_at', as: 'dimension', dateParts: ['year_month', 'week', 'nope'] }] }, columns);
+    expect(out.dimensions.slice(1)).toEqual([
+      { name: 'orders.ordered_at', table: 'orders', column: 'ordered_at', type: 'date', label: 'ordered_at' },
+      { name: 'orders.ordered_at_year_month', table: 'orders', column: 'ordered_at', type: 'string', label: 'ordered_at (Year-month)', datePartOf: 'orders.ordered_at', datePart: 'year_month' },
+      { name: 'orders.ordered_at_week', table: 'orders', column: 'ordered_at', type: 'integer', label: 'ordered_at (Week)', datePartOf: 'orders.ordered_at', datePart: 'num_week' },
+    ]);
+    // Applied again: nothing doubled; flagged `none`: the date and its parts go together.
+    expect(applyModelProposal(out, { fields: [{ table: 'orders', column: 'ordered_at', as: 'dimension', dateParts: ['week'] }] }, columns).dimensions).toHaveLength(4);
+    expect(applyModelProposal(out, { fields: [{ table: 'orders', column: 'ordered_at', as: 'none' }] }, columns).dimensions).toHaveLength(1);
+  });
+
   it('applies every part, with the names the editor itself would give', () => {
     const out = applyModelProposal(state, proposal, columns);
     expect(out.joins).toEqual([proposal.joins[0]]);
@@ -75,5 +87,44 @@ describe('unticking lines of a model card', () => {
   it('the next turn hears only what was kept', () => {
     const kept = keepModelChoices(proposal, new Set(['join0', 'field0', 'positions', 'role:orders', 'role:customers']));
     expect(describeProposal(proposal, { status: 'partial', kept })).toBe('[Proposed — partly applied by the user — only what follows was kept, the rest turned down: join orders.product_id → products.id]');
+  });
+});
+
+describe('the glossary of a model card', () => {
+  const glossaryState = {
+    joins: [], tablePositions: {}, domains: ['sales'],
+    dimensions: [
+      { name: 'orders.country', table: 'orders', column: 'country', type: 'string', label: 'Country' },
+      { name: 'calc', table: 'orders', column: 'country', type: 'string', label: 'Calc', expression: 'UPPER(country)' },
+    ],
+    measures: [
+      { name: 'orders.amount_sum', table: 'orders', column: 'amount', aggregation: 'sum', label: 'Amount', role: 'sales.cost', synonyms: ['CA'] },
+      { name: 'orders.amount_avg', table: 'orders', column: 'amount', aggregation: 'avg', label: 'Average' },
+    ],
+  };
+  const proposal = {
+    domains: ['ecommerce'],
+    glossary: [
+      { table: 'orders', column: 'country', as: 'dimension', role: 'ecommerce.country' },
+      { table: 'orders', column: 'amount', as: 'measure', role: 'ecommerce.revenue', description: 'Paid amount' },
+    ],
+  };
+
+  it('lands on every field of the column, keeps the users\' synonyms, leaves SQL fields alone', () => {
+    const next = applyModelProposal(glossaryState, proposal, columns);
+    expect(next.domains).toEqual(['ecommerce']);
+    expect(next.dimensions[0].role).toBe('ecommerce.country');
+    expect(next.dimensions[1].role).toBeUndefined();
+    expect(next.measures[0]).toMatchObject({ role: 'ecommerce.revenue', description: 'Paid amount', synonyms: ['CA'] });
+    expect(next.measures[1]).toMatchObject({ role: 'ecommerce.revenue', description: 'Paid amount' });
+    // No domains in the proposal: the model keeps its own.
+    expect(applyModelProposal(glossaryState, { glossary: [] }, columns).domains).toEqual(['sales']);
+  });
+
+  it('unticks per line and reads back for the next turn', () => {
+    const kept = keepModelChoices(proposal, new Set(['domains', 'glossary0']));
+    expect(kept.domains).toBeNull();
+    expect(kept.glossary).toEqual([proposal.glossary[1]]);
+    expect(describeModelProposal(proposal, 'applied')).toBe('[Proposed — applied by the user: domains: ecommerce; orders.country = ecommerce.country; orders.amount = ecommerce.revenue (described)]');
   });
 });

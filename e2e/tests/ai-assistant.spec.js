@@ -65,9 +65,9 @@ test('a design proposal restyles in one undo step and hands back a way out of th
     expect(themeBefore).not.toBe('dark');
 
     await page.getByRole('button', { name: 'Assistant', exact: true }).click();
-    await page.getByRole('tab', { name: 'Design' }).click();
+    // One conversation for visuals and look: the request says which it is.
     // The request names the theme: a theme switch is only accepted when asked for.
-    await page.getByPlaceholder('Describe the look you want…').fill('Name the table and switch to the dark theme');
+    await page.getByPlaceholder('Ask for a visual, a change, or the look of the page…').fill('Name the table and switch to the dark theme');
     await page.getByRole('button', { name: 'Send' }).click();
 
     // The key it was never allowed to set went through a repair round and is
@@ -112,8 +112,7 @@ test('an unticked line of a proposal is left out, and the model hears it', async
     const themeBefore = await reportTheme.getAttribute('data-theme');
 
     await page.getByRole('button', { name: 'Assistant', exact: true }).click();
-    await page.getByRole('tab', { name: 'Design' }).click();
-    await page.getByPlaceholder('Describe the look you want…').fill('Name the table and switch to the dark theme');
+    await page.getByPlaceholder('Ask for a visual, a change, or the look of the page…').fill('Name the table and switch to the dark theme');
     await page.getByRole('button', { name: 'Send' }).click();
     await expect(page.getByRole('button', { name: 'Apply 2 changes' })).toBeVisible({ timeout: 20000 });
 
@@ -124,7 +123,7 @@ test('an unticked line of a proposal is left out, and the model hears it', async
     await expect(reportTheme).toHaveAttribute('data-theme', themeBefore);
     await expect(page.getByRole('button', { name: 'Revert theme' })).toHaveCount(0);
 
-    await page.getByPlaceholder('Describe the look you want…').fill('Thanks');
+    await page.getByPlaceholder('Ask for a visual, a change, or the look of the page…').fill('Thanks');
     await page.getByRole('button', { name: 'Send' }).click();
     await expect.poll(() => provider.requests.length, { timeout: 20000 }).toBeGreaterThan(2);
     const history = JSON.stringify(provider.requests[provider.requests.length - 1].messages);
@@ -193,7 +192,7 @@ test('a generated visual is previewed with the network shut, then joins the libr
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`/edit/${rep.report.id}`);
     await page.getByRole('button', { name: 'Assistant', exact: true }).click();
-    await page.getByPlaceholder('Ask a business question…').fill('Draw something no chart can');
+    await page.getByPlaceholder('Ask for a visual, a change, or the look of the page…').fill('Draw something no chart can');
     await page.getByRole('button', { name: 'Send' }).click();
 
     // The preview runs the code on invented rows, under the no-network policy.
@@ -252,7 +251,7 @@ test('a question becomes a proposal, applied in one undoable step, on cached dat
     await expect(page.getByTitle('Collapse panel')).toBeVisible();
     await page.getByTitle('Collapse panel').click();
 
-    await page.getByPlaceholder('Ask a business question…').fill('Which countries sell the most?');
+    await page.getByPlaceholder('Ask for a visual, a change, or the look of the page…').fill('Which countries sell the most?');
     await page.getByRole('button', { name: 'Send' }).click();
 
     await expect(page.getByText('Sales by country (AI)')).toBeVisible({ timeout: 20000 });
@@ -310,7 +309,7 @@ test('without an instance provider, a user plugs in their own and the assistant 
 
     await page.getByRole('button', { name: 'Assistant', exact: true }).click();
     await expect(page.getByText('Your AI provider')).toBeVisible();
-    await expect(page.getByPlaceholder('Ask a business question…')).toBeHidden();
+    await expect(page.getByPlaceholder('Ask for a visual, a change, or the look of the page…')).toBeHidden();
 
     // The preset is also the wire protocol: the scripted server speaks OpenAI's.
     await page.getByRole('combobox').selectOption('custom');
@@ -319,12 +318,12 @@ test('without an instance provider, a user plugs in their own and the assistant 
     await page.getByRole('button', { name: 'Save & test' }).click();
 
     // Saved, tested, and the panel is now the assistant itself.
-    await expect(page.getByPlaceholder('Ask a business question…')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByPlaceholder('Ask for a visual, a change, or the look of the page…')).toBeVisible({ timeout: 15000 });
     await expect(page.getByText('Your AI provider')).toBeHidden();
     const status = await (await page.request.get('/api/ai/status')).json();
     expect(status).toMatchObject({ enabled: true, source: 'personal', dataSharing: 'schema+cache' });
 
-    await page.getByPlaceholder('Ask a business question…').fill('Which countries sell the most?');
+    await page.getByPlaceholder('Ask for a visual, a change, or the look of the page…').fill('Which countries sell the most?');
     await page.getByRole('button', { name: 'Send' }).click();
     await expect(page.getByText('Sales by country (AI)')).toBeVisible({ timeout: 20000 });
 
@@ -354,7 +353,7 @@ test('in both editors the assistant is the bar docked on the right edge', async 
     await page.locator('.widget-content').first().waitFor();
     await expect(page.getByRole('button', { name: 'AI assistant' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Assistant', exact: true }).click();
-    await expect(page.getByRole('tab', { name: 'Visuals' })).toBeVisible();
+    await expect(page.getByPlaceholder('Ask for a visual, a change, or the look of the page…')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Assistant', exact: true })).toHaveCount(0);
 
     await page.goto(`/models/${modelId}`);

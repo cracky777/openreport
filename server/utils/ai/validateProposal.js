@@ -5,11 +5,13 @@
 // Field names are only ever looked up in the effective model. An unknown name
 // rejects the widget; it is never repaired, guessed or passed along.
 
+const { validatePageNavOp } = require('./pageNav');
 const { lintVisualCode } = require('./visualLint');
-const { arrange, readableMin, minOf, READABLE_MIN } = require('./arrangeLayout');
+const { arrange, placeWidget, readableMin, minOf, READABLE_MIN } = require('./arrangeLayout');
 const { HARMONIES, colorOps } = require('./colorScheme');
 const { readabilityOps } = require('./readability');
 const { shapeWidget, isRanked } = require('./widgetShaping');
+const { FONT_FAMILIES } = require('./fonts');
 
 const GRID = 20;
 const MIN_W = 100;
@@ -21,6 +23,8 @@ const SUB_TYPES = {
   line: ['line', 'area', 'stackedArea', 'stackedArea100'],
   combo: ['stackedCombo', 'clusteredCombo'],
   gauge: ['arc', 'column'],
+  // A pie, a donut, a rose (slices sized by value too), a funnel (stages that lose volume).
+  pie: ['pie', 'donut', 'rose', 'funnel'],
 };
 
 // Binding keys each type reads, and what each key holds: 'dims' / 'measures'
@@ -33,14 +37,71 @@ const BINDING_KEYS = {
   scatter: { selectedDimensions: 'dims', groupBy: 'dims' },
   pie: { selectedDimensions: 'dims', selectedMeasures: 'measures' },
   treemap: { selectedDimensions: 'dims', selectedMeasures: 'measures' },
+  // Columns × rows (the legend well), one value per crossing.
+  heatmap: { selectedDimensions: 'dims', groupBy: 'dims', selectedMeasures: 'measures' },
+  // One place column — countries, regions, départements or towns, by name.
+  map: { selectedDimensions: 'dims', selectedMeasures: 'measures' },
+  waterfall: { selectedDimensions: 'dims', selectedMeasures: 'measures' },
   table: { selectedDimensions: 'dims', selectedMeasures: 'measures' },
   pivotTable: { selectedDimensions: 'dims', columnDimensions: 'dims', selectedMeasures: 'measures' },
   scorecard: { selectedMeasures: 'measures', compareDateDim: 'dim' },
   gauge: { selectedMeasures: 'measures', gaugeMaxMeasure: 'measure', gaugeThresholdMeasure: 'measure' },
   filter: { selectedDimensions: 'dims' },
 };
-const SINGLE_MEASURE_TYPES = new Set(['pie', 'treemap', 'scorecard', 'gauge']);
-const LEGEND_TYPES = new Set(['bar', 'line', 'pie', 'scatter', 'combo']);
+const SINGLE_MEASURE_TYPES = new Set(['pie', 'treemap', 'waterfall', 'scorecard', 'gauge', 'heatmap', 'map']);
+// The page's dressing: no data, no title bar — a text, a shape, an image the
+// user added. Asked by Jonathan: what makes a page look finished (a title
+// band, section labels, a divider, a logo) is the model's to place.
+const DECOR_TYPES = ['text', 'shape', 'image'];
+const DECOR = new Set(DECOR_TYPES);
+const DECOR_MIN = { w: 20, h: 20 };
+const ASSET_URL = /^\/uploads\/images\/[A-Za-z0-9._-]+$/;
+
+// A text, a shape or an image as the proposal describes it, checked field by
+// field: an image only by the name of one the user added (never a URL of the
+// model's), colors as hex, sizes bounded. `data` travels with the widget: the
+// text's content is data, as the editor stores it.
+function decorWidget(raw, ctx) {
+  const config = {};
+  let data = {};
+  if (raw.type === 'text') {
+    const content = text(raw.text, 500).trim();
+    if (!content) return { error: 'a text needs `text`' };
+    const style = raw.style && typeof raw.style === 'object' ? raw.style : {};
+    // The style goes on the widget, never on pieces of the text: the runs win
+    // over the config, and a title made in navy stayed navy under a later card
+    // that set it light (asked by Jonathan: the assistant styles the whole, as
+    // the config panel does; pieces are the author's, by hand).
+    const size = Math.floor(Number(style.fontSize));
+    if (size >= 8 && size <= 72) config.fontSize = size;
+    if (style.bold === true) config.bold = true;
+    if (color(style.color) !== undefined) config.color = style.color;
+    data = { text: content, runs: [{ text: content }] };
+    if (['left', 'center', 'right'].includes(style.align)) config.textAlign = style.align;
+  } else if (raw.type === 'shape') {
+    if (raw.shape !== 'rectangle' && raw.shape !== 'line') return { error: 'a shape is a rectangle or a line' };
+    const opacity = Math.floor(Number(raw.opacity));
+    if (raw.shape === 'line') {
+      config.shape = 'line';
+      if (color(raw.fill) !== undefined) config.lineColor = raw.fill;
+      const thickness = Math.floor(Number(raw.thickness));
+      config.lineThickness = thickness >= 1 && thickness <= 12 ? thickness : 2;
+    } else {
+      config.shape = 'square';
+      if (color(raw.fill) !== undefined) config.shapeFill = raw.fill;
+      if (color(raw.stroke) !== undefined) { config.shapeStroke = raw.stroke; config.shapeStrokeWidth = 1; } else config.shapeStrokeWidth = 0;
+      if (opacity >= 0 && opacity <= 100) config.shapeOpacity = opacity;
+    }
+  } else {
+    const asset = (ctx.assets || []).find((a) => a.name === raw.image);
+    if (!asset || !ASSET_URL.test(asset.url)) return { error: `an image is one the user added, by name${(ctx.assets || []).length ? `: ${ctx.assets.map((a) => a.name).join(', ')}` : ' — none was added to this conversation'}` };
+    config.url = asset.url;
+    config.fit = raw.fit === 'cover' ? 'cover' : 'contain';
+    config.alt = text(raw.title, 200) || asset.name;
+  }
+  return { widget: { type: raw.type, config, data, dataBinding: {}, layout: clampLayout(raw.layout, ctx.page, DECOR_MIN), rationale: text(raw.rationale, 500) } };
+}
+const { dressWidget, matchNeighbours } = require('./dress');
 const AXIS_TITLED_TYPES = new Set(['bar', 'line', 'combo']);
 // Where several axis dimensions make a drill-down, with a legend to show a
 // second one at once instead.
@@ -57,14 +118,19 @@ function countOf(name, ctx) {
   if (!c) return null;
   return c.more ? Infinity : c.n;
 }
+// A period written as text — a calendar's YearMonth, a Quarter, a month name
+// derived from a date — is time too: the Finance package plots its months
+// that way, and a trend on them was refused for want of a DATE type.
+const PERIOD = /year|month|quarter|week|period|date|day|time|calendar|calendrier/i;
+const periodLike = (d) => !!d.datePart || PERIOD.test(String(d.column || '')) || PERIOD.test(String(d.table || '').split('__').pop());
 function isDateDim(name, ctx) {
   const d = ctx.effective.dimensions.find((x) => x.name === name);
-  return !!d && /date|time/i.test(String(d.type || ''));
+  return !!d && (/date|time/i.test(String(d.type || '')) || periodLike(d));
 }
-// Has an order a line can follow: a date, or a number (a year kept as an integer).
+// Has an order a line can follow: a date, a period, or a number (a year kept as an integer).
 function isOrderedDim(name, ctx) {
   const d = ctx.effective.dimensions.find((x) => x.name === name);
-  return !d || /date|time|int|num|float|double|decimal|real/i.test(String(d.type || ''));
+  return !d || /date|time|int|num|float|double|decimal|real/i.test(String(d.type || '')) || periodLike(d);
 }
 
 // Which of two dimensions goes on the axis and which in the legend, decided
@@ -144,6 +210,10 @@ function validateBinding(type, raw, names) {
     binding.selectedMeasures = [...new Set([...bars, ...lines])];
   }
 
+  if (type === 'heatmap' && ((binding.selectedDimensions || []).length !== 1 || (binding.groupBy || []).length !== 1)) {
+    return { error: 'A heatmap needs one dimension in selectedDimensions (its columns) and one in groupBy (its rows)' };
+  }
+  if (type === 'map' && (binding.selectedDimensions || []).length !== 1) return { error: 'A map needs exactly one dimension: the place' };
   if (type === 'filter') {
     if ((binding.selectedDimensions || []).length !== 1) return { error: 'A filter needs exactly one dimension' };
   } else if (!(binding.selectedMeasures || []).length) {
@@ -177,6 +247,9 @@ function validateWidgetsProposal(args, ctx) {
   };
   const list = args && Array.isArray(args.widgets) ? args.widgets.slice(0, MAX_WIDGETS) : [];
   const widgets = [];
+  // Which proposals the widgets came from: a caller that attached something
+  // to a proposal (where it goes on the page) finds it again past a refusal.
+  const accepted = [];
   const errors = [];
   if (!list.length) errors.push('No widget was proposed');
 
@@ -195,6 +268,15 @@ function validateWidgetsProposal(args, ctx) {
     const unordered = proposed && proposed.type === 'line' && firstDim && !isOrderedDim(firstDim, ctx);
     const raw = (slices !== null && slices > MAX_PIE_SLICES) || unordered ? { ...proposed, type: 'bar', subType: undefined } : proposed;
     const installed = raw && raw.type === 'customVisual';
+    if (raw && DECOR.has(raw.type)) {
+      const made = decorWidget(raw, ctx);
+      if (made.error) { errors.push(`${label}: ${made.error}`); return; }
+      accepted.push(i);
+      // Like its neighbours of its kind (a section label like the other
+      // labels); the data visuals' defaults do not apply to it.
+      widgets.push(matchNeighbours(made.widget, ctx.siblings || (ctx.pageContext && ctx.pageContext.widgets) || []));
+      return;
+    }
     if (!raw || (!BINDING_KEYS[raw.type] && !installed)) {
       errors.push(`${label}: unknown widget type`);
       return;
@@ -234,7 +316,10 @@ function validateWidgetsProposal(args, ctx) {
     // ten thin bars lost among empty slots. Stacked shows each bar whole, in
     // its group's color; grouped stays when the model asks for it.
     if (raw.type === 'bar' && (result.binding.groupBy || []).length && !config.subType) config.subType = 'stacked';
-    if (LEGEND_TYPES.has(raw.type)) config.showLegend = true;
+    // The reading the question calls for, when the proposal left it out: a
+    // conversion is a funnel, a ranking reads down horizontal bars.
+    if (raw.answers === 'conversion' && raw.type === 'pie') config.subType = 'funnel';
+    if (raw.answers === 'ranking' && raw.type === 'bar' && !(raw.style && raw.style.barDirection)) config.barDirection = 'horizontal';
     // Filters, ranking, period, sort, row limit: see widgetShaping.
     const shaped = shapeWidget(raw, result.binding, shapeCtx);
     if (shaped.error) {
@@ -243,6 +328,38 @@ function validateWidgetsProposal(args, ctx) {
     }
     Object.assign(config, shaped.config);
     Object.assign(result.binding, shaped.binding);
+    // Fields shown under their raw name — "qte_commandee" in a French legend
+    // or a table header (seen with Karim). The model names them in the user's
+    // words: a table's column takes the name, a measure takes it as its label
+    // in the whole report (dress.formatOverrides). Looked up among the fields
+    // this visual shows, never a new column. One left raw goes back once.
+    const named = raw.fieldNames && typeof raw.fieldNames === 'object' && !Array.isArray(raw.fieldNames) ? raw.fieldNames : {};
+    const b = result.binding;
+    const shownMeasures = [...(b.selectedMeasures || []), ...(b.comboBarMeasures || []), ...(b.comboLineMeasures || [])];
+    const shownDims = [...(b.selectedDimensions || []), ...(b.groupBy || []), ...(b.columnDimensions || [])];
+    const isTable = raw.type === 'table' || raw.type === 'pivotTable';
+    const fieldOf = (n) => ctx.effective.dimensions.find((x) => x.name === n) || ctx.effective.measures.find((x) => x.name === n);
+    const columns = {};
+    const labels = {};
+    for (const [field, name] of Object.entries(named)) {
+      const f = [...shownMeasures, ...shownDims].includes(field) && fieldOf(field);
+      const given = text(name, 60);
+      if (!f || !given) continue;
+      if (isTable) columns[f.label || f.name] = { displayName: given };
+      if (shownMeasures.includes(field)) labels[field] = given;
+    }
+    if (Object.keys(columns).length) config.tableConfig = { ...(config.tableConfig || {}), columns };
+    // Decimals asked for a measure it shows: its display in the whole report,
+    // like its name (dress.formatOverrides). Without it the AI sent the user
+    // to the model editor ("3 days" against "3 days" promised, recipe Moreau).
+    const decimals = {};
+    const askedDecimals = raw.fieldDecimals && typeof raw.fieldDecimals === 'object' && !Array.isArray(raw.fieldDecimals) ? raw.fieldDecimals : {};
+    for (const [field, n] of Object.entries(askedDecimals)) {
+      if (shownMeasures.includes(field) && Number.isInteger(n) && n >= 0 && n <= 3) decimals[field] = n;
+    }
+    const onShow = isTable ? [...shownDims, ...shownMeasures] : shownMeasures.length > 1 ? shownMeasures : [];
+    const leftRaw = onShow.filter((n) => !named[n] && fieldOf(n) && RAW_LABEL.test(fieldOf(n).label || fieldOf(n).name));
+    if (leftRaw.length) warnings.push(`${label}: name in fieldNames, in the user's language, the fields it shows under a raw name: ${leftRaw.join(', ')}`);
     // The proposed title already names what is plotted against what ("Revenue
     // by category"): axis titles would say it a second time, at the cost of a
     // strip of plot on two sides. Not on a scatter, where the axes are two
@@ -266,13 +383,18 @@ function validateWidgetsProposal(args, ctx) {
     }
     const fit = kindFit(raw.answers, raw.type, result.binding, ctx);
     if (fit) warnings.push(`${label}: ${fit}`);
-    widgets.push({
+    // What the proposal left unsaid about the look: first like its neighbours
+    // of the same type on the page it joins, then the defaults (dress.js).
+    accepted.push(i);
+    const dressed = dressWidget(matchNeighbours({
       type: raw.type,
       config,
       dataBinding: result.binding,
       layout: clampLayout(raw.layout, ctx.page, readableMin(raw.type)),
       rationale: text(raw.rationale, 500),
-    });
+    }, ctx.siblings || (ctx.pageContext && ctx.pageContext.widgets) || []), ctx);
+    // Read and taken off by dress.formatOverrides, which every proposal goes through.
+    widgets.push({ ...dressed, ...(Object.keys(labels).length ? { fieldLabels: labels } : {}), ...(Object.keys(decimals).length ? { fieldDecimals: decimals } : {}) });
   });
 
   // "Top 5 regions" answered by every region, sorted, is not a top 5.
@@ -292,7 +414,7 @@ function validateWidgetsProposal(args, ctx) {
     }
   }
 
-  return { widgets, errors, warnings };
+  return { widgets, accepted, errors, warnings };
 }
 
 // The kinds of question a visual answers, and the types that answer each.
@@ -301,14 +423,19 @@ function validateWidgetsProposal(args, ctx) {
 // written or installed for.
 const QUESTION_KINDS = {
   figure: ['scorecard', 'gauge'],
-  target: ['gauge', 'scorecard'],
+  target: ['gauge', 'scorecard', 'combo', 'bar'],
+  // Stages that lose volume (contacted → answered → meeting): a funnel.
+  conversion: ['pie', 'bar'],
   comparison: ['bar', 'table', 'pivotTable', 'treemap', 'combo'],
   ranking: ['bar', 'table'],
   trend: ['line', 'combo', 'bar'],
   share: ['pie', 'treemap', 'bar'],
-  crossed: ['bar', 'pivotTable', 'table', 'treemap'],
+  crossed: ['bar', 'pivotTable', 'table', 'treemap', 'heatmap'],
+  // Where it happens: a measure by country, region, département or town.
+  where: ['map', 'bar', 'table'],
   relationship: ['scatter'],
   distribution: ['bar', 'table'],
+  bridge: ['waterfall'],
   detail: ['table', 'pivotTable'],
   control: ['filter'],
 };
@@ -375,19 +502,67 @@ function colorMap(v) {
   return out;
 }
 
+// A font of the bundled list (fonts.js), or null for the system font.
+const font = (v) => (v === null ? null : FONT_FAMILIES.has(v) ? v : undefined);
+const NUMFMT = ['none', 'auto', 'K', 'M', 'B'];
+const SYMBOLS = ['circle', 'rect', 'roundRect', 'triangle', 'diamond', 'pin', 'arrow', 'star'];
+
+// An object setting, key by key: what passes of it, or nothing.
+const shapeOf = (spec) => (v) => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const out = {};
+  for (const [key, check] of Object.entries(spec)) {
+    const val = check(v[key]);
+    if (val !== undefined) out[key] = val;
+  }
+  return Object.keys(out).length ? out : undefined;
+};
+const mapOf = (check, max = 30) => (v) => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const entries = Object.entries(v);
+  if (entries.length > max) return undefined;
+  const out = {};
+  for (const [name, val] of entries) {
+    if (name.length > 100 || check(val) === undefined) return undefined;
+    out[name] = check(val);
+  }
+  return out;
+};
+
+const gradient = shapeOf({ enabled: bool, angle: num(0, 360), color1: color, color2: color });
+// The N-1 lines under a scorecard's figure (client PropertyPanel/controls.jsx).
+const N1_COMMON = {
+  position: oneOf(['bottom', 'left', 'right']), label: str(60), fontSize: num(8, 32), spacing: num(0, 64),
+  iconEnabled: bool, iconPosition: oneOf(['left', 'right']), positiveIcon: str(4), negativeIcon: str(4),
+  iconColorEnabled: bool, iconPositiveColor: color, iconNegativeColor: color,
+};
+const N1_SIGNED = { ...N1_COMMON, textColorEnabled: bool, positiveColor: color, negativeColor: color };
+
 // The look of table and pivotTable lives one level down, in `tableConfig`.
 // Only its appearance groups: `columns` (per-column formats, widths,
-// conditional formatting) and `freeze` are the author's and stay out of reach.
-// The editor MERGES what passes here into the existing tableConfig.
+// conditional formatting), `freeze`, `pagination` and the totals' functions
+// are the author's and stay out of reach. The editor MERGES what passes here
+// into the existing tableConfig.
+const ALIGN = oneOf(['left', 'center', 'right']);
+const VALIGN = oneOf(['top', 'middle', 'bottom']);
 const TABLE_LOOK = {
-  header: { fontColor: color, bgColor: color, fontBold: bool },
-  values: { fontColor: color, bgColor: color },
-  rows: { striped: bool, stripeColor1: color, stripeColor2: color, bgColor: color, hoverColor: color },
-  grid: {
-    horizontalLines: bool, horizontalColor: color, verticalLines: bool, verticalColor: color,
-    outerBorder: bool, outerBorderColor: color,
+  header: {
+    show: bool, fontSize: num(8, 24), fontColor: color, fontFamily: font, fontBold: bool, fontItalic: bool,
+    bgColor: color, alignment: ALIGN, verticalAlignment: VALIGN, wordWrap: bool,
   },
-  totals: { bgColor: color, fontColor: color, borderTopColor: color },
+  values: {
+    fontSize: num(8, 24), fontColor: color, fontFamily: font, fontBold: bool, fontItalic: bool, bgColor: color,
+    alignment: oneOf(['auto', 'left', 'center', 'right']), verticalAlignment: VALIGN, wordWrap: bool,
+  },
+  rows: {
+    height: oneOf(['compact', 'normal', 'large']), striped: bool, stripeColor1: color, stripeColor2: color,
+    bgColor: color, hoverHighlight: bool, hoverColor: color,
+  },
+  grid: {
+    horizontalLines: bool, horizontalColor: color, horizontalWidth: num(0, 3), verticalLines: bool, verticalColor: color,
+    verticalWidth: num(0, 3), outerBorder: bool, outerBorderColor: color, outerBorderWidth: num(0, 3), cellPadding: num(2, 16),
+  },
+  totals: { bgColor: color, fontColor: color, fontBold: bool, borderTopColor: color },
 };
 
 function tableLook(v) {
@@ -406,68 +581,213 @@ function tableLook(v) {
   return Object.keys(out).length ? out : undefined;
 }
 
+// Every appearance setting the property panel writes, with the panel's own
+// ranges and choices (asked by Jonathan: the assistant may change anything a
+// visual's options offer — fonts, labels, frames, gradients). Behaviour stays
+// out: sorting, top N, dates, an image's url, colors by rule on a measure (the highlight of bars is a look: it stays in).
 const DESIGN_CONFIG = {
+  // Title and frame
   title: str(200),
-  showLegend: bool,
-  legendPosition: oneOf(['top', 'bottom', 'left', 'right']),
+  titleColor: color,
+  titleFontFamily: font,
+  // The title bar: its size, weight, alignment, and above or under the visual
+  // (a figure card captioned under its number).
+  titleFontSize: num(10, 28),
+  titleWeight: oneOf([400, 500, 600, 700]),
+  titleAlign: oneOf(['left', 'center', 'right']),
+  titlePosition: oneOf(['top', 'bottom']),
+  backgroundColor: color,
+  transparentBg: bool,
+  gradientBg: gradient,
+  borderEnabled: bool,
+  borderColor: color,
+  borderRadius: num(0, 64),
+  shadow: shapeOf({ enabled: bool, type: oneOf(['outer', 'inner']), angle: num(0, 360), blur: num(0, 40), spread: num(0, 20), color }),
+  mergeSeparatorColor: color,
+  // Colors
   color,
   legendColors: colorMap,
   palette: hexList,
+  legendSymbols: mapOf(oneOf(SYMBOLS)),
+  valueGradient: shapeOf({ enabled: bool, minColor: color, maxColor: color }),
+  // A pivot's cells tinted by their value (PivotTableWidget): a heatmap.
+  // `true` alone turns it on in the theme's color (the model wrote it so, and the card lost it).
+  heatmap: (v) => (v === true ? { enabled: true } : v === false ? { enabled: false } : shapeOf({ enabled: bool, color })(v)),
+  // Bars that stand out (bar, combo): by a rule relative to the bars shown
+  // — the n largest or smallest, those above the average by a share — or by
+  // naming categories; `label` prints their value alone (client utils/highlight).
+  highlight: (v) => {
+    if (v === false) return { enabled: false };
+    const out = shapeOf({
+      enabled: bool, mode: oneOf(['top', 'bottom', 'above', 'values']), n: num(1, 10), above: num(5, 500), color, label: bool,
+      values: (list) => (Array.isArray(list) ? list.filter((x) => typeof x === 'string' || typeof x === 'number').slice(0, 20).map((x) => String(x).slice(0, 80)) : undefined),
+    })(v);
+    return out ? { enabled: true, ...out } : undefined;
+  },
+  // The scale of a heatmap or a map: high values in scaleColor, low ones in
+  // scaleLowColor (a pale tint of it when unset).
+  scaleColor: color,
+  scaleLowColor: color,
+  showScale: bool,
+  cellGap: num(0, 8),
+  cellRadius: num(0, 12),
+  cellBorderColor: color,
+  mapEmptyColor: color,
+  mapBorderColor: color,
+  mapBubbleMax: num(8, 60),
+  increaseColor: color,
+  decreaseColor: color,
+  totalColor: color,
+  // Data labels
   showDataLabels: bool,
+  dataLabelContent: oneOf(['value', 'name', 'percent', 'nameValue']),
+  // On bars: auto (outside the end, inside when there is no room), top (outside the end), insideTop, inside, insideBottom — along the bar whatever its direction.
+  dataLabelPosition: oneOf(['auto', 'outside', 'inside', 'top', 'insideTop', 'insideBottom']),
+  dataLabelRotate: num(-90, 90),
+  dataLabelFontSize: num(6, 36),
   dataLabelColor: color,
-  dataLabelFontSize: num(8, 32),
-  valueColor: color,
-  valueSize: num(10, 120),
-  labelColor: color,
-  labelSize: num(8, 48),
-  showXAxis: bool,
-  showXAxisTitle: bool,
-  xAxisTitle: str(200),
-  showYAxis: bool,
-  showYAxisTitle: bool,
-  yAxisTitle: str(200),
-  smooth: bool,
-  donut: bool,
-  backgroundColor: color,
-  transparentBg: bool,
-  borderEnabled: bool,
-  borderColor: color,
-  borderRadius: num(0, 40),
-  // A recolor that stops at the series leaves axis labels, tables and gauges
-  // in the old palette: every color a renderer actually reads is settable.
-  // Names checked against the widgets — a key no renderer reads is not here.
-  legendTextColor: color,
-  titleColor: color,
-  xAxisLabelColor: color,
-  yAxisLabelColor: color,
-  secondaryYAxisLabelColor: color,
-  headerColor: color,
+  dataLabelFontFamily: font,
   dataLabelBgColor: color,
   // A percentage here, but models think of opacity as 0–1: 0.7 meant 70 %,
   // and taken literally it is an invisible background.
   dataLabelBgOpacity: (v) => num(0, 100)(typeof v === 'number' && v > 0 && v <= 1 ? v * 100 : v),
-  gridLineStyle: oneOf(['solid', 'dashed', 'dotted']),
-  gridLineWidth: num(0, 5),
-  gridLineColor: color,
+  dataLabelAbbr: oneOf(NUMFMT),
+  valueAbbreviation: oneOf(NUMFMT),
+  showColumnNames: bool,
+  // Axes and grid
+  axisLabelOverflow: oneOf(['truncate', 'full']),
+  showXAxis: bool,
+  showYAxis: bool,
+  showSecondaryAxis: bool,
+  showXAxisTitle: bool,
+  showYAxisTitle: bool,
+  showSecondaryYAxisTitle: bool,
+  xAxisTitle: str(200),
+  yAxisTitle: str(200),
+  secondaryYAxisTitle: str(200),
   xAxisLineColor: color,
   yAxisLineColor: color,
   secondaryYAxisLineColor: color,
+  xAxisLabelRotate: (v) => (v === null ? null : num(-90, 90)(v)),
+  xAxisLabelFontSize: num(6, 24),
+  yAxisLabelFontSize: num(6, 24),
+  secondaryYAxisLabelFontSize: num(6, 24),
+  xAxisLabelColor: color,
+  yAxisLabelColor: color,
+  secondaryYAxisLabelColor: color,
+  xAxisLabelFontFamily: font,
+  yAxisLabelFontFamily: font,
+  secondaryYAxisLabelFontFamily: font,
+  // A scatter's axis titles
+  headerFontSize: num(8, 24),
+  headerColor: color,
+  headerFontFamily: font,
+  headerBold: bool,
+  gridLineStyle: oneOf(['solid', 'dashed', 'dotted']),
+  gridLineWidth: num(0, 5),
+  gridLineColor: color,
+  // Legend
+  showLegend: bool,
+  legendPosition: oneOf(['top', 'bottom', 'left', 'right']),
+  legendFontFamily: font,
+  legendTextColor: color,
+  // The chart itself
+  barDirection: oneOf(['vertical', 'verticalInverse', 'horizontal', 'horizontalInverse']),
+  smooth: bool,
+  showArea: bool,
+  lineSymbol: oneOf(['circle', 'emptyCircle', 'rect', 'roundRect', 'triangle', 'diamond', 'pin', 'arrow', 'none']),
+  lineSymbolSize: num(2, 20),
+  donut: bool,
+  symbolSize: num(2, 30),
+  showItemBorder: bool,
+  itemBorderColor: color,
+  itemBorderWidth: num(0, 8),
+  showTotal: bool,
+  totalLabel: str(100),
+  // Gauge
   gaugeColor: color,
   gaugeTrackColor: color,
   gaugeThresholdColor: color,
   gaugeOverColor: color,
   gaugeConditionalColor: bool,
+  gaugeDirection: oneOf(['up', 'down', 'right', 'left']),
+  gaugeArcWidth: num(4, 120),
+  gaugeArcSpan: num(90, 360),
+  gaugeArcRounded: bool,
+  gaugeShowValue: bool,
+  gaugeValueSize: num(10, 60),
   gaugeValueColor: color,
+  gaugeValueFontFamily: font,
+  gaugeShowLabel: bool,
+  gaugeLabelSize: num(8, 30),
   gaugeLabelColor: color,
+  gaugeLabelFontFamily: font,
+  gaugeShowMinMax: bool,
+  gaugeAxisSize: num(8, 24),
   gaugeAxisColor: color,
+  gaugeAxisOutset: num(-20, 80),
+  gaugeAxisCenterPull: num(0, 200),
+  // Filter
+  dateLayout: oneOf(['vertical', 'horizontal']),
+  orientation: oneOf(['vertical', 'horizontal']),
+  showSearch: bool,
+  showSelectAll: bool,
+  searchPlaceholder: str(80),
+  slicerFontSize: num(8, 24),
   slicerFontColor: color,
+  slicerFontFamily: font,
   slicerSelectedColor: color,
   slicerSelectedBg: color,
+  // Scorecard
+  labelPosition: oneOf(['above', 'below']),
+  showValue: bool,
+  valueSize: num(16, 72),
+  valueColor: color,
+  valueFontFamily: font,
+  valueWeight: oneOf([300, 400, 600, 700]),
+  showLabel: bool,
+  labelSize: num(8, 32),
+  labelColor: color,
+  labelFontFamily: font,
+  showN1Value: bool,
+  showN1Difference: bool,
+  showN1Percent: bool,
+  n1ValueStyle: shapeOf(N1_COMMON),
+  n1DifferenceStyle: shapeOf(N1_SIGNED),
+  n1PercentStyle: shapeOf(N1_SIGNED),
+  // The page's dressing (ShapeWidget, TextWidget, ImageWidget): restyled like
+  // any widget — never an image's url, which only comes from what the user added.
+  padding: num(0, 64),
+  // A text's own font (the canvas toolbar); its runs let go of what is set here (client aiProposal).
+  fontSize: num(8, 96),
+  fontFamily: font,
+  bold: bool,
+  italic: bool,
+  textAlign: oneOf(['left', 'center', 'right', 'flex-start', 'flex-end']),
+  verticalAlign: oneOf(['flex-start', 'center', 'flex-end']),
   shapeFill: color,
   shapeStroke: color,
+  shapeStrokeWidth: num(0, 20),
+  shapeOpacity: num(0, 100),
   lineColor: color,
-  mergeSeparatorColor: color,
+  lineThickness: num(1, 20),
+  lineRotation: num(0, 360),
+  arrowDirection: oneOf(['right', 'down', 'left', 'up']),
+  fit: oneOf(['contain', 'cover', 'fill', 'none']),
+  rotation: num(0, 360),
   tableConfig: tableLook,
+};
+
+// The page's look beyond its theme and color (report settings, SettingsPanel):
+// a gradient under the cards (an uploaded image still covers it), the color
+// around the page, its border, corners and shadow.
+const PAGE_LOOK = {
+  gradientBg: gradient,
+  surroundColor: (v) => (v === null ? null : color(v)),
+  showBorder: bool,
+  borderRadius: num(0, 24),
+  showShadow: bool,
+  transparentBg: bool,
 };
 
 /** The whitelisted, well-typed part of a config. Used on what comes IN too. */
@@ -482,6 +802,10 @@ function pickDesignConfig(config) {
 }
 
 const MAX_OPS = 40;
+// A label that is a column's own name: snake_case, a dotted path.
+const RAW_LABEL = /^[a-z0-9]+([_.][a-z0-9]+)*$/;
+// What colorScheme `frame` sets on a widget (colorScheme.js).
+const FRAME_KEYS = new Set(['titleColor', 'borderEnabled', 'borderColor']);
 // Widgets whose content is their own: a `title` there adds a title bar above
 // a text that already is one.
 const UNTITLED_TYPES = new Set(['text', 'shape', 'image']);
@@ -515,7 +839,16 @@ function exceptRuled(set, ruledSet, type) {
  * @returns {{ summary: string, advice: string[], ops: object[], errors: string[], warnings: string[] }}
  */
 function validateDesignProposal(args, ctx) {
-  const byId = new Map(ctx.pageContext.widgets.map((w) => [w.id, w]));
+  // The page shown, and the report's other pages: their widgets are restyled
+  // AND laid out from here (Jonathan: "all the scorecards of the report at
+  // 220 × 120" was sent back page by page). `arrangement` stays the page
+  // shown's: rows are a rework of one page.
+  const elsewhere = new Map();
+  for (const p of ctx.pageContext.otherPages || []) for (const w of p.widgets || []) elsewhere.set(w.id, { ...w, pageId: p.id, page: p.name });
+  const byId = new Map([...elsewhere, ...ctx.pageContext.widgets.map((w) => [w.id, w])]);
+  const everywhere = { ...ctx.pageContext, widgets: [...ctx.pageContext.widgets, ...elsewhere.values()] };
+  // An operation on another page's widget carries its page, and the widget's title for the card.
+  const placed = (op) => { const w = elsewhere.get(op.widgetId); return w ? { ...op, pageId: w.pageId, page: w.page, title: w.title || '' } : op; };
   const themes = new Set(ctx.pageContext.themes || []);
   const list = args && Array.isArray(args.ops) ? args.ops.slice(0, MAX_OPS) : [];
   const ops = [];
@@ -524,6 +857,11 @@ function validateDesignProposal(args, ctx) {
   // Rows and weights in, `move` operations out: from here on an arrangement
   // is ordinary moves, which is all the editor ever has to know how to apply.
   const arranged = new Set();
+  // Each page as the placements of this proposal leave it, one after the other.
+  const lives = new Map([[null, new Map(ctx.pageContext.widgets.map((w) => [w.id, w]))]]);
+  for (const p of ctx.pageContext.otherPages || []) lives.set(p.id, new Map((p.widgets || []).map((w) => [w.id, w])));
+  // Boxes the model chose under a widget's readable floor: said on the card.
+  const sized = [];
   // What the color rule set on each widget: those keys are the rule's.
   const ruled = new Map();
   // Held to what the request is about (the model's reading, see agent.designReading). Out of scope, the
@@ -547,12 +885,14 @@ function validateDesignProposal(args, ctx) {
     // the theme in the same proposal, and tints computed for the white page it
     // is leaving came out as a pale header under light text.
     const switched = scope.theme && list.find((op) => op && op.op === 'report_settings' && op.set && themes.has(op.set.theme));
-    const target = switched ? { ...ctx.pageContext, theme: switched.set.theme } : ctx.pageContext;
-    const colored = colorOps(String(args.colorScheme), args.baseColor, target, dimensions);
+    const target = switched ? { ...everywhere, theme: switched.set.theme } : everywhere;
+    const colored = colorOps(String(args.colorScheme), args.baseColor, target, dimensions, { accentHex: args.accentColor, frame: args.frame === true });
     // Flagged so the card can say "palette X on N widgets" in one line.
     if (colored) {
-      ops.push(...colored.map((op) => ({ ...op, fromScheme: true })));
-      for (const op of colored) ruled.set(op.widgetId, op.set);
+      ops.push(...colored.map((op) => placed({ ...op, fromScheme: true })));
+      // The frame the rule dresses (titles, borders) stays the model's to adjust
+      // per visual — no border on a figure that reads better without one.
+      for (const op of colored) if (op.widgetId) ruled.set(op.widgetId, Object.fromEntries(Object.entries(op.set).filter(([k]) => !FRAME_KEYS.has(k))));
     }
     else errors.push(`colorScheme: unknown rule; use one of ${Object.keys(HARMONIES).join(', ')}`);
   }
@@ -578,9 +918,25 @@ function validateDesignProposal(args, ctx) {
         if (color(src.pageBackground) === undefined) { errors.push(`${label}: pageBackground must be a hex color`); return; }
         if (src.pageBackground.toLowerCase() !== String(ctx.pageContext.pageBackground || '').toLowerCase()) set.pageBackground = src.pageBackground;
       }
-      if (src.theme === undefined && src.pageBackground === undefined) { errors.push(`${label}: nothing to set`); return; }
+      // The rest of the page's look, as the report settings panel offers it.
+      for (const [key, check] of Object.entries(PAGE_LOOK)) {
+        if (src[key] === undefined) continue;
+        const v = check(src[key]);
+        if (v === undefined) { errors.push(`${label}: ${key} is not a valid value`); return; }
+        set[key] = v;
+      }
+      if (src.theme === undefined && src.pageBackground === undefined && !Object.keys(PAGE_LOOK).some((k) => src[k] !== undefined)) { errors.push(`${label}: nothing to set`); return; }
       if (!Object.keys(set).length) return;
       ops.push({ op: 'report_settings', set });
+      return;
+    }
+    // The page menu: its look and an icon per page (pageNav.js).
+    // Never held to the reading's theme: asked about the menu, the model read
+    // "colors" and the whole op vanished, card and all.
+    if (raw.op === 'page_nav') {
+      const checked = validatePageNavOp(raw, ctx.pageContext, font, ctx.assets || []);
+      if (checked.error) { errors.push(`${label}: ${checked.error}`); return; }
+      ops.push(checked.op);
       return;
     }
 
@@ -598,32 +954,54 @@ function validateDesignProposal(args, ctx) {
       // A treemap is read through its labels: without them it is anonymous
       // rectangles. A real model turned them off "to declutter".
       if (target.type === 'treemap' && set.showDataLabels === false) delete set.showDataLabels;
+      // The panel's corners: 24 on a card, 64 on an image only.
+      if (target.type !== 'image' && set.borderRadius > 24) set.borderRadius = 24;
       // Restating what is already there is not a change, and pads the card.
       for (const key of Object.keys(set)) {
         if (JSON.stringify(set[key]) === JSON.stringify((target.config || {})[key])) delete set[key];
       }
       if (refused.length) errors.push(`${label}: ignored ${refused.slice(0, 5).map((k) => String(k).slice(0, 30)).join(', ')} (not settable or invalid value)`);
-      if (Object.keys(set).length) ops.push({ op: 'update_config', widgetId: target.id, set });
-    } else if (raw.op === 'move') {
+      if (Object.keys(set).length) ops.push(placed({ op: 'update_config', widgetId: target.id, set }));
+    } else if (raw.op === 'place') {
+      // One widget set next to, under or over another; the page otherwise
+      // untouched (Jonathan: stacking two filters re-laid nine widgets).
+      if (!scope.layout) return;
+      if (arranged.has(target.id)) return;
+      if (target.merged) { errors.push(`${label}: this widget is part of a merged block and cannot be moved alone`); return; }
+      if (!['right', 'left', 'below', 'above'].includes(raw.side)) { errors.push(`${label}: place needs \`side\` right, left, below or above`); return; }
+      const near = byId.get(raw.near);
+      if (!near || (near.pageId || null) !== (target.pageId || null) || near.id === target.id) { errors.push(`${label}: place needs \`near\`, another widget of the same page`); return; }
+      const live = lives.get(target.pageId || null);
+      const set = placeWidget(live, target.id, { near: near.id, side: raw.side }, ctx.page, ctx.effective);
+      if (set.error) { errors.push(`${label}: ${set.error}`); return; }
+      // Each placement starts from the page the ones before it left; a widget
+      // moved twice keeps its last place.
+      for (const move of set.moves) {
+        live.set(move.widgetId, { ...live.get(move.widgetId), layout: { x: move.x, y: move.y, w: move.w, h: move.h } });
+        const at = ops.findIndex((o) => o.op === 'move' && o.widgetId === move.widgetId);
+        if (at >= 0) ops[at] = placed(move); else ops.push(placed(move));
+        arranged.add(move.widgetId);
+      }
+    } else if (raw.op === 'move' || raw.op === 'z_order') {
+      if (raw.op === 'z_order') {
+        if (raw.to !== 'front' && raw.to !== 'back') { errors.push(`${label}: z_order goes to "front" or "back"`); return; }
+        ops.push(placed({ op: 'z_order', widgetId: target.id, to: raw.to }));
+        return;
+      }
       if (!scope.layout) return;
       // The arrangement already placed it, to the pixel; a second opinion in
       // hand-computed coordinates would only undo that.
       if (arranged.has(target.id)) return;
       // A merged block moves as one piece; moving a member would tear it.
       if (target.merged) { errors.push(`${label}: this widget is part of a merged block and cannot be moved alone`); return; }
-      const rect = clampLayout(raw, ctx.page);
+      const rect = freeBox(raw, ctx.page);
       if (!rect) { errors.push(`${label}: x, y, w and h must be numbers`); return; }
-      // Refused rather than silently enlarged: a bigger box would land on its
-      // neighbours, and only the model can re-plan the row around it.
+      // The size is the model's call (asked by Jonathan: it decides): under
+      // the readable floor it is said on the card, never refused.
       const min = minOf(target);
-      if (rect.w < min.w || rect.h < min.h) {
-        errors.push(`${label}: ${JSON.stringify(target.title || target.type)} is not readable under ${min.w} × ${min.h} px (asked ${rect.w} × ${rect.h}); give it more room or leave it where it is`);
-        return;
-      }
-      ops.push({ op: 'move', widgetId: target.id, ...rect });
-    } else if (raw.op === 'z_order') {
-      if (raw.to !== 'front' && raw.to !== 'back') { errors.push(`${label}: z_order goes to "front" or "back"`); return; }
-      ops.push({ op: 'z_order', widgetId: target.id, to: raw.to });
+      // Data visuals only: a shape or a text has no readable floor to speak of.
+      if (READABLE_MIN[target.type] && (rect.w < min.w || rect.h < min.h)) sized.push(`${JSON.stringify(target.title || target.type)} is under its readable size (${rect.w} × ${rect.h}, reads from ${min.w} × ${min.h})`);
+      ops.push(placed({ op: 'move', widgetId: target.id, ...rect }));
     } else {
       errors.push(`${label}: unknown operation`);
     }
@@ -638,7 +1016,7 @@ function validateDesignProposal(args, ctx) {
   // proposal itself chose and that had to be adjusted is corrected WHERE it was
   // set, so the card shows the color the author will actually get; the rest
   // travels as operations of its own.
-  for (const fix of readabilityOps(ctx.pageContext, ops)) {
+  for (const fix of readabilityOps(everywhere, ops)) {
     for (const key of Object.keys(fix.set)) {
       if (key === 'tableConfig') continue;
       const chosen = ops.filter((op) => op.op === 'update_config' && op.widgetId === fix.widgetId && !op.fromScheme && key in op.set).pop();
@@ -646,10 +1024,107 @@ function validateDesignProposal(args, ctx) {
       chosen.set[key] = fix.set[key];
       delete fix.set[key];
     }
-    if (Object.keys(fix.set).length) ops.push(fix);
+    if (Object.keys(fix.set).length) ops.push(placed(fix));
   }
   const colorScheme = ops.some((op) => op.fromScheme) ? String(args.colorScheme) : null;
-  return { summary: text(args && args.summary, 500), advice, colorScheme, ops, errors, warnings: newOverlaps(ctx.pageContext.widgets, ops) };
+  // Free boxes settled: what would overlap is pushed down, and the page grows
+  // when the boxes run past it — the model places, the editor tidies.
+  // Not for rows: a widget an arrangement leaves out is the model's choice,
+  // named in `advice` for the author to remove, not to be slid about.
+  // Each page settled on its own; the page height is the report's, so the
+  // tallest page sets it.
+  const shown = arranged.size && args.arrangement ? { notes: [], pageHeight: ctx.page.height } : settleMoves(ctx.pageContext.widgets, ops, ctx.page);
+  const settled = [shown, ...(ctx.pageContext.otherPages || []).map((p) => settleMoves(p.widgets || [], ops, ctx.page, p.id, placed))];
+  const overlaps = [newOverlaps(ctx.pageContext.widgets, ops), ...(ctx.pageContext.otherPages || []).map((p) => newOverlaps(p.widgets || [], ops, p.id))].flat();
+  // `notes`: what the editor did on its own (a widget slid down); for the
+  // card, never a reason for a repair round — that tidying is the design.
+  return {
+    summary: text(args && args.summary, 500), advice, colorScheme, ops, errors, pageHeight: Math.max(...settled.map((s) => s.pageHeight)),
+    warnings: [...sized, ...overlaps, ...menuLeftOut(ops, colorScheme, ctx.pageContext), ...noDirection(ops, colorScheme, ctx)],
+    notes: settled.flatMap((s) => s.notes).slice(0, 10),
+  };
+}
+
+// The look of a report of several pages and its page menu go together (asked
+// by Jonathan: "il doit être de paire"): a proposal that restyles the report
+// — a color rule, the report's settings, the other pages — while the menu has
+// no look of its own yet leaves it out, and goes back once to add page_nav.
+// A whole look names its direction (prompt DESIGNER_GUIDE): without one, the
+// same recipe came back for an insurer and a bistro.
+const STYLES = new Set(['editorial', 'corporate', 'control-room', 'minimal', 'bold', 'soft']);
+function noDirection(ops, colorScheme, ctx) {
+  const whole = colorScheme && ops.some((op) => op.op === 'report_settings' || op.op === 'page_nav' || (op.pageId && op.pageId !== ctx.pageContext.pageId));
+  return whole && !STYLES.has(ctx.style) ? ['a look for the whole report declares its direction in reading.style (editorial, corporate, control-room, minimal, bold, soft) and follows it in every font, frame, the page and the menu'] : [];
+}
+
+const NAV_STYLE = ['bgColor', 'textColor', 'activeBgColor', 'activeTextColor', 'fontFamily'];
+function menuLeftOut(ops, colorScheme, pageContext) {
+  if (!(pageContext.otherPages || []).length || ops.some((op) => op.op === 'page_nav')) return [];
+  if (NAV_STYLE.some((k) => (pageContext.pageNav || {})[k])) return [];
+  const restyled = colorScheme || ops.some((op) => op.op === 'report_settings' || (op.pageId && op.pageId !== pageContext.pageId));
+  return restyled ? ['the report has several pages and its page menu has no look yet: add a page_nav op to this proposal, in the same look (its place, colors, font, the page open standing out, an icon per page)'] : [];
+}
+
+// A box as the model wrote it, snapped to the grid and kept within the page
+// width; below the page it may go — the page grows (settleMoves). No floor
+// but the grid step: the size is the model's to decide.
+function freeBox(raw, page) {
+  if (!raw || typeof raw !== 'object') return null;
+  const nums = [raw.x, raw.y, raw.w, raw.h].map(Number);
+  if (!nums.every(Number.isFinite)) return null;
+  const w = Math.min(Math.max(snap(nums[2]), GRID), page.width);
+  const h = Math.max(snap(nums[3]), GRID);
+  const x = Math.min(Math.max(snap(nums[0]), 0), page.width - w);
+  const y = Math.max(snap(nums[1]), 0);
+  return { x, y, w, h };
+}
+
+const SETTLE_GUTTER = 20;
+const SETTLE_PASSES = 20;
+
+/**
+ * Data visuals that would sit on one another after the moves: the lower one
+ * (in reading order) slides down under the other, and a widget pushed that
+ * the proposal did not move gets a move of its own. An overlap the page
+ * already had between two untouched widgets is the author's and stays. The
+ * page height the boxes then need travels with the proposal.
+ * @returns {{ notes: string[], pageHeight: number }}
+ */
+function settleMoves(pageWidgets, ops, page, pageId = null, tag = (op) => op) {
+  const moves = new Map(ops.filter((o) => o.op === 'move' && (o.pageId || null) === pageId).map((o) => [o.widgetId, o]));
+  if (!moves.size) return { notes: [], pageHeight: page.height };
+  const boxes = pageWidgets
+    .filter((w) => READABLE_MIN[w.type] && !w.merged)
+    .map((w) => ({ w, before: rectOf(w.layout), at: rectOf(moves.get(w.id) || w.layout), placed: moves.has(w.id), moved: moves.has(w.id) }))
+    .filter((b) => b.at);
+  const name = (w) => JSON.stringify(w.title || w.type);
+  const notes = [];
+  for (let pass = 0; pass < SETTLE_PASSES; pass++) {
+    boxes.sort((a, b) => a.at.y - b.at.y || a.at.x - b.at.x);
+    let changed = false;
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        if (!intersects(boxes[i].at, boxes[j].at)) continue;
+        if (!boxes[i].moved && !boxes[j].moved && boxes[i].before && boxes[j].before && intersects(boxes[i].before, boxes[j].before)) continue;
+        // The box the proposal placed keeps its place; what it landed on
+        // slides. Two placed boxes: the lower in reading order slides.
+        const [stay, go] = !boxes[i].placed && boxes[j].placed ? [boxes[j], boxes[i]] : [boxes[i], boxes[j]];
+        go.at = { ...go.at, y: stay.at.y + stay.at.h + SETTLE_GUTTER };
+        if (!go.moved) notes.push(`${name(go.w)} moved down under ${name(stay.w)} to make room`);
+        go.moved = true;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  for (const b of boxes) {
+    if (!b.moved) continue;
+    const existing = moves.get(b.w.id);
+    if (existing) Object.assign(existing, { x: b.at.x, y: b.at.y, w: b.at.w, h: b.at.h });
+    else ops.push(tag({ op: 'move', widgetId: b.w.id, ...b.at }));
+  }
+  const bottom = boxes.reduce((max, b) => Math.max(max, b.at.y + b.at.h), 0);
+  return { notes: [...new Set(notes)].slice(0, 10), pageHeight: Math.max(page.height, bottom + SETTLE_GUTTER) };
 }
 
 function rectOf(layout) {
@@ -665,8 +1140,8 @@ const intersects = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b
 // images are left out — sitting under or over a chart is what they are for.
 // Reported apart from `errors`: dropping one move of a re-laid-out page would
 // leave it worse than the overlap does.
-function newOverlaps(pageWidgets, ops) {
-  const moves = new Map(ops.filter((o) => o.op === 'move').map((o) => [o.widgetId, o]));
+function newOverlaps(pageWidgets, ops, pageId = null) {
+  const moves = new Map(ops.filter((o) => o.op === 'move' && (o.pageId || null) === pageId).map((o) => [o.widgetId, o]));
   if (!moves.size) return [];
   const visuals = pageWidgets
     .filter((w) => READABLE_MIN[w.type])
@@ -771,5 +1246,5 @@ function validateVisualProposal(args, ctx) {
 
 module.exports = {
   validateWidgetsProposal, validateDesignProposal, validateVisualProposal, pickDesignConfig, clampLayout,
-  BINDING_KEYS, SUB_TYPES, DESIGN_CONFIG, TABLE_LOOK, READABLE_MIN, QUESTION_KINDS,
+  BINDING_KEYS, DECOR_TYPES, SUB_TYPES, DESIGN_CONFIG, TABLE_LOOK, PAGE_LOOK, READABLE_MIN, QUESTION_KINDS,
 };
