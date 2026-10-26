@@ -169,7 +169,9 @@
 
 - Search slicer: Style → Search (contains). A text box: the visuals of the page keep only the values of its field that contain what is typed (any case) — e.g. an account number or part of a label. Placeholder sets its hint.
 - Opens on (List, Dropdown, Buttons): Latest value selects the slicer's last value when the report opens (the latest year, the latest month) unless a selection was saved; No selection leaves it empty.
-- A slicer's selection belongs to its page: each page keeps its own.
+- A slicer's selection belongs to its page: each page keeps its own, unless the slicer is synced.
+- Sync a slicer across pages: select the slicer, open its own section (under Fields) and tick Sync with other pages, then tick the pages to sync with (listed by name). What is picked in the slicer then also filters those pages, even a page with no slicer of its own on that field; a slicer on the same field on a synced page shows the same selection, and changing it there changes it back on the first page. Pages left unticked keep their own selection. A deleted page simply drops out of the list.
+- The assistant can sync slicers too (ask it in the chat: "keep the Year filter in sync on every page"), and when it puts a filter on the same field on several pages it first asks whether they should stay in sync or each page keep its own; the card says which filters it syncs before you apply it.
 
 ## interactions — Cross-filtering and drill-down
 - Cross-filter: clicking a bar, slice or point filters the other visuals of the page; click it again to clear. Works in the editor and the viewer.

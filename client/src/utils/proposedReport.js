@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { withMeasureFormats } from './aiProposal';
+import { withFilterSync } from './syncedSlicers';
 
 // A whole report proposed by the assistant (kind 'report': pages of widgets
 // the server validated and laid out), as the bundle /reports/import takes —
@@ -7,8 +8,8 @@ import { withMeasureFormats } from './aiProposal';
 // report is created by the user's own rights on the usual route.
 export const PAGE = { width: 1140, height: 800 };
 
-export function bundleFromProposal(proposal, makeId = uuidv4) {
-  const pages = (proposal.pages || []).map((p, i) => {
+export function bundleFromProposal(proposal, makeId = uuidv4, pageIdOf = (i) => `page-${i + 1}`) {
+  const made = (proposal.pages || []).map((p, i) => {
     const layout = [];
     const widgets = {};
     (p.widgets || []).forEach((w, j) => {
@@ -17,8 +18,15 @@ export function bundleFromProposal(proposal, makeId = uuidv4) {
       layout.push({ i: id, x: box.x, y: box.y, w: box.w, h: box.h, z: j + 1 });
       widgets[id] = { type: w.type, data: w.data ? { ...w.data } : {}, dataBinding: { ...(w.dataBinding || {}) }, config: { ...(w.config || {}) } };
     });
-    return { id: `page-${i + 1}`, name: p.name || `Page ${i + 1}`, layout, widgets };
+    return { id: pageIdOf(i), name: p.name || `Page ${i + 1}`, layout, widgets };
   });
+  // Filters synced across the report's pages as the card said (server
+  // utils/ai/filterSync.js): pages named by their rank in the proposal.
+  const pages = withFilterSync(made, (proposal.filterSync || []).filter((d) => d.synced).map((d) => ({
+    dim: d.dim,
+    page: made[d.page]?.id,
+    pages: (d.pages || []).map((i) => made[i]?.id).filter(Boolean),
+  })));
   return {
     format: 'open-report.report.v1',
     report: {
@@ -39,5 +47,6 @@ export function bundleFromProposal(proposal, makeId = uuidv4) {
 
 /** The proposal's pages in the report document's own shape, ids fresh. */
 export function pagesFromProposal(proposal, makeId = uuidv4) {
-  return bundleFromProposal(proposal, makeId).report.pages.map((p) => ({ ...p, id: `page-${makeId()}` }));
+  const ids = (proposal.pages || []).map(() => `page-${makeId()}`);
+  return bundleFromProposal(proposal, makeId, (i) => ids[i]).report.pages;
 }

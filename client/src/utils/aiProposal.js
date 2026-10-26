@@ -12,6 +12,7 @@ import { clampPos, findFreeSlot } from './pageBounds';
 import { applyContainerToGroup, pickContainer } from './mergeContainer';
 import { describeModelProposal } from './modelProposal';
 import { describePageNav, withPageNav } from './pageNav';
+import { withFilterSync, syncDecisionLine as filterSyncLine } from './syncedSlicers';
 
 const GRID = 20;
 
@@ -178,13 +179,17 @@ export function applyReportChanges(proposal, { pages, currentIdx, pageWidth, pag
   const height = Math.max(pageHeight, Number(proposal.pageHeight) || 0);
   let list = pages.map((p) => ({ ...p }));
   const removedPages = new Set();
+  // The ids the new pages get, in the payload's order: a sync names them "new:k".
+  const newIds = [];
   let applied = 0;
   let skipped = 0;
   for (const entry of entries) {
     if (entry.isNew) {
       const made = applyWidgetsProposal({ widgets: entry.add || [] }, { layout: [], widgets: {}, pageWidth, pageHeight: height, effectiveModel, widgetTypes }, makeId);
-      if (made.error) { skipped += 1; continue; }
-      list.push({ id: `page-${makeId()}`, name: entry.name || `Page ${list.length + 1}`, layout: made.layout, widgets: made.widgets });
+      if (made.error) { skipped += 1; newIds.push(null); continue; }
+      const id = `page-${makeId()}`;
+      newIds.push(id);
+      list.push({ id, name: entry.name || `Page ${list.length + 1}`, layout: made.layout, widgets: made.widgets });
       applied += 1;
       continue;
     }
@@ -225,6 +230,18 @@ export function applyReportChanges(proposal, { pages, currentIdx, pageWidth, pag
   }
   if (removedPages.size && removedPages.size < list.length) list = list.filter((p) => !removedPages.has(p.id));
   else if (removedPages.size) { skipped += removedPages.size; applied -= removedPages.size; }
+  // Filters synced across pages as the card says: page tokens are page ids,
+  // "new:k" the k-th page added above, the page shown by its own id.
+  if ((proposal.filterSync || []).length) {
+    const idOf = (t) => {
+      const m = /^new:(\d+)$/.exec(String(t));
+      return m ? newIds[Number(m[1])] || null : t;
+    };
+    const decisions = proposal.filterSync.map((d) => ({ dim: d.dim, page: idOf(d.page), pages: (d.pages || []).map(idOf).filter(Boolean) })).filter((d) => d.page);
+    const before = list;
+    list = withFilterSync(list, decisions);
+    applied += list.filter((p, i) => p !== before[i]).length;
+  }
   if (proposal.title && title) list = list.map((p) => retitle(p, title, proposal.title));
   return { pages: list, applied, skipped };
 }
@@ -296,6 +313,9 @@ export function describeProposal(proposal, outcome) {
     return `[Offered to undo the change (${proposal.reason || 'no reason given'}) — ${status}]`.slice(0, 600);
   }
   // The answer is the user's next message: only the question is recorded.
+  // The filter sync question is marked: the server reads the mark to know the
+  // user was asked (server utils/ai/filterSync.js), never the user's words.
+  if (proposal.kind === 'question' && proposal.about === 'filter_sync') return `[Asked the user about filter sync: ${JSON.stringify(proposal.question)} — options: ${proposal.options.map((o) => o.label).join(' | ')}]`.slice(0, 600);
   if (proposal.kind === 'question') return `[Asked the user: ${JSON.stringify(proposal.question)} — options: ${proposal.options.map((o) => o.label).join(' | ')}]`.slice(0, 600);
   if (proposal.kind === 'reportChanges') {
     const status = { applied: 'applied by the user', dismissed: 'dismissed by the user' }[outcome] || 'not applied yet';
@@ -311,13 +331,15 @@ export function describeProposal(proposal, outcome) {
     });
     const extras = [
       ...(proposal.title ? [`report renamed ${JSON.stringify(proposal.title)}`] : []),
+      ...(proposal.filterSync || []).map(filterSyncLine),
       ...((proposal.measures || []).length ? [`measures defined: ${proposal.measures.map((m) => `${m.name} (${m.label})`).join(', ')}`] : []),
     ];
     return `[Proposed changes to the report — ${status}: ${String(proposal.summary || '').slice(0, 200)} ${[...extras, ...pages].join('; ')}]`.slice(0, 1500);
   }
   if (proposal.kind === 'report') {
     const status = outcome === 'applied' ? 'created by the user' : outcome === 'dismissed' ? 'dismissed by the user' : 'not created yet';
-    return `[Proposed report — ${status}: ${JSON.stringify(proposal.title)}, pages: ${proposal.pages.map((p) => `${p.name} (${p.widgets.length} visuals)`).join('; ')}]`.slice(0, 1500);
+    const synced = (proposal.filterSync || []).map(filterSyncLine);
+    return `[Proposed report — ${status}: ${JSON.stringify(proposal.title)}, pages: ${proposal.pages.map((p) => `${p.name} (${p.widgets.length} visuals)`).join('; ')}${synced.length ? `; ${synced.join('; ')}` : ''}]`.slice(0, 1500);
   }
   const status = {
     applied: 'applied by the user', reverted: 'applied by the user', dismissed: 'dismissed by the user',
@@ -636,5 +658,7 @@ function describeWidget(it, w) {
     // calendar filter and a dropdown filter are the same type.
     shape: { slicerStyle: w.config?.slicerStyle, orientation: w.config?.orientation, dateLayout: w.config?.dateLayout, subType: w.config?.subType },
     merged: !!w.config?.mergeGroup,
+    // The pages a filter shares its selection with: the assistant keeps them, or asks.
+    ...(w.type === 'filter' && Array.isArray(w.config?.syncPages) ? { syncPages: w.config.syncPages } : {}),
   };
 }

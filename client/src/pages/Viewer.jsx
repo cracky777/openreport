@@ -15,6 +15,9 @@ import { STACK_BREAKPOINT } from '../utils/stackedLayout';
 import ExportMenu from '../components/ExportMenu/ExportMenu';
 import BookmarkMenu from '../components/BookmarkMenu/BookmarkMenu';
 import { queriesData, restorable } from '../utils/pageState';
+import { syncGroups, sharedSelections, withSelection, withPageSelections, syncedFilters } from '../utils/syncedSlicers';
+
+const NO_SELECTIONS = {};
 
 const _hs0 = { padding: 60, textAlign: 'center', color: 'var(--state-danger)' };
 const _hs1 = { padding: 40, color: 'var(--text-disabled)' };
@@ -173,6 +176,16 @@ export default function Viewer({ reportId = null, embedded = false, version = 0,
   currentPageIdxRef.current = currentPageIdx;
   useEffect(() => { onPageChange?.(currentPageIdx); }, [currentPageIdx, onPageChange]);
   const pageStateRef = useRef({}); // { [pageIdx]: { widgets, reportFilters, crossHighlight } }
+  // Slicers synced across pages (utils/syncedSlicers): which pages share a
+  // field's selection, and the selections they share. A ref, not state: it
+  // is read when a page is entered, and every change made on the page open
+  // already reaches its filters through `handleSlicerFilter`.
+  const syncGroupsByPage = useMemo(() => syncGroups(pages), [pages]);
+  const syncGroupsRef = useRef(syncGroupsByPage);
+  syncGroupsRef.current = syncGroupsByPage;
+  const pagesRef = useRef(pages);
+  pagesRef.current = pages;
+  const sharedSlicersRef = useRef({});
   // Hoisted page-switch — shared by the navigation rail AND the multi-page
   // PDF export loop. Inline-arrow versions captured the closure at render
   // time, which was fine for the rail (always uses the most recent render)
@@ -190,8 +203,15 @@ export default function Viewer({ reportId = null, embedded = false, version = 0,
     // A page left before its rows came back is fetched again (utils/pageState).
     const kept = pageStateRef.current[idx];
     const saved = kept && restorable(kept.widgets) ? kept : null;
+    const pageId = pages[idx]?.id;
+    const groups = syncGroupsRef.current;
+    const shared = sharedSlicersRef.current;
     setCurrentPageIdx(idx);
-    if (saved) {
+    // The page's own selections with its synced fields as the other pages
+    // left them. The same object when no synced selection moved meanwhile.
+    const ownSelections = saved?.slicerSelections || NO_SELECTIONS;
+    const selections = syncedFilters(ownSelections, groups, pageId, shared);
+    if (saved && selections === ownSelections) {
       // Revisited page: its state already holds this user's fetched data —
       // restoring it must not trigger a refetch. Only when the filters do
       // change: the same object re-renders nothing, the flag outlived the
@@ -201,14 +221,33 @@ export default function Viewer({ reportId = null, embedded = false, version = 0,
       setReportFilters(saved.reportFilters);
       setSlicerSelections(saved.slicerSelections || {});
       setCrossHighlight(saved.crossHighlight);
+    } else if (saved) {
+      // Revisited page whose synced selection changed on another page: its
+      // rows answer the old one. Shown as it was, then queried again by an
+      // explicit request — comparing filters would miss a page that now
+      // reads exactly what the page just left read. Its cross-highlight
+      // goes, as a page switch in the editor drops it.
+      const filters = { ...saved.reportFilters };
+      const ch = saved.crossHighlight;
+      if (ch?.dim) {
+        if (ownSelections[ch.dim]) filters[ch.dim] = ownSelections[ch.dim];
+        else delete filters[ch.dim];
+      }
+      skipNextRefetch.current = false;
+      setWidgets(saved.widgets);
+      setReportFilters(syncedFilters(filters, groups, pageId, shared));
+      setSlicerSelections(selections);
+      setCrossHighlight(null);
+      setRefreshCounter((n) => n + 1);
     } else {
       // First visit: the persisted page widgets carry no usable data (the
       // server strips it for non-owners; for the owner it's the stale save
       // snapshot, not an RLS-aware fresh query). Force the fetch loop —
-      // skipping here left pages 2+ permanently blank for viewers.
+      // skipping here left pages 2+ permanently blank for viewers. Its
+      // synced fields open on the selection the other pages share.
       setWidgets(pages[idx]?.widgets || {});
-      setReportFilters({});
-      setSlicerSelections({});
+      setReportFilters({ ...selections });
+      setSlicerSelections({ ...selections });
       setCrossHighlight(null);
       setRefreshCounter((n) => n + 1);
     }
@@ -241,6 +280,9 @@ export default function Viewer({ reportId = null, embedded = false, version = 0,
       setCurrentPageIdx(idx);
       setWidgets(pages[idx]?.widgets || {});
     }
+    // Its synced fields become those of the pages synced with it, as if the
+    // reader had picked them there.
+    sharedSlicersRef.current = withPageSelections(sharedSlicersRef.current, syncGroupsRef.current, pages[idx]?.id, st.slicerSelections);
     setReportFilters(st.reportFilters || {});
     setSlicerSelections(st.slicerSelections || {});
     setCrossHighlight(null);
@@ -281,25 +323,30 @@ export default function Viewer({ reportId = null, embedded = false, version = 0,
         const startIdx = (printPageIdx != null && reportPages && printPageIdx >= 0 && printPageIdx < reportPages.length)
           ? printPageIdx
           : kept;
-        if (reportPages && reportPages.length > 0) {
-          setPages(reportPages);
-          firstPageWidgets = reportPages[startIdx].widgets || {};
-          setWidgets(firstPageWidgets);
-          setCurrentPageIdx(startIdx);
-        } else {
-          setPages([{ id: 'page-1', name: 'Page 1', layout: r.layout, widgets: r.widgets }]);
-          firstPageWidgets = r.widgets || {};
-          setWidgets(firstPageWidgets);
-        }
+        const multiPage = reportPages && reportPages.length > 0;
+        const pageList = multiPage ? reportPages : [{ id: 'page-1', name: 'Page 1', layout: r.layout, widgets: r.widgets }];
+        const startPage = pageList[multiPage ? startIdx : 0];
+        setPages(pageList);
+        firstPageWidgets = startPage.widgets || {};
+        setWidgets(firstPageWidgets);
+        if (multiPage) setCurrentPageIdx(startIdx);
+
+        // Synced slicers share the selection saved on them, the page opened
+        // deciding for its own. A reload in the studio keeps what the reader
+        // picked since.
+        const groups = syncGroups(pageList);
+        const seeded = sharedSelections(groups, pageList, startPage.id);
+        sharedSlicersRef.current = version > 0 ? { ...seeded, ...sharedSlicersRef.current } : seeded;
 
         // Restore slicer selections from saved filter widgets' config.selectedValues
-        const initialSlicerSel = {};
+        let initialSlicerSel = {};
         for (const w of Object.values(firstPageWidgets)) {
           if (w?.type !== 'filter') continue;
           const dim = w.dataBinding?.selectedDimensions?.[0];
           const vals = w.config?.selectedValues;
           if (dim && Array.isArray(vals) && vals.length > 0) initialSlicerSel[dim] = vals;
         }
+        initialSlicerSel = syncedFilters(initialSlicerSel, groups, startPage.id, sharedSlicersRef.current);
         if (Object.keys(initialSlicerSel).length > 0) {
           setSlicerSelections(initialSlicerSel);
           // URL filters take priority over saved slicer selections so a
@@ -400,6 +447,10 @@ export default function Viewer({ reportId = null, embedded = false, version = 0,
   }, [model, id, report?.settings]);
 
   const handleSlicerFilter = useCallback((widgetId, dimensionName, selectedValues) => {
+    // A synced slicer picks for its whole group: the pages synced with this
+    // one read it when they are entered (pageSwitchHandler).
+    const pageId = pagesRef.current[currentPageIdxRef.current]?.id;
+    sharedSlicersRef.current = withSelection(sharedSlicersRef.current, syncGroupsRef.current, pageId, dimensionName, selectedValues);
     setSlicerSelections((prev) => {
       const next = { ...prev };
       if (!selectedValues || selectedValues.length === 0) {

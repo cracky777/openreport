@@ -446,6 +446,11 @@ describe('the guided path on the cards', () => {
       .toBe('[Asked the user: "Which trade?" — options: E-commerce | Retail]');
   });
 
+  it('the filter sync question is marked, the server reads the mark (server utils/ai/filterSync.js SYNC_ASKED)', () => {
+    expect(describeProposal({ kind: 'question', about: 'filter_sync', question: 'Keep them in sync?', options: [{ label: 'Yes' }, { label: 'No' }] }, 'answered'))
+      .toBe('[Asked the user about filter sync: "Keep them in sync?" — options: Yes | No]');
+  });
+
   it('what was understood reads as one line, fields by their labels', () => {
     const model = { dimensions: [{ name: 'orders.utm', label: 'UTM' }], measures: [] };
     expect(describeUnderstood({ domain: { id: 'ecommerce', label: 'E-commerce' }, objective: { id: 'acquisition', label: 'Acquisition' }, roles: [{ role: 'ecommerce.source', label: 'Acquisition source', field: 'orders.utm' }, { role: 'x', label: 'Other', field: 'ghost' }] }, model))

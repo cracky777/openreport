@@ -8,6 +8,12 @@ const { READABLE_MIN, pageLoad } = require('./arrangeLayout');
 const { libraryLines } = require('./visualLibrary');
 const { pageLines } = require('./reportChanges');
 const { layoutIssues } = require('./layoutIssues');
+const { syncLines } = require('./filterSync');
+
+// Filters synced across pages (utils/ai/filterSync.js): asked by Jonathan,
+// the assistant may sync them, and the same filter on several pages is the
+// user's call — asked first, never decided alone.
+const FILTER_SYNC_RULE = '- Filters on the same field on several pages (a Year filter on every page): whether they stay in sync — one selection for every page — or each page keeps its own is the user\'s call. Before a proposal that puts such filters on the report, ask it with `ask_user` (about "filter_sync"), unless they already said it in this conversation (then reading.filterSync "user_said"); then write each filter\'s `sync` as they answered. Asked to sync or unsync filters already on the report: `propose_report_changes` with the page\'s `sync`.';
 
 // The contract of examples/custom-visual-template, condensed. Generated visuals
 // get one constraint uploaded ones do not: no network at all, enforced by a
@@ -227,6 +233,7 @@ function buildSystemPrompt({ reportTitle, schema, coverage, pageContext, mode, c
       lines.push(`- Asked for data the model does not hold (a budget, targets, a table about something the schema has no field for): this report reads ${sourceLabel}, and a file cannot be joined to a database. Say so in plain words, naming that source — never "a database" alone — then the two ways out: whoever manages that database adds the data as a table in it (and the model's owner adds the table in the model editor), or start a new report from files: in Chat, Start a new report, then drop an export of this data together with the new file, and OpenReport joins them. No card.`);
     }
   }
+  if (studio || ask) lines.push(FILTER_SYNC_RULE);
   // The Assistant panel is the one place a user may ask anything: a report,
   // new data, how things work. Visuals answer questions; a whole report is a card.
   if (ask) {
@@ -325,7 +332,7 @@ function buildSystemPrompt({ reportTitle, schema, coverage, pageContext, mode, c
     `Default series palette: ${JSON.stringify(pageContext.palette)}`,
     ...(studio || (pageContext.otherPages || []).length ? pageNavLines(pageContext) : []),
     '',
-    ...(studio ? [pageLines(pageContext)] : []),
+    ...(studio ? [pageLines(pageContext), ...syncLines(pageContext)] : []),
     'Widgets already on the page (layout in page pixels, config = current look):',
     JSON.stringify(pageContext.widgets),
     ...((pageContext.otherPages || []).length ? [

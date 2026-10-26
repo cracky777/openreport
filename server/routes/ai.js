@@ -213,6 +213,9 @@ function cleanWidgets(list) {
     // size it, never settable by a proposal.
     shape: pickShape(w && w.shape),
     merged: !!(w && w.merged),
+    // A filter's pages synced with it (ids of the report's pages): the
+    // assistant keeps, changes or asks about them (utils/ai/filterSync.js).
+    ...(w && w.type === 'filter' && Array.isArray(w.syncPages) ? { syncPages: w.syncPages.filter((id) => typeof id === 'string').slice(0, MAX_OTHER_PAGES + 1).map((id) => id.slice(0, 80)) } : {}),
   }));
 }
 

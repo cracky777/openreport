@@ -183,7 +183,7 @@ const PROPOSE_WIDGETS = {
 // ends on it: the user's click is their next message.
 const ASK_USER = {
   name: 'ask_user',
-  description: 'Ask the user ONE closed question of the guided path — which business domain, which objective, or which column holds a role you could not find. Only for an open request (a report, a dashboard, help on a topic), never for a precise question. The user clicks an option; "Decide for me" is always offered too. Call it alone, as your final step of the turn. The question shows BELOW your words: they never repeat it nor point at it ("the question above"); one short sentence of context, or none.',
+  description: 'Ask the user ONE closed question of the guided path — which business domain, which objective, or which column holds a role you could not find. Only for an open request (a report, a dashboard, help on a topic), never for a precise question — except the filter sync question (about "filter_sync"): whether filters on the same field on several pages share one selection. The user clicks an option; "Decide for me" is always offered too. Call it alone, as your final step of the turn. The question shows BELOW your words: they never repeat it nor point at it ("the question above"); one short sentence of context, or none.',
   parameters: {
     type: 'object',
     properties: {
@@ -194,6 +194,7 @@ const ASK_USER = {
         description: 'The choices, in the user\'s language. With learn: value = the domain id, or the field name (from the schema) that would hold the role.',
         items: { type: 'object', properties: { label: { type: 'string' }, value: { type: 'string' } }, required: ['label'] },
       },
+      about: { type: 'string', enum: ['filter_sync'], description: 'filter_sync: the question asks whether filters on the same field on several pages stay in sync (one selection for every page) or each page keeps its own. Options such as "Keep them in sync" / "Each page its own"; no learn.' },
       learn: {
         type: 'object',
         description: 'What the answer teaches the model: kind "domain" (options are catalogue domains) or kind "role" (options are candidate fields for `role`; `synonyms` = the words the user used for it, so the field is found next time). Omit for an objective question.',
@@ -393,12 +394,24 @@ const MEASURES_PARAM = {
     required: ['label', 'kind'],
   },
 };
+// Filters synced across pages (utils/ai/filterSync.js): the user's word is
+// needed, and the model declares when it is already in the conversation.
+const withSyncReading = (reading) => ({
+  ...reading,
+  properties: {
+    ...reading.properties,
+    filterSync: { type: 'string', enum: ['user_said'], description: 'user_said: the user already said in this conversation whether filters on the same field on several pages share one selection — never your own guess. After your filter_sync question the app knows it by itself.' },
+  },
+});
+const SYNC_HOW = 'Only when the user said it: asked with ask_user (about "filter_sync") or said in this conversation (reading.filterSync "user_said").';
+
 // The report changed as a whole (the studio): visuals added where they
 // belong, replaced or removed, pages added, renamed or removed, each page
 // touched laid out by the server (utils/ai/reportChanges.js).
 function reportChangesToolFor(opts = {}) {
   const widgets = widgetsToolFor({ ...opts, withLayout: false });
-  const { reading } = widgets.parameters.properties;
+  const reading = withSyncReading(widgets.parameters.properties.reading);
+  const syncPages = { type: 'array', items: { type: 'string' }, maxItems: 20, description: `The pages whose filter on the same field shares this filter's selection — p1, p2… as listed under Pages, new1, new2… for the pages this call adds ("new" when it adds one); [] = its own selection. ${SYNC_HOW}` };
   const item = widgets.parameters.properties.widgets.items;
   // An addition may carry its own box: the page's dressing is placed to the
   // pixel (a band across the top, a thin line), a data visual too when the
@@ -430,6 +443,11 @@ function reportChangesToolFor(opts = {}) {
               name: { type: 'string', description: 'The page name: required for a new page, else a new name for this page' },
               composition: { type: 'string', enum: COMPOSITIONS, description: 'new page only: how it is laid out — chosen for what the page says, and varied across the report: standard (figures in a band, charts two by two), hero (one chart leads on two thirds of the page, the figures in a column beside it: a page with one story), sidebar (filters and figures in a column on the left, the charts down the right: a page to explore), grid (equal panels two by two: comparable views side by side), focus (one tall chart across the page, the others three in a row under it: a trend and its breakdowns)' },
               remove: { type: 'boolean', description: 'true removes this page with everything on it' },
+              sync: {
+                type: 'array', maxItems: 12,
+                description: 'Filters of this page synced across pages, or unsynced: the filter (w2…, n1… for an addition) and the pages it shares its selection with ([] = its own). A sync goes both ways.',
+                items: { type: 'object', properties: { widget: { type: 'string' }, pages: syncPages }, required: ['widget', 'pages'] },
+              },
               removeWidgets: { type: 'array', items: { type: 'string' }, description: 'Widget ids to remove from this page (w3…)' },
               replace: {
                 type: 'array', maxItems: 12,
@@ -443,6 +461,7 @@ function reportChangesToolFor(opts = {}) {
                   ...boxed,
                   properties: {
                     ...boxed.properties,
+                    sync: { ...syncPages, description: `type filter only: ${syncPages.description}` },
                     place: {
                       type: 'object',
                       description: 'Where it goes: beside a widget of the page (its row makes room), under or over one (what is below slides down). Left out: at the end of the page. "Top right" = right of the last widget of the first row.',
@@ -474,7 +493,19 @@ function reportChangesToolFor(opts = {}) {
 // page laid out by the server, the report created by the browser.
 function reportToolFor(opts = {}) {
   const widgets = widgetsToolFor({ ...opts, withLayout: false });
-  const { reading, understood } = widgets.parameters.properties;
+  const { understood } = widgets.parameters.properties;
+  const reading = withSyncReading(widgets.parameters.properties.reading);
+  const item = widgets.parameters.properties.widgets.items;
+  const pageWidgets = {
+    ...widgets.parameters.properties.widgets,
+    items: {
+      ...item,
+      properties: {
+        ...item.properties,
+        sync: { type: 'boolean', description: `type filter only, when another page of this report has a filter on the same field: true = one selection for every page with that filter, false = this page its own. ${SYNC_HOW}` },
+      },
+    },
+  };
   return {
     name: 'propose_report',
     description: `Propose a WHOLE report of several pages, for an open request that asks for a report or a dashboard on the whole activity. One page per objective the model can draw (two to ${MAX_PAGES}), the overview first. The figures the request names and the schema lacks (a service rate, a stock on its last date) are defined in \`measures\` and shown on the pages. The user reviews and creates the report in one click. Call this once, as your final step.`,
@@ -492,7 +523,7 @@ function reportToolFor(opts = {}) {
             properties: {
               name: { type: 'string', description: 'The page name: the objective it answers' },
               composition: { type: 'string', enum: COMPOSITIONS, description: 'How the page is laid out — chosen for what the page says, and varied across the report: standard (figures in a band, charts two by two), hero (one chart leads on two thirds of the page, the figures in a column beside it: a page with one story), sidebar (filters and figures in a column on the left, the charts down the right: a page to explore), grid (equal panels two by two: comparable views side by side), focus (one tall chart across the page, the others three in a row under it: a trend and its breakdowns)' },
-              widgets: widgets.parameters.properties.widgets,
+              widgets: pageWidgets,
             },
             required: ['name', 'widgets'],
           },

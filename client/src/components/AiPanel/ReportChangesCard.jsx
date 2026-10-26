@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { TbLayoutDashboard, TbCheck, TbPlus, TbMinus, TbReplace, TbArrowsMove, TbFilePlus, TbFileMinus, TbPencil, TbMathFunction } from 'react-icons/tb';
+import { TbLayoutDashboard, TbCheck, TbPlus, TbMinus, TbReplace, TbArrowsMove, TbFilePlus, TbFileMinus, TbPencil, TbMathFunction, TbLink } from 'react-icons/tb';
 import { cardStyle, rowStyle, iconStyle, titleStyle, subStyle, actionsStyle, applyBtn, quietBtn, doneStyle } from './actionCardStyles';
 import { measureLine, visualName } from '../../utils/proposedMeasures';
+import { syncDecisionLine } from '../../utils/syncedSlicers';
 
 // The report changed as a whole, proposed in the AI studio (kind
 // 'reportChanges', server utils/ai/reportChanges.js): page by page, what is
@@ -70,6 +71,12 @@ export default function ReportChangesCard({ proposal, widgets, onApply, onOutcom
           <div style={pageStyle}>
             <span style={pageNameStyle}>Measures saved with the model</span>
             {proposal.measures.map((m, j) => <span key={j} style={lineStyle}><TbMathFunction size={12} /> <span>{measureLine(m)}</span></span>)}
+          </div>
+        ) : null}
+        {(proposal.filterSync || []).length ? (
+          <div style={pageStyle}>
+            <span style={pageNameStyle}>Filters across pages</span>
+            {proposal.filterSync.map((d, j) => <span key={j} style={lineStyle}><TbLink size={12} /> <span>{syncDecisionLine(d)}</span></span>)}
           </div>
         ) : null}
         {named.map((p, i) => (

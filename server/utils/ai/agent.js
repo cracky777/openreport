@@ -19,6 +19,7 @@ const { formatOverrides, colorWidgets } = require('./dress');
 const { validateReportChanges } = require('./reportChanges');
 const { validateMeasures } = require('./reportMeasures');
 const { layoutIssues } = require('./layoutIssues');
+const { checkSync, reportDecisions, syncConfirmed, syncQuestionError, filterDim } = require('./filterSync');
 
 const MAX_ITERATIONS = 6;
 // Rows of each cache read handed back to the client, which replays them in the
@@ -134,6 +135,8 @@ const PROPOSERS = {
     const errors = raw.length ? [...measured.errors] : ['pages: one page at least', ...measured.errors];
     const warnings = [];
     const pages = [];
+    // Each page's filters and their `sync`, by the page's index in the payload.
+    const filtered = [];
     raw.forEach((p, i) => {
       const checked = validateWidgetsProposal({ widgets: p && p.widgets }, ctx);
       const name = typeof (p && p.name) === 'string' && p.name.trim() ? p.name.trim().slice(0, 60) : `Page ${i + 1}`;
@@ -141,7 +144,15 @@ const PROPOSERS = {
       warnings.push(...(checked.warnings || []).map((w) => `${name}: ${w}`));
       // The composition the model chose for this page (arrangeLayout.COMPOSITIONS); standard otherwise.
       const composition = COMPOSITIONS.includes(p && p.composition) ? p.composition : 'standard';
-      if (checked.widgets.length) pages.push({ name, widgets: colorWidgets(layoutNew(checked.widgets, ctx.page, ctx.effective, composition), { theme: ctx.pageContext.theme, effective: ctx.effective }) });
+      if (!checked.widgets.length) return;
+      const filters = checked.widgets.map((w, k) => ({ dim: filterDim(w), sync: ((p.widgets || [])[checked.accepted[k]] || {}).sync })).filter((f) => f.dim)
+        .map((f) => (typeof f.sync === 'boolean' ? f : { dim: f.dim }));
+      filtered.push({ token: pages.length, name, filters });
+      pages.push({ name, widgets: colorWidgets(layoutNew(checked.widgets, ctx.page, ctx.effective, composition), { theme: ctx.pageContext.theme, effective: ctx.effective }) });
+    });
+    // Filters on one field on several pages: synced or not, as the user said (filterSync.js).
+    const sync = checkSync(filtered.map((p) => ({ ...p, filters: p.filters.map((f) => ({ dim: f.dim, fresh: true })) })), reportDecisions(filtered), {
+      effective: ctx.effective, confirmed: !!ctx.filterSyncConfirmed, requireReport: !!ctx.requireReport,
     });
     warnings.push(...sameEverywhere(raw, pages));
     const read = validateUnderstood(a, ctx);
@@ -149,7 +160,13 @@ const PROPOSERS = {
     const measureOverrides = formatOverrides(pages.flatMap((p) => p.widgets), ctx.effective);
     // The tallest page sets the report's page height.
     const pageHeight = Math.max(ctx.page.height, ...pages.map((p) => pageHeightOf(p.widgets, ctx.page)));
-    return { payload: pages.length ? { kind: 'report', title, pages, measures: measured.measures, measureOverrides, pageHeight, ...(read.understood ? { understood: read.understood } : {}) } : null, errors, warnings };
+    return {
+      payload: pages.length ? { kind: 'report', title, pages, measures: measured.measures, measureOverrides, pageHeight, ...(sync.filterSync.length ? { filterSync: sync.filterSync } : {}), ...(read.understood ? { understood: read.understood } : {}) } : null,
+      errors,
+      warnings,
+      notes: sync.notes,
+      syncIssue: sync.undecided.length || sync.unconfirmed ? sync : null,
+    };
   },
   // The report changed as a whole (the studio): the pages it touches, laid out.
   propose_report_changes(args, ctx) {
@@ -371,6 +388,8 @@ async function runChat({ config, user, orgId, report, effective, messages: given
   // the turn; the cache reads are handed back to the client.
   let repaired = false;
   let nudged = false;
+  // One turn back to ask the user about filters synced across pages, at most.
+  let syncAsked = false;
   let reportTried = false;
   let proposal = null;
   const reads = [];
@@ -420,16 +439,23 @@ async function runChat({ config, user, orgId, report, effective, messages: given
     } else if (PROPOSERS[call.name]) {
       // A report the model meant (its reading says so) and got wrong is retried as a report.
       if (call.name === 'propose_report' && wholeReport) reportTried = true;
+      const confirmed = syncConfirmed(messages, call.args);
       const checked = PROPOSERS[call.name](call.args, {
         effective, page, pageContext, canWriteVisuals, canEditModel, fileModel, sourceLabel, mode, library, cardinality, allowReport, review: studio && review, assets, reportId: report.id, modelId: report.model_id,
+        requireReport, filterSyncConfirmed: confirmed,
         ...(call.name === 'propose_design_changes' ? designReading(call.args) : widgetReading(call.args, effective, messages)),
       });
+      // Filters on one field on several pages without the user's word on
+      // syncing them: back once, to ask. After that, the card says what was left.
+      const syncIssue = checked.syncIssue && !syncAsked ? checked.syncIssue : null;
+      if (syncIssue) syncAsked = true;
       // One repair round: the model usually fixes a mistyped field name
       // once it is told which one. After that, keep what is valid.
       const problems = [...checked.errors, ...(checked.warnings || [])];
-      if (problems.length && !repaired) {
-        repaired = true;
-        result = { error: `Fix these and call ${call.name} again: ${problems.join('; ')}` };
+      const repair = problems.length && !repaired;
+      if (repair) repaired = true;
+      if (syncIssue || repair) {
+        result = { error: [syncIssue ? syncQuestionError(syncIssue, confirmed) : '', repair ? `Fix these and call ${call.name} again: ${problems.join('; ')}` : ''].filter(Boolean).join(' ') };
       } else {
         proposal = checked;
         result = { ok: true };

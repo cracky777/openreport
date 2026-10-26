@@ -55,6 +55,38 @@ function RowClickFilter({ cfg, updateConfig }) {
   );
 }
 
+// The other pages this slicer shares its selection with (`syncPages`, page
+// ids): picked there, it filters those pages too, and their own slicer on the
+// same field shows it and changes it back. Ids of deleted pages are dropped
+// at the next change (the viewer already ignores them).
+const syncListStyle = { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 6 };
+const syncPageStyle = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' };
+function SyncPages({ cfg, updateConfig, otherPages }) {
+  const synced = Array.isArray(cfg.syncPages);
+  const chosen = new Set(synced ? cfg.syncPages : []);
+  const toggle = (id, on) => {
+    const next = otherPages.map((p) => p.id).filter((pid) => (pid === id ? on : chosen.has(pid)));
+    updateConfig('syncPages', next);
+  };
+  return (
+    <>
+      <Field label="Sync with other pages">
+        <input type="checkbox" checked={synced} onChange={(e) => updateConfig('syncPages', e.target.checked ? [] : undefined)} />
+      </Field>
+      {synced && (
+        <div style={syncListStyle}>
+          {otherPages.map((p) => (
+            <label key={p.id} style={syncPageStyle}>
+              <input type="checkbox" checked={chosen.has(p.id)} onChange={(e) => toggle(p.id, e.target.checked)} />
+              {p.name}
+            </label>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 // Stored as `hideZeros`; the box reads the positive way and stays checked
 // by default, exactly as zeros were shown by default before.
 function ShowZeros({ cfg, updateConfig }) {
@@ -67,7 +99,7 @@ function ShowZeros({ cfg, updateConfig }) {
 }
 
 export default function VisualSection({ ctx }) {
-  const { widget, binding, updateConfig, inputStyle, sections, title, table, pivot } = ctx;
+  const { widget, binding, updateConfig, inputStyle, sections, title, table, pivot, otherPages } = ctx;
   const type = widget.type;
   const cfg = widget.config || {};
   let body = null;
@@ -431,6 +463,7 @@ export default function VisualSection({ ctx }) {
             )}
           </>
         )}
+        {otherPages?.length > 0 && <SyncPages cfg={cfg} updateConfig={updateConfig} otherPages={otherPages} />}
       </>
     );
   } else if (type === 'text') {

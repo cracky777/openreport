@@ -83,6 +83,10 @@ function validateQuestion(args, { effective }) {
   const errors = [];
   const question = typeof a.question === 'string' ? a.question.trim().slice(0, MAX_QUESTION) : '';
   const multiple = a.multiple === true;
+  // The question whether filters repeated on several pages stay in sync: the
+  // digest of the conversation marks it, so a proposal that syncs them is
+  // known to rest on the user's answer (filterSync.js), never on their words.
+  const about = a.about === 'filter_sync' ? 'filter_sync' : null;
   if (!question) errors.push('question: one sentence');
   const raw = Array.isArray(a.options) ? a.options.slice(0, MAX_OPTIONS) : [];
   const learnRaw = a.learn && typeof a.learn === 'object' ? a.learn : null;
@@ -113,7 +117,7 @@ function validateQuestion(args, { effective }) {
   if (errors.length) return { payload: null, errors };
   if (multiple && learn && learn.kind === 'role') errors.push('multiple: a column question takes one answer');
   if (errors.length) return { payload: null, errors };
-  return { payload: { kind: 'question', question, options, ...(multiple ? { multiple: true } : {}), ...(learn ? { learn } : {}) }, errors: [] };
+  return { payload: { kind: 'question', question, options, ...(multiple ? { multiple: true } : {}), ...(learn ? { learn } : {}), ...(about ? { about } : {}) }, errors: [] };
 }
 
 /**

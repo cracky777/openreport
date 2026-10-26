@@ -97,4 +97,22 @@ describe('applyReportChanges', () => {
     ] };
     expect(describeProposal(proposal, 'applied')).toBe('[Proposed changes to the report — applied by the user: Reworked. page "Overview": renamed "Home", added "Bar", replaced 1 by "Line", removed 1, laid out again; new page "Trends": ; page "Detail": removed]');
   });
+
+  it('syncs the filters the card says, a new page by its rank, and tells it back', () => {
+    const filter = { type: 'filter', config: { title: 'Country' }, dataBinding: { selectedDimensions: ['orders.country'] } };
+    const proposal = {
+      kind: 'reportChanges', summary: 's',
+      pages: [
+        { shown: false, pageId: null, isNew: true, name: 'Trends', rename: null, remove: false, replace: [], removeWidgets: [], moves: [], add: [{ ...filter, layout: { x: 20, y: 20, w: 260, h: 60 } }] },
+        { shown: true, pageId: 'page-a', isNew: false, name: 'Overview', rename: null, remove: false, replace: [], removeWidgets: [], moves: [], add: [{ ...filter, layout: { x: 20, y: 480, w: 260, h: 60 } }] },
+      ],
+      filterSync: [{ dim: 'orders.country', label: 'Country', page: 'page-a', pages: ['new:0'], synced: true, pageNames: ['Overview', 'Trends'] }],
+    };
+    const r = applyReportChanges(proposal, { ...ctx, pages: pagesOf(), widgetTypes: { ...TYPES, filter: { defaultSize: { w: 10, h: 4 } } } }, makeId);
+    const trends = r.pages.find((p) => p.name === 'Trends');
+    const filterOf = (p) => Object.values(p.widgets).find((w) => w.type === 'filter');
+    expect(filterOf(r.pages[0]).config.syncPages).toEqual([trends.id]);
+    expect(filterOf(trends).config.syncPages).toEqual(['page-a']);
+    expect(describeProposal(proposal, 'applied')).toContain('Country filter synced on Overview, Trends');
+  });
 });

@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { TbFileText, TbCheck, TbMathFunction } from 'react-icons/tb';
+import { TbFileText, TbCheck, TbMathFunction, TbLink } from 'react-icons/tb';
 import { describeUnderstood } from '../../utils/aiProposal';
 import { measureLine, visualName } from '../../utils/proposedMeasures';
+import { syncDecisionLine } from '../../utils/syncedSlicers';
 import { cardStyle, rowStyle, iconStyle, titleStyle, subStyle, actionsStyle, applyBtn, quietBtn, doneStyle } from './actionCardStyles';
 
 // A whole report proposed in the AI studio (kind 'report'): its pages go into
@@ -49,6 +50,7 @@ export default function ReportPagesCard({ proposal, model, onApply, onOutcome })
           </div>
         ))}
         {(proposal.measures || []).map((m, j) => <span key={`m${j}`} style={measureStyle}><TbMathFunction size={12} /> {measureLine(m)}</span>)}
+        {(proposal.filterSync || []).map((d, j) => <span key={`s${j}`} style={measureStyle}><TbLink size={12} /> {syncDecisionLine(d)}</span>)}
       </div>
       {state === 'applied' ? (
         <span style={doneStyle}><TbCheck size={14} /> {note || 'Added to the report'}</span>

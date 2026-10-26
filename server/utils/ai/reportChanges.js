@@ -12,12 +12,15 @@ const { validateWidgetsProposal } = require('./validateProposal');
 const { arrange, layoutNew, insertWidgets, pageHeightOf, floorOf, MARGIN, COMPOSITIONS } = require('./arrangeLayout');
 const { colorWidgets, formatOverrides } = require('./dress');
 const { validateMeasures } = require('./reportMeasures');
+const { checkSync, filterDim } = require('./filterSync');
 
 const MAX_PAGES_TOUCHED = 8;
 const MAX_REPLACED = 12;
 const MAX_REMOVED = 24;
 const PAGE_ALIAS = /^p(\d{1,2})$/;
 const NEW_ID = /^n(\d{1,2})$/;
+const NEW_PAGE = /^new(\d{0,2})$/;
+const MAX_SYNC = 12;
 const SIDES = new Set(['right', 'left', 'below', 'above']);
 const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
@@ -41,6 +44,24 @@ function pageOf(alias, pageContext) {
   const other = m ? (pageContext.otherPages || [])[Number(m[1]) - 2] : null;
   return other ? { id: other.id, name: other.name || '', shown: false, widgets: other.widgets || [] } : null;
 }
+
+// A sync's page refs, as the proposal writes them: p1, p2… (pages of the
+// report), new1, new2… (the pages this call adds, in order; "new" when it
+// adds one). Resolved once every entry is read: a token is a page id, or
+// "new:k" for the k-th new page of the payload (the browser gives it its id).
+function syncTokenOf(ref, pageContext, newTokens) {
+  const r = String(ref || '');
+  const m = NEW_PAGE.exec(r);
+  if (m) {
+    if (!m[1]) return newTokens.length === 1 ? newTokens[0] : undefined;
+    return newTokens[Number(m[1]) - 1];
+  }
+  const page = pageOf(r, pageContext);
+  return page ? page.id || 'p1' : undefined;
+}
+
+// The filters a page holds, as the sync check reads them.
+const filtersOf = (widgets, fresh) => widgets.map((w) => ({ dim: filterDim(w), fresh })).filter((f) => f.dim);
 
 const dateDimsOf = (effective) => new Set(((effective && effective.dimensions) || []).filter((d) => /date|time/i.test(String(d.type || ''))).map((d) => d.name));
 
@@ -138,6 +159,17 @@ function validateReportChanges(args, givenCtx) {
   const dateDims = dateDimsOf(ctx.effective);
   const inner = ctx.page.width - 2 * MARGIN;
   let newPages = 0;
+  // The report as it will be, for the filters synced across pages: every
+  // page by its token, its filters after the change (filterSync.checkSync).
+  const after = new Map([
+    [ctx.pageContext.pageId || 'p1', { token: ctx.pageContext.pageId || 'p1', name: ctx.pageContext.pageName || '', filters: filtersOf(ctx.pageContext.widgets || [], false) }],
+    ...(ctx.pageContext.otherPages || []).map((p) => [p.id, { token: p.id, name: p.name || '', filters: filtersOf(p.widgets || [], false) }]),
+  ]);
+  // The new pages the proposal writes, in order (`new1`…), and the payload
+  // token of each one kept (null when refused).
+  const newTokens = [];
+  // Sync decisions as written, page refs resolved after the loop.
+  const rawSyncs = [];
 
   entries.forEach((e, i) => {
     const label = `Page ${i + 1}`;
@@ -154,7 +186,8 @@ function validateReportChanges(args, givenCtx) {
       add: [], replace: [], removeWidgets: [], moves: [], laidOut: false,
     };
     if (isNew) newPages += 1;
-    if (out.remove) { pages.push(out); return; }
+    if (isNew) newTokens.push(null);
+    if (out.remove) { pages.push(out); after.delete(page.id || 'p1'); return; }
 
     const existing = page ? page.widgets : [];
     // A visual joining this page dresses like this page's; a new page follows the page shown.
@@ -190,7 +223,10 @@ function validateReportChanges(args, givenCtx) {
       warnings.push(...(checked.warnings || []).map((m) => `${label}: ${m}`));
       // Where each one goes, as the proposal said it: beside, under or over
       // a widget of the page (or an earlier addition), else the end of the page.
-      added = colorWidgets(checked.widgets, theme).map((w, k) => ({ ...w, place: placeOf(rawAdd[checked.accepted[k]], k, byId, removed) }));
+      added = colorWidgets(checked.widgets, theme).map((w, k) => {
+        const raw = rawAdd[checked.accepted[k]];
+        return { ...w, place: placeOf(raw, k, byId, removed), ...(raw && raw.sync !== undefined ? { sync: raw.sync } : {}) };
+      });
     }
 
     // What the page holds afterwards, sized: the kept widgets (a replaced one
@@ -249,23 +285,69 @@ function validateReportChanges(args, givenCtx) {
       out.moves = composePage(kept, [], ctx.page, ctx.effective).moves;
       out.laidOut = true;
     }
-    out.add = added.filter((w) => w.layout).map(({ place: _where, minSize: _size, ...w }) => w);
+    out.add = added.filter((w) => w.layout).map(({ place: _where, minSize: _size, sync: _sync, ...w }) => w);
 
-    if (!out.add.length && !out.replace.length && !out.removeWidgets.length && !out.moves.length && !out.rename) {
+    // Sync decisions of this page: an added filter's own `sync`, and the
+    // page's `sync` entries for the filters it holds (n1… = additions).
+    const holder = (id) => {
+      const n = NEW_ID.exec(String(id || ''));
+      if (n) return added[Number(n[1]) - 1] && added[Number(n[1]) - 1].layout ? added[Number(n[1]) - 1] : null;
+      return removed.has(id) ? null : (replaced.get(id) || byId.get(id) || null);
+    };
+    const syncs = [
+      ...added.filter((w) => w.layout && Array.isArray(w.sync)).map((w) => ({ w, refs: w.sync })),
+      ...(Array.isArray(entry.sync) ? entry.sync.slice(0, MAX_SYNC) : []).map((s) => ({ w: holder(s && s.widget), refs: s && s.pages, id: s && s.widget })),
+    ];
+    const decided = [];
+    for (const { w, refs, id } of syncs) {
+      const dim = filterDim(w);
+      if (!dim) { errors.push(`${label}: sync: ${JSON.stringify(String(id || '').slice(0, 40))} is not a filter of this page`); continue; }
+      if (!Array.isArray(refs)) { errors.push(`${label}: sync: pages is a list of page refs ([] = its own selection)`); continue; }
+      decided.push({ dim, refs: refs.slice(0, 20) });
+    }
+
+    if (!out.add.length && !out.replace.length && !out.removeWidgets.length && !out.moves.length && !out.rename && !decided.length) {
       errors.push(`${label}: nothing changes on it`);
       return;
     }
     pages.push(out);
+    // A new page's token is its rank among the new pages the payload keeps.
+    const token = isNew ? `new:${pages.filter((p) => p.isNew).length - 1}` : page.id || 'p1';
+    if (isNew) newTokens[newTokens.length - 1] = token;
+    for (const d of decided) rawSyncs.push({ label, token, ...d });
+    after.set(token, {
+      token,
+      name: out.rename || out.name,
+      filters: [
+        ...filtersOf(existing.filter((w) => !removed.has(w.id) && !replaced.has(w.id)), false),
+        ...filtersOf([...replaced.values(), ...out.add], true),
+      ],
+    });
   });
+
+  // The page refs of the syncs, now that every page has its token.
+  const decisions = [];
+  for (const { label, token, dim, refs } of rawSyncs) {
+    const tokens = [];
+    for (const ref of refs) {
+      const t = syncTokenOf(ref, ctx.pageContext, newTokens);
+      if (!t || !after.has(t)) { errors.push(`${label}: sync: ${JSON.stringify(String(ref).slice(0, 20))} is not a page of the report — p1, p2… as listed under Pages, new1, new2… for the pages this call adds`); continue; }
+      if (t !== token && !tokens.includes(t)) tokens.push(t);
+    }
+    decisions.push({ page: token, dim, pages: tokens });
+  }
+  const sync = checkSync([...after.values()], decisions, { effective: ctx.effective, confirmed: !!ctx.filterSyncConfirmed, requireReport: !!ctx.requireReport });
 
   const widgets = pages.flatMap((p) => [...p.add, ...p.replace.map((r) => r.widget)]);
   // The tallest page sets the report's page height, moves included.
   const pageHeight = Math.max(ctx.page.height, ...pages.map((p) => pageHeightOf([...p.add, ...p.moves.map((m) => ({ layout: m }))], ctx.page)));
-  if (!pages.length && !measured.measures.length && !title) return { payload: null, errors, warnings };
+  if (!pages.length && !measured.measures.length && !title) return { payload: null, errors, warnings, notes: sync.notes, syncIssue: null };
   return {
-    payload: { kind: 'reportChanges', summary: text(a.summary, 500), pages, measures: measured.measures, ...(title ? { title } : {}), measureOverrides: formatOverrides(widgets, ctx.effective), pageHeight },
+    payload: { kind: 'reportChanges', summary: text(a.summary, 500), pages, measures: measured.measures, ...(title ? { title } : {}), ...(sync.filterSync.length ? { filterSync: sync.filterSync } : {}), measureOverrides: formatOverrides(widgets, ctx.effective), pageHeight },
     errors,
     warnings,
+    notes: sync.notes,
+    syncIssue: sync.undecided.length || sync.unconfirmed ? sync : null,
   };
 }
 

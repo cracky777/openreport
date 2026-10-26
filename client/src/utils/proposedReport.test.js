@@ -24,4 +24,15 @@ describe('bundleFromProposal', () => {
     expect(b.report.settings).toEqual({ pageWidth: 1140, pageHeight: 800 });
     expect(bundleFromProposal({ ...proposal, pageHeight: 1060 }, id).report.settings.pageHeight).toBe(1060);
   });
+
+  it('syncs the filters the card says, by page id', () => {
+    const filter = { type: 'filter', config: { title: 'Year' }, dataBinding: { selectedDimensions: ['year'] } };
+    const proposal = { kind: 'report', title: 'R', pages: [{ name: 'A', widgets: [filter] }, { name: 'B', widgets: [filter] }, { name: 'C', widgets: [filter] }], filterSync: [{ dim: 'year', page: 0, pages: [1], synced: true }, { dim: 'year', page: 2, pages: [], synced: false }] };
+    let n = 0;
+    const b = bundleFromProposal(proposal, () => `w${++n}`);
+    const cfg = (i) => Object.values(b.report.pages[i].widgets)[0].config;
+    expect(cfg(0).syncPages).toEqual(['page-2']);
+    expect(cfg(1).syncPages).toEqual(['page-1']);
+    expect(cfg(2).syncPages).toBeUndefined();
+  });
 });

@@ -73,7 +73,9 @@ const useSectionState = (open) => {
 };
 
 // Left column: widget configuration (always present, collapsible)
-export function WidgetConfigPanel({ widgetId: selectedId, widget: selectedWidget, onUpdate, onDelete, model, onResizeStart, onResizeEnd, onRefreshWidget }) {
+// `otherPages` = the report's pages but the one open ({ id, name }), offered
+// to a slicer to sync its selection with.
+export function WidgetConfigPanel({ widgetId: selectedId, widget: selectedWidget, onUpdate, onDelete, model, onResizeStart, onResizeEnd, onRefreshWidget, otherPages = [] }) {
   const open = !!selectedId && !!selectedWidget;
   const sections = useSectionState(open);
   const [dragging, setDragging] = useState(false);
@@ -395,7 +397,7 @@ export function WidgetConfigPanel({ widgetId: selectedId, widget: selectedWidget
     inputStyle, sections, styles: { ruleCardStyle, ruleLabelStyle },
     title: widget.type === 'customVisual' ? (widget.config?.visualName || info.label) : info.label,
     table: makeTableCtx({ widget, updateConfig, selectedCol, setSelectedCol, inputStyle }),
-    pivot,
+    pivot, otherPages,
   };
   const dataWidget = hasData(widget.type);
 

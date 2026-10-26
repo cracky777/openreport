@@ -22,6 +22,7 @@ import { parseFiltersFromUrl, syncFiltersToUrl } from '../utils/urlFilters';
 import { filterForTarget } from '../utils/crossFilter';
 import { computeBindingsSignature } from '../utils/bindingKey';
 import { slicerFilters, sameSelections } from '../utils/slicerFilters';
+import { syncGroups, sharedSelections, syncedFilters, alignedWidgets } from '../utils/syncedSlicers';
 import { convertData, buildSnapshot } from '../utils/editorHelpers';
 import { transformBinding } from '../utils/widgetZones';
 import { findFreeSlot, topZ } from '../utils/pageBounds';
@@ -411,14 +412,20 @@ export default function Editor() {
   // Called by slicers when selection changes — writes to widget config (recorded in history).
   // The useEffect above will auto-sync slicerSelections and reportFilters from widgets.
   const handleSlicerFilter = useCallback((widgetId, dimensionName, selectedValues) => {
-    history.set((prev) => {
-      const w = prev.widgets?.[widgetId];
-      if (!w) return prev;
+    const withValues = (w) => {
       const cfg = { ...(w.config || {}) };
       if (selectedValues && selectedValues.length > 0) cfg.selectedValues = selectedValues;
       else delete cfg.selectedValues;
-      return { ...prev, widgets: { ...prev.widgets, [widgetId]: { ...w, config: cfg } } };
+      return { ...w, config: cfg };
+    };
+    history.set((prev) => {
+      const w = prev.widgets?.[widgetId];
+      if (!w) return prev;
+      return { ...prev, widgets: { ...prev.widgets, [widgetId]: withValues(w) } };
     });
+    // A slicer synced with other pages picks for them too (see spreadSyncedSlicers).
+    const cur = historyRef.current.state.widgets || {};
+    if (cur[widgetId]) spreadSyncedSlicersRef.current({ ...cur, [widgetId]: withValues(cur[widgetId]) });
     // If a chart cross-highlight was active on the same dim, the slicer
     // change must take precedence — otherwise the slicer-sync effect
     // would overwrite the slicer's new value with the lingering
@@ -1169,6 +1176,28 @@ export default function Editor() {
     setTimeout(unpinCanvas, PAGES_COLUMN_TRANSITION_MS);
   }, [pinCanvas, unpinCanvas]);
 
+  // Synced slicers: the page being edited decides the selection of its
+  // groups, written into the synced slicers of the other pages so that every
+  // page saves the same one (the viewer opens on it). An undo on this page
+  // reaches the others at the next page switch.
+  const spreadSyncedSlicers = useCallback((curWidgets) => {
+    const here = pages[currentPageIdx]?.id;
+    const list = pages.map((p) => ({ id: p.id, widgets: p.id === here ? curWidgets : pagesDataRef.current[p.id]?.widgets }));
+    const groups = syncGroups(list);
+    const shared = sharedSelections(groups, list, here);
+    for (const p of list) {
+      const data = pagesDataRef.current[p.id];
+      if (p.id === here || !data) continue;
+      const aligned = alignedWidgets(data.widgets, groups, p.id, shared);
+      if (aligned !== data.widgets) pagesDataRef.current[p.id] = { ...data, widgets: aligned };
+    }
+    return { groups, shared };
+  }, [pages, currentPageIdx]);
+  const spreadSyncedSlicersRef = useRef(spreadSyncedSlicers);
+  spreadSyncedSlicersRef.current = spreadSyncedSlicers;
+  // Offered to a slicer to sync with (property panel).
+  const otherPages = useMemo(() => pages.filter((_, i) => i !== currentPageIdx), [pages, currentPageIdx]);
+
   // Switch page: save current, load target.
   //
   // Slicer filters are page-scoped, but `reportFilters` is global state
@@ -1184,22 +1213,27 @@ export default function Editor() {
   // cross-highlight — that breaks the leak. Derived here, in the same commit
   // as the widgets, so the fetch pass sees the page under its real filters
   // and only queries what its saved data does not already answer.
+  //
+  // Slicers synced across pages (utils/syncedSlicers) are the exception: the
+  // target's synced fields take the selection of their group, whether or not
+  // the target has a slicer of its own on them.
   const switchPage = useCallback((idx) => {
     if (idx === currentPageIdx) return;
     const curPage = pages[currentPageIdx];
     if (curPage) {
       pagesDataRef.current[curPage.id] = { layout: history.state.layout, widgets: history.state.widgets };
     }
+    const { groups, shared } = spreadSyncedSlicers(history.state.widgets);
     setCurrentPageIdx(idx);
     setSelectedWidget(null);
     const targetPage = pages[idx];
     const targetData = pagesDataRef.current[targetPage.id] || { layout: [], widgets: {} };
     history.set(targetData);
-    const targetFilters = slicerFilters(targetData.widgets).fromWidgets;
+    const targetFilters = syncedFilters(slicerFilters(targetData.widgets).fromWidgets, groups, targetPage.id, shared);
     setReportFilters(targetFilters);
     setSlicerSelections(targetFilters);
     setCrossHighlight(null);
-  }, [currentPageIdx, pages, history, setSelectedWidget]);
+  }, [currentPageIdx, pages, history, setSelectedWidget, spreadSyncedSlicers]);
 
   const addPage = useCallback(() => {
     const curPage = pages[currentPageIdx];
@@ -1601,7 +1635,10 @@ export default function Editor() {
         // saved under these filters and this cache build stays as it is, a
         // stale one (cache rebuilt since, filter changed) is queried now
         // rather than on the first page switch.
-        const firstFilters = slicerFilters(firstPageWidgets).fromWidgets;
+        const loadedPages = reportPages && reportPages.length > 0 ? reportPages : [{ id: 'page-1', widgets: firstPageWidgets }];
+        const syncGroupsLoaded = syncGroups(loadedPages);
+        const firstFilters = syncedFilters(slicerFilters(firstPageWidgets).fromWidgets, syncGroupsLoaded, loadedPages[0].id,
+          sharedSelections(syncGroupsLoaded, loadedPages, loadedPages[0].id));
         setSlicerSelections(firstFilters);
         setReportFilters(firstFilters);
 
@@ -2169,6 +2206,7 @@ export default function Editor() {
           onRefreshWidget={handleRefreshWidget}
           onResizeStart={pinCanvas}
           onResizeEnd={unpinCanvas}
+          otherPages={otherPages}
         />
         </div>
         <div style={compact ? sheetPaneStyle(sheetTab === 'data') : panelsPassthroughStyle}>
