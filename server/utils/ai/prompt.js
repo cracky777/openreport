@@ -41,6 +41,7 @@ const STUDIO_RULES = [
 const VISUALS_RULES = [
   '- Your job on this page is its visuals AND its look. A question, or a request for a visual: `propose_widgets`. A request about the look, the place or the size of what is already there (colors, theme, fonts, text, the arrangement): `propose_design_changes`. One proposal per turn, the one the request asks for.',
   '- Start from the business question: choose the visual that makes the answer obvious, not the most elaborate one.',
+  '- Filters and axes read the DIMENSION tables first: a field marked `dimensionSide` is a fact’s copy of a key, use the field it names (or a descriptive field of that same table, such as a name rather than an id) — a year slicer on the calendar filters every fact, one on an order date filters the orders alone. A fact’s own field is for an attribute no dimension table holds.',
   '- You cannot change the report yourself. To add visuals, call `propose_widgets` once; the user reviews and applies it. A proposal only exists as a tool call: never write it out as JSON or as a description in your answer.',
   '- Decide. On a precise question, do not lay out options or ask which one the user prefers: propose what you would defend, they can dismiss it and ask again. Questions are for the guided path of an OPEN request only (below), one at a time, through `ask_user`.',
   '- Answer the question that was asked, with the fields it names. "X by Y" means Y is ON the visual — its axis, its rows — never a single figure with the advice to filter by Y. "Cached data" only breaks a tie between two visuals that answer equally well: it is never a reason to drop a dimension the user asked for, to swap it for another, or to answer with a total. A visual outside the cache simply loads from the source; say so in the rationale and nothing more.',
@@ -98,6 +99,7 @@ const ASK_RULES = [
   '- Answer the question that was asked, with the fields it names. "X by Y" means Y is ON the visual — its axis, its rows — never a single figure with the advice to filter by Y. "Cached data" only breaks a tie between two visuals that answer equally well: it is never a reason to drop a dimension the user asked for or to answer with a total.',
   '- There is no page here: never set a layout. Asked for an overview or several visuals on one topic, propose up to six in reading order — the key figures first, then the trend, then the breakdowns — and the app lays them out in that order; each page of `propose_report` is laid out the same way.',
   '- A follow-up ("make it a pie", "by month instead") is a new proposal in full: call the tool again with the whole replacement.',
+  '- Filters and axes read the DIMENSION tables first: a field marked `dimensionSide` is a fact’s copy of a key, use the field it names (or a descriptive field of that same table, such as a name rather than an id) — a year slicer on the calendar filters every fact, one on an order date filters the orders alone. A fact’s own field is for an attribute no dimension table holds.',
 ];
 
 const DESIGN_RULES = [

@@ -11,6 +11,7 @@ const { arrange, placeWidget, readableMin, minOf, READABLE_MIN } = require('./ar
 const { HARMONIES, colorOps } = require('./colorScheme');
 const { readabilityOps } = require('./readability');
 const { shapeWidget, isRanked } = require('./widgetShaping');
+const { onDimensionSide } = require('./dimensionSide');
 const { FONT_FAMILIES } = require('./fonts');
 
 const GRID = 20;
@@ -266,7 +267,7 @@ function validateWidgetsProposal(args, ctx) {
     const firstDim = proposed && proposed.binding ? (proposed.binding.selectedDimensions || [])[0] : null;
     const slices = proposed && proposed.type === 'pie' ? countOf(firstDim, ctx) : null;
     const unordered = proposed && proposed.type === 'line' && firstDim && !isOrderedDim(firstDim, ctx);
-    const raw = (slices !== null && slices > MAX_PIE_SLICES) || unordered ? { ...proposed, type: 'bar', subType: undefined } : proposed;
+    let raw = (slices !== null && slices > MAX_PIE_SLICES) || unordered ? { ...proposed, type: 'bar', subType: undefined } : proposed;
     const installed = raw && raw.type === 'customVisual';
     if (raw && DECOR.has(raw.type)) {
       const made = decorWidget(raw, ctx);
@@ -328,6 +329,8 @@ function validateWidgetsProposal(args, ctx) {
     }
     Object.assign(config, shaped.config);
     Object.assign(result.binding, shaped.binding);
+    // A fact's copy of a dimension key reads its dimension table instead.
+    if (ctx.effective.joins) ({ binding: result.binding, raw } = onDimensionSide(result.binding, raw, ctx.effective));
     // Fields shown under their raw name — "qte_commandee" in a French legend
     // or a table header (seen with Karim). The model names them in the user's
     // words: a table's column takes the name, a measure takes it as its label

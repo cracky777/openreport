@@ -10,6 +10,7 @@ const { reportExtras } = require('../rollupPlanning');
 const { domainOf, roleFits } = require('./domains');
 const { cleanSynonyms, MAX_DESCRIPTION } = require('../glossary');
 const { readsDistinctRows } = require('../sqlBuilder/dimMeasure');
+const { dimensionSideOf } = require('./dimensionSide');
 
 function mergeFields(base, overrides, extras) {
   const out = base.map((f) => (overrides[f.name] ? { ...f, ...overrides[f.name] } : f));
@@ -92,7 +93,11 @@ function toPromptSchema(effective) {
   const groups = joinGroups(effective);
   const grouped = (f) => (groups && groups.has(f.table) ? { group: groups.get(f.table) } : {});
   return {
-    dimensions: effective.dimensions.map((d) => ({ name: d.name, label: d.label || d.name, type: d.type || 'string', ...glossaryOf(d, 'dimension'), ...grouped(d) })),
+    // A fact's copy of a dimension key names the dimension's field: filters and axes go there (dimensionSide.js).
+    dimensions: effective.dimensions.map((d) => {
+      const side = dimensionSideOf(d.name, effective);
+      return { name: d.name, label: d.label || d.name, type: d.type || 'string', ...glossaryOf(d, 'dimension'), ...grouped(d), ...(side ? { dimensionSide: side } : {}) };
+    }),
     measures: effective.measures.map((m) => {
       const out = { name: m.name, label: m.label || m.name, aggregation: m.aggregation || null, ...glossaryOf(m, 'measure'), ...grouped(m) };
       // A column of a table listing things (clients, products): /query reads it
