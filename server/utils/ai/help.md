@@ -267,10 +267,10 @@
 - On a phone the report stacks its widgets in one column, or scales the page, depending on Report settings → Small Screens. Building reports on a phone is possible but limited: the editor's panels open as a sheet with Settings, Data and Assistant tabs, and + opens the widget palette.
 
 ## api-tokens — API tokens
-- For scripts: a token acts as you on /api/v1 only (list models and reports, rebuild a model's or report's cache).
+- For scripts: a token acts as you on /api/v1 only (list models and reports, rebuild a model's or report's cache, or — scope metadata — describe reports and their models to a data catalog such as OpenMetadata: measures, their lineage to the columns and their compiled SQL, never any data or credential).
 - Available only if an admin enabled the API (Admin → API tokens → Enable the API) and your role is allowed (Who may hold a token: Admins only, Admins and editors, Everyone).
 1. User menu (your name, top-right) → API tokens.
-2. Enter a Token name, optional Expires in (days), tick scopes read and/or refresh → Create.
+2. Enter a Token name, optional Expires in (days), tick its scopes (read, refresh, metadata) → Create. For a catalog, use an account dedicated to it, member of the workspaces to catalog only — editor there if the reports have SQL measures of their own to explain.
 3. Copy the token now: it is shown only once. Revoke it from the same list.
 
 ## admin — The Admin page

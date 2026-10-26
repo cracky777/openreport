@@ -17,6 +17,7 @@ import Paged from '../Pager/Paged';
 const SCOPE_HELP = {
   read: 'List models and reports',
   refresh: 'Rebuild a model’s cache',
+  metadata: 'Describe reports and models for a data catalog (no data)',
 };
 
 export default function ApiTokensPanel({ embedded = false }) {

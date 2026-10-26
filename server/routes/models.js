@@ -1107,6 +1107,11 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     sqlOnly = false;
     bypassCache = false;
   }
+  // The metadata API (utils/metadata/compile.js) compiles a measure: the SQL,
+  // never a row and never a connection to the source — the interval probe
+  // below then reads its cache only. In-process callers alone may ask it.
+  const metadataCompile = req.body.metadataCompile === true && req.internalTokenVerified === true;
+  if (metadataCompile) sqlOnly = true;
 
   // Embed tokens carry locked filters — appended server-side on EVERY query,
   // so the hosting page can't peel them off by editing its own requests.
@@ -1341,6 +1346,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       const intervalSet = await resolveIntervalColumns(datasource, intervalProbe, {
         connect: () => connectionForModel(model, datasource),
         scope: sourceIdsOf(model).join(','),
+        cachedOnly: metadataCompile,
       });
       for (const key of intervalSet) {
         // Force type='interval' but preserve any other fields the user set

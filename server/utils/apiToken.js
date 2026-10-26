@@ -20,10 +20,12 @@ const { isApiEnabled, canUseApi } = require('./settingsHelper');
 
 const PREFIX = 'orp_';
 // read: list models and reports. refresh: rebuild a model's rollups.
+// metadata: read-only description of reports and their models for a catalog
+// (routes/v1.js /metadata, utils/metadata) — never a row of data.
 // Deliberately no `write` scope — editing a model means feeding SQL to the
 // compiler, which is the most sensitive surface in the app. Adding one is a
 // decision to take on its own, not a default.
-const SCOPES = ['read', 'refresh'];
+const SCOPES = ['read', 'refresh', 'metadata'];
 
 // A token is 32 random bytes; the stored digest is what a lookup matches on.
 function hash(token) {

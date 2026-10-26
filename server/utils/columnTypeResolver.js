@@ -44,7 +44,9 @@ const _schemaCache = new Map();
 // A model combining files names linked tables that only its own instance
 // knows: `connect` opens the connection its query runs on, and `scope` (every
 // source it reads) keys the cache in place of the datasource id.
-async function resolveIntervalColumns(datasource, cols, { connect, scope: modelScope } = {}) {
+// `cachedOnly`: what the cache already knows, never a connection (the
+// metadata API compiles a measure without touching the source).
+async function resolveIntervalColumns(datasource, cols, { connect, scope: modelScope, cachedOnly = false } = {}) {
   const scope = modelScope || datasource?.id;
   const out = new Set();
   if (!datasource || !capabilities(datasource.db_type).extractEpoch) return out;
@@ -54,7 +56,7 @@ async function resolveIntervalColumns(datasource, cols, { connect, scope: modelS
   for (const c of cols) {
     if (!c || !c.table || !c.column) continue;
     const ck = `${scope}::${c.table}`;
-    if (!_schemaCache.has(ck)) wantTables.add(c.table);
+    if (!_schemaCache.has(ck) && !cachedOnly) wantTables.add(c.table);
   }
 
   if (wantTables.size > 0) {

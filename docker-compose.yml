@@ -47,6 +47,8 @@ services:
       - "DATASOURCE_ENC_KEY=${DATASOURCE_ENC_KEY:?DATASOURCE_ENC_KEY required (openssl rand -hex 32; keep it stable / backed up)}"
       # Optional. See .env.example for what each one does.
       - "CORS_ORIGIN=${CORS_ORIGIN:-}"
+      # Address users open the app at: links in the metadata API (API.md).
+      - "PUBLIC_URL=${PUBLIC_URL:-}"
       # Sites allowed to frame an /embed page (CSP frame-ancestors).
       # Default * — narrow it to your customers' domains when you know them.
       - "EMBED_FRAME_ANCESTORS=${EMBED_FRAME_ANCESTORS:-}"
