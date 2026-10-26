@@ -1,4 +1,5 @@
 import api from './api';
+import { layoutPositions } from './diagramLayout';
 import { autoFlagColumns } from './autoFlagColumns';
 import { DATE_PARTS } from './modelProposal';
 
@@ -84,7 +85,6 @@ export async function ensureModelForUpload(uploadData, { workspaceId, models = [
 
 // Where the schema canvas draws a table that was never placed: the grid the
 // model editor uses for them, three to a row.
-const placed = (i) => ({ x: 40 + (i % 3) * 260, y: 40 + Math.floor(i / 3) * 300 });
 
 /**
  * A model just made on several files (multiFileImport.modelOnFiles), set up as
@@ -113,7 +113,9 @@ export async function setUpModelFromFiles(modelId, datasourceId) {
   } catch { /* keys unreadable: the assistant or the editor joins them */ }
   const joins = (found.joins || []).map(({ reason: _r, ...j }) => j);
   const roles = found.roles || {};
-  const table_positions = Object.fromEntries(tables.map((t, i) => [t, { ...placed(i), ...(roles[t] ? { tableType: roles[t] } : {}) }]));
+  // Laid out by its joins (utils/diagramLayout): facts in the middle, their dimensions around.
+  const typed = Object.fromEntries(Object.entries(roles).map(([t, r]) => [t, { tableType: r }]));
+  const table_positions = layoutPositions(typed, tables, joins, (t) => (columns[t] || []).length, { all: true });
   await api.put(`/models/${modelId}`, { selected_tables: tables, dimensions, measures, joins, table_positions });
   return { tables, joins, roles, skipped: found.skipped || [] };
 }

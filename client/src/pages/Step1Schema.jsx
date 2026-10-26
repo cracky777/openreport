@@ -1,4 +1,4 @@
-import { TbWand } from 'react-icons/tb';
+import { TbWand, TbLayoutGrid } from 'react-icons/tb';
 import AddFileMenu from '../components/AddFilesButton/AddFileMenu';
 import SchemaCanvas from '../components/SchemaCanvas/SchemaCanvas';
 import RLSDialog from '../components/SchemaCanvas/RLSDialog';
@@ -41,7 +41,7 @@ export default function Step1Schema({
   rls, setRls,
   rlsDialogTable, setRlsDialogTable,
   setSelectedTables, tableColumns,
-  onDetectRelationships, detecting,
+  onDetectRelationships, detecting, onArrange,
   addFile,
 }) {
   return (
@@ -58,6 +58,12 @@ export default function Step1Schema({
         >
           <TbWand size={14} /> {detecting ? 'Detecting…' : 'Detect relationships'}
         </button>
+        {onArrange && (
+          <button type="button" className="btn-hover" style={detectBtn} onClick={onArrange}
+            title="Lay the tables out by their joins: the facts in the middle, their dimensions around them, the rest below">
+            <TbLayoutGrid size={14} /> Arrange tables
+          </button>
+        )}
         {addFile && (
           <AddFileMenu buttonStyle={addFileBtn} sources={addFile.sources}
             onImport={addFile.onImport} onPick={addFile.onPick} />

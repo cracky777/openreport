@@ -3,6 +3,7 @@ import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import { useAiChat } from './useAiChat';
 import { applyModelProposal } from '../utils/modelProposal';
+import { layoutPositions } from '../utils/diagramLayout';
 import { autoFlagColumns } from '../utils/autoFlagColumns';
 import { getColumnType, readOverride } from '../utils/modelEditorHelpers';
 
@@ -18,8 +19,6 @@ const CONTINUE = 'The tables are in the model now. Go on with my request: joins,
 // After a file was reshaped: the assistant proposes the joins, the user validates them.
 const SHAPED = (tables) => `The file is reshaped: ${tables.join(', ')} are in the model now. Go on with my request: join the new tables to the others (a calendar to the date of every fact), set the table roles and flag the fields.`;
 
-// Where the schema canvas draws a table never placed: the model editor's grid.
-const placed = (i) => ({ x: 40 + (i % 3) * 260, y: 40 + Math.floor(i / 3) * 300 });
 const rolesOf = (positions) => Object.fromEntries(Object.entries(positions || {}).filter(([, p]) => p && p.tableType).map(([t, p]) => [t, p.tableType]));
 
 // The saved model, the tables its sources offer, and the columns of the tables it uses.
@@ -117,8 +116,6 @@ export function useModelAssistant({ modelId, onModelChanged }) {
         if (!next.dimensions.some((d) => d.table === t)) next.dimensions.push(...auto.dimensions);
         if (!next.measures.some((m) => m.table === t)) next.measures.push(...auto.measures);
       }
-      let n = Object.keys(next.tablePositions).length;
-      for (const t of tables) if (!next.tablePositions[t]) next.tablePositions[t] = placed(n++);
       if (added.length) {
         try {
           const names = Object.fromEntries(tables.map((t) => [t, (loaded[t] || []).map((c) => c.column_name)]));
@@ -127,6 +124,10 @@ export function useModelAssistant({ modelId, onModelChanged }) {
           for (const [t, role] of Object.entries(found.roles || {})) if (!next.tablePositions[t]?.tableType) next.tablePositions[t] = { ...next.tablePositions[t], tableType: role };
         } catch { /* keys unreadable: the assistant proposes the joins on its next turn */ }
       }
+      // On the diagram by the joins as they are now (utils/diagramLayout): all
+      // of it when the card arranges the tables or the model is new, the new
+      // tables beside what they join otherwise.
+      next.tablePositions = layoutPositions(next.tablePositions, tables, next.joins, (t) => (loaded[t] || []).length, { all: !!proposal.positions });
       await api.put(`/models/${modelId}`, { selected_tables: tables, joins: next.joins, dimensions: next.dimensions, measures: next.measures, table_positions: next.tablePositions, domains: next.domains });
       await load();
       onModelChanged?.();
@@ -156,15 +157,17 @@ export function useModelAssistant({ modelId, onModelChanged }) {
       const dimensions = (model.dimensions || []).filter((d) => !gone.has(d.table));
       const measures = (model.measures || []).filter((m) => !gone.has(m.table));
       const joins = (model.joins || []).filter((j) => !gone.has(j.from_table) && !gone.has(j.to_table));
-      const positions = Object.fromEntries(Object.entries(model.table_positions || {}).filter(([t]) => !gone.has(t)));
-      let n = Object.keys(positions).length;
+      const kept = Object.fromEntries(Object.entries(model.table_positions || {}).filter(([t]) => !gone.has(t)));
+      const counts = {};
       for (const t of proposal.outputs) {
         const cols = (await api.get(`/models/${modelId}/tables/${encodeURIComponent(t)}/columns`)).data.columns || [];
         const auto = autoFlagColumns(t, cols);
         dimensions.push(...auto.dimensions);
         measures.push(...auto.measures);
-        positions[t] = placed(n++);
+        counts[t] = cols.length;
       }
+      // The new tables beside what they join (their joins come next, from the assistant).
+      const positions = layoutPositions(kept, tables, joins, (t) => counts[t] || 8);
       await api.put(`/models/${modelId}`, { selected_tables: tables, joins, dimensions, measures, table_positions: positions });
       await load();
       onModelChanged?.();

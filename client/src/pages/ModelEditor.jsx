@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { layoutPositions } from '../utils/diagramLayout';
 import { useBugReport } from '../components/BugReport/BugReportProvider';
 import { TbBug, TbSparkles, TbHelp } from 'react-icons/tb';
 import ModelAssistant from '../components/ModelAssistant/ModelAssistant';
@@ -97,34 +98,6 @@ const MODEL_TOUR = [
   { target: 'model-save', title: 'Save', text: 'Save the model. Reports built on it see the change.' },
 ];
 
-// Default positions for the tables that have none, skipping any grid cell
-// already covered by a card — on a saved model the tables keep their (possibly
-// dragged) positions, and a naive cursor restarting at (40,40) dropped every
-// newly added table on top of the first one.
-function placeUnpositioned(positions, tables) {
-  const next = { ...positions };
-  const taken = Object.values(next).filter((p) => p && typeof p.x === 'number');
-  // A cell is free when no card sits within roughly one card footprint.
-  const isFree = (x, y) => taken.every((p) => Math.abs(p.x - x) >= 240 || Math.abs(p.y - y) >= 280);
-  let col = 0;
-  let row = 0;
-  const advance = () => { col += 1; if (col > 2) { col = 0; row += 1; } };
-  tables.forEach((t) => {
-    if (next[t] && typeof next[t].x === 'number') return;
-    let cell = { x: 40 + col * 260, y: 40 + row * 300 };
-    let guard = 0;
-    while (!isFree(cell.x, cell.y) && guard < 200) {
-      advance();
-      cell = { x: 40 + col * 260, y: 40 + row * 300 };
-      guard += 1;
-    }
-    // A position may also carry the table's role (fact / dimension): keep it.
-    next[t] = { ...(next[t] || {}), ...cell };
-    taken.push(cell);
-    advance();
-  });
-  return next;
-}
 
 export default function ModelEditor() {
   const openBugReport = useBugReport();
@@ -321,7 +294,7 @@ export default function ModelEditor() {
         // was never laid out (an imported one) has no positions: without these
         // every card would sit on the same spot.
         if ((m.selected_tables || []).length > 0) {
-          setTablePositions(placeUnpositioned(m.table_positions || {}, m.selected_tables));
+          setTablePositions(layoutPositions(m.table_positions || {}, m.selected_tables, m.joins || [], () => 8));
           setStep(1);
           for (const t of m.selected_tables) {
             try {
@@ -413,7 +386,7 @@ export default function ModelEditor() {
       setDimensions((prev) => (prev.some((d) => d.table === t) ? prev : [...prev, ...auto.dimensions]));
       setMeasures((prev) => (prev.some((m) => m.table === t) ? prev : [...prev, ...auto.measures]));
     }
-    setTablePositions((prev) => placeUnpositioned(prev, tables));
+    setTablePositions((prev) => layoutPositions(prev, tables, joins, (t) => (tableColumns[t] || []).length || 8));
     setStep(1);
     // New tables arrive joined as the database declares them.
     if (toLoad.length) {
@@ -424,7 +397,7 @@ export default function ModelEditor() {
         }
       } catch { /* keys unreadable: the joins are drawn by hand or detected by name */ }
     }
-  }, [selectedTables, tableColumns, applyRelationships, columnsUrl]);
+  }, [selectedTables, tableColumns, joins, applyRelationships, columnsUrl]);
 
   // A model on an imported file can read other files: each is a data source of
   // its own, linked here — a new file becomes a new source. Their tables join
@@ -719,7 +692,8 @@ export default function ModelEditor() {
     setJoins(next.joins);
     setDimensions(next.dimensions);
     setMeasures(next.measures);
-    setTablePositions(next.tablePositions);
+    // A card that arranges the tables: laid out by the joins, at the cards' real heights.
+    setTablePositions(proposal.positions ? layoutPositions(next.tablePositions, selectedTables, next.joins, (t) => (tableColumns[t] || []).length, { all: true }) : next.tablePositions);
     setDomains(next.domains);
     // The glossary is read in step 3: show it when that is all that changed.
     if ((proposal.domains || (proposal.glossary || []).length) && !(proposal.joins || []).length && !(proposal.fields || []).length && !(proposal.measures || []).length) setStep(2);
@@ -739,7 +713,7 @@ export default function ModelEditor() {
       }
     }
     return true;
-  }, [joins, dimensions, measures, tablePositions, domains, effectiveColumnType, dataTypeOf, allTables, selectedTables, enterStep1]);
+  }, [joins, dimensions, measures, tablePositions, domains, effectiveColumnType, dataTypeOf, allTables, selectedTables, tableColumns, enterStep1]);
 
   // Both guards are advisory — the user may legitimately know better than a
   // 100k-row sample. They used to be two blocking prompts in a row, so a model
@@ -1178,6 +1152,7 @@ export default function ModelEditor() {
           rlsDialogTable={rlsDialogTable} setRlsDialogTable={setRlsDialogTable}
           setSelectedTables={setSelectedTables} tableColumns={tableColumns}
           onDetectRelationships={detectRelationships} detecting={detecting}
+          onArrange={() => setTablePositions((prev) => layoutPositions(prev, selectedTables, joins, (t) => (tableColumns[t] || []).length, { all: true }))}
           addFile={canLinkSources ? { sources: linkable, onImport: () => addFileRef.current?.click(), onPick: linkExisting } : null}
         />
       )}
