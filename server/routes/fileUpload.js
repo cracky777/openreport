@@ -23,10 +23,18 @@ const rollupBuilder = require('../utils/rollupBuilder');
 const router = express.Router();
 
 // Access scoping (cloud org-scopes these; OSS scopes by owner).
-function dedupUpload(req, originalFilename) {
-  if (typeof cloudHooks.dedupUpload === 'function') return cloudHooks.dedupUpload(req, originalFilename);
-  return db.prepare("SELECT id, name, extra_config FROM datasources WHERE user_id = ? AND extra_config LIKE ?")
-    .get(req.user.id, `%"sourceFile":"${originalFilename}"%`);
+// The same file is one of the same name AND size, in the workspace it is
+// dropped into: by name alone, a clients.csv of last week's test, in another
+// workspace, stood in for today's — then the model could not link it.
+function dedupUpload(req, file, workspaceId) {
+  if (typeof cloudHooks.dedupUpload === 'function') return cloudHooks.dedupUpload(req, file.originalname, { workspaceId, size: file.size });
+  const sameFile = (row) => {
+    const extra = JSON.parse(row.extra_config || '{}');
+    return filesOf(extra).some((f) => f.sourceFile === file.originalname && Number(f.fileSize) === file.size);
+  };
+  return db.prepare("SELECT id, name, extra_config FROM datasources WHERE user_id = ? AND workspace_id IS ? AND extra_config LIKE ?")
+    .all(req.user.id, workspaceId, `%"sourceFile":"${file.originalname}"%`)
+    .find(sameFile);
 }
 function listUploadedDatasources(req) {
   if (typeof cloudHooks.listUploadedDatasources === 'function') return cloudHooks.listUploadedDatasources(req);
@@ -102,7 +110,7 @@ router.post('/', authFor('write'), upload.single('file'), async (req, res) => {
     return res.status(409).json({ error: `A datasource named "${name}" already exists.` });
   }
   // Same source file already imported under a still-free name → reuse it.
-  const existing = dedupUpload(req, file.originalname);
+  const existing = dedupUpload(req, file, targetWs);
   if (existing) {
     try { fs.unlinkSync(file.path); } catch { /* ignore */ }
     const extra = JSON.parse(existing.extra_config || '{}');
