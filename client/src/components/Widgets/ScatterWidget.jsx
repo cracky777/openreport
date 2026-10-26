@@ -1,11 +1,11 @@
 import { useRef, memo, useMemo } from 'react';
 import formatNumber from '../../utils/formatNumber';
-import { barHighlight } from '../../utils/highlight';
+import { barHighlight, legendWithHighlight } from '../../utils/highlight';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { lerpColor } from '../../utils/tableConfigHelpers';
-import { paletteOf, CHART_COLORS as COLORS } from '../../utils/chartPalette';
+import { paletteOf, CHART_COLORS as COLORS, seriesColor } from '../../utils/chartPalette';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
@@ -13,6 +13,13 @@ import { useChartTheme } from '../../hooks/useChartTheme';
 import WidgetEmptyState from './WidgetEmptyState';
 
 const _hs0 = { flex: 1, minHeight: 0, minWidth: 0 };
+
+// A tick of a value axis with the unit of its measure only: the measure's
+// decimals would print "70,0 %" on round ticks.
+function axisTick(v, fmt) {
+  const plain = formatNumber(v);
+  return fmt ? `${fmt.prefix || ''}${plain}${fmt.suffix || ''}` : plain;
+}
 
 export default memo(function ScatterWidget({ data, config, onDataClick, highlightValue }) {
   const { hiddenSeries, toggleSeries } = useHiddenSeries();
@@ -45,7 +52,7 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
     const palette = paletteOf(config, COLORS);
     const customSymbols = config?.legendSymbols || {};
     const customImages = config?.legendImages || {};
-    const getColor = (name) => customColors[name] || palette[getStableIdx(name) % palette.length];
+    const getColor = (name) => customColors[name] || seriesColor(palette, getStableIdx(name));
     const getSymbol = (name) => {
       if (customImages[name]) return `image://${customImages[name]}`;
       return customSymbols[name] || 'circle';
@@ -146,7 +153,7 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
           // Scatter has 3 axes (x, y, size) — each could be an interval.
           const fmtAxis = (v, axisLabel) => isDurationCol(axisLabel, data._durationColumns) && typeof v === 'number'
             ? formatDuration(v)
-            : formatNumber(v);
+            : formatNumber(v, data._measureFormats?.[axisLabel]);
           let result = label ? `<b>${label}</b><br/>` : '';
           if (params.seriesName) result += `${params.marker} ${params.seriesName}<br/>`;
           result += `${xLabel}: <b>${fmtAxis(params.value[0], xLabel)}</b><br/>`;
@@ -158,21 +165,26 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
         },
       },
       legend: { show: false },
+      // Ticks carry the unit of their measure ("70 %", "20 j"), not its decimals.
+      // Both axes fit the points, not zero: no bar is measured from the axis,
+      // and seven agencies between 68 and 72 % sat in one corner of a 0–80
+      // scale, their names on top of each other (credit recipe).
       xAxis: {
-        type: 'value', show: showXAxis,
+        type: 'value', show: showXAxis, scale: true,
         name: (config?.showXAxisTitle ?? config?.showXHeader ?? true) ? (config?.xAxisTitle ?? data._xLabel ?? '') : '', nameLocation: 'center', nameGap: 25,
         nameTextStyle: { fontSize: config?.headerFontSize ?? 12, color: config?.headerColor || '#475569', fontWeight: config?.headerBold ? 'bold' : 'normal', fontFamily: headerFontFamily },
-        axisLabel: { show: true, fontSize: config?.xAxisLabelFontSize ?? 11, color: config?.xAxisLabelColor || '#64748b', fontFamily: xAxisFontFamily, formatter: (v) => formatNumber(v) },
+        axisLabel: { show: true, fontSize: config?.xAxisLabelFontSize ?? 11, color: config?.xAxisLabelColor || '#64748b', fontFamily: xAxisFontFamily, formatter: (v) => axisTick(v, data._measureFormats?.[data._xLabel]) },
         splitLine: { lineStyle: { type: 'dashed', color: chartTheme.grid } },
       },
       yAxis: {
-        type: 'value', show: showYAxis,
+        type: 'value', show: showYAxis, scale: true,
         name: (config?.showYAxisTitle ?? config?.showYHeader ?? true) ? (config?.yAxisTitle ?? data._yLabel ?? '') : '', nameLocation: 'center', nameGap: 35,
         nameTextStyle: { fontSize: config?.headerFontSize ?? 12, color: config?.headerColor || '#475569', fontWeight: config?.headerBold ? 'bold' : 'normal', fontFamily: headerFontFamily },
-        axisLabel: { show: true, fontSize: config?.yAxisLabelFontSize ?? 11, color: config?.yAxisLabelColor || '#64748b', fontFamily: yAxisFontFamily, formatter: (v) => formatNumber(v) },
+        axisLabel: { show: true, fontSize: config?.yAxisLabelFontSize ?? 11, color: config?.yAxisLabelColor || '#64748b', fontFamily: yAxisFontFamily, formatter: (v) => axisTick(v, data._measureFormats?.[data._yLabel]) },
         splitLine: { lineStyle: { type: 'dashed', color: chartTheme.grid } },
       },
-      series: seriesList,
+      // Names that would sit on one another are hidden, not overlapped.
+      series: seriesList.map((sr) => ({ ...sr, labelLayout: { hideOverlap: true } })),
       grid: { top: 20, right: 20, bottom: showXAxis ? 40 : 15, left: showYAxis ? 50 : 15 },
     };
 
@@ -187,6 +199,8 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
+  // What a highlight's color means (bars over a value…) has its entry, even on a chart with no legend.
+  const shownLegend = legendWithHighlight(legendItems, showLegend, config, (v) => formatNumber(v, Object.values(data?._measureFormats || {})[0]));
 
   // Click → cross-filter via the `_rawLabel` ECharts itemStyle property
   // we set on each point at build time (scatter points carry their own
@@ -214,12 +228,12 @@ export default memo(function ScatterWidget({ data, config, onDataClick, highligh
 
   return (
     <div ref={rootRef} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: isLR ? 'row' : 'column' }}>
-      {showLegend && legendItems.length > 0 && (legendPosition === 'top' || legendPosition === 'left') && (
-        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
+      {shownLegend.length > 0 && (legendPosition === 'top' || legendPosition === 'left') && (
+        <ChartLegend items={shownLegend} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
       <div ref={chartRef} style={_hs0} />
-      {showLegend && legendItems.length > 0 && (legendPosition === 'bottom' || legendPosition === 'right') && (
-        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
+      {shownLegend.length > 0 && (legendPosition === 'bottom' || legendPosition === 'right') && (
+        <ChartLegend items={shownLegend} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
     </div>
   );

@@ -51,7 +51,7 @@ const draftOf = ({ model, all, columns }) => ({
  *          `send(text)` reads the model first when it was not read yet — and ALWAYS reads it again
  *          when `fresh` is asked: a request handed over may follow a card that just changed the model
  */
-export function useModelAssistant({ modelId, onModelChanged }) {
+export function useModelAssistant({ modelId, onModelChanged, keepKey }) {
   // The model as read: in a ref for the body of the next turn (set as soon
   // as it is read, not on the next render), in state for the screen.
   const latestRef = useRef(null);
@@ -71,7 +71,7 @@ export function useModelAssistant({ modelId, onModelChanged }) {
   // `shapes`: a card may reshape a file (the route below); `report`: a report
   // sits beside the model, its assistant can take a request.
   const getExtraBody = useCallback(() => ({ draft: latestRef.current ? draftOf(latestRef.current) : {}, shapes: true, report: true }), []);
-  const chat = useAiChat(`/ai/models/${modelId}/model-chat`, getExtraBody);
+  const chat = useAiChat(`/ai/models/${modelId}/model-chat`, getExtraBody, keepKey);
   const { send: chatSend, loading } = chat;
 
   const send = useCallback(async (text, { fresh = false } = {}) => {

@@ -140,3 +140,19 @@ export function categoryLabelRoom({ labels, rotate = 0, fontSize = 11, chartWidt
   const width = Math.max(40, (TILTED_LABEL_ROOM - Math.cos(rad) * fontSize) / Math.sin(rad));
   return { axisLabel: cut(width), margin: calcBottomMargin(rotate, labels, defaultMargin, fontSize, width) };
 }
+
+/**
+ * The unit a value axis prints with its numbers: the prefix and suffix every
+ * measure on it shares (" %", "€ ") — an axis of changes read "-6 … 0" with
+ * no sign it was in %. Mixed units: none, the numbers alone.
+ * @param {object} formats  the widget's `_measureFormats`, by label
+ * @returns {{ prefix: string, suffix: string }|null}
+ */
+export function axisUnitOf(formats) {
+  const list = Object.values(formats || {});
+  if (!list.length) return null;
+  const prefix = list[0]?.prefix || '';
+  const suffix = list[0]?.suffix || '';
+  if (!prefix && !suffix) return null;
+  return list.every((f) => (f?.prefix || '') === prefix && (f?.suffix || '') === suffix) ? { prefix, suffix } : null;
+}

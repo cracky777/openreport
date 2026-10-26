@@ -5,11 +5,11 @@ import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues, naturalOrder } from '../../utils/axisSort';
-import { calcLabelRotation, categoryLabelRoom, axisLineStyle } from '../../utils/chartHelpers';
+import { calcLabelRotation, categoryLabelRoom, axisLineStyle, axisUnitOf } from '../../utils/chartHelpers';
 import { echartsPosition, placementOf, autoPlacements, inkOn, niceMax, measureText } from '../../utils/barLabels';
-import { barHighlight } from '../../utils/highlight';
+import { barHighlight, legendWithHighlight } from '../../utils/highlight';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
-import { paletteOf, CHART_COLORS as COLORS, OTHERS_COLOR, hexToRgba } from '../../utils/chartPalette';
+import { paletteOf, CHART_COLORS as COLORS, OTHERS_COLOR, hexToRgba, seriesColor } from '../../utils/chartPalette';
 import { buildDataLabel } from '../../utils/chartLabels';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
@@ -166,7 +166,11 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
 
     const customColors = config?.legendColors || {};
     const palette = paletteOf(config, COLORS);
-    const getColor = (name) => customColors[name] || palette[getStableIdx(name) % palette.length];
+    // A year-before series (utils/chartN1.js) takes the color of the one it repeats, paler.
+    // A comparison with the year before keeps its gaps (utils/chartN1.js): no bar, not a zero.
+    const at = (list, i) => (data?._gaps ? (list[i] ?? null) : (list[i] || 0));
+    // The year before has a color of its own: in its base's color, paler, the legend could not tell them apart.
+    const getColor = (name) => customColors[name] || seriesColor(palette, getStableIdx(name));
 
     // Value-driven gradient (overrides per-series colors when enabled).
     // Skipped on stacked subtypes — segments coloured by value would mislead the eye.
@@ -305,7 +309,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
           const s = seriesData[i];
           const origIdx = allSeriesForLegend ? allSeriesForLegend.findIndex((o) => o.name === s.name) : i;
           const colorIdx = origIdx >= 0 ? origIdx : i;
-          const values = sortedIndices.map((idx) => s.values[idx] || 0);
+          const values = sortedIndices.map((idx) => at(s.values, idx));
           const marks = barHighlight(config, values, rawLabels);
           const nzCounts = nonZeroCounts;
           const nzIndices = seriesNonZeroIndex[i];
@@ -322,7 +326,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
               const v1 = api.value(1);
               const catIdx = earlyIsHoriz ? v1 : v0;
               const value = earlyIsHoriz ? v0 : v1;
-              if (value === 0) return null;
+              if (value === 0 || value == null || Number.isNaN(value)) return null;
 
               const nzCount = nzCounts[catIdx];
               const nzIdx = nzIndices[catIdx];
@@ -460,7 +464,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
         }
         for (let i = 0; i < seriesData.length; i++) {
           const s = seriesData[i];
-          let values = sortedIndices.map((idx) => s.values[idx] || 0);
+          let values = sortedIndices.map((idx) => at(s.values, idx));
           if (subType === 'stacked100') {
             values = values.map((val, vi) => {
               const total = categoryTotals[vi];
@@ -485,7 +489,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
         }
       }
     } else {
-      const vals = sortedIndices.map((i) => data.values[i] || 0);
+      const vals = sortedIndices.map((i) => at(data.values, i));
       const fmt0 = Object.values(data._measureFormats || {})[0];
       const textOf = (v, i) => buildDataLabel({ value: v, name: labels[i] }, dataLabelContent, dataLabelAbbr, fmt0, { hideZeros, isDuration: isDurationCol(data._measureLabel, data._durationColumns), text: rawTextFor(data, null, rawLabels[i]) });
       const marks = barHighlight(config, vals, rawLabels);
@@ -582,7 +586,7 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
               || (Array.isArray(data._durationColumns) && data._durationColumns.length > 0)) {
             return formatDuration(val);
           }
-          const abbr = abbreviateNumber(val, valueAbbr);
+          const abbr = abbreviateNumber(val, valueAbbr, axisUnitOf(data._measureFormats));
           if (abbr != null) return abbr;
           const firstFmt = Object.values(data._measureFormats || {})[0];
           return firstFmt ? formatNumber(val, firstFmt) : val.toLocaleString();
@@ -647,6 +651,8 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
+  // What a highlight's color means (bars over a value…) has its entry, even on a chart with no legend.
+  const shownLegend = legendWithHighlight(legendItems, showLegend, config, (v) => formatNumber(v, Object.values(data?._measureFormats || {})[0]));
 
   // Click → cross-filter on the dim name. Bar's click resolution is the
   // richest of any widget: scatter-style bars carry `params.data[0]` as
@@ -688,17 +694,17 @@ export default memo(function BarWidget({ data, config, chartWidth, chartHeight, 
 
   if (!hasData) return <WidgetEmptyState data={data} config={config} unboundHint="Select dimensions & measures to display a bar chart" />;
 
-  const showHtmlLegend = showLegend && legendItems.length > 0;
+  const showHtmlLegend = shownLegend.length > 0;
   const flexDir = legendPosition === 'left' ? 'row' : legendPosition === 'right' ? 'row' : legendPosition === 'top' ? 'column' : 'column';
 
   return (
     <div ref={rootRef} style={{ display: 'flex', flexDirection: flexDir, width: '100%', height: '100%' }}>
       {showHtmlLegend && (legendPosition === 'top' || legendPosition === 'left') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
+        <ChartLegend items={shownLegend} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
       <div ref={chartRef} style={_hs0} />
       {showHtmlLegend && (legendPosition === 'bottom' || legendPosition === 'right') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
+        <ChartLegend items={shownLegend} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
     </div>
   );

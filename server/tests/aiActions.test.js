@@ -74,7 +74,7 @@ describe('adding a file to the model', () => {
     // The source is named: the user hears which database, not "a database".
     const refused = add({ canEditModel: true, fileModel: false, sourceLabel: 'the BigQuery dataset "shop"' }).errors.join(' ');
     expect(refused).toMatch(/reads the BigQuery dataset "shop"/);
-    expect(refused).toMatch(/Start a new report/);
+    expect(refused).toMatch(/Create a report/);
     expect(add({ canEditModel: false, fileModel: true }).errors.join(' ')).toMatch(/owner or an admin/);
     expect(add({ canEditModel: true, fileModel: true, allowed: ACTIONS_FOR.help }).action).toBeNull();
   });

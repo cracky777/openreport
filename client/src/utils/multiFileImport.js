@@ -24,6 +24,23 @@ async function snapshot(file) {
 const reasonOf = (err, file) => err.response?.data?.error
   || (err.message === 'Network Error' ? `${file.name} could not be sent: the connection dropped, or the file ${UNREADABLE}` : err.message);
 
+// A connection that drops mid-upload (the dev server restarting, a flaky
+// network) left a file cut in two and the user dropping it again. The bytes
+// are already in memory and a cut upload is discarded by the server, so the
+// whole file goes out again after a pause, while it can come back.
+const RETRY_WAITS = [2000, 5000, 10000];
+const dropped = (err) => !err.response && err.message === 'Network Error';
+async function retryingDrops(send) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await send();
+    } catch (err) {
+      if (!dropped(err) || attempt >= RETRY_WAITS.length) throw err;
+      await new Promise((resolve) => setTimeout(resolve, RETRY_WAITS[attempt]));
+    }
+  }
+}
+
 // Several files at once: each becomes a source of its own, uploaded one after
 // the other, with its own import options (`optionsFor(file)`; none = auto-
 // detection). A workbook with no sheet chosen imports every sheet.
@@ -51,7 +68,7 @@ export async function uploadEach(files, { workspaceId, optionsFor, onStatus, fre
       let res;
       for (let n = 1; ; n++) {
         try {
-          res = await send(n === 1 ? baseName(file.name) : `${baseName(file.name)} (${n})`);
+          res = await retryingDrops(() => send(n === 1 ? baseName(file.name) : `${baseName(file.name)} (${n})`));
           break;
         } catch (err) {
           if (!freeName || n >= 20 || err.response?.status !== 409) throw err;

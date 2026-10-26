@@ -219,6 +219,17 @@ describe('the turn runner (HTTP engines)', () => {
     expect(empty).toHaveBeenCalledTimes(4);
   });
 
+  // Let's Talk wrote its figures beside a second read, then proposed with one
+  // line: the figures were lost. Words before any tool answered are not kept.
+  test('the answer is the words written once a tool answered, with those of the ending call', async () => {
+    const chat = jest.fn()
+      .mockResolvedValueOnce({ ...calls('read'), text: 'Let me read the data.' })
+      .mockResolvedValueOnce({ ...calls('read'), text: 'No product is above 70 %: Auto 56.7 %, Home 56.5 %.' })
+      .mockResolvedValueOnce({ text: 'The chart compares them.', toolCalls: [{ id: 'c9', name: 'propose', args: {}, argsError: null }], usage: null });
+    const execute = (call) => (call.name === 'propose' ? { result: { ok: true }, end: true } : { result: { rows: [] } });
+    expect(await runTurn({ ...base, maxSteps: 5, execute }, { chat })).toEqual({ ended: 'tool', text: 'No product is above 70 %: Auto 56.7 %, Home 56.5 %.\n\nThe chart compares them.' });
+  });
+
   test('onWords pushes back instead of ending, and the push-back joins the conversation', async () => {
     const chat = jest.fn()
       .mockResolvedValueOnce({ text: '{"widgets": []}', toolCalls: [], usage: null })
@@ -267,13 +278,31 @@ describe('the Claude subscription engine (Agent SDK)', () => {
   beforeAll(() => { jest.spyOn(console, 'error').mockImplementation(() => {}); });
   afterAll(() => { jest.restoreAllMocks(); });
 
+  test('words after a read are kept, the closing step too, words before any read are not', async () => {
+    const sdk = fakeSdk([
+      { call: 'read', args: { ok: true }, text: 'Let me read the data.' },
+      { text: 'No product is above 70 %.' },
+      { call: 'ping', args: { ok: true } },
+      { text: 'The chart above compares them.' },
+    ]);
+    const READ = { ...PING, name: 'read' };
+    const execute = (call) => (call.name === 'ping' ? { result: { ok: true }, end: true } : { result: { rows: [] } });
+    const turn = await runTurn({ config, system: 's', messages: last, tools: [READ, PING], maxSteps: 4, execute }, { sdk });
+    // Read, then the proposal with no words, then the answer in the closing step: the announcement is still left out.
+    const quiet = fakeSdk([{ call: 'read', args: { ok: true }, text: 'Let me read the data.' }, { call: 'ping', args: { ok: true } }, { text: 'None is above 70 %.' }]);
+    expect((await runTurn({ config, system: 's', messages: last, tools: [READ, PING], maxSteps: 4, execute }, { sdk: quiet })).text).toBe('None is above 70 %.');
+    expect(turn.text.split(/\s+/).join(' ')).toBe('No product is above 70 %. The chart above compares them.');
+  });
+
   test('our tools run in the SDK, our prompt with them — and nothing of Claude Code', async () => {
     const sdk = fakeSdk([{ call: 'ping', args: { ok: true }, text: 'Pinging.' }, { text: 'Done.' }]);
     const execute = jest.fn(() => ({ result: { ok: true }, end: true }));
     process.env.ANTHROPIC_API_KEY = 'sk-instance-key';
     const turn = await runTurn({ config, system: 'SYSTEM', messages, tools: [PING], maxSteps: 4, execute }, { sdk });
     delete process.env.ANTHROPIC_API_KEY;
-    expect(turn).toEqual({ ended: 'tool', text: 'Done.' });
+    // The words of the ending call, and those of the step the SDK takes to close after it.
+    expect(turn.ended).toBe('tool');
+    expect(turn.text.split(/\s+/).join(' ')).toBe('Pinging. Done.');
     expect(execute).toHaveBeenCalledWith({ id: '', name: 'ping', args: { ok: true }, argsError: null });
     expect(sdk.seen.handled[0]).toEqual({ content: [{ type: 'text', text: '{"ok":true}' }] });
     const { options, prompt } = sdk.seen;

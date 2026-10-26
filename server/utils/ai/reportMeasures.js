@@ -11,13 +11,15 @@
 const { shapeWidget } = require('./widgetShaping');
 const { readsDistinctRows } = require('../sqlBuilder/dimMeasure');
 
-const KINDS = ['filtered', 'arithmetic', 'cumulative', 'aggregate', 'last', 'per_period', 'product', 'days_between'];
+const KINDS = ['filtered', 'arithmetic', 'cumulative', 'aggregate', 'last', 'per_period', 'product', 'days_between', 'previous_year'];
 // What a column already summed or counted may become. Seen with Karim,
 // logistics: "the model has no number of shipments, so the durations are
 // totals, not averages" — the schema had the sum of the duration.
 const AGGREGATIONS = ['sum', 'avg', 'count', 'count_distinct', 'min', 'max'];
 const OPS = { add: '+', subtract: '-', multiply: '*', divide: '/', percent: '%' };
 const MAX_MEASURES = 12;
+const { plainName } = require('./plainName');
+
 const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
 // "_calc.ecart_reel_budget", free among the names in use.
@@ -47,7 +49,7 @@ function validateMeasures(raw, ctx) {
   list.forEach((m, i) => {
     const label = `Measure ${i + 1}`;
     const a = m && typeof m === 'object' ? m : {};
-    const title = text(a.label, 80);
+    const title = plainName(text(a.label, 80));
     if (!title) { errors.push(`${label}: label is required`); return; }
     if (!KINDS.includes(a.kind)) { errors.push(`${label}: kind must be one of ${KINDS.join(', ')}`); return; }
     // The label of a measure it made before: that measure, defined again —
@@ -86,8 +88,16 @@ function validateMeasures(raw, ctx) {
       if (!left || !right) { errors.push(`${label}: left and right must be measure names of the schema${!left ? ` (${JSON.stringify(String(a.left || '').slice(0, 60))} is not)` : ''}${!right ? ` (${JSON.stringify(String(a.right || '').slice(0, 60))} is not)` : ''}`); return; }
       const l = `(\${${left.name}})`;
       const r = `(\${${right.name}})`;
-      const expression = a.op === 'divide' ? `${l} / NULLIF(${r}, 0)` : a.op === 'percent' ? `100.0 * ${l} / NULLIF(${r}, 0)` : `${l} ${op} ${r}`;
-      made = { name, label: title, table: '', column: '', aggregation: 'custom', expression, format: a.op === 'percent' ? PERCENT_FORMAT : (left.format || right.format || undefined) };
+      // A sum or a variance counts a side with no rows as 0: 2025 against an
+      // empty 2024 is 250, not empty (as the drill-across already reads it).
+      const expression = a.op === 'divide' ? `${l} / NULLIF(${r}, 0)` : a.op === 'percent' ? `100.0 * ${l} / NULLIF(${r}, 0)`
+        : a.op === 'multiply' ? `${l} ${op} ${r}` : `COALESCE(${l}, 0) ${op} COALESCE(${r}, 0)`;
+      // Two rates added or set apart are points, not a rate: 79.9 % − 90.6 %
+      // is −10.7 points (it read "−10.7 %", a change of the rate itself).
+      const isRate = (m) => /%/.test(String((m.format && m.format.suffix) || ''));
+      const points = (a.op === 'subtract' || a.op === 'add') && isRate(left) && isRate(right);
+      const format = a.op === 'percent' ? PERCENT_FORMAT : points ? { ...left.format, suffix: ' pts' } : (left.format || right.format || undefined);
+      made = { name, label: title, table: '', column: '', aggregation: 'custom', expression, format };
     } else if (a.kind === 'aggregate' && a.aggregation === 'count_distinct' && !byName(a.from)) {
       // A count of the distinct values of a dimension: the days of a period,
       // the customers served. A stock's cover in days divides by the first
@@ -121,6 +131,14 @@ function validateMeasures(raw, ctx) {
         const period = (ctx.effective.dimensions || []).find((d) => d.name === a.period && (d.datePart || /date|time/i.test(String(d.type || ''))));
         if (!period) { errors.push(`${label}: period must be the name of a date dimension of the facts, at the period the value is given for (the month: a year_month part)`); return; }
         made = { name, label: title, table: base.table, column: base.column, aggregation: base.aggregation, dataType: base.dataType, format: base.format, perPeriod: { dim: period.name } };
+      } else if (a.kind === 'previous_year') {
+        // The same figure over the dates a year earlier (sqlBuilder/periodShift.js,
+        // Power BI's SAMEPERIODLASTYEAR): the variance or the change against N-1
+        // is then an arithmetic measure of the two.
+        if (base.aggregation === 'custom' || !base.table || !base.column) { errors.push(`${label}: previous_year needs a measure that sums or counts one column (${base.name} is computed)`); return; }
+        const date = (ctx.effective.dimensions || []).find((d) => d.name === a.date && !d.datePart && !d.expression && /date|time/i.test(String(d.type || '')));
+        if (!date) { errors.push(`${label}: date must be the name of a date dimension of the schema (a day, not a month or a year) — the one the year filters are taken from`); return; }
+        made = { name, label: title, table: base.table, column: base.column, aggregation: base.aggregation, dataType: base.dataType, format: base.format, periodShift: { dim: date.name, unit: 'year', n: -1 }, ...(base.filterRules ? { filterRules: base.filterRules, overrideFilters: !!base.overrideFilters } : {}) };
       } else if (a.kind === 'cumulative') {
         if (base.aggregation === 'custom' || !base.table || !base.column) { errors.push(`${label}: a running total needs a measure that sums one column (${base.name} is computed)`); return; }
         made = { name, label: title, table: base.table, column: base.column, aggregation: base.aggregation, dataType: base.dataType, format: base.format, runningTotal: true, ...(base.filterRules ? { filterRules: base.filterRules, overrideFilters: !!base.overrideFilters } : {}) };
@@ -154,6 +172,7 @@ function describeMeasure(m, effective) {
   if (m.since) return `${m.label}: ${m.aggregation} of the days from ${m.since} to ${m.column}`;
   if (m.times) return `${m.label}: sum of ${m.column} × ${m.times}, row by row`;
   if (m.perPeriod) return `${m.label}: ${label(`${m.table}.${m.column}`) || m.column} added for each ${label(m.perPeriod.dim)}`;
+  if (m.periodShift) return `${m.label}: ${label(`${m.table}.${m.column}`) || m.column} one year earlier`;
   if (m.runningTotal) return `${m.label}: running total of ${label(`${m.table}.${m.column}`) || m.column}`;
   if (m.aggregation === 'custom') return `${m.label}: ${m.expression.replace(/\$\{([^}]+)\}/g, (_, n) => label(n.trim()))}`;
   const rules = (m.filterRules || []).map((r) => `${label(r.field)} ${r.op} ${(r.values && r.values.length ? r.values : [r.value]).filter((v) => v !== '' && v != null).join(', ')}`).join(' and ');

@@ -8,10 +8,13 @@ import SlidingDock from '../SlidingDock/SlidingDock';
 import AssistantStrip from '../Ask/AssistantStrip';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
 import { useIsCompact } from '../../hooks/useMediaQuery';
+import { studioThreadKey } from '../../utils/studioThread';
 import { useAiChat } from '../../hooks/useAiChat';
 import { useModelAssistant } from '../../hooks/useModelAssistant';
 import ProposalCard from './ProposalCard';
 import ActionCard from './ActionCard';
+import AddFileCard from './AddFileCard';
+import { acceptFiles } from '../../utils/importFiles';
 import QuestionCard from './QuestionCard';
 import ReportPagesCard from './ReportPagesCard';
 import ReportChangesCard from './ReportChangesCard';
@@ -103,6 +106,8 @@ const MODEL_LEARN = ['What is the difference between a dimension and a measure?'
 const SHARING = {
   'schema+cache': 'Reads this report\'s cached data only — never the live source. Field names and cached rows are sent to your AI provider.',
   schema: 'Schema only — no data is shared. Field names are sent to your AI provider.',
+  // Here, beside a report, it reads the cache as at 'schema+cache': the live read is Let's Talk's.
+  'schema+results': "Reads this report's cached data only — never the live source. Field names and cached rows are sent to your AI provider.",
 };
 
 // The model assistant's way out when what was asked belongs to the report:
@@ -170,7 +175,7 @@ function UndoCard({ proposal, onOutcome, onUndo }) {
   );
 }
 
-export default function AiPanel({ reportId, model, widgets, settings, status, onStatusChange, getPageContext, onApplyProposal, onUndo = null, onClose, onResizeStart, onResizeEnd, initialRequest = '', open = true, onOpen, ask, studio = false, onModelChanged, modelId = null, modelEditable = false, children = null }) {
+export default function AiPanel({ reportId, model, widgets, settings, status, onStatusChange, getPageContext, onApplyProposal, onUndo = null, onClose, onResizeStart, onResizeEnd, initialRequest = '', initialModelRequest = '', open = true, onOpen, ask, studio = false, onModelChanged, modelId = null, modelEditable = false, reportEmpty = false, children = null }) {
   const [dragging, setDragging] = useState(false);
   const { width, handleProps } = useResizableWidth(studio
     ? { storageKey: 'openreport.studioPanelWidth', defaultWidth: 420, min: 320, max: 680, side: 'left', onDragStart: () => setDragging(true), onDragEnd: () => setDragging(false) }
@@ -210,10 +215,23 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
     return added;
   };
   const draggingFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
-  const report = useAiChat(`/ai/reports/${reportId}/chat`, getExtraBody);
+  // The studio keeps its thread for the tab: back from the editor, it is still there.
+  const keep = studio && reportId ? studioThreadKey(reportId) : undefined;
+  const report = useAiChat(`/ai/reports/${reportId}/chat`, getExtraBody, keep);
   // The model assistant, in the same conversation: studio only, for who may change the model.
   const withModel = studio && modelEditable && !!modelId;
-  const modelChat = useModelAssistant({ modelId: withModel ? modelId : null, onModelChanged });
+  // Data files dropped in the middle of the conversation (Jonathan: the card
+  // only came when the assistant asked for it): each drop opens the card that
+  // adds them to the model, as the assistant's own would.
+  const [droppedFiles, setDroppedFiles] = useState([]);
+  const dropFiles = (picked) => {
+    addImages(picked);
+    const data = acceptFiles([], picked);
+    if (!data.length) return;
+    if (!withModel) { toast('Data files join the model from the assistant of a report you can edit'); return; }
+    setDroppedFiles((prev) => [...prev, { key: Date.now(), files: data }]);
+  };
+  const modelChat = useModelAssistant({ modelId: withModel ? modelId : null, onModelChanged, keepKey: keep && `${keep}.model` });
   const [draft, setDraft] = useState('');
   const [toModel, setToModel] = useState(false);
   // The instance has no provider: the user brings their own, first thing in
@@ -275,17 +293,33 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
   // waits until the model assistant's joins are applied, then goes back to
   // the report's assistant — Karim had to type it again.
   const askModel = (text, request) => { hopsRef.current = 0; waitingRef.current = request || null; return sendToModel(text, { fresh: true }); };
+  const resumeReport = () => {
+    const request = waitingRef.current;
+    waitingRef.current = null;
+    resumeRef.current = null;
+    hopsRef.current = 0;
+    sendToReport(request === true ? 'The data is joined in the model now. Go on with my request above.' : `The new data is joined to the model now. Go on with my request: ${request}`);
+  };
+  // Tables added: the model assistant goes on first (its CONTINUE), and the
+  // report waits until THAT turn — a reply after the card, not the one that
+  // carried it — ends with no card left to apply. Holds the thread's length then.
+  const resumeRef = useRef(null);
   const applyModel = async (proposal) => {
     const ok = await modelChat.apply(proposal);
-    // Tables added: the model assistant goes on first (its CONTINUE); joins only: the data is in.
-    if (ok && waitingRef.current && (proposal.joins || []).length && !(proposal.addTables || []).length) {
-      const request = waitingRef.current;
-      waitingRef.current = null;
-      hopsRef.current = 0;
-      sendToReport(request === true ? 'The data is joined in the model now. Go on with my request above.' : `The new data is joined to the model now. Go on with my request: ${request}`);
-    }
+    if (ok && waitingRef.current && (proposal.addTables || []).length) resumeRef.current = modelChat.messages.length;
+    // Joins only: the data is in.
+    else if (ok && waitingRef.current && (proposal.joins || []).length) resumeReport();
     return ok;
   };
+  useEffect(() => {
+    if (resumeRef.current === null || modelChat.loading || modelChat.applying) return;
+    // Its CONTINUE and the answer to it: until both are in, the model is still at work.
+    if (modelChat.messages.length < resumeRef.current + 2) return;
+    const last = modelChat.messages[modelChat.messages.length - 1];
+    if (!last || last.role !== 'assistant') return;
+    const waiting = (last.proposals || []).some((p, j) => ['model', 'shape'].includes(p.kind) && !last.outcomes?.[j]);
+    if (!waiting) resumeReport();
+  }, [modelChat.messages, modelChat.loading, modelChat.applying]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = async (text, extra) => {
     const question = (text ?? draft).trim();
@@ -316,6 +350,16 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
       setDraft(initialRequest);
     }
   }, [initialRequest, status.enabled, status.reason]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A report on a database just connected (Chat home): the model is empty, so
+  // its assistant goes first — the tables, their joins and roles — and the
+  // report takes the request once the model is in (resumeRef, applyModel).
+  const askedModelRef = useRef(false);
+  useEffect(() => {
+    if (!initialModelRequest || askedModelRef.current || !status.enabled || !withModel) return;
+    askedModelRef.current = true;
+    askModel(`This data model is new and empty, on a database just connected. Pick the tables that matter for what I want, add them with their joins, the role of each table (fact or dimension) and the fields. What I want: ${initialModelRequest}`, initialModelRequest);
+  }, [initialModelRequest, status.enabled, withModel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const askedAtRef = useRef(0);
   useEffect(() => {
@@ -370,6 +414,29 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
     }
   };
 
+  // A report Let's Talk proposed, laid here as its card (utils/studioThread
+  // seedStudioThread): applied once the studio has drawn the report, then
+  // the designer gives it its look — as a report built here would be.
+  const autoApplied = useRef(false);
+  useEffect(() => {
+    if (!studio || autoApplied.current) return undefined;
+    const idx = report.messages.findIndex((m) => m.autoApply && m.proposals?.[0]?.kind === 'report' && !m.outcomes?.[0]);
+    if (idx < 0) return undefined;
+    autoApplied.current = true;
+    const m = report.messages[idx];
+    let fired = false;
+    const timer = setTimeout(async () => {
+      fired = true;
+      const result = await applyAndReview(m.proposals[0]);
+      report.setOutcome(idx, 0, result ? 'applied' : undefined);
+      report.mark(m.answerId, { autoApply: false });
+    }, 600);
+    // Left before it ran: the next render tries again.
+    return () => { if (!fired) { clearTimeout(timer); autoApplied.current = false; } };
+    // Once, on the thread the studio opened with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studio, report.messages.length]);
+
   const reportCard = (m, p, j) => {
     const outcome = (o) => report.setOutcome(m.idx, j, o);
     if (p.kind === 'undo') return <UndoCard key={j} proposal={p} onOutcome={outcome} onUndo={onUndo} />;
@@ -378,7 +445,7 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
       if (p.action === 'add_image') return <AddImageCard key={j} proposal={p} onOutcome={outcome} onAddImage={addImages} onAnswer={(text) => submit(text)} />;
       return <ActionCard key={j} proposal={p} reportId={reportId} onOutcome={outcome} onAnswer={(text) => submit(text)} onModelChanged={onModelChanged} onAskModel={withModel ? askModel : undefined} />;
     }
-    if (p.kind === 'report') return <ReportPagesCard key={j} proposal={p} model={model} onApply={applyAndReview} onOutcome={outcome} />;
+    if (p.kind === 'report') return <ReportPagesCard key={`${j}-${m.outcomes?.[j] || ''}`} proposal={p} model={model} onApply={applyAndReview} onOutcome={outcome} outcome={m.outcomes?.[j]} />;
     if (p.kind === 'reportChanges') return <ReportChangesCard key={j} proposal={p} widgets={widgets} onApply={applyAndReview} onOutcome={outcome} />;
     if (p.kind === 'question') {
       return <QuestionCard key={j} proposal={p} modelId={model?.id} answered={m.outcomes?.[j] === 'answered' ? report.messages[m.idx + 1]?.text : ''} onOutcome={outcome} onAnswer={(text) => submit(text)} />;
@@ -426,11 +493,14 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
       {/* The conversation stays mounted behind the provider form: opening the
           settings must not cost the author their thread. */}
       {/* An image dropped anywhere on the conversation joins it (no button:
-          like the files of the Chat home, asked by Jonathan). */}
-      <div style={showProvider ? hiddenStyle : chatStyle} onDragOver={(e) => { if (draggingFiles(e)) e.preventDefault(); }} onDrop={(e) => { if (!draggingFiles(e)) return; e.preventDefault(); addImages(e.dataTransfer.files); }}>
+          like the files of the Chat home, asked by Jonathan); a data file
+          opens the card that adds it to the model. */}
+      <div style={showProvider ? hiddenStyle : chatStyle} onDragOver={(e) => { if (draggingFiles(e)) e.preventDefault(); }} onDrop={(e) => { if (!draggingFiles(e)) return; e.preventDefault(); dropFiles(e.dataTransfer.files); }}>
       {reportId ? (<>
       <div ref={threadRef} style={threadStyle}>
-        {thread.length === 0 && studio && !toModel && (
+        {/* A whole report for a report still empty: on one with pages it would
+            rebuild over the author's work (typed, "redo the whole report" still works). */}
+        {thread.length === 0 && studio && !toModel && reportEmpty && (
           <button type="button" style={buildReportBtn} onClick={buildReport} disabled={busy} title="One page per objective the model can draw, laid out and saved into this report">
             <TbSparkles size={14} /> Build the full report
           </button>
@@ -451,6 +521,12 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
             {(m.proposals || []).map((p, j) => (m.engine === 'model' ? modelCard(m, p, j) : reportCard(m, p, j)))}
           </div>
         )))}
+        {/* Gone once settled: the message it sends stays in the thread. */}
+        {droppedFiles.map((d) => (
+          <AddFileCard key={d.key} proposal={{ modelId, dropped: true, summary: 'Import the file: it joins the data model here.' }} initialFiles={d.files}
+            onOutcome={(o) => { if (o === 'applied' || o === 'dismissed') setDroppedFiles((prev) => prev.filter((x) => x.key !== d.key)); }}
+            onAnswer={(text) => submit(text)} onModelChanged={onModelChanged} onAskModel={askModel} />
+        ))}
         {pendingReview && !busy && (
           <div style={cardStyle}>
             <div style={rowStyle}>

@@ -121,7 +121,10 @@ async function runTurnNow({ config, system, messages, tools, maxSteps, execute }
   let ended = false;
   const mcpTools = tools.map((t) => sdk.tool(t.name, t.description, z.fromJSONSchema(t.parameters).shape, async (args) => {
     const { result, end } = await execute({ id: '', name: t.name, args: args && typeof args === 'object' ? args : {}, argsError: null });
-    if (end) ended = true;
+    if (end && !ended) { ended = true; settle(); }
+    // Words followed by a call that did not end the turn came before a read.
+    else if (pending && !end) pending.beforeRead = true;
+    answered = true;
     return { content: [{ type: 'text', text: JSON.stringify(result) }], ...(result && result.error ? { isError: true } : {}) };
   }));
   const ours = new Set(tools.map((t) => `mcp__${SERVER}__${t.name}`));
@@ -129,6 +132,17 @@ async function runTurnNow({ config, system, messages, tools, maxSteps, execute }
   const timer = setTimeout(() => controller.abort(), deps.timeoutMs || TURN_TIMEOUT_MS);
   let words = '';
   let outcome = null;
+  // What the turn said: the words of the ending call and all those written
+  // once a tool had answered — the step the SDK takes to close after the
+  // ending call included (the model often answers there) — never words
+  // before any tool answered ("let me read the data").
+  const said = [];
+  let pending = null;
+  let answered = false;
+  const settle = () => {
+    if (pending && (pending.afterTool || (ended && !pending.beforeRead))) said.push(pending.text);
+    pending = null;
+  };
   // The binary failed to start: a spawn error of the OS, not of the binary
   // (on Windows an antivirus holding the 260 MB file, or no room for one more
   // process while imports and builds run) — once more after a moment.
@@ -158,6 +172,14 @@ async function runTurnNow({ config, system, messages, tools, maxSteps, execute }
       if (m.type === 'assistant' && !m.parent_tool_use_id) {
         const text = ((m.message && m.message.content) || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n');
         if (text.trim()) words = text;
+        // A message of a call alone settles nothing: the SDK may send a step's
+        // words and its call as two messages.
+        // After the ending call too: on the SDK the model often answers in the
+        // step that closes, once it saw the proposal taken.
+        if (text.trim()) {
+          settle();
+          pending = { text: text.trim(), afterTool: answered };
+        }
       } else if (m.type === 'result') {
         outcome = m;
       }
@@ -187,7 +209,8 @@ async function runTurnNow({ config, system, messages, tools, maxSteps, execute }
   if (!outcome) throw new AiProviderError(502, 'Claude returned no answer');
   if (outcome.subtype === 'error_max_turns') return { ended: ended ? 'tool' : 'limit', text: words };
   if (outcome.subtype !== 'success' || outcome.is_error) throw new AiProviderError(502, reasonOf(outcome));
-  if (ended) return { ended: 'tool', text: words };
+  settle();
+  if (ended) return { ended: 'tool', text: said.join('\n\n') };
   const text = typeof outcome.result === 'string' && outcome.result.trim() ? outcome.result : words;
   return { ended: text.trim() ? 'words' : 'empty', text };
 }

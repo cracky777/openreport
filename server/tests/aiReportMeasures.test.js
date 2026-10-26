@@ -75,3 +75,24 @@ test('the label of a measure it made before defines that measure again, under it
   // Never made of itself.
   expect(validateMeasures([{ label: 'Nombre de contrats', kind: 'arithmetic', op: 'add', left: '_calc.nombre_de_contrats', right: 'm.stock_sum' }], made).errors[0]).toMatch(/itself/);
 });
+
+// Two rates set apart move by points: 79.9 % − 90.6 % is −10.7 points, not −10.7 % (recette logistique).
+test('the gap between two rates is in points; between two amounts, in their unit', () => {
+  const { measures } = validateMeasures([
+    { label: 'Taux S1', kind: 'arithmetic', op: 'percent', left: 'm.served_sum', right: 'm.stock_sum' },
+    { label: 'Taux S2', kind: 'arithmetic', op: 'percent', left: 'm.stock_sum', right: 'm.served_sum' },
+    { label: 'Écart des taux', kind: 'arithmetic', op: 'subtract', left: '_calc.taux_s1', right: '_calc.taux_s2' },
+    { label: 'Écart des stocks', kind: 'arithmetic', op: 'subtract', left: 'm.stock_sum', right: 'm.served_sum' },
+  ], ctx);
+  expect(measures[2].format.suffix).toBe(' pts');
+  expect(measures[3].format).toBeUndefined();
+});
+
+// Names in legends and headers are names: the assistant's asides in parentheses go (Jonathan).
+test('a name the assistant gives keeps no aside in parentheses', () => {
+  const { measures } = validateMeasures([{ label: "Chiffre d'affaires (chambres, hors extras)", kind: 'aggregate', aggregation: 'avg', from: 'm.served_sum' }], ctx);
+  expect(measures[0].label).toBe("Chiffre d'affaires");
+  const { plainName } = require('../utils/ai/plainName');
+  expect(plainName('Délai moyen (jours) [estimé]')).toBe('Délai moyen');
+  expect(plainName('(sans nom)')).toBe('(sans nom)');
+});

@@ -8,6 +8,7 @@ import {
 } from './comparePeriod';
 import { timePeriodFilter, timePeriodOf, comparableRange, buildTimeVariants } from './timeIntelligence';
 import { splitPeriodMeasures, shiftFilterContext } from './periodShift';
+import { chartN1Applies } from './chartN1';
 
 // Build the assembled query bodies + the resolved metadata needed by the
 // response handler for one widget. Pure function — no React, no axios,
@@ -243,11 +244,15 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
   // (comparableRange — year shift for calendar presets, preceding window
   // for rolling ones) INSTEAD of the generic year shift, which would be
   // wrong for e.g. "last 30 days".
-  const compareDateDim = widget.type === 'scorecard' ? (binding.compareDateDim || null) : null;
+  // A line or a bar with a comparison date gets the year before as series of
+  // its own (utils/chartN1.js): always fetched — with no date filter, each
+  // point's year before is still the row a year back on the axis.
+  const chartN1 = chartN1Applies(widget);
+  const compareDateDim = widget.type === 'scorecard' || chartN1 ? (binding.compareDateDim || null) : null;
   const dimsForN1 = effectiveModel?.dimensions;
   const timePeriod = timePeriodOf(binding);
-  const shouldFetchN1 = !!compareDateDim
-    && (!!timeFilter || hasShiftableFilterForN1(queryFilters, widgetFilters, dimsForN1));
+  const shouldFetchN1 = chartN1 || (!!compareDateDim
+    && (!!timeFilter || hasShiftableFilterForN1(queryFilters, widgetFilters, dimsForN1)));
   const n1Filters = shouldFetchN1 ? shiftFiltersForN1(queryFilters, dimsForN1) : null;
   let n1WidgetFilters = shouldFetchN1 ? shiftWidgetFiltersForN1(widgetFilters, dimsForN1) : null;
   if (shouldFetchN1 && timeFilter && timePeriod) {
@@ -361,7 +366,7 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
     dimensionNames: allDims,
     measureNames,
     measureAggOverrides: aggOverridesPayload,
-    limit: 1,
+    limit: chartN1 ? queryLimit : 1,
     filters: n1Filters,
     widgetFilters: sanitizeWidgetFilters(n1WidgetFilters),
     ...commonExtras,
@@ -401,7 +406,7 @@ export function buildWidgetQueryPayload(widget, wId, ctx) {
       targetFilters, mergedFilters, queryFilters,
       colorMeasure, compareDateDim, comboLineApplies,
       topN: { applies: topNApplies, value: topNValue, measure: topNMeasure },
-      n1: { shouldFetch: shouldFetchN1 },
+      n1: { shouldFetch: shouldFetchN1, series: chartN1 },
       periodGroups: periodSplit.groups,
       mainQueryId,
     },

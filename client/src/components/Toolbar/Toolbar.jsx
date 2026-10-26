@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { WIDGET_TYPES, BAR_SUB_TYPES, LINE_SUB_TYPES, COMBO_SUB_TYPES, TABLE_SUB_TYPES, GAUGE_SUB_TYPES, OBJECT_SUB_TYPES } from '../Widgets';
 
 // Widget types whose flyout just adds the base type with the chosen sub-type.
@@ -34,16 +34,21 @@ const _hs2 = { position: 'relative' };
 const _hs3 = { position: 'relative' };
 const _hs4 = { width: 1, height: 20, background: 'var(--border-default)' };
 const _hs5 = { position: 'relative' };
-const _hs6 = { flex: 1, minWidth: 0 };
+// Around the title: room the title leaves once it is whole (grow almost nil).
+const _hs6 = { flex: '0.001 1 0', minWidth: 0 };
+// The title gives way first so the toolbar stays on one row (asked by
+// Jonathan: Save went to a second row); a title too long for its room ends in
+// "…", whole on hover and while it is edited.
 const _hs7 = {
-          fontSize: 16, fontWeight: 600, border: '1px solid transparent', outline: 'none',
-          background: 'transparent', color: 'var(--text-primary)', minWidth: 180, maxWidth: 320,
+          fontSize: 14, fontWeight: 600, border: '1px solid transparent', outline: 'none',
+          background: 'transparent', color: 'var(--text-primary)', flex: '1 1 0', minWidth: 60, maxWidth: 320,
+          textOverflow: 'ellipsis', whiteSpace: 'nowrap', overflow: 'hidden',
           padding: '4px 8px', borderRadius: 6, textAlign: 'center',
           transition: 'background 0.12s, border-color 0.12s',
         };
 // Shares the first row with the back and undo groups instead of claiming one.
 const _hs7Compact = { ..._hs7, flex: 1, minWidth: 0, maxWidth: 'none', textAlign: 'left' };
-const _hs8 = { flex: 1 };
+const _hs8 = { flex: '0.001 1 0', minWidth: 0 };
 const _hs9 = {
         display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2,
         // Rows of the palette need a little air once they stack.
@@ -179,6 +184,8 @@ function paletteKeyOf(visual) {
 
 export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, onRebuildCache, cacheWarming = false, cacheWarmPct = 0, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions, onOpenReportFilters, reportFilterCount = 0, reportFilterBarVisible = false, aiEnabled = false, aiOpen = false, onToggleAi, visualsNonce = 0, onShowTour, selectedVisual }) {
   const navigate = useNavigate();
+  // Opened from the studio, Back returns to it, the report and its conversation there.
+  const backTo = useLocation().state?.back;
   // Wrapped, this toolbar was taking 233px of an 844px screen — more than a
   // quarter of the phone, most of it the widget palette you need once per
   // widget. Compact folds the palette away and drops the spacer that was
@@ -327,7 +334,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           <button
             aria-label="Back"
             title="Back"
-            onClick={() => navigate('/')}
+            onClick={() => navigate(typeof backTo === 'string' && backTo.startsWith('/studio/') ? backTo : '/')}
             aria-label="Back"
             style={utilityIconBtn}
             onMouseEnter={(e) => {
@@ -387,6 +394,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         value={reportTitle}
         onChange={(e) => onTitleChange(e.target.value)}
         style={compact ? _hs7Compact : _hs7}
+        title={reportTitle}
         onFocus={(e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
         onBlur={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
         placeholder="Report title"

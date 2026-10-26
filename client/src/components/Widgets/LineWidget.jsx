@@ -1,14 +1,14 @@
 import { useRef, memo, useMemo } from 'react';
 import { rawTextFor } from '../../utils/rawText';
 import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
-import { markPointOf } from '../../utils/highlight';
+import { markPointOf, legendWithHighlight } from '../../utils/highlight';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues, naturalOrder } from '../../utils/axisSort';
-import { calcLabelRotation, categoryLabelRoom, axisLineStyle } from '../../utils/chartHelpers';
+import { calcLabelRotation, categoryLabelRoom, axisLineStyle, axisUnitOf } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
-import { paletteOf, CHART_COLORS_BASIC as COLORS, hexToRgba } from '../../utils/chartPalette';
+import { paletteOf, CHART_COLORS_BASIC as COLORS, hexToRgba, seriesColor } from '../../utils/chartPalette';
 import { buildDataLabel } from '../../utils/chartLabels';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
@@ -70,7 +70,13 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
 
     const customColors = config?.legendColors || {};
     const palette = paletteOf(config, COLORS);
-    const getColor = (name) => customColors[name] || palette[getStableIdx(name) % palette.length];
+    // A year-before series (utils/chartN1.js) takes the color of the one it repeats, dashed.
+    const n1Of = data._n1Series || {};
+    // A comparison with the year before keeps its gaps (utils/chartN1.js): no point, not a zero.
+    const at = (list, i) => (data._gaps ? (list[i] ?? null) : (list[i] || 0));
+    // The year before has a color of its own (Jonathan: two curves in one
+    // color could not be told apart, the legend does not show the dashes); dashed too.
+    const getColor = (name) => customColors[name] || seriesColor(palette, getStableIdx(name));
 
     const series = [];
     let labels = [...data.labels];
@@ -155,7 +161,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
         ? labels.map((_, vi) => visibleSeries.reduce((t, sr) => t + (sr.values[vi] || 0), 0))
         : null;
       visibleSeries.forEach((s, i) => {
-        let values = sortedIndices.map((idx) => s.values[idx] || 0);
+        let values = sortedIndices.map((idx) => at(s.values, idx));
         if (subType === 'stackedArea100') {
           values = values.map((val, vi) => {
             const total = colTotals100[vi];
@@ -168,7 +174,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
           // Rounded through every point, never past it: no peak the data does not have.
           smoothMonotone: 'x',
           ...symbolOpts,
-          lineStyle: { color: getColor(s.name) },
+          lineStyle: { color: getColor(s.name), ...(n1Of[s.name] ? { type: 'dashed' } : {}) },
           itemStyle: { color: getColor(s.name) },
           areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15, color: getColor(s.name) } : undefined,
           stack: isStacked ? 'total' : undefined,
@@ -185,12 +191,12 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
       });
     } else if (!hasSeries) {
       series.push({
-        type: 'line', data: sortedIndices.map((i) => data.values[i] || 0), smooth: config?.smooth ?? true, smoothMonotone: 'x',
+        type: 'line', data: sortedIndices.map((i) => at(data.values, i)), smooth: config?.smooth ?? true, smoothMonotone: 'x',
         ...symbolOpts,
         lineStyle: { color: config?.color || '#5470c6' },
         itemStyle: { color: config?.color || '#5470c6' },
         areaStyle: isArea ? { opacity: isStacked ? 0.7 : 0.15 } : undefined,
-        markPoint: markPointOf(config, sortedIndices.map((i) => data.values[i] || 0), rawLabels, (v) => formatNumber(v, Object.values(data._measureFormats || {})[0])),
+        markPoint: markPointOf(config, sortedIndices.map((i) => at(data.values, i)), rawLabels, (v) => formatNumber(v, Object.values(data._measureFormats || {})[0])),
         labelLayout: { hideOverlap: true },
         label: { ...labelOpts, formatter: (p) => {
           if (hideZeros && (p.value == null || p.value === 0)) return '';
@@ -249,7 +255,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
                 || (Array.isArray(data._durationColumns) && data._durationColumns.length > 0)) {
               return formatDuration(val);
             }
-            const abbr = abbreviateNumber(val, valueAbbr);
+            const abbr = abbreviateNumber(val, valueAbbr, axisUnitOf(data._measureFormats));
             if (abbr != null) return abbr;
             const firstFmt = Object.values(data._measureFormats || {})[0];
             return firstFmt ? formatNumber(val, firstFmt) : val.toLocaleString();
@@ -280,7 +286,7 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
       }
     });
 
-    const legendItems = (allSeriesForLegend || []).map((s, i) => ({ name: s.name, color: getColor(s.name, i) }));
+    const legendItems = (allSeriesForLegend || []).map((s, i) => ({ name: s.name, color: getColor(s.name, i), dashed: !!n1Of[s.name] }));
     return { option: opt, legendItems, rawLabels };
   }, [config?.highlight, data, subType, showLabels, showLegend, legendPosition, hasData, config?.smooth, config?.color, isArea, isStacked, hideZeros, sortOrder, axisSort, groupBySort,
       showXAxis, showYAxis, gridLineStyle, gridLineWidth, gridLineColor, yAxisInterval, valueAbbr, showDataLabels, dataLabelContent,
@@ -291,6 +297,8 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
+  // What a highlight's color means (bars over a value…) has its entry, even on a chart with no legend.
+  const shownLegend = legendWithHighlight(legendItems, showLegend, config, (v) => formatNumber(v, Object.values(data?._measureFormats || {})[0]));
 
   // Click → cross-filter via dataIndex → raw label lookup. params.name is
   // the formatted display label (e.g. localised month name); we want the
@@ -317,17 +325,17 @@ export default memo(function LineWidget({ data, config, chartWidth, onDataClick,
 
   if (!hasData) return <WidgetEmptyState data={data} config={config} unboundHint="Select dimensions & measures to display a line chart" />;
 
-  const showHtmlLegend = showLegend && legendItems.length > 0;
+  const showHtmlLegend = shownLegend.length > 0;
   const flexDir = legendPosition === 'left' || legendPosition === 'right' ? 'row' : 'column';
 
   return (
     <div ref={rootRef} style={{ display: 'flex', flexDirection: flexDir, width: '100%', height: '100%' }}>
       {showHtmlLegend && (legendPosition === 'top' || legendPosition === 'left') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
+        <ChartLegend items={shownLegend} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
       <div ref={chartRef} style={_hs0} />
       {showHtmlLegend && (legendPosition === 'bottom' || legendPosition === 'right') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
+        <ChartLegend items={shownLegend} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
     </div>
   );

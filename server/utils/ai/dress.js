@@ -33,7 +33,8 @@ function dressWidget(widget, { effective, cardinality = {} }) {
   const set = (key, value) => { if (config[key] === undefined) config[key] = value; };
   const measures = b.selectedMeasures || [];
   const dims = b.selectedDimensions || [];
-  const series = (b.groupBy || []).length > 0 || measures.length > 1;
+  // The year before of a line or a bar is a series of its own (utils/chartN1.js on the client).
+  const series = (b.groupBy || []).length > 0 || measures.length > 1 || (!!b.compareDateDim && type !== 'scorecard' && type !== 'gauge');
 
   if (type === 'scorecard' && measures[0]) {
     // The card names the figure once: by its title when it has one, else by
@@ -58,6 +59,12 @@ function dressWidget(widget, { effective, cardinality = {} }) {
     if (c && !c.more && c.n <= MAX_LABELLED_BARS) set('showDataLabels', true);
   }
   if (type === 'treemap') { set('showDataLabels', true); set('dataLabelContent', 'name'); }
+  // A scatter of a few named items (agencies, products): each dot carries its
+  // name, else the reader cannot tell Grenoble from Annecy (credit recipe).
+  if (type === 'scatter' && dims[0]) {
+    const c = cardinality[dims[0]];
+    if (c && !c.more && c.n <= MAX_LABELLED_BARS) set('showDataLabels', true);
+  }
   if (type === 'filter') {
     // A dropdown sits in a strip; a list takes a chart's height.
     set('slicerStyle', 'dropdown');
@@ -92,7 +99,7 @@ function shapeOf(w) {
   if (w.type === 'filter') return c.slicerStyle || '';
   if (LEGEND_TYPES.has(w.type)) {
     const measures = [b.selectedMeasures, b.comboBarMeasures, b.comboLineMeasures].reduce((n, l) => n + (Array.isArray(l) ? l.length : 0), 0);
-    return measures > 1 || (b.groupBy || []).length > 0 ? 'series' : 'single';
+    return measures > 1 || (b.groupBy || []).length > 0 || b.compareDateDim ? 'series' : 'single';
   }
   return '';
 }
@@ -119,6 +126,7 @@ const alike = (w, s) => s && s.type === w.type && (w.type === 'filter' && !shape
 const HOUSE_KEYS = ['titleColor', 'titleFontFamily', 'titleFontSize', 'titleWeight', 'titleAlign', 'borderEnabled', 'borderColor', 'borderRadius', 'shadow', 'backgroundColor', 'gradientBg', 'transparentBg'];
 const BODY_FONT_KEYS = ['labelFontFamily', 'legendFontFamily', 'dataLabelFontFamily', 'xAxisLabelFontFamily', 'yAxisLabelFontFamily', 'slicerFontFamily'];
 const DECOR = new Set(['text', 'shape', 'image']);
+const SERIES = new Set(['bar', 'line', 'combo', 'scatter', 'pie', 'treemap']);
 
 function shared(values, of) {
   const counts = new Map();
@@ -135,6 +143,14 @@ function houseStyle(widget, siblings) {
     if (config[key] !== undefined) continue;
     const v = shared(visuals.map((s) => (s.config || {})[key]).filter((x) => x !== undefined), visuals.length);
     if (v !== undefined) config[key] = v;
+  }
+  // The series colors of the report: the palette most of its charts share
+  // (a visual from Let's Talk leaves Open Report's colors behind for them).
+  if (SERIES.has(widget.type) && config.palette === undefined) {
+    const charts = visuals.filter((s) => SERIES.has(s.type));
+    const palettes = charts.map((s) => (s.config || {}).palette).filter((p) => Array.isArray(p) && p.length);
+    const [best, n] = [...palettes.reduce((m, p) => m.set(JSON.stringify(p), (m.get(JSON.stringify(p)) || 0) + 1), new Map())].sort((a, b) => b[1] - a[1])[0] || [];
+    if (best && n * 3 >= charts.length * 2) config.palette = JSON.parse(best);
   }
   // The text font: the one the visuals' labels, axes and legends share.
   const fonts = visuals.map((s) => BODY_FONT_KEYS.map((k) => (s.config || {})[k]).find((x) => x));
@@ -214,6 +230,21 @@ function formatOverrides(widgets, effective) {
     if (Object.keys(chosen).length) Object.assign(patch, chosen, { chosen });
     if (Object.keys(patch).length) out[name] = patch;
   }
+  // A table keys its columns by the label it shows: a measure renamed here
+  // takes its column's look along (alignment, no wrap) — left under the old
+  // label, the renamed header wrapped letter by letter in a narrow table.
+  for (const w of widgets) {
+    const columns = w.config && w.config.tableConfig && w.config.tableConfig.columns;
+    if (!columns) continue;
+    for (const [name, patch] of Object.entries(out)) {
+      const m = patch.label && (effective.measures || []).find((x) => x.name === name);
+      const old = m && (m.label || m.name);
+      if (!old || old === patch.label || !columns[old]) continue;
+      const { displayName: _shown, ...look } = columns[old];
+      columns[patch.label] = { ...look, ...(columns[patch.label] || {}) };
+      delete columns[old];
+    }
+  }
   return out;
 }
 
@@ -245,13 +276,21 @@ function decimalsOf(m, measures, joins = [], seen = new Set()) {
  * user's dark theme does not land in light-theme blues. Only keys the
  * proposal left unset.
  */
-function colorWidgets(widgets, { theme, effective }) {
+// `base` / `harmony`: the colors to build on (Let's Talk: Open Report's, or
+// the user's theme — talkTheme.js). `recolor`: over the colors the widgets
+// already hold — the same answers drawn again after a change of theme.
+function colorWidgets(widgets, { theme, effective, base = DEFAULT_BASE, harmony = 'categorical', recolor = false }) {
   const pseudo = { theme: theme === 'dark' ? 'dark' : 'light', widgets: widgets.map((w, i) => ({ id: `n${i}`, type: w.type, config: w.config || {}, dataBinding: w.dataBinding || {} })) };
-  for (const op of colorOps('categorical', DEFAULT_BASE, pseudo, effective.dimensions || []) || []) {
+  for (const op of colorOps(harmony, base, pseudo, effective.dimensions || []) || []) {
     const w = widgets[Number(op.widgetId.slice(1))];
+    w.config = w.config || {};
     for (const [key, value] of Object.entries(op.set)) {
-      if (key === 'tableConfig') w.config.tableConfig = { ...value, ...(w.config.tableConfig || {}) };
-      else if (w.config[key] === undefined) w.config[key] = value;
+      if (key === 'tableConfig') {
+        const tc = w.config.tableConfig || {};
+        w.config.tableConfig = recolor
+          ? { ...tc, header: { ...(tc.header || {}), ...value.header }, rows: { ...(tc.rows || {}), ...value.rows } }
+          : { ...value, ...tc };
+      } else if (recolor || w.config[key] === undefined) w.config[key] = value;
     }
   }
   return widgets;

@@ -25,6 +25,8 @@ const MEASURES = [
   { name: 'items.qty_sum', table: 'items', column: 'qty', aggregation: 'sum', label: 'Qty' },
   // The forms the chat writes (utils/ai/reportMeasures.js): rebuilt from the totals of their two parts.
   { name: '_calc.gap', table: '', column: '', aggregation: 'custom', expression: '(${items.amt_sum}) - (${items.qty_sum})', label: 'Gap' },
+  // The form it writes now: a side with no rows counted as 0.
+  { name: '_calc.gap0', table: '', column: '', aggregation: 'custom', expression: 'COALESCE((${items.amt_sum}), 0) - COALESCE((${items.qty_sum}), 0)', label: 'Gap0' },
   { name: '_calc.rate', table: '', column: '', aggregation: 'custom', expression: '100.0 * (${items.amt_sum}) / NULLIF((${items.qty_sum}), 0)', label: 'Rate' },
   // A product is not: Σ(a × b) ≠ Σa × Σb. Nor an expression over an average.
   { name: '_calc.prod', table: '', column: '', aggregation: 'custom', expression: '(${items.amt_sum}) * (${items.qty_sum})', label: 'Prod' },
@@ -129,10 +131,11 @@ test('a difference or a ratio of two additive measures names its parts; a produc
   const ds = seedDatasource({ userId: owner, dbType: 'postgres' });
   const model = seedModel({ userId: owner, datasourceId: ds, measures: MEASURES });
   const res = await request(app).post(`/api/models/${model}/query`).set('x-test-user', owner)
-    .send({ dimensionNames: ['items.label'], measureNames: ['_calc.gap', '_calc.rate', '_calc.prod', '_calc.of_avg'], withTotalComponents: true, sqlOnly: true });
+    .send({ dimensionNames: ['items.label'], measureNames: ['_calc.gap', '_calc.gap0', '_calc.rate', '_calc.prod', '_calc.of_avg'], withTotalComponents: true, sqlOnly: true });
   expect(res.status).toBe(200);
   expect(res.body.totalComponents).toEqual({
     Gap: { op: 'subtract', left: 'tc_items_amt_sum', right: 'tc_items_qty_sum' },
+    Gap0: { op: 'subtract', left: 'tc_items_amt_sum', right: 'tc_items_qty_sum' },
     Rate: { op: 'percent', left: 'tc_items_amt_sum', right: 'tc_items_qty_sum' },
   });
   // One hidden column per part, shared by the two measures.

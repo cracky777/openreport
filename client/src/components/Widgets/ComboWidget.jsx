@@ -7,7 +7,7 @@ import { sortDateLabels, formatDateLabel } from '../../utils/dateHelpers';
 import { compareAxisValues, naturalOrder } from '../../utils/axisSort';
 import { calcLabelRotation, categoryLabelRoom, axisLineStyle, alignDualAxes } from '../../utils/chartHelpers';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
-import { paletteOf, CHART_COLORS as COLORS } from '../../utils/chartPalette';
+import { paletteOf, CHART_COLORS as COLORS, seriesColor } from '../../utils/chartPalette';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
@@ -16,9 +16,16 @@ import WidgetEmptyState from './WidgetEmptyState';
 import { resolveZoneSorts } from '../../utils/chartSorts';
 import { buildValueGradient } from '../../utils/chartGradient';
 import { echartsPosition, placementOf, autoPlacements, inkOn, measureText } from '../../utils/barLabels';
-import { barHighlight } from '../../utils/highlight';
+import { barHighlight, legendWithHighlight } from '../../utils/highlight';
 
 const _hs0 = { flex: 1, minHeight: 0, minWidth: 0 };
+
+// A tick with the unit of its axis's measures but not their decimals: round
+// ticks read "100,0 %" (controller recipe).
+function axisTick(v, fmt) {
+  const plain = formatNumber(Math.abs(v) < 1e-9 ? 0 : v);
+  return `${fmt.prefix || ''}${plain}${fmt.suffix || ''}`;
+}
 
 export default memo(function ComboWidget({ data, config, chartWidth, chartHeight, onDataClick, highlightValue }) {
   const { hiddenSeries, toggleSeries } = useHiddenSeries();
@@ -94,8 +101,13 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     const byStable = (a, b) => getStableIdx(a) - getStableIdx(b);
     const drawOrder = [...[...allBarNames].sort(byStable), ...[...allLineNames].sort(byStable)];
     const colorMap = {};
-    drawOrder.forEach((n, i) => { colorMap[n] = customColors[n] || palette[i % palette.length]; });
-    const getColor = (name) => colorMap[name] || customColors[name] || palette[getStableIdx(name) % palette.length];
+    drawOrder.forEach((n, i) => { colorMap[n] = customColors[n] || seriesColor(palette, i); });
+    // The year before (utils/chartN1.js) has a color of its own, its line dashed:
+    // in its base's color the legend could not tell the two apart.
+    const n1Of = data._n1Series || {};
+    const getColor = (name) => colorMap[name] || customColors[name] || seriesColor(palette, getStableIdx(name));
+    // A comparison with the year before keeps its gaps: no point, not a zero.
+    const at = (list, i) => (data._gaps ? (list[i] ?? null) : (list[i] || 0));
 
     let labels = [...data.labels];
     let sortedIndices = labels.map((_, i) => i);
@@ -178,7 +190,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
         const marks = barHighlight(config, sortedIndices.map((idx) => s.values[idx] || 0), rawLabels);
         const nzCounts = nonZeroCounts;
         const nzIndices = seriesNonZeroIndex[i];
-        const sortedValues = sortedIndices.map((idx) => s.values[idx] || 0);
+        const sortedValues = sortedIndices.map((idx) => at(s.values, idx));
 
         series.push({
           type: 'custom',
@@ -192,7 +204,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
             const v1 = api.value(1);
             const catIdx = earlyIsHoriz ? v1 : v0;
             const value = earlyIsHoriz ? v0 : v1;
-            if (value === 0) return null;
+            if (value === 0 || value == null || Number.isNaN(value)) return null;
             const nzCount = nzCounts[catIdx];
             const nzIdx = nzIndices[catIdx];
             if (nzIdx < 0) return null;
@@ -242,7 +254,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
       barSeries.forEach((s) => {
         const color = getColor(s.name);
         allLegendItems.push({ name: s.name, color });
-        const vals = sortedIndices.map((idx) => s.values[idx] || 0);
+        const vals = sortedIndices.map((idx) => at(s.values, idx));
         const marks = barHighlight(config, vals, rawLabels);
         const labelled = showDataLabels || (marks.any && config?.highlight?.label === true);
         const fmt = data._measureFormats?.[s.name];
@@ -307,12 +319,12 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
       series.push({
         type: 'line',
         name: s.name,
-        data: sortedIndices.map((idx) => s.values[idx] || 0),
+        data: sortedIndices.map((idx) => at(s.values, idx)),
         [lineValueAxisProp]: showSecondaryAxis ? 1 : 0,
         smooth: smoothLine,
         // Rounded through every point, never past it: no peak the data does not have.
         smoothMonotone: 'x',
-        lineStyle: { color, width: 2 },
+        lineStyle: { color, width: 2, ...(n1Of[s.name] ? { type: 'dashed' } : {}) },
         itemStyle: { color },
         // A label hangs on its symbol: no markers = an invisible one.
         symbol: lineSymbol === 'none' ? 'circle' : lineSymbol,
@@ -381,6 +393,26 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
         ({ max: rightMax, interval: rightStep } = aligned.right);
       }
     }
+    // Bars below zero (a change against the year before): the bar axis goes down
+    // as many steps as it needs, the line axis the same number, so both keep
+    // their grid lines together and the lines' zero stays where it was.
+    let barMin = 0;
+    for (const s of (data.barSeries || [])) for (const v of s.values) if (v != null && v < barMin) barMin = v;
+    let leftMin;
+    let rightMin;
+    if (barMin < 0 && leftStep && rightStep) {
+      const down = Math.ceil((-barMin * 1.1) / leftStep);
+      leftMin = Number((-down * leftStep).toPrecision(12));
+      if (showSecondaryAxis) rightMin = Number((-down * rightStep).toPrecision(12));
+    }
+    // A bar axis whose every series reads in % prints its labels in that format.
+    const barFormats = (data.barSeries || []).map((s) => data._measureFormats?.[s.name]);
+    const barAxisFormat = barFormats.length && barFormats.every((f) => f?.suffix && f.suffix === barFormats[0].suffix) ? barFormats[0] : null;
+    // The same for the line axis: a rate on the right read "0 … 100" with no sign it was in %.
+    const lineFormats = (data.lineSeries || []).map((s) => data._measureFormats?.[s.name]);
+    const lineAxisFormat = lineFormats.length && lineFormats.every((f) => f?.suffix && f.suffix === lineFormats[0].suffix) ? lineFormats[0] : null;
+    // Lines that never go below zero print nothing under it: those steps are only there to match the bars'.
+    const lineMinValue = Math.min(0, ...(data.lineSeries || []).flatMap((s) => s.values.filter((v) => v != null)));
     const yAxisFontSize = config?.yAxisLabelFontSize ?? 11;
     const yAxisColor = config?.yAxisLabelColor || '#64748b';
     const secYAxisFontSize = config?.secondaryYAxisLabelFontSize ?? 11;
@@ -410,18 +442,20 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     const yAxes = [{
       type: 'value', show: showYAxis, ...axisLineStyle(config?.yAxisLineColor),
       max: leftMax,
+      min: leftMin,
       interval: leftStep,
       ...yNameCfg,
-      axisLabel: { fontSize: yAxisFontSize, color: yAxisColor, fontFamily: yAxisFontFamily, formatter: (v) => isBarAxisDur ? formatDuration(v) : (abbreviateNumber(v, valueAbbr) ?? formatNumber(v)) },
+      axisLabel: { fontSize: yAxisFontSize, color: yAxisColor, fontFamily: yAxisFontFamily, formatter: (v) => isBarAxisDur ? formatDuration(v) : barAxisFormat ? axisTick(v, barAxisFormat) : (abbreviateNumber(v, valueAbbr) ?? formatNumber(v)) },
       splitLine: { lineStyle: { type: gridLineStyle, width: gridLineWidth, color: gridLineColor } },
     }];
     if (showSecondaryAxis) {
       yAxes.push({
         type: 'value', show: showYAxis, position: 'right', ...axisLineStyle(config?.secondaryYAxisLineColor),
         max: rightMax,
+        min: rightMin,
         interval: rightStep,
         ...secYNameCfg,
-        axisLabel: { fontSize: secYAxisFontSize, color: secYAxisColor, fontFamily: secYAxisFontFamily, formatter: (v) => isLineAxisDur ? formatDuration(v) : (abbreviateNumber(v, valueAbbr) ?? formatNumber(v)) },
+        axisLabel: { fontSize: secYAxisFontSize, color: secYAxisColor, fontFamily: secYAxisFontFamily, formatter: (v) => (rightMin !== undefined && v < 0 && lineMinValue >= 0 ? '' : isLineAxisDur ? formatDuration(v) : lineAxisFormat ? axisTick(v, lineAxisFormat) : (abbreviateNumber(v, valueAbbr) ?? formatNumber(v))) },
         splitLine: { show: false },
       });
     }
@@ -539,7 +573,7 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
     };
 
     // Build legend items using stable color map
-    const legendItems = [...allBarNames, ...allLineNames].map((name) => ({ name, color: colorMap[name] }));
+    const legendItems = [...allBarNames.map((name) => ({ name, color: getColor(name) })), ...allLineNames.map((name) => ({ name, color: getColor(name), dashed: !!n1Of[name] }))];
 
     return { option: opt, legendItems, rawLabels };
   }, [data, hasData, isStacked, showXAxis, showYAxis, showDataLabels, dataLabelFontSize, dataLabelColor, config?.highlight, config?.dataLabelPosition, w, h, dataLabelFontFamily,
@@ -554,6 +588,8 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
+  // What a highlight's color means (bars over a value…) has its entry, even on a chart with no legend.
+  const shownLegend = legendWithHighlight(legendItems, showLegend, config, (v) => formatNumber(v, Object.values(data?._measureFormats || {})[0]));
 
   // Click → cross-filter via dataIndex → raw label lookup.
   const onDataClickRef = useRef(onDataClick);
@@ -582,12 +618,12 @@ export default memo(function ComboWidget({ data, config, chartWidth, chartHeight
 
   return (
     <div ref={rootRef} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: isLR ? 'row' : 'column' }}>
-      {showLegend && legendItems.length > 0 && (legendPosition === 'top' || legendPosition === 'left') && (
-        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
+      {shownLegend.length > 0 && (legendPosition === 'top' || legendPosition === 'left') && (
+        <ChartLegend items={shownLegend} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
       <div ref={chartRef} style={_hs0} />
-      {showLegend && legendItems.length > 0 && (legendPosition === 'bottom' || legendPosition === 'right') && (
-        <ChartLegend items={legendItems} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
+      {shownLegend.length > 0 && (legendPosition === 'bottom' || legendPosition === 'right') && (
+        <ChartLegend items={shownLegend} position={legendPosition} hiddenSeries={hiddenSeries} onToggle={toggleSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
     </div>
   );

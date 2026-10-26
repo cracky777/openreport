@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useParams, useNavigate, useBlocker } from 'react-router-dom';
-import { TbArrowLeft, TbPencil, TbExternalLink, TbHelp, TbArrowBackUp, TbArrowForwardUp, TbDeviceFloppy } from 'react-icons/tb';
+import { useParams, useNavigate, useBlocker, useSearchParams, useLocation } from 'react-router-dom';
+import { TbArrowLeft, TbPencil, TbExternalLink, TbHelp, TbArrowBackUp, TbArrowForwardUp, TbDeviceFloppy, TbLayoutGrid } from 'react-icons/tb';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import Viewer from './Viewer';
 import AiPanel from '../components/AiPanel/AiPanel';
 import StartConversation from '../components/AiPanel/StartConversation';
+import TalkConversation from '../components/Talk/TalkConversation';
 import Modal from '../components/Modal/Modal';
 import { WIDGET_TYPES } from '../components/Widgets';
 import { useTheme } from '../hooks/useTheme';
@@ -22,7 +23,9 @@ import { useIsCompact } from '../hooks/useMediaQuery';
 import { takeHandOver } from '../utils/assistantHandoff';
 import { acceptFiles } from '../utils/importFiles';
 import { homeOf } from '../utils/uiMode';
-import ModeSwitch from '../components/AppShell/ModeSwitch';
+import AssistantStrip from '../components/Ask/AssistantStrip';
+import { useModeSlide } from '../hooks/useModeSlide';
+import { dropStudioThread } from '../utils/studioThread';
 import WorkspacePicker from '../components/AppShell/WorkspacePicker';
 import UserMenu from '../components/AppShell/UserMenu';
 import { TopbarSwitcher } from '../cloud';
@@ -39,7 +42,8 @@ import { TopbarSwitcher } from '../cloud';
 // report yet): the panel then holds the conversation that leads to a report
 // (StartConversation — questions with choices, files dropped anywhere on the
 // screen) and the right side waits for it. Once the report exists the studio
-// goes on at `/studio/:id`, nothing moving.
+// goes on at `/studio/:id`, nothing moving. Let's Talk (`/chat?talk=<model>`)
+// is a conversation with no report at all: it takes the whole screen.
 const PAGE = { width: 1140, height: 800 };
 const shellStyle = (over) => ({
   display: 'flex', height: '100vh', background: 'var(--bg-app)', color: 'var(--text-primary)',
@@ -116,10 +120,12 @@ const inField = (el) => !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTA
 // report exists). Keyed by AiStudio below, so a new report is a new studio.
 function Studio({ id }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
+  const slideTo = useModeSlide();
   const { themes: availableThemes } = useTheme();
   const compact = useIsCompact();
-  const { selectedWs, currentWsRole } = useGraph();
+  const { selectedWs, setSelectedWs, currentWsRole, scopedModels, models: allModels, workspaces, otherWorkspaces, personalWorkspace, loading: graphLoading } = useGraph();
   const { canEdit, canEditOrg } = usePermissions(selectedWs, user, currentWsRole);
   // The working copy: { title, layout, widgets, settings, workspace_id, model_id, … }, one step per card applied.
   const history = useHistory(null);
@@ -142,11 +148,35 @@ function Studio({ id }) {
   const [savedTick, setSavedTick] = useState(0);
   // Handed over by the conversation before the report: the request typed there.
   const [initialRequest, setInitialRequest] = useState('');
+  // A report on a database just connected (StartConversation): the model assistant goes first.
+  const [initialModelRequest, setInitialModelRequest] = useState('');
   // Dropped anywhere on the screen before a report exists, listed in the panel.
   const [files, setFiles] = useState([]);
   const [fileOver, setFileOver] = useState(false);
   const draft = useDiscardDraftOnExit(id);
   const starting = !id;
+  // Let's Talk: the model in the address (a reload finds the conversation),
+  // the question typed before picking it asked at once.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const talkId = starting && (scopedModels || []).some((m) => m.id === searchParams.get('talk')) ? searchParams.get('talk') : null;
+  // A conversation asked for on a model of another workspace (a link, a
+  // reload after switching): that workspace opens, rather than the Chat home
+  // with no word of why. Only one the user is in; otherwise the home, as before.
+  // Once per link: a workspace the user then picks by hand stays picked.
+  const askedTalk = starting ? searchParams.get('talk') : null;
+  const followedTalk = useRef(null);
+  useEffect(() => {
+    if (!askedTalk || talkId || graphLoading || followedTalk.current === askedTalk) return;
+    followedTalk.current = askedTalk;
+    const target = (allModels || []).find((m) => m.id === askedTalk);
+    const ws = target && target.workspace_id;
+    // My Reports, the user's own workspace, is picked as "none".
+    if (ws && personalWorkspace && ws === personalWorkspace.id) { if (selectedWs) setSelectedWs(null); return; }
+    if (ws && ws !== selectedWs && [...(workspaces || []), ...(otherWorkspaces || [])].some((w) => w.id === ws)) setSelectedWs(ws);
+  }, [askedTalk, talkId, graphLoading, allModels, workspaces, otherWorkspaces, personalWorkspace, selectedWs, setSelectedWs]);
+  const [talkFirst, setTalkFirst] = useState('');
+  const talkOn = (mid, question = '') => { setTalkFirst(question); setSearchParams({ talk: mid }); };
+  const leaveTalk = () => { setTalkFirst(''); setSearchParams({}); };
 
   useEffect(() => {
     if (!id) return undefined;
@@ -158,6 +188,7 @@ function Studio({ id }) {
         if (stale) return;
         draft.markLoaded(r);
         setInitialRequest(takeHandOver('report', id) || '');
+        setInitialModelRequest(takeHandOver('reportModel', id) || '');
         const loaded = { title: r.title, layout: r.layout || [], widgets: r.widgets || {}, settings: r.settings || {}, workspace_id: r.workspace_id, model_id: r.model_id, can_edit: r.can_edit, live_mode: r.live_mode };
         savedRef.current = snapshot(loaded);
         // A draft's title is the app's (files, a card), never typed: Save frees it.
@@ -253,9 +284,12 @@ function Studio({ id }) {
   useEffect(() => {
     if (!dirty) return undefined;
     const handler = (e) => { e.preventDefault(); e.returnValue = ''; };
+    // Reloaded or closed anyway: the changes are gone, the thread goes with them.
+    const gone = () => { if (id) dropStudioThread(id); };
     window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [dirty]);
+    window.addEventListener('pagehide', gone);
+    return () => { window.removeEventListener('beforeunload', handler); window.removeEventListener('pagehide', gone); };
+  }, [dirty, id]);
   const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname);
   const saveAndLeave = async () => { if (await save()) blocker.proceed?.(); else blocker.reset?.(); };
 
@@ -379,7 +413,7 @@ function Studio({ id }) {
   };
   const applyProposal = useCallback(async (proposal) => {
     const onPage = ['widgets', 'design', 'reportChanges'].includes(proposal.kind);
-    const shotOptions = () => ({ mask: aiStatus?.dataSharing !== 'schema+cache', nav: navNodeRef.current });
+    const shotOptions = () => ({ mask: !['schema+cache', 'schema+results'].includes(aiStatus?.dataSharing), nav: navNodeRef.current });
     // Every page in small, then back to the page under review.
     const withSheet = async (images, backTo) => {
       const count = pagesOf(docRef.current || {}).length;
@@ -425,7 +459,7 @@ function Studio({ id }) {
 
   // Files dropped anywhere on the screen, before a report exists.
   const draggingFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
-  const dropZone = starting && canEdit ? {
+  const dropZone = starting && canEdit && !talkId ? {
     onDragOver: (e) => { if (!draggingFiles(e)) return; e.preventDefault(); setFileOver(true); },
     onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFileOver(false); },
     onDrop: (e) => { if (!draggingFiles(e)) return; e.preventDefault(); setFileOver(false); setFiles((prev) => acceptFiles(prev, e.dataTransfer.files)); },
@@ -434,14 +468,18 @@ function Studio({ id }) {
   if (error) return <main style={shellStyle(false)}><div style={emptyStyle}>{error}</div></main>;
   if (!aiStatus || (!starting && !doc)) return <main style={shellStyle(false)}><div style={emptyStyle}>Loading…</div></main>;
   const aiAvailable = aiStatus.enabled || aiStatus.reason === 'setup';
-  const home = homeOf(user);
+  // Opened from a conversation of Let's Talk: Back returns to it (TalkConversation keeps where the reader was).
+  const fromTalk = typeof location.state?.back === 'string' && location.state.back.startsWith('/chat?talk=') ? location.state.back : null;
+  const home = fromTalk || homeOf(user);
 
   return (
     <main style={shellStyle(fileOver)} {...dropZone}>
-      {starting ? (
+      {/* Build sits to the left of Chat: this bar slides it back. */}
+      {!compact && <AssistantStrip side="left" label="Build" title="Back to Build: data sources, models and the report editor" icon={<TbLayoutGrid size={14} color="var(--accent-primary)" />} onOpen={() => slideTo('build')} />}
+      {talkId ? null : starting ? (
         <AiPanel reportId={null} model={NO_MODEL} widgets={{}} settings={{}} status={aiStatus} onStatusChange={refreshAiStatus}
           getPageContext={noPage} onApplyProposal={noProposal} studio>
-          <StartConversation files={files} onFiles={setFiles} aiStatus={aiStatus} />
+          <StartConversation files={files} onFiles={setFiles} aiStatus={aiStatus} onTalk={talkOn} />
         </AiPanel>
       ) : aiAvailable && doc.model_id ? (
         <AiPanel
@@ -456,18 +494,22 @@ function Studio({ id }) {
           onUndo={undo}
           studio
           initialRequest={initialRequest}
+          initialModelRequest={initialModelRequest}
           onModelChanged={reloadModel}
           modelId={doc.model_id}
           modelEditable={model?.access === 'edit' || model?.access === 'manage'}
+          reportEmpty={!pages.some((p) => (p.layout || []).length)}
           onClose={() => navigate(home)}
         />
       ) : null}
       <div style={rightStyle}>
         <div style={barStyle}>
           {!starting && (
-            <button type="button" style={btn} onClick={() => navigate(home)} title="Back"><TbArrowLeft size={14} /> {home === '/chat' ? 'Chat' : 'Reports'}</button>
+            <button type="button" style={btn} onClick={() => navigate(home)} title="Back"><TbArrowLeft size={14} /> {fromTalk ? "Let's Talk" : home === '/chat' ? 'Chat' : 'Reports'}</button>
           )}
-          <ModeSwitch mode={home === '/chat' ? 'chat' : 'build'} compact={compact} />
+          {compact && (
+            <button type="button" style={quietBtn} onClick={() => slideTo('build')} title="Back to Build" aria-label="Build"><TbLayoutGrid size={15} /></button>
+          )}
           {starting ? (
             <>
               <WorkspacePicker canCreate={canEditOrg} />
@@ -489,7 +531,7 @@ function Studio({ id }) {
               )}
               <button type="button" style={btn} onClick={() => navigate(`/view/${id}`)} title="Open the report as readers see it"><TbExternalLink size={14} /> View</button>
               {doc.can_edit !== false && (
-                <button type="button" style={btn} onClick={() => navigate(`/edit/${id}`)} title="Continue by hand in the editor"><TbPencil size={14} /> Edit</button>
+                <button type="button" style={btn} onClick={() => navigate(`/edit/${id}`, { state: { back: `/studio/${id}` } })} title="Continue by hand in the editor"><TbPencil size={14} /> Edit</button>
               )}
             </>
           )}
@@ -500,7 +542,9 @@ function Studio({ id }) {
           <UserMenu compact={compact} where={starting ? 'chat' : 'studio'} />
         </div>
         <div style={viewerWrap}>
-          {starting ? null : pages.some((p) => (p.layout || []).length) ? (
+          {talkId ? (
+            <TalkConversation key={talkId} modelId={talkId} firstQuestion={talkFirst} onModelChange={(mid) => talkOn(mid)} onBack={leaveTalk} />
+          ) : starting ? null : pages.some((p) => (p.layout || []).length) ? (
             <Viewer reportId={id} embedded version={version} workingCopy={workingCopy} onPageChange={setPageIdx} showPage={showPage} pageRef={pageNodeRef} navRef={navNodeRef} onLayoutEdit={canEdit ? editLayout : null} />
           ) : (
             <div style={emptyStyle}>
@@ -518,7 +562,7 @@ function Studio({ id }) {
           <p style={leaveText}>The assistant's changes are not saved on this report yet. Save them before leaving?</p>
           <div style={leaveActions}>
             <button type="button" style={btn} onClick={() => blocker.reset?.()} disabled={saving}>Cancel</button>
-            <button type="button" style={btn} onClick={() => blocker.proceed?.()} disabled={saving}>Leave without saving</button>
+            <button type="button" style={btn} onClick={() => { dropStudioThread(id); blocker.proceed?.(); }} disabled={saving}>Leave without saving</button>
             <button type="button" style={primaryBtn} onClick={saveAndLeave} disabled={saving}>{saving ? 'Saving…' : 'Save and leave'}</button>
           </div>
         </Modal>

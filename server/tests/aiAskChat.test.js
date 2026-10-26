@@ -111,6 +111,22 @@ describe('POST /api/ai/models/:id/chat', () => {
     expect(system).not.toMatch(/^Report:|^Page:|Widgets already on the page|Themes/m);
   });
 
+  // Let's Talk: the same tools, answered in words first — a visual when it says it better.
+  test('talk: words first, a visual only when it helps; the panel stays terse', async () => {
+    providers.chat.mockResolvedValueOnce(say('ok')).mockResolvedValueOnce(say('ok'));
+    await chat(owner, { ...ask('Who sells most?'), talk: true });
+    await chat(owner);
+    const [talked, asked] = providers.chat.mock.calls.map((c) => c[0].system);
+    expect(talked).toMatch(/This is a conversation/);
+    expect(talked).toMatch(/Four short sentences at most/);
+    // What matters to read stands out (AssistantText draws **bold**); the panel stays plain.
+    expect(talked).toMatch(/put in \*\*bold\*\* what the reader must take away/);
+    expect(asked).not.toMatch(/\*\*bold\*\*/);
+    expect(talked).not.toMatch(/two short sentences at most/);
+    expect(asked).not.toMatch(/This is a conversation/);
+    expect(asked).toMatch(/two short sentences at most/);
+  });
+
   test('the toolset: widgets without a layout, the cache, and nothing that needs a page', async () => {
     providers.chat.mockResolvedValueOnce(say('ok'));
     await chat(owner);
@@ -118,7 +134,7 @@ describe('POST /api/ai/models/:id/chat', () => {
     // read_help comes with the user guide (help.md), when there is one.
     expect(tools.map((t) => t.name).filter((n) => n !== 'read_help')).toEqual(['query_cached_data', 'propose_widgets', 'propose_report', 'propose_action', 'ask_user']);
     const item = tools[1].parameters.properties.widgets.items;
-    expect(Object.keys(item.properties)).toEqual(['type', 'subType', 'title', 'fieldNames', 'fieldDecimals', 'answers', 'topN', 'bottomN', 'rankBy', 'filters', 'timePeriod', 'drill', 'sort', 'limit', 'binding', 'rationale']);
+    expect(Object.keys(item.properties)).toEqual(['type', 'subType', 'title', 'fieldNames', 'fieldDecimals', 'answers', 'topN', 'bottomN', 'rankBy', 'filters', 'timePeriod', 'drill', 'sort', 'limit', 'binding', 'rationale', 'dataLabels', 'highlight']);
   });
 
   test('schema-only sharing offers no data tool', async () => {
@@ -163,6 +179,37 @@ describe('POST /api/ai/models/:id/chat', () => {
     const [proposal] = res.body.proposals;
     expect(proposal.widgets.map((w) => w.type)).toEqual(['bar', 'scorecard']);
     expect(proposal.widgets[0].layout).not.toEqual({ x: 900, y: 700, w: 100, h: 50 });
+  });
+
+  // Let's Talk creates the measures its answer needs: compiled, with their
+  // closed arguments for the route that adds the visual to a report.
+  test('a measure of the year before, defined with the visual that uses it', async () => {
+    const measures = [{ label: 'Amount N-1', kind: 'previous_year', from: 'items.amt_sum', date: 'items.day' }];
+    providers.chat.mockResolvedValueOnce(call('propose_widgets', { measures, widgets: [widget('bar', 'Amount vs N-1', { selectedDimensions: ['items.label'], selectedMeasures: ['items.amt_sum', '_calc.amount_n_1'] })] }));
+    const [proposal] = (await chat(owner, { ...ask('Amount against last year'), talk: true })).body.proposals;
+    expect(proposal.measures[0]).toMatchObject({ name: '_calc.amount_n_1', periodShift: { dim: 'items.day', unit: 'year', n: -1 } });
+    expect(proposal.measureArgs).toEqual(measures);
+    expect(proposal.widgets[0].dataBinding.selectedMeasures).toEqual(['items.amt_sum', '_calc.amount_n_1']);
+  });
+
+  // The validator's notes are written to the assistant ("your reading
+  // says…"): kept for an author applying a card, never shown in Let's Talk.
+  test('talk: what the server left out is not printed in the answer', async () => {
+    const half = call('propose_widgets', { widgets: [widget('bar', 'Amount by label'), widget('bar', 'Bad', { selectedDimensions: ['items.nope'], selectedMeasures: ['items.amt_sum'] })] });
+    providers.chat.mockResolvedValueOnce(half).mockResolvedValueOnce(half);
+    const talked = await chat(owner, { ...ask('Amount by label'), talk: true });
+    expect(talked.body.proposals[0].widgets).toHaveLength(1);
+    expect(talked.body.reply).not.toMatch(/Left out|Check before applying/);
+    providers.chat.mockResolvedValueOnce(half).mockResolvedValueOnce(half);
+    expect((await chat(owner, ask('Amount by label'))).body.reply).toMatch(/Left out/);
+  });
+
+  // "Put the bar over 2 million in green": the conditional color of a chart is
+  // its highlight, carried by the visual — Let's Talk has no design tool.
+  test('a visual may come with what stands out, over a value the user named', async () => {
+    providers.chat.mockResolvedValueOnce(call('propose_widgets', { widgets: [{ ...widget('bar', 'Gap by label'), highlight: { mode: 'over', threshold: 2000000, color: '#16a34a', script: 'x' } }] }));
+    const [proposal] = (await chat(owner, { ...ask('the bar over 2 million in green'), talk: true })).body.proposals;
+    expect(proposal.widgets[0].config.highlight).toEqual({ enabled: true, mode: 'over', threshold: 2000000, color: '#16a34a' });
   });
 
   test('a lone visual gets the size of a lone visual', async () => {

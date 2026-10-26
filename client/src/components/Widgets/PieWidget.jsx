@@ -1,13 +1,13 @@
 import { useRef, memo, useMemo } from 'react';
 import { rawTextFor } from '../../utils/rawText';
 import formatNumber, { abbreviateNumber, formatShare } from '../../utils/formatNumber';
-import { barHighlight } from '../../utils/highlight';
+import { barHighlight, legendWithHighlight } from '../../utils/highlight';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import ChartLegend from './ChartLegend';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { applyTopN } from '../../utils/topNGroup';
 import { compareAxisValues } from '../../utils/axisSort';
-import { paletteOf, CHART_COLORS_BASIC as COLORS, OTHERS_COLOR, hexToRgba } from '../../utils/chartPalette';
+import { paletteOf, CHART_COLORS_BASIC as COLORS, OTHERS_COLOR, hexToRgba, seriesColor } from '../../utils/chartPalette';
 import { useHiddenSeries } from '../../hooks/useHiddenSeries';
 import { useChartFonts } from '../../hooks/useChartFonts';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
@@ -45,7 +45,7 @@ export default memo(function PieWidget({ data, config, onDataClick, highlightVal
     const fmt = Object.values(data._measureFormats || {})[0];
     const customColors = config?.legendColors || {};
     const palette = paletteOf(config, COLORS);
-    const getColor = (name) => customColors[name] || palette[getStableIdx(name) % palette.length];
+    const getColor = (name) => customColors[name] || seriesColor(palette, getStableIdx(name));
 
     const gradient = config?.valueGradient;
     const useGradient = gradient?.enabled === true;
@@ -166,6 +166,8 @@ export default memo(function PieWidget({ data, config, onDataClick, highlightVal
 
   const option = memoResult?.option;
   const legendItems = memoResult?.legendItems || [];
+  // What a highlight's color means (bars over a value…) has its entry, even on a chart with no legend.
+  const shownLegend = legendWithHighlight(legendItems, showLegend, config, (v) => formatNumber(v, Object.values(data?._measureFormats || {})[0]));
 
   // Click → cross-filter on the dim name. Skip the synthetic "Others"
   // slice — it has no real dim value behind it.
@@ -188,17 +190,17 @@ export default memo(function PieWidget({ data, config, onDataClick, highlightVal
 
   if (!hasData) return <WidgetEmptyState data={data} config={config} unboundHint="Select dimensions & measures to display a pie chart" />;
 
-  const showHtmlLegend = showLegend && legendItems.length > 0;
+  const showHtmlLegend = shownLegend.length > 0;
   const flexDir = legendPosition === 'left' || legendPosition === 'right' ? 'row' : 'column';
 
   return (
     <div style={{ display: 'flex', flexDirection: flexDir, width: '100%', height: '100%' }}>
       {showHtmlLegend && (legendPosition === 'top' || legendPosition === 'left') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
+        <ChartLegend items={shownLegend} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
       <div ref={chartRef} style={_hs0} />
       {showHtmlLegend && (legendPosition === 'bottom' || legendPosition === 'right') && (
-        <ChartLegend items={legendItems} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
+        <ChartLegend items={shownLegend} position={legendPosition} onToggle={toggleSeries} hiddenSeries={hiddenSeries} fontFamily={config?.legendFontFamily} color={config?.legendTextColor} />
       )}
     </div>
   );

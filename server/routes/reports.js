@@ -15,6 +15,7 @@ const { appendWidgets } = require('../utils/reportAppend');
 const { buildEffectiveModel } = require('../utils/ai/effectiveModel');
 const { formatOverrides } = require('../utils/ai/dress');
 const { validateWidgetsProposal } = require('../utils/ai/validateProposal');
+const { validateMeasures } = require('../utils/ai/reportMeasures');
 const { layoutNew } = require('../utils/ai/arrangeLayout');
 const { shapingArgsOf } = require('../utils/ai/widgetShaping');
 const { libraryOf } = require('../utils/ai/visualLibrary');
@@ -798,6 +799,23 @@ function withFormats(settings, widgets, effective) {
   return { ...settings, measureOverrides: merged };
 }
 
+// The names a table's columns were given in the conversation (`fieldNames`,
+// written as tableConfig.columns[label].displayName): asked again by field,
+// for the validator to check against what the visual shows.
+function fieldNamesOf(w, effective) {
+  const columns = w && w.config && w.config.tableConfig && w.config.tableConfig.columns;
+  if (!columns || typeof columns !== 'object') return undefined;
+  const b = (w && w.dataBinding) || {};
+  const shown = [...(b.selectedDimensions || []), ...(b.groupBy || []), ...(b.columnDimensions || []), ...(b.selectedMeasures || [])];
+  const named = {};
+  for (const name of shown) {
+    const f = effective.dimensions.find((x) => x.name === name) || effective.measures.find((x) => x.name === name);
+    const given = f && columns[f.label || f.name] && columns[f.label || f.name].displayName;
+    if (typeof given === 'string' && given) named[name] = given;
+  }
+  return Object.keys(named).length ? named : undefined;
+}
+
 router.post('/:id/widgets', authFor('read'), (req, res) => {
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
   if (!report || !canAccessReport(report, req.user, req)) return res.status(404).json({ error: 'Report not found' });
@@ -807,7 +825,12 @@ router.post('/:id/widgets', authFor('read'), (req, res) => {
 
   const sent = req.body && Array.isArray(req.body.widgets) ? req.body.widgets : [];
   const settings = JSON.parse(report.settings);
-  const effective = buildEffectiveModel(parseModel(model), settings);
+  const base = buildEffectiveModel(parseModel(model), settings);
+  // The measures the visuals were defined with in a conversation (Let's Talk),
+  // as the assistant's closed arguments: compiled here again, kept on the report.
+  const measured = Array.isArray(req.body && req.body.measures) ? validateMeasures(req.body.measures, { effective: base, cardinality: {} }) : { measures: [], errors: [] };
+  if (measured.errors.length) return res.status(400).json({ error: `These measures cannot be added to this report: ${measured.errors.join('; ')}` });
+  const effective = measured.measures.length ? { ...base, measures: [...base.measures.filter((m) => !measured.measures.some((x) => x.name === m.name)), ...measured.measures] } : base;
   const page = { width: Number(settings.pageWidth) || 1140, height: Number(settings.pageHeight) || 800 };
   const asProposed = sent.map((w) => ({
     type: w && w.type,
@@ -816,29 +839,51 @@ router.post('/:id/widgets', authFor('read'), (req, res) => {
     ...shapingArgsOf(w),
     visualId: w && w.config && w.config.visualId,
     binding: w && w.dataBinding,
+    fieldNames: fieldNamesOf(w, effective),
+    // What the answer marked (a bar over a value, in green) stays marked.
+    highlight: w && w.config && w.config.highlight,
   }));
+  // Dressed like the report it joins (dress.matchNeighbours / houseStyle):
+  // its frame, fonts and colors, from the page it goes to, or the whole
+  // report when that page is new or empty — never the colors it had in Let's Talk.
+  const pages = Array.isArray(settings.pages) ? settings.pages : [];
+  const target = pages.find((p) => p && p.id === req.body.pageId) || pages[0];
+  const widgetsOf = (p) => Object.values((p && p.widgets) || {}).map((w) => ({ type: w.type, config: w.config || {}, dataBinding: w.dataBinding || {} }));
+  const onPage = widgetsOf(target);
+  const siblings = onPage.length ? onPage : pages.flatMap(widgetsOf);
   // A custom visual must be in THIS report's workspace library.
-  const checked = validateWidgetsProposal({ widgets: asProposed }, { effective, page, library: libraryOf(report.workspace_id) });
+  const checked = validateWidgetsProposal({ widgets: asProposed }, { effective, page, library: libraryOf(report.workspace_id), siblings });
   if (checked.errors.length || checked.widgets.length !== sent.length) {
     return res.status(400).json({ error: `These visuals cannot be added to this report: ${checked.errors.join('; ') || 'too many at once'}` });
   }
   const widgets = layoutNew(checked.widgets, page, effective);
 
   const pageId = typeof req.body.pageId === 'string' ? req.body.pageId : undefined;
+  // Where the page has no room left (utils/reportAppend.js): laid out again,
+  // or — crowded — the user's choice: a new page, or this one pressed.
+  const mode = ['newPage', 'compress'].includes(req.body.mode) ? req.body.mode : 'auto';
   const added = db.transaction(() => {
     // Read again inside the transaction: what is appended to must be what is
     // written over.
     const fresh = db.prepare('SELECT layout, widgets, settings FROM reports WHERE id = ?').get(report.id);
+    const freshSettings = JSON.parse(fresh.settings);
+    const kept = measured.measures.length
+      ? { ...freshSettings, extraMeasures: [...(freshSettings.extraMeasures || []).filter((m) => !measured.measures.some((x) => x.name === m.name)), ...measured.measures] }
+      : freshSettings;
     const next = appendWidgets(
-      { settings: withFormats(JSON.parse(fresh.settings), widgets, effective), layout: JSON.parse(fresh.layout), widgets: JSON.parse(fresh.widgets) },
-      widgets, { pageId }, uuidv4,
+      { settings: withFormats(kept, widgets, effective), layout: JSON.parse(fresh.layout), widgets: JSON.parse(fresh.widgets) },
+      widgets, { pageId, mode }, uuidv4,
     );
+    if (next.crowded) return next;
     snapshotReportVersion(report.id, req.user.id);
     db.prepare("UPDATE reports SET layout = ?, widgets = ?, settings = ?, updated_at = datetime('now') WHERE id = ?")
       .run(JSON.stringify(next.layout), JSON.stringify(next.widgets), JSON.stringify(next.settings), report.id);
     return next;
   })();
-  res.json({ reportId: report.id, pageId: added.pageId, widgetIds: added.newIds, newPage: added.newPage });
+  if (added.crowded) {
+    return res.status(409).json({ crowded: true, count: added.count, error: `This page already holds ${added.count} visuals: one more would leave them too small to read. A new page would read better.` });
+  }
+  res.json({ reportId: report.id, pageId: added.pageId, widgetIds: added.newIds, newPage: added.newPage, reflowed: added.reflowed });
 });
 
 // Duplicate report — creates a copy owned by the caller.

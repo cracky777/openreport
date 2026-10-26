@@ -9,6 +9,9 @@ const REF = '\\$\\{([^}]+)\\}';
 const FORMS = [
   [new RegExp(`^\\(${REF}\\) \\+ \\(${REF}\\)$`), 'add'],
   [new RegExp(`^\\(${REF}\\) - \\(${REF}\\)$`), 'subtract'],
+  // The same, a side with no rows counted as 0 (reportMeasures.js).
+  [new RegExp(`^COALESCE\\(\\(${REF}\\), 0\\) \\+ COALESCE\\(\\(${REF}\\), 0\\)$`), 'add'],
+  [new RegExp(`^COALESCE\\(\\(${REF}\\), 0\\) - COALESCE\\(\\(${REF}\\), 0\\)$`), 'subtract'],
   [new RegExp(`^\\(${REF}\\) / NULLIF\\(\\(${REF}\\), 0\\)$`), 'divide'],
   [new RegExp(`^100\\.0 \\* \\(${REF}\\) / NULLIF\\(\\(${REF}\\), 0\\)$`), 'percent'],
 ];

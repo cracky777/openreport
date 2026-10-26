@@ -8,7 +8,8 @@ const tools = require('./tools');
 const { buildSystemPrompt } = require('./prompt');
 const { toPromptSchema, businessLines } = require('./effectiveModel');
 const { getCoverage } = require('./cacheCoverage');
-const { queryCached } = require('./cachedQuery');
+const { queryCached, queryLive } = require('./cachedQuery');
+const { sharesCachedData } = require('../settingsHelper');
 const { dimensionCardinality } = require('./cardinality');
 const { helpTopics, readHelp } = require('./help');
 const { validateWidgetsProposal, validateDesignProposal, validateVisualProposal } = require('./validateProposal');
@@ -16,8 +17,10 @@ const { layoutNew, pageHeightOf, COMPOSITIONS } = require('./arrangeLayout');
 const { validateActionProposal, ACTIONS_FOR } = require('./actions');
 const { guidedLines, validateQuestion, validateUnderstood } = require('./guidedPath');
 const { formatOverrides, colorWidgets } = require('./dress');
+const { swatchesOf, talkColorsOf } = require('./talkTheme');
 const { validateReportChanges } = require('./reportChanges');
 const { validateMeasures } = require('./reportMeasures');
+const { validateRemember } = require('./remember');
 const { layoutIssues } = require('./layoutIssues');
 const { checkSync, reportDecisions, syncConfirmed, syncQuestionError, filterDim } = require('./filterSync');
 
@@ -101,9 +104,14 @@ function sameEverywhere(raw, pages) {
 // Each proposal tool → its validator, returning what goes to the client
 // (`payload`, null when nothing survived) and what was refused (`errors`).
 const PROPOSERS = {
-  propose_widgets(args, ctx) {
+  propose_widgets(args, givenCtx) {
+    // A conversation with no report (Ask, Let's Talk) defines the measures its
+    // visuals need here. Their closed arguments travel too: the route that adds
+    // a visual to a report compiles them again, never trusting a compiled one.
+    const measured = givenCtx.mode === 'ask' && Array.isArray(args && args.measures) ? validateMeasures(args.measures, givenCtx) : { measures: [], errors: [] };
+    const ctx = measured.measures.length ? { ...givenCtx, effective: { ...givenCtx.effective, measures: [...givenCtx.effective.measures, ...measured.measures] } } : givenCtx;
     const checked = validateWidgetsProposal(args, ctx);
-    const { errors } = checked;
+    const errors = [...measured.errors, ...checked.errors];
     // What it understood travels on the card for the user to read and
     // correct; a wrong id there is dropped, never a reason to withhold visuals.
     const read = validateUnderstood(args, ctx);
@@ -112,11 +120,16 @@ const PROPOSERS = {
     const laid = ctx.mode === 'ask' ? layoutNew(checked.widgets, ctx.page, ctx.effective) : checked.widgets;
     // Colored where the assistant composes the page (Ask, the studio); in the
     // editor a new visual follows the report's theme like its neighbours.
-    const widgets = ctx.mode === 'ask' || ctx.allowReport ? colorWidgets(laid, { theme: ctx.pageContext.theme, effective: ctx.effective }) : laid;
+    // Let's Talk draws with Open Report's colors or the user's theme (talkTheme.js).
+    const widgets = ctx.mode === 'ask' || ctx.allowReport ? colorWidgets(laid, { theme: ctx.pageContext.theme, effective: ctx.effective, ...(ctx.colors || {}) }) : laid;
     // Formats for the measures the model leaves bare, merged into the
     // report's settings by whoever applies the card (dress.js).
     const measureOverrides = formatOverrides(widgets, ctx.effective);
-    return { payload: widgets.length ? { kind: 'widgets', widgets, measureOverrides, pageHeight: pageHeightOf(widgets, ctx.page), ...(read.understood ? { understood: read.understood } : {}) } : null, errors, warnings };
+    const measures = measured.measures.length ? { measures: measured.measures, ...(measured.errors.length ? {} : { measureArgs: args.measures }) } : {};
+    // What the user taught about the fields (remember.js): a strip on the card, applied by their click.
+    const learned = givenCtx.mode === 'ask' && Array.isArray(args && args.remember) ? validateRemember(args.remember, givenCtx.effective) : { items: [], errors: [] };
+    warnings.push(...learned.errors);
+    return { payload: widgets.length ? { kind: 'widgets', widgets, measureOverrides, pageHeight: pageHeightOf(widgets, ctx.page), ...measures, ...(read.understood ? { understood: read.understood } : {}), ...(learned.items.length ? { remember: learned.items } : {}), ...colorsTag(ctx) } : null, errors, warnings };
   },
   ask_user(args, ctx) {
     const { payload, errors } = validateQuestion(args, ctx);
@@ -148,7 +161,7 @@ const PROPOSERS = {
       const filters = checked.widgets.map((w, k) => ({ dim: filterDim(w), sync: ((p.widgets || [])[checked.accepted[k]] || {}).sync })).filter((f) => f.dim)
         .map((f) => (typeof f.sync === 'boolean' ? f : { dim: f.dim }));
       filtered.push({ token: pages.length, name, filters });
-      pages.push({ name, widgets: colorWidgets(layoutNew(checked.widgets, ctx.page, ctx.effective, composition), { theme: ctx.pageContext.theme, effective: ctx.effective }) });
+      pages.push({ name, widgets: colorWidgets(layoutNew(checked.widgets, ctx.page, ctx.effective, composition), { theme: ctx.pageContext.theme, effective: ctx.effective, ...(ctx.colors || {}) }) });
     });
     // Filters on one field on several pages: synced or not, as the user said (filterSync.js).
     const sync = checkSync(filtered.map((p) => ({ ...p, filters: p.filters.map((f) => ({ dim: f.dim, fresh: true })) })), reportDecisions(filtered), {
@@ -161,7 +174,7 @@ const PROPOSERS = {
     // The tallest page sets the report's page height.
     const pageHeight = Math.max(ctx.page.height, ...pages.map((p) => pageHeightOf(p.widgets, ctx.page)));
     return {
-      payload: pages.length ? { kind: 'report', title, pages, measures: measured.measures, measureOverrides, pageHeight, ...(sync.filterSync.length ? { filterSync: sync.filterSync } : {}), ...(read.understood ? { understood: read.understood } : {}) } : null,
+      payload: pages.length ? { kind: 'report', title, pages, measures: measured.measures, measureOverrides, pageHeight, ...colorsTag(ctx), ...(sync.filterSync.length ? { filterSync: sync.filterSync } : {}), ...(read.understood ? { understood: read.understood } : {}) } : null,
       errors,
       warnings,
       notes: sync.notes,
@@ -189,11 +202,22 @@ const PROPOSERS = {
   },
   propose_action(args, ctx) {
     const allowed = ACTIONS_FOR[ctx.mode === 'ask' ? 'ask' : 'editor'];
+    // What the user taught about the fields, with no visual to go with it.
+    if (args && args.action === 'remember_fields' && allowed.includes('remember_fields')) {
+      const { items, errors } = validateRemember(args.remember, ctx.effective);
+      if (!items.length) return { payload: null, errors: errors.length ? errors : ['remember_fields needs `remember`: the fields and what the user said of them'] };
+      const summary = typeof args.summary === 'string' ? args.summary.slice(0, 200) : '';
+      return { payload: { kind: 'action', action: 'remember_fields', summary, remember: items, modelId: ctx.modelId }, errors };
+    }
     const { action, errors } = validateActionProposal(args, { canEditModel: ctx.canEditModel, fileModel: ctx.fileModel, sourceLabel: ctx.sourceLabel, allowed });
     if (!action) return { payload: null, errors };
     // The model to open, or to build the report on, is the one of the
     // conversation, never a name the model chose.
     if (action.action === 'open_model_assistant' || action.action === 'create_report' || action.action === 'add_file_to_model') return { payload: { kind: 'action', ...action, modelId: ctx.modelId }, errors };
+    // The card shows the colors it would give, on the surface the user reads on.
+    if (action.action === 'talk_colors') {
+      return { payload: { kind: 'action', ...action, swatches: swatchesOf(action.theme || talkColorsOf(null), ctx.pageContext.theme) }, errors };
+    }
     // Which report it is for: the one open in the editor; in Ask, the user
     // picks it on the card (`null` here).
     return { payload: { kind: 'action', ...action, reportId: ctx.reportId || null }, errors };
@@ -302,7 +326,11 @@ function withRealIds(payload, realId) {
  * @param {boolean} allowReport    the studio: a whole report may be proposed on an open report
  * @param {boolean} requireReport  the user PRESSED "Build the full report": only a report (or a question on the way to it) may end the turn
  */
-async function runChat({ config, user, orgId, report, effective, messages: given, pageContext: realPage, mode = 'report', canWriteVisuals = false, canEditModel = false, fileModel = false, sourceLabel = 'its data source', library = [], allowReport = false, requireReport = false, review = false, sheet = false, assets = [] }, deps = {}) {
+// What an answer of Let's Talk was colored with: the browser draws it again
+// when the user's theme or the app's (dark / light) changes.
+const colorsTag = (ctx) => (ctx.colors ? { colors: { ...ctx.colors, theme: ctx.pageContext.theme === 'dark' ? 'dark' : 'light' } } : {});
+
+async function runChat({ config, user, orgId, report, effective, messages: given, pageContext: realPage, mode = 'report', canWriteVisuals = false, canEditModel = false, fileModel = false, sourceLabel = 'its data source', library = [], allowReport = false, requireReport = false, review = false, sheet = false, assets = [], talk = false, colors = null }, deps = {}) {
   // A review turn: the last message carries the page before and after an
   // applied change; its words are ours, so the question is always the same.
   // One picture: the page the change created, with no before to compare.
@@ -320,14 +348,18 @@ async function runChat({ config, user, orgId, report, effective, messages: given
   const reviewText = `${review === 'report' ? REVIEW_NEW_REPORT : pagePictures === 1 ? REVIEW_NEW_PAGE : REVIEW_PROMPT}${sheet ? SHEET_NOTE : ''}${review === true ? STEADY_NOTE : ''}${polished ? enoughNote(inRow) : ''}${flaws}${critiqueNote(said)}${logoColorsNote(realPage, assets)}`;
   const messages = review ? [...given.slice(0, -1), { ...lastTurn, text: reviewText }] : given;
   const chat = deps.chat || providers.chat;
-  const canQueryData = config.dataSharing === 'schema+cache';
+  const canQueryData = sharesCachedData(config.dataSharing);
+  // Let's Talk may read the source as the user when the admin allows it
+  // (settingsHelper 'schema+results'): its questions are ad hoc, a cache only
+  // holds what reports group by.
+  const readsLive = talk && mode === 'ask' && config.dataSharing === 'schema+results';
   const hasDate = effective.dimensions.some((d) => /date|time/i.test(String(d.type || '')));
   // Two modes: `ask`, a conversation about a model with no page (the
   // Assistant panel), and `report`, beside an open report — one conversation
   // for its visuals AND its look: the request says which tool answers it,
   // the author no longer picks a mode first (asked by Jonathan).
   const ask = mode === 'ask';
-  const proposalTools = [tools.widgetsToolFor({ library, withLayout: !ask, hasDate, assets, decor: !ask })];
+  const proposalTools = [tools.widgetsToolFor({ library, withLayout: !ask, hasDate, assets, decor: !ask, measures: ask })];
   if (!ask) proposalTools.push(tools.PROPOSE_DESIGN_CHANGES);
   if (canWriteVisuals) proposalTools.push(tools.PROPOSE_CUSTOM_VISUAL);
   // A whole report is made where there is none yet (the Assistant panel), or
@@ -345,7 +377,7 @@ async function runChat({ config, user, orgId, report, effective, messages: given
   const topics = helpTopics();
   const helpTool = topics.length ? tools.helpToolFor(topics) : null;
   const toolset = [
-    ...(canQueryData ? [tools.QUERY_CACHED_DATA] : []),
+    ...(readsLive ? [tools.QUERY_DATA] : canQueryData ? [tools.QUERY_CACHED_DATA] : []),
     ...proposalTools,
     ...(helpTool ? [helpTool] : []),
   ];
@@ -369,6 +401,7 @@ async function runChat({ config, user, orgId, report, effective, messages: given
     pageContext,
     mode,
     canQueryData,
+    readsLive,
     canWriteVisuals,
     canEditModel,
     fileModel,
@@ -380,6 +413,7 @@ async function runChat({ config, user, orgId, report, effective, messages: given
     guidedLines: guidedLines(effective),
     studio,
     assets,
+    talk: talk && mode === 'ask',
   });
   const page = { width: pageContext.pageWidth, height: pageContext.pageHeight };
 
@@ -406,8 +440,20 @@ async function runChat({ config, user, orgId, report, effective, messages: given
       result = { error: call.name === 'propose_report' ? `${call.argsError}. Call propose_report again with fewer pages or fewer widgets per page — not propose_widgets.` : call.argsError };
     } else if (call.name === 'read_help' && helpTool) {
       result = readHelp(call.args && call.args.topics);
-    } else if (call.name === 'query_cached_data' && canQueryData) {
-      result = await queryCached({ user, orgId, report, effective, args: call.args }, deps);
+    } else if ((call.name === 'query_cached_data' && canQueryData && !readsLive) || (call.name === 'query_data' && readsLive)) {
+      // The figures an answer defines are read before they are drawn:
+      // compiled here like those of propose_widgets, never the model's SQL.
+      const defined = readsLive && Array.isArray(call.args && call.args.define) ? validateMeasures(call.args.define, { effective, cardinality }) : null;
+      if (defined && defined.errors.length) {
+        result = { error: defined.errors.join('; ') };
+      } else {
+        const readModel = defined && defined.measures.length
+          ? { ...effective, measures: [...effective.measures.filter((m) => !defined.measures.some((x) => x.name === m.name)), ...defined.measures] }
+          : effective;
+        result = readsLive
+          ? await (deps.queryLive || queryLive)({ user, orgId, report, effective: readModel, args: call.args, extraMeasures: defined ? defined.measures : [] }, deps)
+          : await queryCached({ user, orgId, report, effective, args: call.args }, deps);
+      }
       if (result.miss) result = { ...result, note: NOT_CACHED };
       // Only what came back: a read that returned rows passed buildBody, so
       // its names are fields of the model.
@@ -418,6 +464,7 @@ async function runChat({ config, user, orgId, report, effective, messages: given
           ...(Array.isArray(call.args.filters) && call.args.filters.length ? { filters: call.args.filters } : {}),
           rows: result.rows.slice(0, MAX_KEPT_ROWS),
           truncated: result.truncated || result.rows.length > MAX_KEPT_ROWS,
+          ...(readsLive ? { live: true } : {}),
         });
       }
     } else if (otherMode.has(call.name)) {
@@ -441,7 +488,7 @@ async function runChat({ config, user, orgId, report, effective, messages: given
       if (call.name === 'propose_report' && wholeReport) reportTried = true;
       const confirmed = syncConfirmed(messages, call.args);
       const checked = PROPOSERS[call.name](call.args, {
-        effective, page, pageContext, canWriteVisuals, canEditModel, fileModel, sourceLabel, mode, library, cardinality, allowReport, review: studio && review, assets, reportId: report.id, modelId: report.model_id,
+        effective, page, pageContext, canWriteVisuals, canEditModel, fileModel, sourceLabel, mode, library, cardinality, allowReport, review: studio && review, assets, reportId: report.id, modelId: report.model_id, colors,
         requireReport, filterSyncConfirmed: confirmed,
         ...(call.name === 'propose_design_changes' ? designReading(call.args) : widgetReading(call.args, effective, messages)),
       });
@@ -478,8 +525,10 @@ async function runChat({ config, user, orgId, report, effective, messages: given
   const turn = await providers.runTurn({ config, system, messages, tools: toolset, maxSteps: MAX_ITERATIONS, execute, onWords }, { ...deps, chat });
   if (proposal) {
     // Left out = refused and dropped. Check = kept, but worth a look before applying.
+    // Not in Let's Talk: nothing is applied there, and these lines are written
+    // to the assistant ("your reading says…"), not to whoever asked.
     const toCheck = [...(proposal.warnings || []), ...(proposal.notes || [])];
-    const notes = [
+    const notes = talk && mode === 'ask' ? '' : [
       proposal.errors.length ? `\n\nLeft out: ${proposal.errors.join('; ')}` : '',
       toCheck.length ? `\n\nCheck before applying: ${toCheck.join('; ')}` : '',
     ].join('');

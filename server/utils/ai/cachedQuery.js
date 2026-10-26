@@ -12,6 +12,8 @@ const { reportExtras } = require('../rollupPlanning');
 
 const MAX_ROWS = 200;
 const DEFAULT_ROWS = 50;
+// A read from the source (queryLive): the rows a visual of Let's Talk shows, no more.
+const MAX_LIVE_ROWS = 50;
 const MAX_CELL_CHARS = 200;
 const MAX_FILTER_VALUES = 50;
 const SCALAR_OPS = new Set(['eq', 'neq', 'gt', 'gte', 'lt', 'lte']);
@@ -25,7 +27,7 @@ function cleanValue(v) {
 
 // Names are looked up in the effective model and nothing else: an unknown
 // name is an error handed back to the model, never a string passed along.
-function buildBody({ report, effective, args }) {
+function buildBody({ report, effective, args, live = false, extraMeasures = [] }) {
   const a = args && typeof args === 'object' ? args : {};
   const dims = Array.isArray(a.dimensions) ? a.dimensions : [];
   const measures = Array.isArray(a.measures) ? a.measures : [];
@@ -44,6 +46,14 @@ function buildBody({ report, effective, args }) {
   const filters = Array.isArray(a.filters) ? a.filters : [];
   if (filters.length > 5) return { error: 'Too many filters: at most 5' };
   for (const f of filters) {
+    // A read from the source may also keep the rows whose figure passes a
+    // comparison ("below the minimum"): a HAVING, as a visual's measure filter.
+    if (live && f && measureNames.has(f.field) && SCALAR_OPS.has(f.op)) {
+      const v = (Array.isArray(f.values) ? f.values : []).map(cleanValue)[0];
+      if (typeof v !== 'number') return { error: `A filter on the measure ${f.field} compares it to a number` };
+      widgetFilters.push({ field: f.field, isMeasure: true, op: f.op, value: v, values: [] });
+      continue;
+    }
     if (!f || !dimNames.has(f.field)) return { error: `Unknown filter field: ${String(f && f.field).slice(0, 80)}` };
     const values = (Array.isArray(f.values) ? f.values : []).map(cleanValue);
     if (values.length === 0 || values.length > MAX_FILTER_VALUES || values.includes(undefined)) {
@@ -54,7 +64,14 @@ function buildBody({ report, effective, args }) {
     else return { error: `Unsupported filter operator: ${String(f.op).slice(0, 20)}` };
   }
 
-  const limit = Math.min(Math.max(1, Math.round(Number(a.limit)) || DEFAULT_ROWS), MAX_ROWS);
+  const limit = Math.min(Math.max(1, Math.round(Number(a.limit)) || DEFAULT_ROWS), live ? MAX_LIVE_ROWS : MAX_ROWS);
+  // The rows that matter first, when there are more than a read holds: the
+  // largest or smallest by a measure (the visual's top / bottom N).
+  const rank = live && a.rank && typeof a.rank === 'object' ? a.rank : null;
+  if (rank) {
+    if (!measureNames.has(rank.by) || !measures.includes(rank.by)) return { error: 'rank.by must be one of the measures read' };
+    widgetFilters.push({ field: rank.by, isMeasure: true, op: rank.order === 'asc' ? 'bottom_n' : 'top_n', value: limit, values: [] });
+  }
   return {
     body: {
       dimensionNames: dims,
@@ -68,8 +85,13 @@ function buildBody({ report, effective, args }) {
       // model's arguments, which could otherwise name someone else's report
       // and load its persisted extras.
       ...(report.id ? { reportId: report.id } : {}),
-      cacheOnly: true,
+      // `live` only from queryLive, which only the agent calls, only when the
+      // admin's sharing level allows it — never from the model's arguments.
+      ...(live ? {} : { cacheOnly: true }),
       ...reportExtras(report.settings),
+      // Compiled by reportMeasures.validateMeasures from closed arguments
+      // (queryLive's caller), after the report's own.
+      ...(live && extraMeasures.length ? { extraMeasures: [...(reportExtras(report.settings).extraMeasures || []), ...extraMeasures] } : {}),
     },
   };
 }
@@ -125,4 +147,32 @@ async function queryCached({ user, orgId, report, effective, args }, deps = {}) 
   return { rows, truncated: all.length >= built.body.limit };
 }
 
-module.exports = { queryCached, buildBody, fireQuery: defaultFireQuery, MAX_ROWS };
+/**
+ * The same read, from the source, as the user: what the visuals of Let's Talk
+ * show them anyway (their rights and RLS are /query's), 50 rows at most.
+ * Offered only at the 'schema+results' sharing level (settingsHelper).
+ * @returns {Promise<{rows: object[], truncated: boolean} | {error: string}>}
+ */
+async function queryLive({ user, orgId, report, effective, args, extraMeasures = [] }, deps = {}) {
+  const built = buildBody({ report, effective, args, live: true, extraMeasures });
+  if (built.error) return { error: built.error };
+  const fireQuery = deps.fireQuery || defaultFireQuery;
+  let json;
+  try {
+    json = await fireQuery({ user, orgId, modelId: report.model_id, body: built.body });
+  } catch {
+    // Never the source's own message: it can name tables and columns.
+    return { error: 'The data could not be read' };
+  }
+  // Only the rows go on: `sql` names physical tables and `_rls` carries the
+  // user's e-mail and allowed keys.
+  const all = Array.isArray(json && json.rows) ? json.rows : [];
+  const rows = all.slice(0, built.body.limit).map((r) => {
+    const out = {};
+    for (const [k, v] of Object.entries(r)) out[k] = truncateCell(v);
+    return out;
+  });
+  return { rows, truncated: all.length >= built.body.limit };
+}
+
+module.exports = { queryCached, queryLive, buildBody, fireQuery: defaultFireQuery, MAX_ROWS };

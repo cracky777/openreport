@@ -86,12 +86,12 @@ const PROPOSE_WIDGETS = {
           type: 'object',
           properties: {
             type: { type: 'string', enum: [...Object.keys(BINDING_KEYS), ...DECOR_TYPES], description: 'A data visual, or the page\'s dressing: text (a title band, a section label), shape (a band or a thin line behind the visuals), image (a logo the user added) — answers "decor", no binding' },
-            subType: { type: 'string', description: 'bar: grouped|stacked|stacked100 · line: line|area|stackedArea|stackedArea100 · combo: stackedCombo|clusteredCombo · gauge: arc|column · pie: pie|donut|rose|funnel (funnel: stages that lose volume, largest first)' },
+            subType: { type: 'string', description: 'bar: grouped|stacked|stacked100 · line: line|area|stackedArea|stackedArea100 · combo: stackedCombo|clusteredCombo (stackedCombo piles the bar measures into one bar: only parts of one total, never two separate figures such as costs and revenue) · gauge: arc|column · pie: pie|donut|rose|funnel (funnel: stages that lose volume, largest first)' },
             title: { type: 'string' },
             fieldNames: {
               type: 'object',
               additionalProperties: { type: 'string' },
-              description: 'A name in the user\'s language for each field the visual shows under a raw name (qte_commandee, entrepot, sale_price) — keyed by the field name: a table\'s column header, a measure\'s name in legends and everywhere in the report. Fields with a readable label: leave them out.',
+              description: 'A name in the user\'s language for each field the visual shows under a raw name (qte_commandee, entrepot, sale_price) or a label that lost its accents to a file header ("Delai moyen reel", "Taux a l heure" → "Délai moyen réel", "Taux à l’heure"), or a label in another language than the user\'s (Revenue, Month beside French names: one chart, one language), or a label that no longer says what the visual shows (« Objectif CA mensuel » summed over a quarter is the quarter\'s target: « Objectif CA ») — keyed by the field name: a table\'s column header, a measure\'s name in legends and everywhere in the report. Fields with a readable label: leave them out. A name is short and plain: no parentheses, no explanation beside it.',
             },
             fieldDecimals: {
               type: 'object',
@@ -140,7 +140,8 @@ const PROPOSE_WIDGETS = {
                 comboBarMeasures: names,
                 comboLineMeasures: names,
                 scatterMeasures: { type: 'object', properties: { x: { type: 'string' }, y: { type: 'string' }, size: { type: 'string' } } },
-                compareDateDim: { type: 'string', description: 'scorecard: date dimension for the previous-period comparison' },
+                compareDateDim: { type: 'string', description: 'A date dimension: the same figures one year earlier. scorecard: the number comes with its change. line, bar, combo (no groupBy): the year before is drawn as a series of its own beside each point — the month of the year before next to this month — for "2025 vs 2024", "compared with last year"; on a combo the lines get theirs dashed, the bars theirs paler or, with compareMode, the variance / change' },
+                compareMode: { type: 'string', enum: ['series', 'difference', 'change'], description: 'line, bar, combo with compareDateDim: series (default) = the year before beside each point · difference = this year minus the year before, point by point · change = the same in %. On a combo it is what the BARS show, on their own axis (the lines keep their year before): a curve of the year with its N-1 and columns of the change in % = ONE combo, the measure in comboLineMeasures AND comboBarMeasures, compareMode change. The variance or the change against N-1 by month, by week, by day is THIS, never a measure built on previous_year' },
                 gaugeMaxMeasure: { type: 'string' },
                 gaugeThresholdMeasure: { type: 'string' },
               },
@@ -151,6 +152,8 @@ const PROPOSE_WIDGETS = {
               properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } },
             },
             rationale: { type: 'string', description: 'One short sentence (15 words at most): why this visual answers the question' },
+            dataLabels: { type: 'boolean', description: 'bar, line, combo, pie, scatter: print the values (on a scatter, the name of each point) on the chart. On for a few named points a reader must tell apart (a scatter of 7 agencies: unnamed dots say nothing), off for dozens. Omit for the default.' },
+            highlight: { type: 'object', description: 'bar, combo, line, pie, treemap, scatter: what stands out, in its own color — asked ("the bar over 2 million in green", "the best month in red") or because it is the story. { mode: top | bottom | above (a % over the average) | values (categories by name) | over | under (than threshold, in the unit of the measure), n, above, values, threshold, color (#rrggbb), label (print its value) }. This IS the conditional color of a chart: never a custom visual for it.', properties: { mode: { type: 'string', enum: ['top', 'bottom', 'above', 'values', 'over', 'under'] }, n: { type: 'integer' }, above: { type: 'number' }, values: { type: 'array', items: { type: ['string', 'number'] } }, threshold: { type: 'number' }, color: { type: 'string' }, label: { type: 'boolean' } } },
             // The page's dressing (type text, shape, image): what each one shows.
             text: { type: 'string', description: 'text: its content — a title, a section label, one sentence' },
             style: {
@@ -188,7 +191,7 @@ const ASK_USER = {
     type: 'object',
     properties: {
       question: { type: 'string', description: 'One short sentence, in the user\'s language' },
-      multiple: { type: 'boolean', description: 'true when several options may be picked at once (which pages a report should have); the answer then lists them' },
+      multiple: { type: 'boolean', description: 'true when several options may be picked at once (which objectives to follow, which pages a report should have); the answer then lists them' },
       options: {
         type: 'array', minItems: 2, maxItems: 6,
         description: 'The choices, in the user\'s language. With learn: value = the domain id, or the field name (from the schema) that would hold the role.',
@@ -334,7 +337,7 @@ const UNDO_CHANGE = {
  */
 const DECOR_PROPS = ['text', 'style', 'shape', 'fill', 'stroke', 'opacity', 'thickness', 'image', 'fit'];
 
-function widgetsToolFor({ library = [], withLayout = true, hasDate = true, assets = [], decor = true } = {}) {
+function widgetsToolFor({ library = [], withLayout = true, hasDate = true, assets = [], decor = true, measures = false } = {}) {
   const base = PROPOSE_WIDGETS.parameters.properties.widgets.items;
   const { layout, ...rest } = base.properties;
   const properties = withLayout ? { ...rest, layout } : { ...rest };
@@ -363,10 +366,10 @@ function widgetsToolFor({ library = [], withLayout = true, hasDate = true, asset
     };
   }
   const items = { ...base, properties };
-  return {
-    ...PROPOSE_WIDGETS,
-    parameters: { ...PROPOSE_WIDGETS.parameters, properties: { ...PROPOSE_WIDGETS.parameters.properties, widgets: { ...PROPOSE_WIDGETS.parameters.properties.widgets, items } } },
-  };
+  // A conversation with no report (Ask, Let's Talk) defines its measures here:
+  // it has no report tool to carry them.
+  const top = { ...PROPOSE_WIDGETS.parameters.properties, widgets: { ...PROPOSE_WIDGETS.parameters.properties.widgets, items }, ...(measures ? { measures: MEASURES_PARAM, remember: REMEMBER_PARAM } : {}) };
+  return { ...PROPOSE_WIDGETS, parameters: { ...PROPOSE_WIDGETS.parameters, properties: top } };
 }
 
 const MAX_PAGES = 6;
@@ -378,13 +381,13 @@ const MEASURES_PARAM = {
   items: {
     type: 'object',
     properties: {
-      label: { type: 'string', description: 'The header of its column and its name in a legend: written as the reader reads it, in the user\'s language, with its accents and apostrophes ("Taux à l\'heure", never "Taux a l heure" — the name the card derives drops them by itself)' },
-      kind: { type: 'string', enum: ['filtered', 'arithmetic', 'cumulative', 'aggregate', 'last', 'per_period', 'product', 'days_between'], description: 'days_between: the days from the date `from` to the date `to` of each row (declared → closed, ordered → delivered), then its aggregation (avg by default: a mean delay; a row missing one date is left out) · product: left × right ROW BY ROW, then summed — two columns of one table (a quantity × a unit price = the revenue of the lines, × a unit cost = their cost); arithmetic multiply is the product of two totals, never that' },
-      from: { type: 'string', description: 'filtered, cumulative, aggregate, last, per_period: the measure it is made from (a name of the schema)' },
+      label: { type: 'string', description: 'The header of its column and its name in a legend: short and plain, no parentheses — the unit is in its format, what it holds in your answer — written as the reader reads it, in the user\'s language, with its accents and apostrophes ("Taux à l\'heure", "Ponctualité", "Livrées", never "Taux a l heure", "Ponctualite" — even when the labels of the schema lost theirs; the name the card derives drops them by itself)' },
+      kind: { type: 'string', enum: ['filtered', 'arithmetic', 'cumulative', 'aggregate', 'last', 'per_period', 'product', 'days_between', 'previous_year'], description: 'previous_year: the measure `from` over the dates one year earlier (date: the date dimension the year filters are on) — then arithmetic subtract or percent of the two for a variance or a change against N-1 · days_between: the days from the date `from` to the date `to` of each row (declared → closed, ordered → delivered), then its aggregation (avg by default: a mean delay; a row missing one date is left out) · product: left × right ROW BY ROW, then summed — two columns of one table (a quantity × a unit price = the revenue of the lines, × a unit cost = their cost); arithmetic multiply is the product of two totals, never that' },
+      from: { type: 'string', description: 'filtered, cumulative, aggregate, last, per_period, previous_year: the measure it is made from (a name of the schema)' },
       to: { type: 'string', description: 'days_between: the later date dimension of the row (from = the earlier one); both days of the schema, of the same table' },
       period: { type: 'string', description: 'per_period: the date dimension of the facts at the period the value is given for — the month (a year_month part) for a monthly target' },
       aggregation: { type: 'string', enum: ['sum', 'avg', 'count', 'count_distinct', 'min', 'max'], description: 'days_between: avg (default), sum, min or max · aggregate: another reading of the column `from` sums or counts — avg for a mean duration, count for a number of rows; count_distinct also takes a DIMENSION as `from` — the number of days of the period, of customers served' },
-      date: { type: 'string', description: 'last: the date dimension the stock is counted on (a day of the schema, not a month): the measure reads the last date the rows shown hold — the latest day overall, the closing day of each month on a chart by month — and follows new data by itself' },
+      date: { type: 'string', description: 'previous_year: the date dimension (a day) the year is read on · last: the date dimension the stock is counted on (a day of the schema, not a month): the measure reads the last date the rows shown hold — the latest day overall, the closing day of each month on a chart by month — and follows new data by itself' },
       filters: { type: 'array', maxItems: 6, description: 'filtered: the values kept, as a visual\'s filters', items: { type: 'object', properties: { field: { type: 'string' }, op: { type: 'string' }, values: { type: 'array', items: { type: ['string', 'number'] } } }, required: ['field', 'op'] } },
       op: { type: 'string', enum: ['add', 'subtract', 'multiply', 'divide', 'percent'], description: 'arithmetic: left op right; percent = 100 × left / right' },
       left: { type: 'string', description: 'arithmetic, product: a measure name of the schema, or (arithmetic) of a measure defined above' },
@@ -394,6 +397,45 @@ const MEASURES_PARAM = {
     required: ['label', 'kind'],
   },
 };
+
+// What Let's Talk offers to remember about the model's fields (remember.js):
+// a card the user applies writes it to the model's glossary.
+const REMEMBER_PARAM = {
+  type: 'array', maxItems: 6,
+  description: 'Only when the user confirmed, corrected or explained in THIS conversation what a field of the schema means ("yes, the guarantee is the type of claim", "by turnover I mean the rooms revenue"): what to remember for every later question — never your own guess, never what the schema already says. A card lets the user confirm it.',
+  items: {
+    type: 'object',
+    properties: {
+      field: { type: 'string', description: 'A dimension or measure name of the schema' },
+      synonyms: { type: 'array', maxItems: 5, items: { type: 'string' }, description: 'The words the USER called it by, in their language, as they wrote them' },
+      description: { type: 'string', description: 'One line: what the field holds, as the user explained it' },
+    },
+    required: ['field'],
+  },
+};
+
+// Let's Talk at the 'schema+results' sharing level: the same read, from the
+// source, as the user (cachedQuery.queryLive) — what a cache cannot answer.
+const QUERY_DATA = {
+  ...QUERY_CACHED_DATA,
+  name: 'query_data',
+  description: 'Read aggregated rows from the data, as the user sees them (their rights apply), at most 50 rows. Ask for at least one measure, or for exactly one dimension and no measure to list its distinct values.',
+  parameters: {
+    ...QUERY_CACHED_DATA.parameters,
+    properties: {
+      ...QUERY_CACHED_DATA.parameters.properties,
+      filters: {
+        ...QUERY_CACHED_DATA.parameters.properties.filters,
+        description: 'On a dimension (its values), or on a measure read here compared to a number (eq, neq, gt, gte, lt, lte): "the products below their minimum" = the gap measure lt 0. Filter the rows you want rather than reading them all: a read holds 50 rows.',
+      },
+      rank: { type: 'object', description: 'The rows that matter first when there may be more than the read holds: the largest (desc) or smallest (asc) by one of the measures read', properties: { by: { type: 'string' }, order: { type: 'string', enum: ['desc', 'asc'] } }, required: ['by'] },
+      limit: { type: 'integer', minimum: 1, maximum: 50 },
+      // A figure the answer defines (a delay, a variance) read before it is drawn.
+      define: { ...MEASURES_PARAM, description: 'Measures this read needs and the schema lacks, defined exactly as in propose_widgets.measures (the same labels, so the same _calc names) — read here, then defined again in propose_widgets. Name them in `measures` by their _calc name.' },
+    },
+  },
+};
+
 // Filters synced across pages (utils/ai/filterSync.js): the user's word is
 // needed, and the model declares when it is already in the conversation.
 const withSyncReading = (reading) => ({
@@ -603,6 +645,8 @@ const ACTION_HELP = {
   create_report: 'create_report: the user wants a report built ("make me a report of sales by region"): the card creates it on the data model of this conversation and opens it in the editor, whose assistant is asked `request`.',
   connect_database: 'connect_database: connect a database (PostgreSQL, MySQL, SQL Server, BigQuery…): the card opens the connection form, where the user types the connection details themselves — never ask for them in the chat. Offered to "how do I connect…?" too, after the steps.',
   import_file: 'import_file: import a file (CSV, Excel, Parquet, JSON): the card takes the file from the user — say "send me the file" and hand over this card; never ask them to paste its content. Offered to "how do I import…?" too, after the steps.',
+  remember_fields: 'remember_fields: the user confirmed, corrected or explained what fields of the schema mean, and no visual is needed to answer: `remember` lists them (with a visual, put `remember` on propose_widgets instead).',
+  talk_colors: 'talk_colors: the user wants other colors for the charts of this conversation (a brand color, "in green", warmer, softer): base = the color the charts are built on, as #rrggbb, and harmony = how the other series follow it; reset: true goes back to the colors of Open Report. The card applies it to all their Let\'s Talk answers, now and later — never answer such a request with a visual of its own.',
   build_model: 'build_model: build a data model on a data source the user already has: the card lets them pick the source, then opens the model editor, whose assistant is asked `request`.',
 };
 
@@ -621,6 +665,12 @@ function actionToolFor(actions) {
           weekday: { type: 'string', enum: WEEKDAYS, description: 'weekly only' },
           monthDay: { type: 'integer', minimum: 1, maximum: 28, description: 'monthly only' },
           time: { type: 'string', description: 'HH:MM, 24-hour clock, in the user\'s time zone (08:00 when they do not say)' },
+        } : {}),
+        ...(actions.includes('remember_fields') ? { remember: REMEMBER_PARAM } : {}),
+        ...(actions.includes('talk_colors') ? {
+          base: { type: 'string', description: 'talk_colors only: #rrggbb' },
+          harmony: { type: 'string', enum: Object.keys(HARMONIES), description: `talk_colors only: ${Object.entries(HARMONY_NOTES).map(([k, v]) => `${k} = ${v}`).join(' · ')}` },
+          reset: { type: 'boolean', description: 'talk_colors only: back to the colors of Open Report' },
         } : {}),
         request: { type: 'string', description: 'The user\'s request, in their language, as they would type it: what the model or the report should show (open_model_assistant, build_model, create_report, add_file_to_model: what to do once the data is in), or what they want once their data is in (connect_database, import_file — empty when they did not say)' },
         summary: { type: 'string', description: 'One short sentence in the user\'s language: what will happen' },
@@ -811,4 +861,4 @@ const PING = {
   parameters: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
 };
 
-module.exports = { QUERY_CACHED_DATA, PROPOSE_WIDGETS, ASK_USER, PROPOSE_DESIGN_CHANGES, UNDO_CHANGE, PROPOSE_CUSTOM_VISUAL, PROPOSE_ACTION, PROPOSE_MODEL_CHANGES, READ_TABLE_COLUMNS, PROPOSE_FILE_SHAPE, READ_TABLE_SAMPLE, HAND_TO_REPORT, PING, MAX_PAGES, widgetsToolFor, reportToolFor, reportChangesToolFor, helpToolFor, actionToolFor };
+module.exports = { QUERY_CACHED_DATA, QUERY_DATA, PROPOSE_WIDGETS, ASK_USER, PROPOSE_DESIGN_CHANGES, UNDO_CHANGE, PROPOSE_CUSTOM_VISUAL, PROPOSE_ACTION, PROPOSE_MODEL_CHANGES, READ_TABLE_COLUMNS, PROPOSE_FILE_SHAPE, READ_TABLE_SAMPLE, HAND_TO_REPORT, PING, MAX_PAGES, widgetsToolFor, reportToolFor, reportChangesToolFor, helpToolFor, actionToolFor };

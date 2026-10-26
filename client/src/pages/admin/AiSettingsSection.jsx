@@ -195,12 +195,15 @@ export default function AiSettingsSection({ endpoints = INSTANCE_AI_ENDPOINTS, o
           <div style={rowLabel}>What the assistant may send to the provider</div>
           <p style={rowHint}>
             Field names and labels are always sent. With cached data, aggregated rows from the report&apos;s
-            cache are sent too, so the assistant can reason on actual figures — they leave this server.
+            cache are sent too, so the assistant can reason on actual figures — they leave this server. With
+            the results of Let&apos;s Talk, the assistant also reads, as the user and with their rights, the
+            figures each answer is about (at most 50 rows): a cache only holds what reports group by.
           </p>
         </div>
         <select value={form.dataSharing} onChange={(e) => set({ dataSharing: e.target.value })} style={input}>
           <option value="schema">Schema only</option>
           <option value="schema+cache">Schema and cached data</option>
+          <option value="schema+results">Schema, cached data and Let&apos;s Talk results</option>
         </select>
       </div>
 

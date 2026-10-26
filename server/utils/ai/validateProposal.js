@@ -6,12 +6,14 @@
 // rejects the widget; it is never repaired, guessed or passed along.
 
 const { validatePageNavOp } = require('./pageNav');
+const { plainName } = require('./plainName');
 const { lintVisualCode } = require('./visualLint');
 const { arrange, placeWidget, readableMin, minOf, READABLE_MIN } = require('./arrangeLayout');
 const { HARMONIES, colorOps } = require('./colorScheme');
 const { readabilityOps } = require('./readability');
 const { shapeWidget, isRanked } = require('./widgetShaping');
 const { onDimensionSide } = require('./dimensionSide');
+const { isYearLikeDim } = require('../comparePeriod');
 const { FONT_FAMILIES } = require('./fonts');
 
 const GRID = 20;
@@ -32,9 +34,9 @@ const SUB_TYPES = {
 // are name lists, 'dim' / 'measure' a single name. Mirrors the zones of the
 // editor's Fields section.
 const BINDING_KEYS = {
-  bar: { selectedDimensions: 'dims', groupBy: 'dims', selectedMeasures: 'measures' },
-  line: { selectedDimensions: 'dims', groupBy: 'dims', selectedMeasures: 'measures' },
-  combo: { selectedDimensions: 'dims', groupBy: 'dims', comboBarMeasures: 'measures', comboLineMeasures: 'measures' },
+  bar: { selectedDimensions: 'dims', groupBy: 'dims', selectedMeasures: 'measures', compareDateDim: 'dim' },
+  line: { selectedDimensions: 'dims', groupBy: 'dims', selectedMeasures: 'measures', compareDateDim: 'dim' },
+  combo: { selectedDimensions: 'dims', groupBy: 'dims', comboBarMeasures: 'measures', comboLineMeasures: 'measures', compareDateDim: 'dim' },
   scatter: { selectedDimensions: 'dims', groupBy: 'dims' },
   pie: { selectedDimensions: 'dims', selectedMeasures: 'measures' },
   treemap: { selectedDimensions: 'dims', selectedMeasures: 'measures' },
@@ -128,6 +130,37 @@ function isDateDim(name, ctx) {
   const d = ctx.effective.dimensions.find((x) => x.name === name);
   return !!d && (/date|time/i.test(String(d.type || '')) || periodLike(d));
 }
+// A year: two of them as a legend over an axis that runs across years ("2024-01"
+// … "2025-12", a day) put the years one after the other — Jonathan asked for
+// "2025 compared with 2024" and got 24 months with half a curve each.
+// The position WITHIN a year (its month, week or day) is fine on such an axis.
+const WITHIN_YEAR = new Set(['num_month', 'name_month', 'num_week', 'num_day_of_week', 'name_day']);
+function isYearDim(name, ctx) {
+  const d = ctx.effective.dimensions.find((x) => x.name === name);
+  return !!d && (d.datePart === 'num_year' || isYearLikeDim(d));
+}
+const withinYear = (name, ctx) => {
+  const d = ctx.effective.dimensions.find((x) => x.name === name);
+  return !!d && WITHIN_YEAR.has(d.datePart);
+};
+
+// A custom measure that reads, through its \${…} references, a measure moved a year back.
+function readsYearBefore(name, ctx) {
+  const byName = (n) => ctx.effective.measures.find((m) => m.name === n);
+  const seen = new Set();
+  const walk = (n) => {
+    if (seen.has(n)) return false;
+    seen.add(n);
+    const m = byName(n);
+    if (!m || m.aggregation !== 'custom' || typeof m.expression !== 'string') return false;
+    return [...m.expression.matchAll(/\$\{([^}]+)\}/g)].some(([, ref]) => {
+      const r = byName(ref.trim());
+      return (r && r.periodShift) || walk(ref.trim());
+    });
+  };
+  return walk(name);
+}
+
 // Has an order a line can follow: a date, a period, or a number (a year kept as an integer).
 function isOrderedDim(name, ctx) {
   const d = ctx.effective.dimensions.find((x) => x.name === name);
@@ -191,6 +224,9 @@ function validateBinding(type, raw, names) {
       binding[key] = src[key];
     }
   }
+
+  // What the year before of a line or a bar draws (client utils/chartN1.js): beside it, or the variance, or the change in %.
+  if (binding.compareDateDim && ['line', 'bar', 'combo'].includes(type) && ['difference', 'change'].includes(src.compareMode)) binding.compareMode = src.compareMode;
 
   if (type === 'scatter') {
     const sm = src.scatterMeasures && typeof src.scatterMeasures === 'object' ? src.scatterMeasures : {};
@@ -292,6 +328,8 @@ function validateWidgetsProposal(args, ctx) {
       errors.push(`${label}: ${result.error}`);
       return;
     }
+    // A fact's copy of a dimension key reads its dimension table instead.
+    if (ctx.effective.joins) ({ binding: result.binding, raw } = onDimensionSide(result.binding, raw, ctx.effective));
     const subTypes = SUB_TYPES[raw.type];
     // Two dimensions on a chart's axis are a drill-down hierarchy: the reader
     // sees the first level only. Seen with a real model: asked which cities
@@ -312,11 +350,24 @@ function validateWidgetsProposal(args, ctx) {
       ? { title: text(raw.title, 200) || visual.name, visualId: visual.id, visualName: visual.name, bundleUrl: visual.bundleUrl, manifest: visual.manifest }
       : { title: text(raw.title, 200) };
     if (subTypes && subTypes.includes(raw.subType)) config.subType = raw.subType;
+    // What stands out, asked with the visual ("the bar over 2 million in
+    // green"): part of the answer, so it comes with it — in Let's Talk too,
+    // which has no design tool.
+    if (typeof raw.dataLabels === 'boolean' && HIGHLIGHTED_TYPES.has(raw.type)) config.showDataLabels = raw.dataLabels;
+    if (raw.highlight !== undefined && HIGHLIGHTED_TYPES.has(raw.type)) {
+      const h = DESIGN_CONFIG.highlight(raw.highlight);
+      if (h) config.highlight = h;
+    }
     // A bar with a legend and no layout chosen: stacked. Grouped reserves a slot
     // per legend value in every bar — with a region per city, ten cities made
     // ten thin bars lost among empty slots. Stacked shows each bar whole, in
     // its group's color; grouped stays when the model asks for it.
     if (raw.type === 'bar' && (result.binding.groupBy || []).length && !config.subType) config.subType = 'stacked';
+    // A combo stacks its bars unless told otherwise (the widget's default):
+    // charges and revenue piled up read as a 125 k€ total that is neither
+    // (controller recipe). Several bar measures side by side, unless the
+    // model says they are parts of one whole.
+    if (raw.type === 'combo' && (result.binding.comboBarMeasures || []).length > 1 && !config.subType) config.subType = 'clusteredCombo';
     // The reading the question calls for, when the proposal left it out: a
     // conversion is a funnel, a ranking reads down horizontal bars.
     if (raw.answers === 'conversion' && raw.type === 'pie') config.subType = 'funnel';
@@ -329,8 +380,6 @@ function validateWidgetsProposal(args, ctx) {
     }
     Object.assign(config, shaped.config);
     Object.assign(result.binding, shaped.binding);
-    // A fact's copy of a dimension key reads its dimension table instead.
-    if (ctx.effective.joins) ({ binding: result.binding, raw } = onDimensionSide(result.binding, raw, ctx.effective));
     // Fields shown under their raw name — "qte_commandee" in a French legend
     // or a table header (seen with Karim). The model names them in the user's
     // words: a table's column takes the name, a measure takes it as its label
@@ -346,10 +395,14 @@ function validateWidgetsProposal(args, ctx) {
     const labels = {};
     for (const [field, name] of Object.entries(named)) {
       const f = [...shownMeasures, ...shownDims].includes(field) && fieldOf(field);
-      const given = text(name, 60);
+      const given = plainName(text(name, 60));
       if (!f || !given) continue;
       if (isTable) columns[f.label || f.name] = { displayName: given };
       if (shownMeasures.includes(field)) labels[field] = given;
+      // The category axis of a bar / line / combo takes the name as its axis
+      // title, which the Table view heads its first column with ("Month" in a
+      // French answer). Never a scatter: its X axis is a measure.
+      else if (AXIS_TITLED_TYPES.has(raw.type) && field === (b.selectedDimensions || [])[0]) config.xAxisTitle = given;
     }
     if (Object.keys(columns).length) config.tableConfig = { ...(config.tableConfig || {}), columns };
     // Decimals asked for a measure it shows: its display in the whole report,
@@ -379,6 +432,26 @@ function validateWidgetsProposal(args, ctx) {
     // Change over time needs time. Asked to "analyse the population" on a
     // model with no date at all, a real model still offered its evolution —
     // a chart with nothing to evolve along. Not a matter of taste: dropped.
+    // A period set against the one before: the year before is a series of the
+    // visual (compareDateDim, utils/chartN1.js on the client), on the same axis.
+    const onAxis = (result.binding.selectedDimensions || [])[0];
+    const legend = (result.binding.groupBy || [])[0];
+    if (['line', 'bar', 'combo'].includes(raw.type) && onAxis && legend && isDateDim(onAxis, ctx) && !withinYear(onAxis, ctx) && isYearDim(legend, ctx)) {
+      errors.push(`${label}: years as the legend over ${onAxis}, which already runs across the years, draw them one after the other. To set a period against the year before: no legend, ${onAxis} on the axis, a filter on the year shown, and compareDateDim = a date dimension — the year before is drawn as a series of its own on the same months`);
+      return;
+    }
+    // A measure computed from a measure of the year before (a variance against
+    // N-1) cannot be aligned on a date axis: its year-before rows group under
+    // last year's months, the variance comes back empty (seen on Jonathan's
+    // calendar model). On such an axis compareMode does it, from aligned rows.
+    if (onAxis && isDateDim(onAxis, ctx)) {
+      const shiftedIn = (result.binding.selectedMeasures || []).find((n) => readsYearBefore(n, ctx));
+      if (shiftedIn) { errors.push(`${label}: ${shiftedIn} is computed from a measure of the year before, which a date axis cannot line up. Keep the plain measure, set compareDateDim, and compareMode "difference" (this year − the year before) or "change" (in %): the app computes it point by point — on a combo, the bars become that variance or change while the lines keep the year before beside them`); return; }
+    }
+    if (result.binding.compareDateDim) {
+      if (!isDateDim(result.binding.compareDateDim, ctx)) { errors.push(`${label}: compareDateDim must be a date dimension`); return; }
+      if (legend && raw.type !== 'scorecard') { errors.push(`${label}: compareDateDim draws the year before as series of their own: no legend (groupBy) with it`); return; }
+    }
     if (raw.answers === 'trend' && !isDateDim((result.binding.selectedDimensions || [])[0], ctx)) {
       const hasDate = ctx.effective.dimensions.some((d) => isDateDim(d.name, ctx));
       errors.push(`${label}: ${hasDate ? 'a trend has the date dimension on its axis' : 'this model has no date dimension, so nothing can be shown over time: leave this visual out'}`);
@@ -484,6 +557,7 @@ const bool = (v) => (typeof v === 'boolean' ? v : undefined);
 const color = (v) => (typeof v === 'string' && HEX.test(v) ? v : undefined);
 const str = (max) => (v) => (typeof v === 'string' ? v.slice(0, max) : undefined);
 const oneOf = (list) => (v) => (list.includes(v) ? v : undefined);
+const HIGHLIGHTED_TYPES = new Set(['bar', 'combo', 'line', 'pie', 'treemap', 'scatter']);
 const num = (min, max) => (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(Math.max(v, min), max) : undefined);
 
 // The series palette of one widget, in order (see client utils/chartPalette).
@@ -617,12 +691,13 @@ const DESIGN_CONFIG = {
   // `true` alone turns it on in the theme's color (the model wrote it so, and the card lost it).
   heatmap: (v) => (v === true ? { enabled: true } : v === false ? { enabled: false } : shapeOf({ enabled: bool, color })(v)),
   // Bars that stand out (bar, combo): by a rule relative to the bars shown
-  // — the n largest or smallest, those above the average by a share — or by
-  // naming categories; `label` prints their value alone (client utils/highlight).
+  // — the n largest or smallest, those above the average by a share — over
+  // or under a value the reader set (`threshold`), or by naming categories;
+  // `label` prints their value alone (client utils/highlight).
   highlight: (v) => {
     if (v === false) return { enabled: false };
     const out = shapeOf({
-      enabled: bool, mode: oneOf(['top', 'bottom', 'above', 'values']), n: num(1, 10), above: num(5, 500), color, label: bool,
+      enabled: bool, mode: oneOf(['top', 'bottom', 'above', 'values', 'over', 'under']), n: num(1, 10), above: num(5, 500), threshold: num(-1e15, 1e15), color, label: bool,
       values: (list) => (Array.isArray(list) ? list.filter((x) => typeof x === 'string' || typeof x === 'number').slice(0, 20).map((x) => String(x).slice(0, 80)) : undefined),
     })(v);
     return out ? { enabled: true, ...out } : undefined;

@@ -24,12 +24,13 @@
 // two are offered to a "how do I…?" too.
 
 const { validateCron } = require('../cacheSchedules');
+const { cleanTalkTheme } = require('./talkTheme');
 
-const ACTIONS = ['schedule_cache_refresh', 'open_model_assistant', 'add_file_to_model', 'add_image', 'connect_database', 'import_file', 'build_model', 'create_report'];
+const ACTIONS = ['schedule_cache_refresh', 'open_model_assistant', 'add_file_to_model', 'add_image', 'connect_database', 'import_file', 'build_model', 'create_report', 'talk_colors', 'remember_fields'];
 // What each assistant may hand over.
 const ACTIONS_FOR = {
   editor: ['schedule_cache_refresh', 'open_model_assistant', 'add_file_to_model', 'add_image'],
-  ask: ['schedule_cache_refresh', 'open_model_assistant', 'add_file_to_model', 'create_report', 'connect_database', 'import_file'],
+  ask: ['schedule_cache_refresh', 'open_model_assistant', 'add_file_to_model', 'create_report', 'connect_database', 'import_file', 'talk_colors', 'remember_fields'],
   help: ['connect_database', 'import_file', 'build_model'],
 };
 // add_image: a card where the user drops the picture (a logo) the request
@@ -63,7 +64,7 @@ function scheduleOf(args) {
 // A file cannot join a model that reads a database: what the assistant tells a
 // business user instead, naming the source (never "a database" alone) and the
 // two ways out, in plain words.
-const noFileOn = (sourceLabel) => `no card: this report reads ${sourceLabel}, and a file cannot be joined to a database. Tell the user so in plain words, naming that source, then the two ways: (1) whoever manages that database adds the data as a table in it, and the model's owner adds that table in the model editor; (2) start a new report from files — in Chat, Start a new report, then drop an export of this data and the new file together, and OpenReport joins them. Nothing else.`;
+const noFileOn = (sourceLabel) => `no card: this report reads ${sourceLabel}, and a file cannot be joined to a database. Tell the user so in plain words, naming that source, then the two ways: (1) whoever manages that database adds the data as a table in it, and the model's owner adds that table in the model editor; (2) start a new report from files — in Chat, Create a report, then drop an export of this data and the new file together, and OpenReport joins them. Nothing else.`;
 
 /**
  * @param {{canEditModel?: boolean, fileModel?: boolean, sourceLabel?: string, allowed?: string[]}} ctx whether the user may change the data model;
@@ -88,6 +89,14 @@ function validateActionProposal(args, { canEditModel = false, fileModel = false,
     if (!fileModel) return { action: null, errors: [noFileOn(sourceLabel)] };
   }
   if (OPENS_A_FORM.has(a.action)) return { action: { action: a.action, summary, request }, errors: [] };
+  // The colors of Let's Talk for this user (talkTheme.js): a base and a rule,
+  // or back to Open Report's. Applied by the user's click on the card.
+  if (a.action === 'talk_colors') {
+    if (a.reset === true) return { action: { action: a.action, summary, theme: null }, errors: [] };
+    const theme = cleanTalkTheme({ base: a.base, harmony: a.harmony });
+    if (!theme) return { action: null, errors: ['talk_colors needs base: a color as #rrggbb (or reset: true for the colors of Open Report)'] };
+    return { action: { action: a.action, summary, theme }, errors: [] };
+  }
   if (a.action === 'build_model' || a.action === 'create_report') {
     if (!request) return { action: null, errors: [`${a.action} needs request: what the user wants, in their words`] };
     return { action: { action: a.action, summary, request }, errors: [] };

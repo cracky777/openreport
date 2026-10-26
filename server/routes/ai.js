@@ -32,6 +32,9 @@ const { buildEffectiveModel } = require('../utils/ai/effectiveModel');
 const { runChat } = require('../utils/ai/agent');
 const { pickDesignConfig } = require('../utils/ai/validateProposal');
 const { withFloors } = require('../utils/ai/arrangeLayout');
+const { talkColorsOf } = require('../utils/ai/talkTheme');
+const { sharesCachedData } = require('../utils/settingsHelper');
+const { colorWidgets } = require('../utils/ai/dress');
 const aiFeedback = require('../utils/ai/feedback');
 const { cleanDraft, runModelChat } = require('../utils/ai/modelAssistant');
 const { runHelpChat } = require('../utils/ai/helpAssistant');
@@ -385,14 +388,40 @@ router.post('/models/:modelId/chat', requireAuth, chatLimiter, async (req, res) 
     report: scope,
     effective: buildEffectiveModel(parseModel(modelRow), {}),
     messages,
-    pageContext: cleanPageContext({}),
+    // The app's theme the user reads on: Open Report's colors (or their own) are computed for it.
+    pageContext: cleanPageContext({ theme: req.body.theme === 'dark' ? 'dark' : 'light' }),
     mode: 'ask',
+    // Let's Talk: the same conversation, answered in words first (prompt TALK_RULES).
+    talk: req.body.talk === true,
+    colors: talkColorsOf(req.user.talk_theme),
     requireReport: req.body.intent === 'report',
     canWriteVisuals: canManageVisuals(wsId, req),
     canEditModel: canWriteModel(modelRow, req.user, req),
     ...sourceOf(modelRow),
     library: libraryOf(wsId),
   }));
+});
+
+// The answers of Let's Talk drawn again in the user's colors, after they
+// changed their theme or the app went dark / light. Colors only — no AI, no
+// data: the widgets the browser holds, recolored by the rule they were made with.
+const MAX_RECOLORED = 60;
+router.post('/models/:modelId/talk-colors', requireAuth, (req, res) => {
+  const modelRow = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.modelId);
+  if (!modelRow) return res.status(404).json({ error: 'Model not found' });
+  if (!canBuildOnModel(modelRow, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
+  const sent = Array.isArray(req.body && req.body.widgets) ? req.body.widgets : null;
+  if (!sent || sent.length > MAX_RECOLORED) return res.status(400).json({ error: 'widgets: a list of at most ' + MAX_RECOLORED });
+  const widgets = sent.map((w) => ({
+    type: typeof (w && w.type) === 'string' ? w.type : '',
+    config: w && w.config && typeof w.config === 'object' && !Array.isArray(w.config) ? { ...w.config } : {},
+    dataBinding: w && w.dataBinding && typeof w.dataBinding === 'object' ? w.dataBinding : {},
+  }));
+  const theme = req.body.theme === 'dark' ? 'dark' : 'light';
+  const colors = talkColorsOf(req.user.talk_theme);
+  const effective = buildEffectiveModel(parseModel(modelRow), {});
+  colorWidgets(widgets, { theme, effective, ...colors, recolor: true });
+  res.json({ configs: widgets.map((w) => w.config), colors: { ...colors, theme } });
 });
 
 // The model editor's assistant. Changing a model is its owner's (or an admin's)
@@ -448,7 +477,7 @@ router.post('/models/:modelId/model-chat', requireAuth, chatLimiter, async (req,
         fileTables[name] = recipes[name] ? { ...entry, table: recipes[name].table, shape: recipes[name] } : entry;
       }
     } catch { fileTables = {}; /* the file unreadable: no reshaping offered this turn */ }
-    if (config.dataSharing === 'schema+cache' && wsAccess.canAccessModelData(modelRow, wsAccess.actorOf(req))) {
+    if (sharesCachedData(config.dataSharing) && wsAccess.canAccessModelData(modelRow, wsAccess.actorOf(req))) {
       getSample = (table, n) => conn.query(`SELECT * FROM "${String(table).replace(/"/g, '""')}" LIMIT ${Math.min(20, Math.max(1, Number(n) || 20))}`);
     }
   }

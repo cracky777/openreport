@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import { v4 as uuidv4 } from 'uuid';
@@ -21,7 +21,7 @@ const MAX_SENT_CHARS = 8000;
 function describeRead(read) {
   const filters = read.filters?.length ? ` · filters ${JSON.stringify(read.filters)}` : '';
   const more = read.truncated ? ', more rows exist' : '';
-  return `[Read from the cache: dimensions ${read.dimensions.join(', ') || 'none'} · measures ${read.measures.join(', ')}${filters} → ${read.rows.length} rows${more}: ${JSON.stringify(read.rows)}]`;
+  return `[Read from the ${read.live ? 'data' : 'cache'}: dimensions ${read.dimensions.join(', ') || 'none'} · measures ${read.measures.join(', ')}${filters} → ${read.rows.length} rows${more}: ${JSON.stringify(read.rows)}]`;
 }
 
 export function toWire(m) {
@@ -32,13 +32,26 @@ export function toWire(m) {
   return { role: m.role, text: [text, ...digests, ...reads].filter(Boolean).join('\n').slice(0, MAX_SENT_CHARS) };
 }
 
+// A conversation kept for the tab (`keepKey`): the studio's thread is still
+// there when the author comes back from the editor (asked by Jonathan). Words,
+// cards and reads only — a review's images never enter the thread.
+function keptThread(key) {
+  if (!key) return [];
+  try { return JSON.parse(sessionStorage.getItem(key) || '[]'); } catch { return []; /* storage blocked or full: a fresh thread */ }
+}
+
 /**
  * @param {string} url            the chat route: a report's (editor) or a model's (Ask)
  * @param {function} getExtraBody what this surface sends along with the conversation
+ * @param {string} [keepKey]      keeps the thread in the tab's session storage under this key
  * @returns `send` resolves to the assistant's turn (false when it failed); every turn carries `at`
  */
-export function useAiChat(url, getExtraBody) {
-  const [messages, setMessages] = useState([]);
+export function useAiChat(url, getExtraBody, keepKey) {
+  const [messages, setMessages] = useState(() => keptThread(keepKey));
+  useEffect(() => {
+    if (!keepKey) return;
+    try { sessionStorage.setItem(keepKey, JSON.stringify(messages)); } catch { /* storage blocked or full: the thread lives on screen only */ }
+  }, [keepKey, messages]);
   const [loading, setLoading] = useState(false);
   const abortRef = useRef(null);
 

@@ -5,7 +5,7 @@ import { buildWidgetQueryPayload } from './widgetQueryPayload';
 // A minimal model: one dimension, two measures, labels distinct from names so
 // the tests also catch a builder that keys on the wrong one.
 const model = {
-  dimensions: [{ name: 'sales.country', label: 'Country', type: 'string' }],
+  dimensions: [{ name: 'sales.country', label: 'Country', type: 'string' }, { name: 'sales.month', label: 'Month', type: 'string' }],
   measures: [
     { name: 'sales.amt_sum', label: 'Sales', aggregation: 'sum' },
     { name: 'sales.margin_sum', label: 'Margin', aggregation: 'sum' },
@@ -61,6 +61,23 @@ describe('bar without a groupBy', () => {
       [{ Country: 'FR', Sales: 10 }, { Country: null, Sales: 4 }]);
     expect(data.labels).toEqual(['FR', '']);
     expect(data.labels).not.toContain('null');
+  });
+});
+
+// A line by month with one line per restaurant: a month a restaurant has no
+// rows (not open yet) is a gap for an average, a zero for a sum.
+describe('line with a legend', () => {
+  const line = (measure) => ({ type: 'line', dataBinding: { selectedDimensions: ['sales.month'], groupBy: ['sales.country'], selectedMeasures: [measure] } });
+  const rows = (key) => [{ Month: '01', Country: 'FR', [key]: 90 }, { Month: '02', Country: 'FR', [key]: 92 }, { Month: '02', Country: 'DE', [key]: 95 }];
+  test('an average has no point where the group has no rows', () => {
+    const data = build(line('sales.amt_avg'), rows('Avg basket'));
+    expect(data.series.find((s) => s.name === 'DE').values).toEqual([null, 95]);
+    expect(data._gaps).toBe(true);
+  });
+  test('a sum with no rows is 0', () => {
+    const data = build(line('sales.amt_sum'), rows('Sales'));
+    expect(data.series.find((s) => s.name === 'DE').values).toEqual([0, 95]);
+    expect(data._gaps).toBeUndefined();
   });
 });
 

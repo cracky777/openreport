@@ -4,10 +4,12 @@
 //   top     the n largest           bottom  the n smallest
 //   above   more than `above` % over the average of the bars shown
 //   values  the categories named in `values`
-// `config.highlight = { enabled, mode, n, above, values, color, label }`;
+//   over    those over `threshold`         under   those under `threshold`
+//           (a value set by the reader: "the bars over 2 million", Jonathan)
+// `config.highlight = { enabled, mode, n, above, values, threshold, color, label }`;
 // `label` prints the value of the bars it marks, and only theirs.
 
-export const HIGHLIGHT_MODES = ['top', 'bottom', 'above', 'values'];
+export const HIGHLIGHT_MODES = ['top', 'bottom', 'above', 'values', 'over', 'under'];
 
 /** The indices of the bars the rule marks. */
 export function highlightedIndices(values, labels, rule) {
@@ -20,6 +22,11 @@ export function highlightedIndices(values, labels, rule) {
     const avg = nums.reduce((s, v) => s + v, 0) / nums.length;
     const factor = 1 + (Number(rule.above) || 50) / 100;
     return new Set(order.filter((i) => nums[i] > avg * factor));
+  }
+  if (rule.mode === 'over' || rule.mode === 'under') {
+    const t = Number(rule.threshold);
+    if (!Number.isFinite(t)) return new Set();
+    return new Set(order.filter((i) => values[i] != null && (rule.mode === 'over' ? nums[i] > t : nums[i] < t)));
   }
   if (rule.mode === 'values') {
     const named = new Set((rule.values || []).map(String));
@@ -59,4 +66,30 @@ export function markPointOf(config, values, labels, write) {
     label: { show: rule.label === true, position: 'top', color, fontWeight: 600, formatter: (p) => write(p.value) },
     data: marked.map((i) => ({ coord: [i, Number(values[i]) || 0], value: Number(values[i]) || 0 })),
   };
+}
+
+/**
+ * What the highlight's color means, when the chart cannot say it alone: bars
+ * over or under a value, or well above the average, in green with no word
+ * for it read as decoration (Jonathan: a meaning the legend does not show). A
+ * legend entry of its own, fixed (no series behind it to hide).
+ * @param {(v: number) => string} write  a value as the chart writes it
+ * @returns {{ name: string, color: string, fixed: true }|null}
+ */
+export function highlightLegendItem(config, write) {
+  const rule = config?.highlight;
+  if (!rule?.enabled) return null;
+  const color = rule.color || '#e11d48';
+  const t = Number(rule.threshold);
+  if ((rule.mode === 'over' || rule.mode === 'under') && Number.isFinite(t)) return { name: `${rule.mode === 'over' ? '>' : '<'} ${write(t)}`, color, fixed: true };
+  if (rule.mode === 'above') return { name: `+${Number(rule.above) || 50} % vs average`, color, fixed: true };
+  return null;
+}
+
+/** The legend a chart shows: its series when it has a legend, and the highlight's meaning either way. */
+export function legendWithHighlight(items, showLegend, config, write) {
+  const rule = highlightLegendItem(config, write);
+  const shown = showLegend ? [...(items || [])] : [];
+  if (rule) shown.push(rule);
+  return shown;
 }

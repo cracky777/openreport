@@ -44,6 +44,22 @@ describe('adding widgets to a saved report', () => {
     expect(saved().settings.pages[0].layout).toEqual([]);
   });
 
+  // Let's Talk defines measures with its visuals: the route compiles their
+  // closed arguments again — what the browser sends is never SQL.
+  test('measures sent with the visuals are compiled again and kept on the report', async () => {
+    const measures = [{ label: 'Twice the amount', kind: 'arithmetic', op: 'add', left: 'items.amt_sum', right: 'items.amt_sum', expression: 'SUM(secret)' }];
+    const widget = { ...BAR, dataBinding: { selectedDimensions: ['items.label'], selectedMeasures: ['_calc.twice_the_amount'] } };
+    // Without its measure, the visual names a field the model does not have.
+    expect((await add(wsEditor, { widgets: [widget] })).status).toBe(400);
+    const res = await add(wsEditor, { widgets: [widget], measures });
+    expect(res.status).toBe(200);
+    const [m] = saved().settings.extraMeasures;
+    expect(m).toMatchObject({ name: '_calc.twice_the_amount', aggregation: 'custom', expression: 'COALESCE((${items.amt_sum}), 0) + COALESCE((${items.amt_sum}), 0)' });
+
+    const refused = await add(wsEditor, { widgets: [widget], measures: [{ label: 'X', kind: 'arithmetic', op: 'add', left: 'items.nope', right: 'items.amt_sum' }] });
+    expect(refused.status).toBe(400);
+  });
+
   test('the widget is rebuilt by the validator, placed by the server, and a version is kept', async () => {
     const res = await add(wsEditor, { widgets: [{ ...BAR, layout: { x: 9000, y: 9000, w: 5, h: 5 } }] });
     expect(res.status).toBe(200);
@@ -60,6 +76,27 @@ describe('adding widgets to a saved report', () => {
     expect(layout).toEqual(settings.pages[0].layout);
     expect(widgets).toEqual(settings.pages[0].widgets);
     expect(db.prepare('SELECT COUNT(*) AS n FROM report_versions WHERE report_id = ?').get(report).n).toBe(1);
+  });
+
+  // The column names the conversation gave a table ("Client" for raison_sociale)
+  // were lost on the way to the report.
+  test('a table keeps the names its columns were given, and only those of fields it shows', async () => {
+    const TABLE = {
+      type: 'table',
+      config: { title: 'By label', tableConfig: { columns: { label: { displayName: 'Product' }, amt: { displayName: 'Amount' }, other: { displayName: 'Injected' } } } },
+      dataBinding: { selectedDimensions: ['items.label'], selectedMeasures: ['items.amt_sum'] },
+    };
+    const res = await add(owner, { widgets: [TABLE] });
+    expect(res.status).toBe(200);
+    const { settings } = saved();
+    const columns = settings.pages[0].widgets[res.body.widgetIds[0]].config.tableConfig.columns;
+    expect(columns.label.displayName).toBe('Product');
+    expect(columns.other).toBeUndefined();
+    // The renamed measure's column look moves to the label it shows under.
+    expect(columns.amt).toBeUndefined();
+    expect(columns.Amount).toMatchObject({ values: { alignment: 'right' } });
+    // A measure's name is its label in the whole report, as in the conversation.
+    expect(settings.measureOverrides['items.amt_sum'].label).toBe('Amount');
   });
 
   test('filters, ranking and sort survive the rebuild; a forged filter is refused', async () => {
@@ -86,6 +123,25 @@ describe('adding widgets to a saved report', () => {
     expect(saved().settings.pages[0].layout).toEqual([]);
     expect(db.prepare('SELECT COUNT(*) AS n FROM report_versions WHERE report_id = ?').get(report).n).toBe(0);
     expect((await add(owner, { widgets: [] })).status).toBe(400);
+  });
+
+  // A crowded page: nothing written, a 409 the dialog turns into a choice.
+  test('a crowded page answers 409 and writes nothing; the user then picks a new page or this one pressed', async () => {
+    const grid = [];
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) grid.push({ i: `w${r}${c}`, x: 20 + c * 280, y: 20 + r * 190, w: 260, h: 170 });
+    const widgets = Object.fromEntries(grid.map((g) => [g.i, { type: 'bar', data: {}, dataBinding: BAR.dataBinding, config: {} }]));
+    db.prepare('UPDATE reports SET settings = ? WHERE id = ?').run(JSON.stringify({ pages: [{ id: 'p1', name: 'Page 1', layout: grid, widgets }] }), report);
+    const crowded = await add(owner, { widgets: [BAR] });
+    expect(crowded.status).toBe(409);
+    expect(crowded.body).toMatchObject({ crowded: true, count: 16 });
+    expect(saved().settings.pages[0].layout).toHaveLength(16);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM report_versions WHERE report_id = ?').get(report).n).toBe(0);
+
+    const fresh = await add(owner, { widgets: [BAR], mode: 'newPage' });
+    expect(fresh.body.newPage).toBe(true);
+    const pressed = await add(owner, { widgets: [BAR], mode: 'compress' });
+    expect(pressed.status).toBe(200);
+    expect(saved().settings.pages[0].layout).toHaveLength(17);
   });
 
   test('a set of visuals is laid out for the page of THIS report', async () => {

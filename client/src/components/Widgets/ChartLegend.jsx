@@ -92,24 +92,31 @@ export default memo(function ChartLegend({ items, position, onToggle, hiddenSeri
           return (
             <div
               key={item.name}
-              onClick={() => onToggle?.(item.name)}
+              onClick={() => { if (!item.fixed) onToggle?.(item.name); }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 4,
-                cursor: 'pointer', userSelect: 'none',
+                cursor: item.fixed ? 'default' : 'pointer', userSelect: 'none',
                 opacity: hidden ? 0.35 : 1,
                 flexShrink: 0,
               }}
             >
-              <span style={{
-                width: 10, height: 10, borderRadius: 2, flexShrink: 0,
-                background: hidden ? '#ccc' : item.color,
-              }} />
+              {/* A dashed series (the year before) shows its dashes: in a square, the reader could not tell it. */}
+              {item.dashed ? (
+                <span style={{ width: 14, height: 0, flexShrink: 0, borderTop: `2px dashed ${hidden ? '#ccc' : item.color}` }} />
+              ) : (
+                <span style={{
+                  width: 10, height: 10, borderRadius: 2, flexShrink: 0,
+                  background: hidden ? '#ccc' : item.color,
+                }} />
+              )}
               <span title={item.name} style={{
                 // Unset, the legend follows the report theme and stays readable
                 // through a light/dark switch.
                 fontSize: 11, color: color || 'var(--text-secondary)', lineHeight: 1.2,
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                maxWidth: isVertical ? 86 : 120,
+                // Along the top a name gets room to be read whole ("Taux de
+                // charges extern…" with the row half empty); a full row scrolls.
+                maxWidth: isVertical ? 86 : 240,
               }}>{item.name}</span>
             </div>
           );

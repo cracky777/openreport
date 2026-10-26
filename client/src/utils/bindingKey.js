@@ -58,7 +58,8 @@ export function computeBindingKey({ widget, model, reportFilters, settings, cach
   // the "Compare with" zone wouldn't trigger the N-1 query because the
   // cache check would short-circuit on identical bindingKey.
   const compareDateDim = binding.compareDateDim || '';
-  const compareKey = compareDateDim ? `cd:${compareDateDim}` : '';
+  // On a line or a bar, what the year before is drawn as (utils/chartN1.js) is built from the rows too.
+  const compareKey = compareDateDim ? `cd:${compareDateDim}${binding.compareMode ? `|${binding.compareMode}` : ''}` : '';
 
   // Time-intelligence preset — resolves to a between filter at fetch time,
   // so picking/changing/clearing it must invalidate cached widget data.

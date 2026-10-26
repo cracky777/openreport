@@ -41,10 +41,11 @@ const shortName = (t) => String(t).split('__').pop();
 // the model editor, three to a row, after those already there.
 const placed = (i) => ({ x: 40 + (i % 3) * 260, y: 40 + Math.floor(i / 3) * 300 });
 
-export default function AddFileCard({ proposal, onOutcome, onAnswer, onModelChanged, onAskModel }) {
+// `initialFiles`: files the user dropped on the conversation, no card asked for (AiPanel).
+export default function AddFileCard({ proposal, initialFiles = [], onOutcome, onAnswer, onModelChanged, onAskModel }) {
   const navigate = useNavigate();
   const fileOptions = useFileOptions();
-  const [files, setFiles] = useState([]);
+  const [files, setFiles] = useState(initialFiles);
   const [status, setStatus] = useState({});
   const [over, setOver] = useState(false);
   const [state, setState] = useState('open'); // open | importing | review | applying | applied | dismissed
@@ -138,7 +139,7 @@ export default function AddFileCard({ proposal, onOutcome, onAnswer, onModelChan
       const joined = keptJoins.length
         ? `joined ${keptJoins.map((j) => `${shortName(j.from_table)}.${j.from_column} → ${shortName(j.to_table)}.${j.to_column}`).join(', ')}`
         : 'with no join to the other tables';
-      onAnswer?.(`I added ${found.sourceNames.join(', ')} to the data model (${added.map(shortName).join(', ')}, ${joined}). Go on with my request${proposal.request ? `: ${proposal.request}` : ''}.`);
+      onAnswer?.(`I added ${found.sourceNames.join(', ')} to the data model (${added.map(shortName).join(', ')}, ${joined}). ${proposal.dropped ? 'It is in the model now.' : `Go on with my request${proposal.request ? `: ${proposal.request}` : ''}.`}`);
     } catch (err) {
       toast(err.response?.data?.error || 'The model could not be saved');
       setState('review');
@@ -171,7 +172,7 @@ export default function AddFileCard({ proposal, onOutcome, onAnswer, onModelChan
           ) : (
             <div onDragOver={(e) => { if (!draggingFiles(e)) return; e.preventDefault(); e.stopPropagation(); }} onDrop={drop}>
               <ImportFileList files={files} options={fileOptions} status={status} busy={busy}
-                onRemove={busy ? null : (i) => setFiles((prev) => prev.filter((_, k) => k !== i))} />
+                onRemove={busy ? null : (i) => { setFiles((prev) => prev.filter((_, k) => k !== i)); setStatus({}); setError(''); }} />
             </div>
           )}
           {error ? <div style={errorStyle}>{error}</div> : null}

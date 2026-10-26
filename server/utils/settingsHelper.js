@@ -181,9 +181,15 @@ function canUseApi(user) {
 // `dataSharing` is a privacy decision, not a tuning knob: 'schema' sends only
 // field names and labels to the provider, 'schema+cache' also lets the
 // assistant read rows out of the rollup cache — rows that then leave the
-// instance. Off by default for that reason.
+// instance. Off by default for that reason. 'schema+results' is all of that,
+// plus, in Let's Talk, the rows its answers are about read from the source
+// AS THE USER (their rights, their RLS, 50 rows at most — cachedQuery.queryLive):
+// a cache only holds what reports group by, so an ad hoc question went unread
+// (Jonathan 2026-10-25: "lignes de l'aperçu").
 const AI_PROVIDERS = ['openai-compat', 'anthropic'];
-const AI_DATA_SHARING = ['schema', 'schema+cache'];
+const AI_DATA_SHARING = ['schema', 'schema+cache', 'schema+results'];
+/** Whether this level lets cached rows (and what comes with them) reach the provider. */
+const sharesCachedData = (level) => level === 'schema+cache' || level === 'schema+results';
 // `enabled` is the admin's switch, on unless they turn it off: configuring a
 // provider is the decision to use the assistant, a second "and now enable it"
 // step was only ever forgotten. What is NOT on by default is `dataSharing`.
@@ -312,6 +318,7 @@ function applyAiProviderPatch(next, p, allowed = AI_PROVIDERS) {
 }
 
 module.exports = {
+  sharesCachedData,
   AI_PROVIDERS,
   AI_DATA_SHARING,
   getAiConfig,

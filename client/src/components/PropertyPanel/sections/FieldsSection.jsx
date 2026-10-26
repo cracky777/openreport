@@ -43,10 +43,49 @@ export default function FieldsSection({ ctx }) {
       onDrop={onDrop} onRemove={onRemove} fieldInfos={fieldInfos} />
   );
 
+  // The year before as series of their own (utils/chartN1.js): without a legend
+  // only. On a combo the choice is the bars': the lines keep their year before.
+  const compareZones = (show) => {
+    if ((binding.groupBy || []).length) return null;
+    const compareDateDim = binding.compareDateDim || null;
+    const removeCompareDim = () => {
+      const next = { ...binding };
+      delete next.compareDateDim;
+      delete next.compareMode;
+      onUpdate(widgetId, { ...widget, dataBinding: next });
+    };
+    return (
+      <>
+        <DropZone label="Compare with previous year (date)" accepts={['dimension']} fields={compareDateDim ? [compareDateDim] : []} zoneName="compareDate"
+          onDrop={(fieldName) => onUpdate(widgetId, { ...widget, dataBinding: { ...binding, compareDateDim: fieldName } })} onRemove={removeCompareDim} fieldInfos={fieldInfos} />
+        {compareDateDim && (
+          <label style={compareModeLabel}>
+            {show}
+            <select aria-label="Previous year shown as" value={binding.compareMode || 'series'} style={compareModeSelect}
+              onChange={(e) => {
+                const next = { ...binding, compareMode: e.target.value };
+                if (e.target.value === 'series') delete next.compareMode;
+                onUpdate(widgetId, { ...widget, dataBinding: next });
+              }}>
+              <option value="series">Both years</option>
+              <option value="difference">Difference vs previous year</option>
+              <option value="change">Change vs previous year (%)</option>
+            </select>
+          </label>
+        )}
+      </>
+    );
+  };
+
   let zones = null;
 
   if (type === 'bar' || type === 'line') {
-    zones = <>{axisZone()}{legendZone}{valuesZone()}</>;
+    zones = (
+      <>
+        {axisZone()}{legendZone}{valuesZone()}
+        {compareZones('Show')}
+      </>
+    );
   } else if (type === 'combo') {
     const comboBarMeas = binding.comboBarMeasures || [];
     const comboLineMeas = binding.comboLineMeasures || [];
@@ -64,6 +103,7 @@ export default function FieldsSection({ ctx }) {
           onRemove={(fn) => updateBinding({ comboLineMeasures: comboLineMeas.filter((m) => m !== fn) })}
           onReorder={(arr) => updateBinding({ comboLineMeasures: arr })} multiple fieldInfos={fieldInfos}
           sort={getZoneSort('comboLine')} onSortChange={setZoneSort('comboLine')} />
+        {compareZones('Bars')}
       </>
     );
   } else if (type === 'scatter') {
@@ -210,3 +250,6 @@ export default function FieldsSection({ ctx }) {
   if (!zones) return null;
   return <Section bare>{zones}</Section>;
 }
+
+const compareModeLabel = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-secondary)', margin: '-4px 0 10px' };
+const compareModeSelect = { flex: 1, minWidth: 0, padding: '4px 6px', fontSize: 12, borderRadius: 6, border: '1px solid var(--border-default)', background: 'var(--bg-panel)', color: 'var(--text-primary)' };

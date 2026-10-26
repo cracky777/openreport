@@ -133,8 +133,8 @@ function HighlightPart({ widget, updateConfig, inputStyle }) {
   const set = (patch) => updateConfig('highlight', { ...hl, ...patch });
   const on = hl.enabled === true;
   return (
-    <SubSection label="Highlight">
-      <Field label="Make bars stand out">
+    <>
+      <Field label="Color by a rule">
         <input type="checkbox" checked={on} onChange={(e) => set({ enabled: e.target.checked })} />
       </Field>
       {on && (
@@ -145,11 +145,17 @@ function HighlightPart({ widget, updateConfig, inputStyle }) {
               <option value="bottom">The smallest</option>
               <option value="above">Above the average by</option>
               <option value="values">These categories</option>
+              <option value="over">Over a value</option>
+              <option value="under">Under a value</option>
             </select>
           </Field>
           {(hl.mode || 'top') === 'top' || hl.mode === 'bottom' ? (
             <Field label="How many">
               <input type="number" min={1} max={10} value={hl.n ?? 1} onChange={(e) => set({ n: Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1)) })} style={{ ...inputStyle, marginBottom: 0, width: 60 }} />
+            </Field>
+          ) : hl.mode === 'over' || hl.mode === 'under' ? (
+            <Field label="Value">
+              <input type="number" value={hl.threshold ?? 0} onChange={(e) => set({ threshold: Number(e.target.value) || 0 })} style={{ ...inputStyle, marginBottom: 0, width: 110 }} />
             </Field>
           ) : hl.mode === 'above' ? (
             <Field label="Over the average (%)">
@@ -170,7 +176,7 @@ function HighlightPart({ widget, updateConfig, inputStyle }) {
           </Field>
         </>
       )}
-    </SubSection>
+    </>
   );
 }
 
@@ -184,8 +190,8 @@ function ConditionalPart({ ctx }) {
   const addRule = () => setCC({ rules: [...rules, { op: '<', value: 0, color: '#dc2626' }] });
   const removeRule = (idx) => setCC({ rules: rules.filter((_, i) => i !== idx) });
   return (
-    <SubSection label="Conditional">
-      <Field label="Color by rule">
+    <>
+      <Field label="Color by a measure">
         <input type="checkbox" checked={cc.enabled === true} onChange={(e) => setCC({ enabled: e.target.checked })} />
       </Field>
       {cc.enabled && (
@@ -241,6 +247,34 @@ function ConditionalPart({ ctx }) {
           )}
         </>
       )}
+    </>
+  );
+}
+
+// One place for every color that depends on the data (Jonathan: "c'est bien
+// du format conditionnel"): by the value of each bar, point, slice or tile
+// (`highlight`), of each cell of a table, or of the whole visual by one
+// measure (`colorCondition`). Three settings that used to sit apart, one of
+// them alone called "Conditional" — and it was not the one people looked for.
+const scopeLabel = { fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', margin: '10px 0 4px' };
+function ConditionalFormatting({ ctx, each = null }) {
+  const { widget, updateConfig, inputStyle, table } = ctx;
+  return (
+    <SubSection label="Conditional formatting">
+      {each === 'mark' && (
+        <>
+          <div style={scopeLabel}>Each bar or point</div>
+          <HighlightPart widget={widget} updateConfig={updateConfig} inputStyle={inputStyle} />
+        </>
+      )}
+      {each === 'cell' && (
+        <>
+          <div style={scopeLabel}>Each cell</div>
+          <TableConditionalPart t={table} bare />
+        </>
+      )}
+      {each && <div style={scopeLabel}>Whole visual</div>}
+      <ConditionalPart ctx={ctx} />
     </SubSection>
   );
 }
@@ -256,7 +290,7 @@ export default function ColorsSection({ ctx }) {
     body = (
       <>
         <WaterfallColorsPart cfg={cfg} updateConfig={updateConfig} />
-        <ConditionalPart ctx={ctx} />
+        <ConditionalFormatting ctx={ctx} />
       </>
     );
   } else if (type === 'heatmap' || type === 'map') {
@@ -297,9 +331,8 @@ export default function ColorsSection({ ctx }) {
           </Field>
         )}
         <SeriesPart widget={widget} updateConfig={updateConfig} inputStyle={inputStyle} />
-        {['bar', 'combo', 'line', 'pie', 'treemap', 'scatter'].includes(type) && <HighlightPart widget={widget} updateConfig={updateConfig} inputStyle={inputStyle} />}
         {type !== 'line' && <GradientPart widget={widget} updateConfig={updateConfig} />}
-        <ConditionalPart ctx={ctx} />
+        <ConditionalFormatting ctx={ctx} each={['bar', 'combo', 'line', 'pie', 'treemap', 'scatter'].includes(type) ? 'mark' : null} />
       </>
     );
   } else if (type === 'gauge') {
@@ -325,15 +358,14 @@ export default function ColorsSection({ ctx }) {
             </Field>
           )}
         </SubSection>
-        <ConditionalPart ctx={ctx} />
+        <ConditionalFormatting ctx={ctx} />
       </>
     );
   } else if (type === 'table' || type === 'pivotTable') {
     body = (
       <>
         {table.colSelect}
-        <TableConditionalPart t={table} />
-        <ConditionalPart ctx={ctx} />
+        <ConditionalFormatting ctx={ctx} each="cell" />
       </>
     );
   } else if (type === 'filter') {
@@ -347,7 +379,7 @@ export default function ColorsSection({ ctx }) {
             <ColorInput value={cfg.slicerSelectedBg || '#f5f3ff'} onChange={(v) => updateConfig('slicerSelectedBg', v)} />
           </Field>
         </SubSection>
-        <ConditionalPart ctx={ctx} />
+        <ConditionalFormatting ctx={ctx} />
       </>
     );
   } else if (type === 'shape') {
@@ -370,7 +402,7 @@ export default function ColorsSection({ ctx }) {
       );
     }
   } else if (hasData(type)) {
-    body = <ConditionalPart ctx={ctx} />;
+    body = <ConditionalFormatting ctx={ctx} />;
   }
 
   if (!body) return null;

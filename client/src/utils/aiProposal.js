@@ -356,6 +356,9 @@ export function describeProposal(proposal, outcome) {
     what = (proposal.widgets || []).map((w) => (
       `${w.config?.subType ? `${w.type}/${w.config.subType}` : w.type} ${JSON.stringify(w.config?.title || '')} ${JSON.stringify(w.dataBinding || {})}`
     )).join(' ; ');
+    // Defined in a conversation with no report (Let's Talk), they exist nowhere
+    // else: a follow-up that uses them again declares them again.
+    if ((proposal.measureArgs || []).length) what += ` ; measures defined with it (declare them again in measures to reuse them): ${JSON.stringify(proposal.measureArgs)}`;
   }
   return `[Proposed — ${status}: ${what}]`.slice(0, 1500);
 }

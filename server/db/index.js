@@ -100,6 +100,8 @@ safeMigrate("ALTER TABLE users ADD COLUMN ai_denied INTEGER NOT NULL DEFAULT 0")
 safeMigrate("ALTER TABLE users ADD COLUMN ai_config TEXT");
 // Build or Chat: the face of the app this account opens on (routes/auth.js, /me/ui-mode).
 safeMigrate("ALTER TABLE users ADD COLUMN ui_mode TEXT");
+// The colors of Let's Talk this account chose (utils/ai/talkTheme.js); NULL = Open Report's.
+safeMigrate("ALTER TABLE users ADD COLUMN talk_theme TEXT");
 // 👍 / 👎 on the assistant's answers (utils/ai/feedback.js). The question and the
 // shape of the proposal only — never the answer's text, which can quote data.
 db.exec(`CREATE TABLE IF NOT EXISTS ai_feedback (

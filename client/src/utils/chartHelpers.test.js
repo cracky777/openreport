@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { alignDualAxes, calcBottomMargin, categoryLabelRoom } from './chartHelpers';
+import { alignDualAxes, calcBottomMargin, categoryLabelRoom, axisUnitOf } from './chartHelpers';
 
 describe('alignDualAxes', () => {
   test('both axes get the same number of round steps', () => {
@@ -73,5 +73,14 @@ describe('categoryLabelRoom', () => {
   });
   test('short labels beside a horizontal bar take only the room they need', () => {
     expect(categoryLabelRoom({ labels: ['A', 'B'], horizontal: true, chartWidth: 400 }).margin).toBeLessThan(40);
+  });
+});
+
+describe('axisUnitOf', () => {
+  test('the unit every measure on the axis shares, none when they differ or have none', () => {
+    expect(axisUnitOf({ A: { suffix: ' %' }, B: { suffix: ' %', decimals: 1 } })).toEqual({ prefix: '', suffix: ' %' });
+    expect(axisUnitOf({ A: { suffix: ' %' }, B: { prefix: '€' } })).toBeNull();
+    expect(axisUnitOf({ A: { decimals: 0 } })).toBeNull();
+    expect(axisUnitOf({})).toBeNull();
   });
 });

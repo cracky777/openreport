@@ -168,3 +168,49 @@ describe('the house style of the report', () => {
     expect(matchNeighbours({ type: 'table', config: { borderEnabled: true }, dataBinding: {} }, siblings).config.borderEnabled).toBe(true);
   });
 });
+
+// Read as a controller and a credit director would (2026-10-26): what the
+// charts said that the figures did not.
+describe('charts read by their reader', () => {
+  const fields = {
+    dimensions: [
+      { name: 'c.month', label: 'Month', type: 'string', table: 'c', column: 'YearMonth' },
+      { name: 'a.agency', label: 'agence', type: 'string', table: 'a', column: 'agence' },
+    ],
+    measures: [
+      { name: 'e.costs', label: 'Charges externes', aggregation: 'sum', table: 'e', column: 'costs' },
+      { name: 'e.revenue', label: 'Revenue', aggregation: 'sum', table: 'e', column: 'revenue' },
+      { name: 'e.rate', label: 'Taux', aggregation: 'custom', expression: '100.0 * (${e.costs}) / NULLIF((${e.revenue}), 0)', format: { decimals: 1, suffix: ' %' } },
+      { name: 'a.accepted', label: "Taux d'acceptation", aggregation: 'avg', table: 'a', column: 'ok', format: { decimals: 1, suffix: ' %' } },
+      { name: 'a.delay', label: 'Délai moyen', aggregation: 'avg', table: 'a', column: 'delay', format: { decimals: 1 } },
+    ],
+  };
+  const ctx = { effective: fields, page: { width: 1140, height: 800 }, pageContext: { pageWidth: 1140, pageHeight: 800, themes: ['light'], theme: 'light', widgets: [] }, mode: 'visuals', library: [], cardinality: { 'a.agency': { n: 7 } } };
+  const combo = (extra = {}) => ({
+    type: 'combo', answers: 'trend', title: 'Charges et CA', rationale: 'r',
+    binding: { selectedDimensions: ['c.month'], comboBarMeasures: ['e.costs', 'e.revenue'], comboLineMeasures: ['e.rate'] }, ...extra,
+  });
+
+  test('two bar measures of a combo sit side by side unless the proposal stacks them', () => {
+    expect(validateWidgetsProposal({ widgets: [combo()] }, ctx).widgets[0].config.subType).toBe('clusteredCombo');
+    expect(validateWidgetsProposal({ widgets: [combo({ subType: 'stackedCombo' })] }, ctx).widgets[0].config.subType).toBe('stackedCombo');
+  });
+
+  test('the name given to the axis field heads the axis (and the Table view); never on a scatter, whose X is a measure', () => {
+    const named = validateWidgetsProposal({ widgets: [combo({ fieldNames: { 'c.month': 'Mois', 'e.revenue': "Chiffre d'affaires" } })] }, ctx).widgets[0];
+    expect(named.config.xAxisTitle).toBe('Mois');
+    expect(named.fieldLabels['e.revenue']).toBe("Chiffre d'affaires");
+    const scatter = validateWidgetsProposal({ widgets: [{
+      type: 'scatter', answers: 'relationship', title: 'Agences', rationale: 'r',
+      binding: { selectedDimensions: ['a.agency'], scatterMeasures: { x: 'a.accepted', y: 'a.delay' } },
+      fieldNames: { 'a.agency': 'Agence' },
+    }] }, ctx).widgets[0];
+    expect(scatter.config.xAxisTitle).toBeUndefined();
+  });
+
+  test('a scatter of a few named points prints their names; the proposal may ask for labels on any chart', () => {
+    expect(dressWidget(widget('scatter', { selectedDimensions: ['a.agency'], scatterMeasures: { x: 'a.accepted', y: 'a.delay' } }), { effective: fields, cardinality: { 'a.agency': { n: 7 } } }).config.showDataLabels).toBe(true);
+    expect(dressWidget(widget('scatter', { selectedDimensions: ['a.agency'], scatterMeasures: { x: 'a.accepted', y: 'a.delay' } }), { effective: fields, cardinality: { 'a.agency': { n: 400 } } }).config.showDataLabels).toBeUndefined();
+    expect(validateWidgetsProposal({ widgets: [combo({ dataLabels: false })] }, ctx).widgets[0].config.showDataLabels).toBe(false);
+  });
+});

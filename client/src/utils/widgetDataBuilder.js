@@ -27,6 +27,7 @@ import { toNumber } from './numericValue';
 import { parseAggVariant } from './aggVariant';
 import { tagFor } from './textMeasures';
 import { mergePeriodRows } from './periodShift';
+import { mergeN1Rows, comparedSeries, comboN1 } from './chartN1';
 
 export function buildWidgetData({
   widget,
@@ -48,8 +49,9 @@ export function buildWidgetData({
   totalComponents = null,
 }) {
   const w = widget;
-  const { dims, meass, grpBy, colDimsB, cbm, clm, sm,
+  const { dims, grpBy, colDimsB, sm,
     fullHierarchy, isDrillable, drillPath, topN } = meta;
+  let { meass, cbm, clm } = meta;
   // Per-measure time variants ("<base>@@tp:<preset>") are not model
   // measures — synthesize their defs (label = "<base label> (YTD)"…, same
   // as the server's response alias) so every label lookup below resolves
@@ -63,6 +65,41 @@ export function buildWidgetData({
   }
   const topNApplies = topN.applies;
   rows = mergePeriodRows(rows, periodRes, meta, effectiveModel);
+  // The year before on a line or a bar (utils/chartN1.js): its measures join
+  // the rows as "<label> N-1" columns — series of their own, with the formats
+  // of the measures they repeat.
+  if (meta.n1?.series && Array.isArray(rows) && rows.length) {
+    const named = (names) => (names || []).map((n) => (effectiveModel?.measures || []).find((m) => m.name === n))
+      .filter(Boolean).map((m) => ({ ...m, label: m.label || m.name }));
+    const dimDefs = (meta.allDims || dims).map((n) => {
+      const def = (effectiveModel?.dimensions || []).find((d) => d.name === n);
+      return { label: def?.label || def?.name || n, def };
+    });
+    const measDefs = named(w.type === 'combo' ? [...new Set([...(cbm || []), ...(clm || [])])] : meass);
+    const merged = mergeN1Rows(rows, n1Res?.data?.rows || [], dimDefs, measDefs.map((m) => m.label));
+    // Drawn as measures of their own: a name each, the label the rows carry.
+    let at = 0;
+    const drawnOf = (series) => series.map((m) => ({ ...m, name: `${m.name}@@n1:${at++}` }));
+    if (w.type === 'combo') {
+      const sides = comboN1(merged, named(cbm), named(clm), w.dataBinding?.compareMode);
+      rows = sides.rows;
+      const bars = drawnOf(sides.bars);
+      const lines = drawnOf(sides.lines);
+      effectiveModel = { ...effectiveModel, measures: [...(effectiveModel?.measures || []), ...bars, ...lines] };
+      cbm = bars.map((m) => m.name);
+      clm = lines.map((m) => m.name);
+      meass = [...cbm, ...clm];
+    } else {
+      const compared = comparedSeries(merged, measDefs, w.dataBinding?.compareMode);
+      rows = compared.rows;
+      const drawn = drawnOf(compared.series);
+      effectiveModel = { ...effectiveModel, measures: [...(effectiveModel?.measures || []), ...drawn] };
+      meass = drawn.map((m) => m.name);
+    }
+  }
+  // Each N-1 series and the series it repeats: drawn in its color, dashed or paler.
+  const n1Series = meta.n1?.series ? Object.fromEntries((effectiveModel?.measures || [])
+    .filter((m) => m._n1Of && meass.includes(m.name)).map((m) => [m.label, m._n1Of])) : null;
 
   // Extract the colour-coding aggregate from the optional color query.
   let _colorValue;
@@ -191,6 +228,9 @@ export function buildWidgetData({
     }
   } else if (w.type === 'combo') {
     if (rows.length > 0) {
+      // Set against the year before (utils/chartN1.js), a point with nothing is a gap, never a zero.
+      const gaps = !!meta.n1?.series;
+      const pointOf = (r, mk) => (gaps && (!r || r[mk] == null) ? null : numOf(r, mk));
       const fk = (label) => keys.find((k) => k === label) || null;
       const axisKey = dims.length > 0 ? fk(gl(dims[0], effectiveModel?.dimensions)) || keys[0] : keys[0];
       const grpLabel = grpBy.length > 0 ? gl(grpBy[0], effectiveModel?.dimensions) : null;
@@ -227,10 +267,7 @@ export function buildWidgetData({
           if (!mk) return;
           barSeries.push({
             name: ml,
-            values: labels.map((l) => {
-              const row = byAxis.get(l);
-              return numOf(row, mk);
-            }),
+            values: labels.map((l) => pointOf(byAxis.get(l), mk)),
           });
         });
       }
@@ -264,11 +301,15 @@ export function buildWidgetData({
           if (!mk) return null;
           return {
             name: ml,
-            values: labels.map((l) => (rowsByAxis.get(l) || []).reduce((s, r) => s + numOf(r, mk), 0)),
+            values: labels.map((l) => {
+              const at = rowsByAxis.get(l) || [];
+              return gaps && at.every((r) => r[mk] == null) ? null : at.reduce((s, r) => s + numOf(r, mk), 0);
+            }),
           };
         }).filter(Boolean);
       }
       newData = { labels, barSeries, lineSeries };
+      if (gaps) newData._gaps = true;
       newData._barMeasureLabel = cbm.map((mn) => gl(mn, effectiveModel?.measures)).join(', ');
       newData._lineMeasureLabel = clm.map((mn) => gl(mn, effectiveModel?.measures)).join(', ');
     }
@@ -401,21 +442,32 @@ export function buildWidgetData({
     // Index by (axis, group) once; first-match wins, matching rows.find().
     const byAxisGroup = new Map();
     rows.forEach((r) => { const k = `${String(r[axisKey])}\u0000${String(r[groupKey])}`; if (!byAxisGroup.has(k)) byAxisGroup.set(k, r); });
+    // A line of an average or a ratio has no point where its group has no
+    // rows: a restaurant before it opened is a gap, not a ticket of 0 €. A
+    // sum or a count with no rows is 0, as before.
+    const md = (effectiveModel?.measures || []).find((m) => m.name === meass[0]);
+    const gaps = w.type === 'line' && !!md && !['sum', 'count', 'count_distinct'].includes(String(md.aggregation || '').toLowerCase());
     newData = {
       labels: ul,
       series: ug.map((gv) => ({
         name: gv,
         values: ul.map((l) => {
           const row = byAxisGroup.get(`${l}\u0000${gv}`);
-          return numOf(row, valueKey);
+          return gaps && !row ? null : numOf(row, valueKey);
         }),
       })),
     };
+    if (gaps) newData._gaps = true;
   } else {
     // Default — bar/line without a groupBy: rows are (axis, …measures).
     const labels = rows.map((r) => String(r[keys[0]] ?? ''));
+    // Set against the year before (utils/chartN1.js), a point with nothing is
+    // a gap: a month last year did not have would read as a fall to zero.
+    const gaps = !!meta.n1?.series;
+    const pointOf = (r, mk) => (gaps && r[mk] == null ? null : numOf(r, mk));
     const measureKeys = keys.slice(1);
-    if (measureKeys.length > 1) {
+    // A comparison is always named series: its name and format reach the legend and the tooltip.
+    if (measureKeys.length > 1 || gaps) {
       // Two measures on a plain bar used to plot the LAST column only, and label
       // the axis with it: the other measure disappeared without a word. Emit the
       // same multi-series shape the groupBy branch above already produces, which
@@ -424,12 +476,13 @@ export function buildWidgetData({
         labels,
         series: measureKeys.map((mk) => ({
           name: mk,
-          values: rows.map((r) => numOf(r, mk)),
+          values: rows.map((r) => pointOf(r, mk)),
         })),
       };
     } else {
-      newData = { labels, values: rows.map((r) => numOf(r, keys[keys.length - 1])) };
+      newData = { labels, values: rows.map((r) => pointOf(r, keys[keys.length - 1])) };
     }
+    if (gaps) newData._gaps = true;
   }
 
   // Common metadata stamped on every successful build. Order matters
@@ -503,6 +556,7 @@ export function buildWidgetData({
     const legendDim = (effectiveModel?.dimensions || []).find((x) => x.name === grpBy[0]);
     if (legendDim) newData._legendDimDef = { type: legendDim.type, datePart: legendDim.datePart };
   }
+  if (n1Series) newData._n1Series = n1Series;
   if (meass.length > 0) {
     const m0 = (effectiveModel?.measures || []).find((x) => x.name === meass[0]);
     newData._measureLabel = m0?.label || m0?.name || meass[0];

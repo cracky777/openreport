@@ -338,10 +338,11 @@ export function TableFreezePart({ t }) {
 
 // ─── Colors ───
 
-export function TableConditionalPart({ t }) {
+// `bare`: inside the Colors section's Conditional formatting, which titles it.
+export function TableConditionalPart({ t, bare = false }) {
   const { tc, selectedCol, updateGlobal, inputStyle } = t;
-  return (
-    <SubSection label="Conditional format">
+  const body = (
+    <>
       {selectedCol ? (
         <>
           <Field label="Hide value">
@@ -357,8 +358,9 @@ export function TableConditionalPart({ t }) {
       ) : (
         <div style={hint}>Pick a column above</div>
       )}
-    </SubSection>
+    </>
   );
+  return bare ? body : <SubSection label="Conditional format">{body}</SubSection>;
 }
 
 const RULE_LABELS = { dataBar: 'Data bar', colorScale: 'Color scale', textColor: 'Text color', icon: 'Icon' };

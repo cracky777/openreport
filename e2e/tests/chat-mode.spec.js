@@ -1,6 +1,6 @@
 // The chat face of the app (the studio without a report, pages/AiStudio.jsx +
-// AiPanel/StartConversation.jsx): the Build / Chat switch the
-// account remembers, and files dropped into the conversation that become a
+// AiPanel/StartConversation.jsx): Build and Chat side by side, each sliding
+// the other in, the side the account remembers, and files dropped into the conversation that become a
 // model and a report without the journey's screens, the studio opening on it.
 const fs = require('fs');
 const { test, expect } = require('@playwright/test');
@@ -26,26 +26,29 @@ test.afterEach(async ({ page }) => {
   await page.request.put('/api/auth/me/ui-mode', { data: { mode: 'build' } });
 });
 
-test('the Build / Chat switch opens the chat home, and the account remembers it', async ({ page }) => {
+test('the Assistant bar slides the chat home in, the Build bar slides Build back, and the account remembers the side', async ({ page }) => {
+  // The bar shows while the assistant is on or waits for a provider; other
+  // specs leave it switched off.
+  await page.request.put('/api/admin/settings/ai', { data: { removeProvider: true, enabled: true } });
   await page.goto('/');
-  await page.getByRole('radio', { name: 'Chat' }).click();
+  await page.getByRole('button', { name: 'Assistant', exact: true }).click();
   await expect(page).toHaveURL(/\/chat$/);
   await expect(page.getByLabel('Describe the report you want')).toBeVisible();
   // Remembered: the root opens on the chat home now.
   await page.goto('/');
   await expect(page).toHaveURL(/\/chat$/);
-  await page.getByRole('radio', { name: 'Build' }).click();
+  await page.getByRole('button', { name: 'Build', exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole('button', { name: '+ New Connection' }).first()).toBeVisible();
 });
 
-test('the chat home opens on a question with choices: the reports and models of the workspace', async ({ page }) => {
+test('the chat home opens on cards: the reports of the workspace, then one card to create a report from files or a model', async ({ page }) => {
   await page.goto('/chat');
-  await page.getByRole('button', { name: 'Continue a report' }).click();
+  await page.getByRole('button', { name: /Continue a report/ }).click();
   await expect(page.getByRole('button', { name: 'Rapport e2e', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Start a new report' }).click();
-  await expect(page.getByText('Drop your files anywhere on this page.')).toBeVisible();
-  await page.getByRole('button', { name: 'Start from a data model' }).click();
+  await page.getByRole('button', { name: /Create a report/ }).click();
+  await expect(page.getByRole('button', { name: 'Rapport e2e', exact: true })).toHaveCount(0);
+  await expect(page.getByText('Start from the beginning')).toBeVisible();
   await page.getByRole('button', { name: 'e2e-model' }).click();
   await expect(page).toHaveURL(/\/studio\/[\w-]+$/, { timeout: 30_000 });
 });
@@ -81,9 +84,9 @@ test('a report opened from the conversation after another one shows its own page
   await page.goto(`/studio/${tableReportId}`);
   // The table report: one visual.
   await expect(page.locator('.widget-content')).toHaveCount(1);
-  await page.getByTitle('Back').click();
+  await page.getByTitle('Back', { exact: true }).click();
   await expect(page).toHaveURL(/\/chat$/);
-  await page.getByRole('button', { name: 'Continue a report' }).click();
+  await page.getByRole('button', { name: /Continue a report/ }).click();
   await page.getByRole('button', { name: 'Rapport e2e', exact: true }).click();
   await expect(page).toHaveURL(/\/studio\/[\w-]+$/);
   expect(page.url()).not.toContain(tableReportId);

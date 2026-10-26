@@ -12,8 +12,9 @@ const pageRowStyle = { display: 'flex', justifyContent: 'space-between', gap: 8,
 const countStyle = { color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
 const measureStyle = { display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px' };
 
-export default function ReportPagesCard({ proposal, model, onApply, onOutcome }) {
-  const [state, setState] = useState('open');
+export default function ReportPagesCard({ proposal, model, onApply, onOutcome, outcome }) {
+  // Applied already (a report Let's Talk proposed, applied as the studio opened): no second time.
+  const [state, setState] = useState(outcome === 'applied' || outcome === 'dismissed' ? outcome : 'open');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const visuals = proposal.pages.reduce((n, p) => n + p.widgets.length, 0);

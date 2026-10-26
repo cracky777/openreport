@@ -257,7 +257,7 @@ describe('measures defined from the conversation', () => {
     const [variance, pct, filtered, running, mean, rows] = r.payload.measures;
     expect(mean).toMatchObject({ name: '_calc.panier_moyen', table: 'orders', column: 'amount', aggregation: 'avg' });
     expect(rows).toMatchObject({ name: '_calc.commandes', table: 'orders', column: 'amount', aggregation: 'count' });
-    expect(variance).toEqual({ name: '_calc.ecart_reel_budget', label: 'Écart réel budget', table: '', column: '', aggregation: 'custom', expression: '(${orders.amount_sum}) - (${budget.amount_sum})', format: { decimals: 0 }, description: 'Actual minus budget' });
+    expect(variance).toEqual({ name: '_calc.ecart_reel_budget', label: 'Écart réel budget', table: '', column: '', aggregation: 'custom', expression: 'COALESCE((${orders.amount_sum}), 0) - COALESCE((${budget.amount_sum}), 0)', format: { decimals: 0 }, description: 'Actual minus budget' });
     expect(pct).toMatchObject({ name: '_calc.ecart', aggregation: 'custom', expression: '100.0 * (${_calc.ecart_reel_budget}) / NULLIF((${budget.amount_sum}), 0)', format: { decimals: 1, suffix: ' %' } });
     expect(filtered).toMatchObject({ name: '_calc.actual_p_l', table: 'orders', column: 'amount', aggregation: 'sum', filterRules: [{ field: 'orders.statement', isMeasure: false, op: 'in', values: ['Income statement'] }], overrideFilters: false });
     expect(running).toMatchObject({ name: '_calc.cash_balance', table: 'orders', column: 'amount', aggregation: 'sum', runningTotal: true });

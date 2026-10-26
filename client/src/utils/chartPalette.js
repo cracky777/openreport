@@ -53,3 +53,19 @@ export function tintOf(hex, share = 0.12) {
   const mix = (i) => Math.round(255 - (255 - parseInt(hex.slice(i, i + 2), 16)) * share).toString(16).padStart(2, '0');
   return `#${mix(1)}${mix(3)}${mix(5)}`;
 }
+
+// The color of the i-th series. Past the end of the palette the colors came
+// round again: two series of one chart in one color, which the legend cannot
+// tell apart (Jonathan, about the year before drawn in its base's color). A
+// second round takes the palette darker, a third lighter, and so on.
+export function seriesColor(palette, i) {
+  const n = palette.length;
+  if (!n) return OTHERS_COLOR;
+  const base = palette[((i % n) + n) % n];
+  const round = Math.floor(i / n);
+  if (round <= 0 || !/^#[0-9a-f]{6}$/i.test(base)) return base;
+  const toward = round % 2 ? 0 : 255;
+  const share = Math.min(0.2 * Math.ceil(round / 2) + 0.15, 0.6);
+  const mix = (k) => Math.round(parseInt(base.slice(k, k + 2), 16) * (1 - share) + toward * share).toString(16).padStart(2, '0');
+  return `#${mix(1)}${mix(3)}${mix(5)}`;
+}

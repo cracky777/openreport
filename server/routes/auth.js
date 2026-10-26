@@ -157,12 +157,25 @@ router.put('/me/ui-mode', requireAuth, (req, res) => {
   res.json({ ui_mode: mode });
 });
 
+// The colors of Let's Talk for this account (utils/ai/talkTheme.js), set by
+// the card the assistant hands over when asked for other colors; null goes
+// back to Open Report's.
+router.put('/me/talk-theme', requireAuth, (req, res) => {
+  const { cleanTalkTheme } = require('../utils/ai/talkTheme');
+  const sent = req.body && req.body.theme;
+  const theme = sent === null ? null : cleanTalkTheme(sent);
+  if (sent !== null && !theme) return res.status(400).json({ error: 'A theme is { base: "#rrggbb", harmony }, or null' });
+  db.prepare('UPDATE users SET talk_theme = ? WHERE id = ?').run(theme ? JSON.stringify(theme) : null, req.user.id);
+  res.json({ talk_theme: theme });
+});
+
 router.get('/me', requireAuth, (req, res) => {
   // `instance` = non-sensitive instance-wide policy the client UI adapts to
   // (e.g. hiding the "Share public link" action). Enforcement stays server-side.
   const { getPublicSharingPolicy, isApiEnabled, canUseApi } = require('../utils/settingsHelper');
   res.json({
-    user: req.user,
+    // The Let's Talk colors as an object, never the stored text.
+    user: { ...req.user, talk_theme: require('../utils/ai/talkTheme').cleanTalkTheme(req.user.talk_theme) },
     instance: {
       publicSharingPolicy: getPublicSharingPolicy(),
       // Drives whether the account menu shows an API tokens entry at all —

@@ -80,17 +80,21 @@ export function abbreviateNumber(value, mode = 'none', format = null) {
   return `${format.prefix ?? ''}${abbreviated}${format.suffix ?? ''}`;
 }
 
+// One decimal at most, none when it is zero: an axis read "100,0K €, 80,0K €"
+// (controller recipe) where "100K €" says the same.
+const short = (v) => formatShare(v, 1);
+
 function abbreviateRaw(value, mode) {
   if (value == null || isNaN(value) || mode === 'none') return null;
   const abs = Math.abs(value);
   if (mode === 'auto') {
-    if (abs >= 1e9) return formatPlain(value / 1e9) + 'B';
-    if (abs >= 1e6) return formatPlain(value / 1e6) + 'M';
-    if (abs >= 1e3) return formatPlain(value / 1e3) + 'K';
+    if (abs >= 1e9) return short(value / 1e9) + 'B';
+    if (abs >= 1e6) return short(value / 1e6) + 'M';
+    if (abs >= 1e3) return short(value / 1e3) + 'K';
     return String(value).replace('.', readerSeparators().decimal);
   }
-  if (mode === 'K') return formatPlain(value / 1e3) + 'K';
-  if (mode === 'M') return formatPlain(value / 1e6) + 'M';
-  if (mode === 'B') return formatPlain(value / 1e9) + 'B';
+  if (mode === 'K') return short(value / 1e3) + 'K';
+  if (mode === 'M') return short(value / 1e6) + 'M';
+  if (mode === 'B') return short(value / 1e9) + 'B';
   return String(value).replace('.', readerSeparators().decimal);
 }

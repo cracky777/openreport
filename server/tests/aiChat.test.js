@@ -122,7 +122,7 @@ describe('POST /api/ai/reports/:id/chat', () => {
     expect(res.body.proposals).toEqual([]);
     const system = providers.chat.mock.calls[0][0].system;
     expect(system).toMatch(/this report reads the \w[\w ]* (database|dataset) "[^"]+", and a file cannot be joined to a database/);
-    expect(system).toMatch(/Start a new report/);
+    expect(system).toMatch(/Create a report/);
     const refused = providers.chat.mock.calls[1][0].messages.find((m) => m.role === 'tool').content;
     // JSON-escaped on the tool message: the name is there, between escaped quotes.
     expect(refused).toMatch(/this report reads the PostgreSQL database \\"testdb\\"/);

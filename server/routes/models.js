@@ -657,7 +657,13 @@ router.post('/:id/datasources', authFor('write'), (req, res) => {
   const own = db.prepare('SELECT db_type, extra_config FROM datasources WHERE id = ?').get(model.datasource_id);
   const other = db.prepare('SELECT id, name, db_type, extra_config FROM datasources WHERE id = ?').get(datasourceId);
   if (!isFileSource(own) || !isFileSource(other)) return res.status(400).json({ error: 'Only imported files can be combined in one model.' });
-  if (datasourceId === model.datasource_id || linkedSourcesOf(model.id).some((l) => l.datasource_id === datasourceId)) {
+  const linked = linkedSourcesOf(model.id).find((l) => l.datasource_id === datasourceId);
+  // A link whose tables never reached the model is an attempt cut short (the
+  // connection dropped before the model was saved): the next one takes it up.
+  if (linked && !parseModel(model).selected_tables.some((t) => t.startsWith(`${linked.alias}__`))) {
+    return res.json({ datasource: { id: other.id, name: other.name, alias: linked.alias } });
+  }
+  if (datasourceId === model.datasource_id || linked) {
     return res.status(409).json({ error: 'This source is already part of the model.' });
   }
   const alias = aliasFor(model.id, other.name);
@@ -1115,7 +1121,9 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   // works for unsaved changes. Everyone else gets either the report's
   // already-saved extras (when reportId points to a report they can read)
   // or nothing at all.
-  const userIsModelOwner = req.isAuthenticated() && req.user.id === model.user_id;
+  // Whoever may write the model (canWriteModel) could save the same SQL on it:
+  // their preview of a measure the assistant defined in a conversation runs.
+  const userIsModelOwner = req.isAuthenticated() && (req.user.id === model.user_id || canWriteModel(rawModel, req.user, req));
   const userIsAdmin = req.isAuthenticated() && req.user.role === 'admin';
   if (!userIsModelOwner && !userIsAdmin) {
     // Load a report's *persisted* extras only when the caller can actually

@@ -119,7 +119,11 @@ const MAX_EMPTY_RETRIES = 3;
  * subscription: the SDK takes them, with our tools in its hands.
  *
  * @returns {{ ended: 'tool'|'words'|'empty'|'limit', text: string }}
- *   tool  → text = the words that came with the ending call
+ *   tool  → text = the words that came with the ending call, after those
+ *           written once a tool had answered (what a read showed: Let's Talk
+ *           wrote its figures beside a second read, then proposed with one
+ *           line — the figures were lost). Words before any tool answered
+ *           ("let me read the data") are not the answer.
  *   words → the model's answer
  *   empty → the provider sent nothing, even asked again
  *   limit → the step budget ran out; text = the last words seen
@@ -130,6 +134,7 @@ async function runTurn({ config, system, messages, tools, maxSteps, execute, onW
   const convo = messages.map((m) => ({ role: m.role, text: m.text, ...(m.images && m.images.length ? { images: m.images } : {}) }));
   let emptyRetries = 0;
   let lastText = '';
+  const said = [];
   for (let i = 0; i < maxSteps; i++) {
     const turn = await ask({ config, system, messages: convo, tools }, deps);
     lastText = turn.text || lastText;
@@ -163,7 +168,8 @@ async function runTurn({ config, system, messages, tools, maxSteps, execute, onW
       ended = ended || !!end;
       convo.push({ role: 'tool', toolCallId: call.id, name: call.name, content: JSON.stringify(result), isError: !!(result && result.error) });
     }
-    if (ended) return { ended: 'tool', text: turn.text || '' };
+    if ((i > 0 || ended) && (turn.text || '').trim()) said.push(turn.text.trim());
+    if (ended) return { ended: 'tool', text: said.join('\n\n') };
   }
   return { ended: 'limit', text: lastText };
 }

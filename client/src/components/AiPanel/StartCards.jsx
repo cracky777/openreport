@@ -50,7 +50,7 @@ function Shell({ icon: Icon, title, summary, children }) {
 }
 
 // The data is in: its name, and the model to build on it.
-function DataIn({ datasource, request }) {
+export function DataIn({ datasource, request }) {
   const build = useBuildModel(request);
   const [busy, setBusy] = useState(false);
   return (

@@ -51,6 +51,11 @@ describe('Linking sources to a model', () => {
     expect((await link(u, model, pg)).status).toBe(400);
     expect((await link(u, model, file)).status).toBe(409);
     expect((await link(u, model, other)).status).toBe(201);
+    // Its tables not in the model yet (an attempt cut short): taken up again.
+    const again = await link(u, model, other);
+    expect(again.status).toBe(200);
+    expect(again.body.datasource.alias).toBe('two');
+    db.prepare('UPDATE models SET selected_tables = ? WHERE id = ?').run(JSON.stringify(['two__two']), model);
     expect((await link(u, model, other)).status).toBe(409);
     const onPg = await modelOn(u, pg);
     expect((await link(u, onPg, other)).status).toBe(400);

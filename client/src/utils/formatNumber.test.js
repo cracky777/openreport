@@ -57,7 +57,7 @@ describe('abbreviateNumber', () => {
   });
 
   test('a forced unit is used whatever the magnitude', () => {
-    expect(abbreviateNumber(1_500_000, 'K')).toBe('1500.0K');
+    expect(abbreviateNumber(1_500_000, 'K')).toBe('1500K');
   });
 
   test('no abbreviation returns null so the caller can format in full', () => {

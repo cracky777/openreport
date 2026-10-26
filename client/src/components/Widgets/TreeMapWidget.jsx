@@ -6,7 +6,7 @@ import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import { useStableColorOrder } from '../../hooks/useStableColorOrder';
 import { applyTopN } from '../../utils/topNGroup';
 import { compareAxisValues } from '../../utils/axisSort';
-import { paletteOf, CHART_COLORS_BASIC as COLORS, OTHERS_COLOR } from '../../utils/chartPalette';
+import { paletteOf, CHART_COLORS_BASIC as COLORS, OTHERS_COLOR, seriesColor } from '../../utils/chartPalette';
 import { useChartFonts } from '../../hooks/useChartFonts';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
 import WidgetEmptyState from './WidgetEmptyState';
@@ -41,7 +41,7 @@ export default memo(function TreeMapWidget({ data, config, onDataClick, highligh
     const fmt = Object.values(data._measureFormats || {})[0];
     const customColors = config?.legendColors || {};
     const palette = paletteOf(config, COLORS);
-    const getColor = (name) => customColors[name] || palette[getStableIdx(name) % palette.length];
+    const getColor = (name) => customColors[name] || seriesColor(palette, getStableIdx(name));
 
     const gradient = config?.valueGradient;
     const useGradient = gradient?.enabled === true;
