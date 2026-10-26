@@ -15,6 +15,7 @@ function tagValue(data, tag) {
   if (!data?.values || !(tag in data.values)) return undefined;
   const raw = data.values[tag];
   if (raw === undefined || raw === null || raw === '') return '';
+  if ((data.valuePlain || []).includes(tag)) return String(raw).trim();
   const n = toNumber(raw);
   if (isNaN(n)) return String(raw);
   if ((data.valueDurations || []).includes(tag)) return formatDuration(n);

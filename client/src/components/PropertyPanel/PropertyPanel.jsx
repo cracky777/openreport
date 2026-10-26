@@ -135,9 +135,10 @@ export function WidgetConfigPanel({ widgetId: selectedId, widget: selectedWidget
     }
     // A column dimension can sit in a measure well as a reading of its own
     // column (see utils/aggVariant): each reading gets a chip label and the
-    // aggregations its type allows.
+    // aggregations its type allows. A part of a date counts (the month a text
+    // prints): the server reads it on the date part's own expression.
     for (const d of (model.dimensions || [])) {
-      if (!d.table || !d.column || d.expression || d.datePart) continue;
+      if (!d.table || !d.column || d.expression) continue;
       const options = aggOptionsForType(dimType(model, d));
       for (const opt of options) {
         const vName = makeAggVariant(d.name, opt.value);

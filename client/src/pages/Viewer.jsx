@@ -5,7 +5,7 @@ import api, { setEmbedToken } from '../utils/api';
 import { prepareGlobalRulesForWidget } from '../utils/reportFilterRules';
 import { parseFiltersFromUrl, syncFiltersToUrl, parsePrintFiltersFromUrl } from '../utils/urlFilters';
 import { buildWidgetQueryPayload } from '../utils/widgetQueryPayload';
-import { buildWidgetData } from '../utils/widgetDataBuilder';
+import { buildWidgetData, errorData } from '../utils/widgetDataBuilder';
 import { TbMaximize, TbMinimize, TbPencil, TbRefresh } from 'react-icons/tb';
 import { useTheme } from '../hooks/useTheme';
 import PagesColumn from '../components/PagesColumn/PagesColumn';
@@ -707,10 +707,7 @@ export default function Viewer({ reportId = null, embedded = false, version = 0,
         setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data } }));
       }).catch((err) => {
         if (fetchSeqRef.current[wId] !== seq) return;
-        const msg = err?.response?.data?.error || err?.message || 'Query failed';
-        const code = err?.response?.data?.code || null;
-        const timeoutMs = err?.response?.data?.timeoutMs || null;
-        setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data: { _error: msg, _errorCode: code, _errorTimeoutMs: timeoutMs, _rowCount: 0 } } }));
+        setWidgets((prev) => ({ ...prev, [wId]: { ...prev[wId], _loading: false, data: errorData(prev[wId], err) } }));
       });
     });
   }, [reportFilters, refreshCounter, report?.live_mode]); // eslint-disable-line react-hooks/exhaustive-deps

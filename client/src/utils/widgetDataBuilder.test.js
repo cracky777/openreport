@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { buildWidgetData } from './widgetDataBuilder';
+import { buildWidgetData, errorData } from './widgetDataBuilder';
 import { buildWidgetQueryPayload } from './widgetQueryPayload';
 
 // A minimal model: one dimension, two measures, labels distinct from names so
@@ -139,11 +139,27 @@ describe('text with bound measures', () => {
     expect(data.text).toBe(textWidget.data.text);
     expect(data.runs).toEqual(textWidget.data.runs);
     expect(data.values).toEqual({ sales: 1234, avg_basket: 12.5, country_max: 'ZW' });
+    // A dimension at its max prints as the dimension does (a year, no "2 026").
+    expect(data.valuePlain).toEqual(['country_max']);
   });
   test('no rows: the author text stays and no value is offered', () => {
     const data = build(textWidget, []);
     expect(data.text).toBe(textWidget.data.text);
     expect(data.runs).toEqual(textWidget.data.runs);
     expect(data.values).toBeUndefined();
+  });
+});
+
+describe('a failed query', () => {
+  const err = { response: { data: { error: 'boom', code: 'X' } } };
+
+  test('a text keeps what the author wrote', () => {
+    const runs = [{ text: 'Calls for ', bold: true }, { text: '#month_name_max' }];
+    const data = errorData({ type: 'text', data: { text: 'Calls for #month_name_max', runs } }, err);
+    expect(data).toMatchObject({ _error: 'boom', _errorCode: 'X', text: 'Calls for #month_name_max', runs });
+  });
+
+  test('any other visual holds the error alone', () => {
+    expect(errorData({ type: 'bar', data: { labels: ['a'] } }, err)).toEqual({ _error: 'boom', _errorCode: 'X', _errorTimeoutMs: null, _rowCount: 0 });
   });
 });

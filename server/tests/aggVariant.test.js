@@ -77,6 +77,33 @@ test('a text dimension can be counted but never summed', async () => {
   expect(bad.status).toBe(400);
 });
 
+// A part of a date put in a text (the month it prints) is read on the date
+// part's own expression — before, the field "no longer existed" and the query failed.
+test('a part of a date is read as a measure on its own expression', async () => {
+  const owner = seedUser({ role: 'editor' });
+  const ds = seedDatasource({ userId: owner, dbType: 'postgres' });
+  const model = seedModel({
+    userId: owner,
+    datasourceId: ds,
+    measures: MEASURES,
+    dimensions: [...DIMENSIONS, { name: 'items.sold_on', table: 'items', column: 'sold_on', type: 'date', label: 'Sold on' }],
+  });
+  const send = (measureNames) => request(app)
+    .post(`/api/models/${model}/query`)
+    .set('x-test-user', owner)
+    .send({
+      dimensionNames: [],
+      measureNames,
+      extraDimensions: [{ name: '_date.month_name', table: 'items', column: 'sold_on', type: 'string', label: 'Month Name', datePart: 'name_month', datePartOf: 'items.sold_on' }],
+      sqlOnly: true,
+    });
+  const res = await send(['_date.month_name@@agg:max']);
+  expect(res.status).toBe(200);
+  expect(res.body.sql).toMatch(/MAX\(TO_CHAR\(.*"items"\."sold_on".*'Month'\)\) AS "Month Name \(max\)"/);
+  // A month name is text: no sum.
+  expect((await send(['_date.month_name@@agg:sum'])).status).toBe(400);
+});
+
 // BigQuery names a result column with letters, digits and underscores only:
 // "Amount (avg)" failed the whole query. The alias is spelled safely there and
 // the rows come back keyed on the label.

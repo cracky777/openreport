@@ -249,7 +249,9 @@ function emitMeasureSelects(ctx) {
       // in the measure wizard. The wizard now lets the user choose
       // either; for backwards-compat existing measures that came in
       // with `column='*'` or no table keep the COUNT(*) shape.
-      if (m.table && m.column && m.column !== '*') {
+      if (m.readsDimension) {
+        selectParts.push(`${buildMeasureAggExpr(m, { dbType, columnTypes })} AS ${quoteAlias(m.label || m.name, dbType)}`);
+      } else if (m.table && m.column && m.column !== '*') {
         selectParts.push(`COUNT(${quoteCol(m.table, m.column, dbType)}) AS ${quoteAlias(m.label || m.name, dbType)}`);
       } else {
         selectParts.push(`COUNT(*) AS ${quoteAlias(m.label || m.name, dbType)}`);

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import api from '../utils/api';
 import { buildWidgetQueryPayload } from '../utils/widgetQueryPayload';
-import { buildWidgetData } from '../utils/widgetDataBuilder';
+import { buildWidgetData, errorData } from '../utils/widgetDataBuilder';
 import { computeBindingKey, computeBindingSignatures } from '../utils/bindingKey';
 import { filterForTarget } from '../utils/crossFilter';
 import { prepareGlobalRulesForWidget } from '../utils/reportFilterRules';
@@ -344,10 +344,7 @@ export function useWidgetFetch({
           return { wId, data };
         }).catch((err) => {
           if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return { wId, data: null };
-          const msg = err?.response?.data?.error || err?.message || 'Query failed';
-          const code = err?.response?.data?.code || null;
-          const timeoutMs = err?.response?.data?.timeoutMs || null;
-          return { wId, data: { _error: msg, _errorCode: code, _errorTimeoutMs: timeoutMs, _rowCount: 0 } };
+          return { wId, data: errorData(w, err) };
         }).then(({ wId, data }) => {
           // Land each widget's data INDEPENDENTLY as soon as its own
           // query resolves — previously every widget was held back until

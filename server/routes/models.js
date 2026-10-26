@@ -1257,12 +1257,14 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       }
       // No measure of that name: a DIMENSION put where a measure goes is read
       // as a measure of its own column (Power BI's implicit aggregation). A
-      // column dimension only — a calculated one has no column to aggregate
-      // — and a text column can be counted or bounded, never summed.
-      const dim = allDimensions.find((d) => d.name === baseName && d.table && d.column && !d.expression && !d.datePart);
+      // column dimension, or a part of a date (the month a text prints, read
+      // on the date's own expression: `readsDimension`, never a rollup) — a
+      // calculated one has no column to aggregate — and a text column can be
+      // counted or bounded, never summed.
+      const dim = allDimensions.find((d) => d.name === baseName && d.table && d.column && !d.expression);
       if (!dim) continue;
       const ov = model.column_types && model.column_types[`${dim.table}.${dim.column}`];
-      const dimType = String((ov && (typeof ov === 'string' ? ov : ov.type)) || dim.type || '');
+      const dimType = dim.datePart ? effectiveDimType(dim) : String((ov && (typeof ov === 'string' ? ov : ov.type)) || dim.type || '');
       const numeric = /int|num|dec|float|double|real/i.test(dimType);
       if (!numeric && (fn === 'sum' || fn === 'avg')) continue;
       allMeasures.push({
@@ -1271,6 +1273,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
         column: dim.column,
         aggregation: fn,
         label: `${dim.label || dim.name} (${fn})`,
+        ...(dim.datePart ? { readsDimension: dim } : {}),
       });
     }
   }
@@ -1520,7 +1523,7 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
       }
       if (target.table && target.column) {
         tablesUsed.add(target.table);
-        if (target.times || target.since) return buildMeasureAggExpr(target, { dbType, columnTypes });
+        if (target.times || target.since || target.readsDimension) return buildMeasureAggExpr(target, { dbType, columnTypes });
         return aggregateSql(target.aggregation, quoteCol(target.table, target.column, dbType));
       }
       return match;
@@ -1645,9 +1648,10 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
     let rollupResult;
     // A measure read on its last date asks the data which date that is: never a rollup either.
     // A per-period target reads its periods on the facts (dimMeasure.js): never a rollup either.
-    // A product of two columns (`times`) or a delay between two (`since`) has no atom in a rollup either.
+    // A product of two columns (`times`), a delay between two (`since`) or a part of a date read as a
+    // measure (`readsDimension`) has no atom in a rollup either.
     const windowedMeasure = lastValue.reachesLastValue(measureNames, allMeasures) || reachesPerPeriod(measureNames, allMeasures)
-      || lastValue.reachedMeasures(measureNames, allMeasures).some((m) => m.times || m.since) || (measureNames || []).some((mn) => {
+      || lastValue.reachedMeasures(measureNames, allMeasures).some((m) => m.times || m.since || m.readsDimension) || (measureNames || []).some((mn) => {
       const def = allMeasures.find((mm) => mm && mm.name === mn);
       // A running total is a window too: never served by a rollup.
       if (def && def.runningTotal) return true;

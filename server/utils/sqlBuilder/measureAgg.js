@@ -4,7 +4,7 @@
 // the handler closure). Covered by tests/sqlSnapshot + tests/measureAgg.
 const { quoteCol, normalizeAggregation, capabilities } = require('../sqlDialect');
 const { castToNumber } = require('./casts');
-const { getOverrideType, daysBetweenExpr } = require('./datePart');
+const { getOverrideType, daysBetweenExpr, buildDimensionExpr } = require('./datePart');
 
 // Walk a SQL expression and replace each top-level aggregate (SUM/AVG/
 // MIN/MAX/COUNT) by `transform(fn, arg)`. Paren-aware: tracks depth so a
@@ -105,6 +105,8 @@ function measureColumnSql(m, { dbType, columnTypes }) {
   // The days from the row's `since` date to its `column` date (declared → closed):
   // the delay the AI could not compute (Mutuelle Horizon's claim handling).
   if (m.since) return daysBetweenExpr(m.table, m.since, m.column, dbType, columnTypes);
+  // A part of a date read as a measure (the month a text prints): the date part's own expression.
+  if (m.readsDimension) return buildDimensionExpr(m.readsDimension, dbType, columnTypes);
   if (m.times) return `(${dialectNumericCast(rawCol, dbType)} * ${dialectNumericCast(quoteCol(m.table, m.times, dbType), dbType)})`;
   const ovType = getOverrideType(m.table, m.column, columnTypes);
   const isInterval = String(m.dataType || '').toLowerCase() === 'interval' || ovType === 'interval';

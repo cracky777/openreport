@@ -29,6 +29,20 @@ import { tagFor } from './textMeasures';
 import { mergePeriodRows } from './periodShift';
 import { mergeN1Rows, comparedSeries, comboN1 } from './chartN1';
 
+// What a visual holds when its query failed. A text keeps what the author
+// wrote: the error replaced its data, the editor saved that, and the words
+// were gone for good — removing the faulty field did not bring them back.
+export function errorData(widget, err) {
+  const data = {
+    _error: err?.response?.data?.error || err?.message || 'Query failed',
+    _errorCode: err?.response?.data?.code || null,
+    _errorTimeoutMs: err?.response?.data?.timeoutMs || null,
+    _rowCount: 0,
+  };
+  if (widget?.type === 'text') { data.text = widget.data?.text; data.runs = widget.data?.runs; }
+  return data;
+}
+
 export function buildWidgetData({
   widget,
   rows,
@@ -321,14 +335,19 @@ export function buildWidgetData({
     const values = {};
     const valueFormats = {};
     const valueDurations = [];
+    // A dimension read at its min or max prints as the dimension does: the
+    // year 2026, never "2 026".
+    const valuePlain = [];
     for (const mn of meass) {
       const md = (effectiveModel?.measures || []).find((x) => x.name === mn);
       const tag = tagFor(mn, effectiveModel);
       values[tag] = row[gl(mn, effectiveModel?.measures)];
       if (md?.format) valueFormats[tag] = md.format;
       if (String(md?.dataType || '').toLowerCase() === 'interval') valueDurations.push(tag);
+      const v = !md && parseAggVariant(mn);
+      if (v && (v.agg === 'min' || v.agg === 'max') && (effectiveModel?.dimensions || []).some((d) => d.name === v.base)) valuePlain.push(tag);
     }
-    newData = { text: w.data?.text, runs: w.data?.runs, values, valueFormats, valueDurations };
+    newData = { text: w.data?.text, runs: w.data?.runs, values, valueFormats, valueDurations, valuePlain };
   } else if (w.type === 'table') {
     // The field behind each column: rows are keyed by label, the binding's
     // columnOrder by field name, and a label rarely is its column's name.
