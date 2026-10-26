@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { TbArrowLeft, TbBook, TbSearch } from 'react-icons/tb';
+import { TbArrowLeft, TbBook, TbSearch, TbSparkles } from 'react-icons/tb';
 import api from '../utils/api';
 import AssistantText from '../components/AiPanel/AssistantText';
 import { useIsCompact } from '../hooks/useMediaQuery';
 import { guideBlocks } from '../utils/guideBlocks';
+import HelpAssistant, { useHelpStatus } from '../components/Help/HelpAssistant';
 
-// The user guide, for reading without the AI assistant: the same help.md the
-// assistant answers from, section by section. Only the guide's own marks are
+// The user guide: the same help.md the assistant answers from, section by
+// section — and beside it, when the account has the assistant, the Help
+// assistant to ask instead of reading (the header's Help button lands here). Only the guide's own marks are
 // read (bullets, nested bullets, numbered steps, **bold**, `code`) — into React
 // elements, never as HTML.
 
@@ -37,6 +39,9 @@ export default function Help() {
   const [sections, setSections] = useState(null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
+  const help = useHelpStatus();
+  // On a phone the assistant covers the guide: opened from the header.
+  const [askOpen, setAskOpen] = useState(false);
 
   useEffect(() => {
     api.get('/help')
@@ -57,6 +62,7 @@ export default function Help() {
   }, [sections, query]);
 
   return (
+    <div style={screenStyle}>
     <div style={pageStyle}>
       <header style={headerStyle}>
         <button className="btn-hover" onClick={() => navigate('/')} style={backBtn}>
@@ -68,6 +74,9 @@ export default function Help() {
           <input style={searchInput} value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder="Search the guide" aria-label="Search the guide" />
         </label>
+        {compact && help.available && (
+          <button className="btn-hover" onClick={() => setAskOpen(true)} style={backBtn} aria-label="Ask the assistant"><TbSparkles size={16} /></button>
+        )}
       </header>
 
       <div style={compact ? compactBodyStyle : bodyStyle}>
@@ -94,10 +103,16 @@ export default function Help() {
         </main>
       </div>
     </div>
+    {help.available && (
+      <HelpAssistant compact={compact} open={!compact || askOpen} onClose={() => setAskOpen(false)} status={help.status} onStatusChange={help.refresh} />
+    )}
+    </div>
   );
 }
 
-const pageStyle = { minHeight: '100vh', backgroundColor: 'var(--bg-app)' };
+const screenStyle = { display: 'flex', height: '100vh', backgroundColor: 'var(--bg-app)' };
+// The guide scrolls on its own, beside the assistant.
+const pageStyle = { flex: 1, minWidth: 0, height: '100vh', overflowY: 'auto', backgroundColor: 'var(--bg-app)' };
 const headerStyle = {
   position: 'sticky', top: 0, zIndex: 5, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '14px 20px',
   background: 'var(--bg-panel)', borderBottom: '1px solid var(--border-default)',

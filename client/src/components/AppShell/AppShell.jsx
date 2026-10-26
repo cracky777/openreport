@@ -1,8 +1,7 @@
-import { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { TbSparkles, TbEye, TbHelp, TbX } from 'react-icons/tb';
 import api from '../../utils/api';
-import { onAskAssistant } from '../../utils/askAssistant';
 import Tour from '../Tour/Tour';
 import { useFirstVisitTour } from '../../hooks/useFirstVisitTour';
 import { useAuth } from '../../hooks/useAuth';
@@ -18,9 +17,9 @@ import StepNav from './StepNav';
 import JoinLayer from './JoinLayer';
 import WorkspacePicker from './WorkspacePicker';
 import UserMenu from './UserMenu';
-import ModeSwitch from './ModeSwitch';
+import { useModeSlide } from '../../hooks/useModeSlide';
 import { STEPS } from './steps';
-import AskPanel from '../Ask/AskPanel';
+import AssistantStrip from '../Ask/AssistantStrip';
 
 // Shared chrome for the three journey stages (Sources → Models → Reports).
 // It owns what used to be the Dashboard header — logo, cloud org switcher,
@@ -32,7 +31,7 @@ import AskPanel from '../Ask/AskPanel';
 // than the journey: Alerts, Admin, the cloud Platform link, API tokens.
 export default function AppShell({ step }) {
   const navigate = useNavigate();
-  const { search } = useLocation();
+  const { search, state: navState } = useLocation();
   const { user } = useAuth();
   const { resolved: themeResolved } = useTheme();
   const logoSrc = themeResolved === 'dark' ? '/logo-dark.png' : '/logo.png';
@@ -53,30 +52,9 @@ export default function AppShell({ step }) {
 
   // Whether this account has the assistant, or may set one up for itself.
   const [askAvailable, setAskAvailable] = useState(false);
-  // Open or closed, the panel stays as the user left it from one page to the next.
-  const [askOpen, setAskOpen] = useState(() => {
-    try { return localStorage.getItem(ASK_OPEN_KEY) === '1'; } catch { return false; /* storage blocked: closed */ }
-  });
-  useEffect(() => {
-    try { localStorage.setItem(ASK_OPEN_KEY, askOpen ? '1' : '0'); } catch { /* storage blocked: not remembered */ }
-  }, [askOpen]);
-  // Asking about data is building on a model: same roles as creating a
-  // report. Help with the tool itself is for everyone who has the assistant.
-  const canAskData = askAvailable && (user?.role === 'admin' || user?.role === 'editor');
-  const [askMode, setAskMode] = useState('data');
-  // A question handed over from elsewhere in the app (utils/askAssistant.js):
-  // the panel opens on its tab, with that question asked.
-  const [pendingQuestion, setPendingQuestion] = useState(null);
-  useEffect(() => onAskAssistant(({ question, tab, modelId }) => {
-    setAskMode(tab);
-    setAskOpen(true);
-    setPendingQuestion({ text: question, tab, modelId, at: Date.now() });
-  }), []);
-  const openHelp = () => {
-    if (askOpen && askMode === 'help') { setAskOpen(false); return; }
-    setAskMode('help');
-    setAskOpen(true);
-  };
+  // The Assistant bar slides Chat in: questions about data are asked there
+  // (Jonathan: Chat replaces the panel's Your data tab). Help is its own page.
+  const slideTo = useModeSlide();
   useEffect(() => {
     api.get('/ai/status')
       .then((res) => setAskAvailable(!!res.data.enabled || res.data.reason === 'setup'))
@@ -101,16 +79,21 @@ export default function AppShell({ step }) {
   const tourSteps = canEditOrg ? HOME_TOUR : HOME_TOUR.filter((t) => VIEWER_TOUR.has(t.target));
 
   const viewportRef = useRef(null);
+  // The viewport node itself, not a mount-time read: the shell may first render
+  // without it (the redirect to Chat) or get a new one (the layout around it
+  // changed), and a size measured on no node left every stage 0 px wide.
+  const [viewportNode, setViewportNode] = useState(null);
+  const attachViewport = useCallback((el) => { viewportRef.current = el; setViewportNode(el); }, []);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
-    const el = viewportRef.current;
+    const el = viewportNode;
     if (!el) return undefined;
     const read = () => setViewport({ width: el.clientWidth, height: el.clientHeight });
     read();
     const ro = new ResizeObserver(read);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [viewportNode]);
   const { width: viewportWidth, height: viewportHeight } = viewport;
 
   // One scroll for the whole ribbon means a stage inherits wherever the last
@@ -292,12 +275,16 @@ export default function AppShell({ step }) {
     return () => document.removeEventListener('keydown', onKey);
   });
 
-  // Build or Chat (ModeSwitch): an account on Chat opens on the chat home.
-  // Decided here, after the hooks, and not by a wrapper around the route: the
-  // three stages must stay one mounted shell for the ribbon to slide between them.
-  if (step === 'reports' && user?.ui_mode === 'chat') return <Navigate to="/chat" replace />;
+  // Build or Chat (hooks/useModeSlide): an account on Chat opens on the chat
+  // home — unless it is sliding back to Build right now. Decided here, after
+  // the hooks, and not by a wrapper around the route: the three stages must
+  // stay one mounted shell for the ribbon to slide between them.
+  if (step === 'reports' && user?.ui_mode === 'chat' && navState?.mode !== 'build') return <Navigate to="/chat" replace />;
 
+  // The assistant runs the full height of the screen, header included: the
+  // header and the stages share the column on its left.
   return (
+    <div style={screenStyle}>
     <div style={shellStyle}>
       <header style={compact ? headerCompactStyle : headerStyle}>
         {/* One row on a wide screen, two on a phone. `display: contents` lets
@@ -336,19 +323,17 @@ export default function AppShell({ step }) {
           )}
 
           <nav style={rightGroup}>
-          <ModeSwitch mode="build" compact={compact} />
-          {/* The way into the assistant's Help tab, where a newcomer looks for
-              help — not a bar they have not learnt to read yet. Without the
-              assistant, Help is the user guide itself. */}
-          <button onClick={askAvailable ? openHelp : () => navigate('/help')} style={askBtnStyle(askOpen && askMode === 'help', compact)}
-            title={askAvailable ? 'Help: ask how to do anything in OpenReport' : 'Help: the user guide'} aria-label="Help" aria-pressed={askOpen && askMode === 'help'}
+          {/* The user guide, with the Help assistant beside it when the
+              account has the assistant. */}
+          <button onClick={() => navigate('/help')} style={askBtnStyle(false, compact)}
+            title={askAvailable ? 'Help: the user guide, and the assistant to ask how to do anything' : 'Help: the user guide'} aria-label="Help"
             data-tour="home-help">
             <TbHelp size={16} />{!compact && <span>Help</span>}
           </button>
-          {/* On a wide screen the panel's own bar opens it; a narrow one has
-              no room for that bar. */}
+          {/* On a wide screen the Assistant bar on the right slides Chat in;
+              a narrow one has no room for that bar. */}
           {askAvailable && compact && (
-            <button onClick={() => setAskOpen((v) => !v)} style={askBtnStyle(askOpen, compact)} title="Assistant" aria-label="Assistant" aria-pressed={askOpen}>
+            <button onClick={() => slideTo('chat')} style={askBtnStyle(false, compact)} title="Open the chat" aria-label="Assistant">
               <TbSparkles size={15} />
             </button>
           )}
@@ -374,7 +359,7 @@ export default function AppShell({ step }) {
           single block, so their relative positions hold still and JoinLayer can
           run a curve from a card in one column to its target in the other. */}
       <div style={bodyRowStyle}>
-      <div ref={viewportRef} style={viewportStyle} aria-live="polite">
+      <div ref={attachViewport} style={viewportStyle} aria-live="polite">
         <div style={overviewOn ? { height: ribbonHeight * overviewScale, overflow: 'hidden' } : undefined}>
         {/* JoinLayer lives on the ribbon, alongside the columns it links. It
             measures against its own parent, and that parent has to be the
@@ -456,12 +441,12 @@ export default function AppShell({ step }) {
         </div>
       </div>
       {homeTour.open && <Tour steps={tourSteps} onClose={homeTour.close} />}
-      {askAvailable && (
-        <AskPanel open={askOpen} onToggle={() => setAskOpen((v) => !v)} onClose={() => setAskOpen(false)} compact={compact}
-          mode={askMode} onModeChange={setAskMode} canData={canAskData} pendingQuestion={pendingQuestion} />
-      )}
       </div>
 
+    </div>
+    {askAvailable && !compact && (
+      <AssistantStrip onOpen={() => slideTo('chat')} tour="home-assistant" title="Open the chat: ask the assistant, drop your files" />
+    )}
     </div>
   );
 }
@@ -476,7 +461,8 @@ function Stage({ step }) {
   return Component ? <Component /> : null;
 }
 
-const shellStyle = { height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' };
+const screenStyle = { height: '100vh', display: 'flex', backgroundColor: 'var(--bg-app)' };
+const shellStyle = { flex: 1, minWidth: 0, height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' };
 const headerStyle = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16,
   padding: '10px 20px', backgroundColor: 'var(--bg-panel)',
@@ -561,7 +547,6 @@ const navBtnStyled = {
   color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13, fontWeight: 500,
   transition: 'background 0.15s',
 };
-const ASK_OPEN_KEY = 'openreport.askOpen';
 // The tour on arrival. Wording follows the user guide (server/utils/ai/help.md,
 // journey / reports / ask).
 const HOME_TOUR = [
@@ -572,7 +557,7 @@ const HOME_TOUR = [
   { target: 'home-new-report', title: 'Create a report', text: 'From a file, a database, or a data model you already have.' },
   { target: 'home-import-file', title: 'The quickest start', text: 'Import a file — or drop it anywhere on this page — and the report opens on it.' },
   { target: 'home-help', title: 'Help', text: 'How anything works: ask in your own words, or read the user guide.' },
-  { target: 'home-assistant', title: 'The assistant', text: 'Questions about your data, visuals, new data: open it from here, on every screen.' },
+  { target: 'home-assistant', title: 'The assistant', text: 'Questions about your data, a report built for you, your own files: the chat slides in from here.' },
 ];
 // A viewer reads reports: none of the building steps.
 const VIEWER_TOUR = new Set(['home-workspace', 'home-help', 'home-assistant']);

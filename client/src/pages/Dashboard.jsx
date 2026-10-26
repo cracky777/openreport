@@ -35,7 +35,7 @@ import DescribeReport from '../components/DescribeReport/DescribeReport';
 // (AppShell), the guide's line (help.md § reports) and the e2e tests skipped
 // for the same reason (ask.spec.js, journey-overview.spec.js).
 const DESCRIBE_REPORT = false;
-import { askAssistant } from '../utils/askAssistant';
+import { useModeSlide } from '../hooks/useModeSlide';
 import { FILE_IMPORT_ACCEPT } from '../utils/sourceFiles';
 import PbitImportWizard from '../components/PbitImport/PbitImportWizard';
 import FecPackOffer from '../components/AccountingPack/FecPackOffer';
@@ -494,13 +494,10 @@ export default function Dashboard() {
       .then((res) => setAiAvailable(!!res.data.enabled || res.data.reason === 'setup'))
       .catch(() => { /* the box stays hidden: the three cards remain */ });
   }, []);
-  // "What do you need?" hands the request to the Assistant panel: Your data
-  // when this workspace has a model to build on, Help (which brings data in)
-  // otherwise. The answer — a report, a file to import, a connection — comes
-  // back there as a card.
-  const askFromEmptyStage = (request) => askAssistant(request, scopedModels.length
-    ? { tab: 'data', modelId: scopedModels[0].id }
-    : { tab: 'help' });
+  // "What do you need?" (switched off for now) goes to Chat, where requests
+  // about data are asked.
+  const slideTo = useModeSlide();
+  const askFromEmptyStage = () => slideTo('chat');
 
   // A file dropped anywhere on the empty stage starts the Import File step with
   // it: the shortest way from a spreadsheet to a report.

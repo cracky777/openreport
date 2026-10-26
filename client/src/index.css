@@ -331,3 +331,24 @@ body {
     -webkit-overflow-scrolling: touch;
   }
 }
+
+/* Build ⇄ Chat (hooks/useModeSlide): Chat sits to the right of Build, and the
+   whole screen slides between them as the journey's stages do. */
+html[data-slide]::view-transition-old(root),
+html[data-slide]::view-transition-new(root) {
+  animation-duration: var(--stage-ms);
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  mix-blend-mode: normal;
+}
+html[data-slide="to-chat"]::view-transition-old(root) { animation-name: slide-out-left; }
+html[data-slide="to-chat"]::view-transition-new(root) { animation-name: slide-in-right; }
+html[data-slide="to-build"]::view-transition-old(root) { animation-name: slide-out-right; }
+html[data-slide="to-build"]::view-transition-new(root) { animation-name: slide-in-left; }
+@keyframes slide-out-left { to { transform: translateX(-100%); } }
+@keyframes slide-in-right { from { transform: translateX(100%); } }
+@keyframes slide-out-right { to { transform: translateX(100%); } }
+@keyframes slide-in-left { from { transform: translateX(-100%); } }
+@media (prefers-reduced-motion: reduce) {
+  html[data-slide]::view-transition-old(root),
+  html[data-slide]::view-transition-new(root) { animation: none; }
+}

@@ -1,6 +1,6 @@
 import api from './api';
 
-// Build or Chat (components/AppShell/ModeSwitch): the user's choice, kept on
+// Build or Chat (hooks/useModeSlide): the side the user is on, kept on
 // their account by the server, so the next sign-in opens on it.
 export const UI_MODES = ['build', 'chat'];
 
