@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { clampPos, topZ } from '../utils/pageBounds';
+import { copyEntry, writeClipboard, readClipboard, pasteEntry } from '../utils/widgetClipboard';
+import { toast } from '../components/Toast/toast';
 
 // Editor keyboard shortcuts: Delete/Backspace (remove selected widget),
 // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z (undo/redo), Ctrl+C / Ctrl+V (copy/paste
-// widget), and the arrow keys (nudge the selected widget). Typing inside an
+// widget, from one report to another too — see utils/widgetClipboard), and the arrow keys (nudge the selected widget). Typing inside an
 // input/textarea/select is always left alone. Pure side-effect hook — owns no
 // state; every value it touches is passed in.
 export function useKeyboardShortcuts({
@@ -15,11 +17,13 @@ export function useKeyboardShortcuts({
   widgets,
   layout,
   setLayoutAndWidgets,
-  clipboard,
-  setClipboard,
   setLayout,
   setLayoutLive,
   settings,
+  setSettings,
+  model,
+  reportId,
+  pageId,
 }) {
   // A held arrow repeats ~30 times a second. Recording each one would bury the
   // undo stack, so a burst moves silently and is committed once on key-up —
@@ -75,39 +79,41 @@ export function useKeyboardShortcuts({
         history.redo();
       }
 
-      // Ctrl+C = copy selected widget
-      if (e.ctrlKey && e.key === 'c' && selectedWidget) {
+      // Ctrl+C = copy selected widget. Not while the author types or has
+      // text selected on the page: that copy is theirs.
+      const mod = e.ctrlKey || e.metaKey;
+      const typing = () => {
         const tag = e.target.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable;
+      };
+      if (mod && e.key === 'c' && selectedWidget && !typing() && !String(window.getSelection?.() || '')) {
         const widgetData = widgets[selectedWidget];
         const layoutItem = layout.find((l) => l.i === selectedWidget);
         if (widgetData && layoutItem) {
-          setClipboard({ widget: JSON.parse(JSON.stringify(widgetData)), layout: { ...layoutItem } });
+          writeClipboard(copyEntry({ widget: widgetData, layoutItem, settings, model, reportId, pageId }));
         }
       }
 
-      // Ctrl+V = paste copied widget
-      if (e.ctrlKey && e.key === 'v' && clipboard) {
-        const tag = e.target.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      // Ctrl+V = paste the copied widget, whichever report it was copied in
+      if (mod && e.key === 'v' && !typing()) {
+        const entry = readClipboard();
+        if (!entry) return;
         e.preventDefault();
         const newId = uuidv4();
-        const newLayout = {
-          ...clipboard.layout,
-          i: newId,
-          x: (clipboard.layout.x || 0) + 20,
-          y: (clipboard.layout.y || 0) + 20,
-        };
-        const newWidget = JSON.parse(JSON.stringify(clipboard.widget));
-        // Clear fetched data to avoid stale cache
-        if (newWidget.data) delete newWidget.data._fetchedBinding;
+        const { widget, layoutItem, settingsPatch, missing } = pasteEntry(entry, {
+          newId, reportId, pageId, settings, model, pageWidth: pw, pageHeight: ph,
+        });
+        if (settingsPatch) setSettings?.(settingsPatch);
         setLayoutAndWidgets(
-          (prev) => [...prev, { ...newLayout, z: topZ(prev) }],
-          (prev) => ({ ...prev, [newId]: newWidget }),
+          (prev) => [...prev, { ...layoutItem, z: topZ(prev) }],
+          (prev) => ({ ...prev, [newId]: widget }),
         );
         setSelectedWidget(newId);
-        // Update clipboard position for next paste
-        setClipboard({ widget: clipboard.widget, layout: newLayout });
+        // The next paste on this page lands one step further, not on this one.
+        if (entry.from?.reportId === reportId && entry.from?.pageId === pageId) writeClipboard({ ...entry, layout: layoutItem });
+        if (missing.length) {
+          toast(`${missing.length === 1 ? 'One field' : `${missing.length} fields`} of this visual ${missing.length === 1 ? 'is' : 'are'} not in this report's model: ${missing.join(', ')}`);
+        }
       }
     };
 
@@ -125,7 +131,7 @@ export function useKeyboardShortcuts({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [selectedWidget, history, clipboard, widgets, layout, setLayoutAndWidgets, setLayout, setLayoutLive, settings]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedWidget, history, widgets, layout, setLayoutAndWidgets, setLayout, setLayoutLive, settings, model, reportId, pageId]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 const ARROWS = {

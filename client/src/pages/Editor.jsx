@@ -211,7 +211,6 @@ export default function Editor() {
   // selected widget. Cleared when edit-interactions mode exits or a different
   // source is picked.
   const [interactionsRuleIdx, setInteractionsRuleIdx] = useState(null);
-  const [clipboard, setClipboard] = useState(null);
   const [reportFilters, setReportFilters] = useState({});
   // Live mirror so callbacks (refreshSlicer / slicer search) can read the
   // currently-applied filter selections without re-creating on every
@@ -1849,8 +1848,9 @@ export default function Editor() {
   // hook argument); it's a window listener, so its effect order is irrelevant.
   useKeyboardShortcuts({
     selectedWidget, setSelectedWidget, handleDeleteWidget, history,
-    widgets, layout, setLayoutAndWidgets, clipboard, setClipboard,
-    setLayout, setLayoutLive, settings,
+    widgets, layout, setLayoutAndWidgets,
+    setLayout, setLayoutLive, settings, setSettings,
+    model: effectiveModel, reportId: id, pageId: pages[currentPageIdx]?.id,
   });
 
   const handleLoadMore = useCallback(async (widgetId) => {

@@ -125,7 +125,7 @@
 - Right: Refresh data (Live query or Cache), Edit interactions, Report settings, Show me around (question mark), Export, Preview, Save. The AI assistant (when available) is the Assistant bar docked on the right edge of the editor, as on the Data Sources / Data Models / Reports screens; on a phone, the sparkles button of the toolbar.
 - The tutorial of the editor points at where to add a visual, your fields, + Measure and + Dimension, the page, the assistant and Save; Show me around (question mark in the toolbar) plays it again.
 - Right-hand panels: the property panel of the selected visual, and the Data panel with the model's Dimensions and Measures (collapsible).
-- Shortcuts: Ctrl+Z undo, Ctrl+Y or Ctrl+Shift+Z redo, Ctrl+C / Ctrl+V copy-paste a widget, Delete removes the selected widget, arrow keys nudge it (Shift = ten steps).
+- Shortcuts: Ctrl+Z undo, Ctrl+Y or Ctrl+Shift+Z redo, Ctrl+C / Ctrl+V copy-paste a widget — a chart, text, image or shape — on the same page, on another page, or into another report (open it, even in another tab, and press Ctrl+V: the copy keeps its place, and brings the report's own measures, Date table fields and formats it uses; a field the other report's data model does not have is named in a message, the visual is pasted all the same), Delete removes the selected widget, arrow keys nudge it (Shift = ten steps).
 - Preview opens the last saved version in a new tab; with unsaved changes it offers Save and preview.
 
 ## visuals — Adding visuals, text, images and shapes
