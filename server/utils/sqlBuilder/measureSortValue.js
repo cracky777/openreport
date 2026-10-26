@@ -25,7 +25,48 @@ function firstAggregate(expression) {
     if (found === null) found = `${fn}(${arg})`;
     return `${fn}(${arg})`;
   });
-  return found;
+  if (found === null) return null;
+  // A filtered measure on a grouped dimension is windowed — SUM(COUNT(…)) OVER
+  // (…): cut from its OVER, the outer SUM nests an aggregate (Postgres refuses
+  // the whole query), so the window travels with it.
+  const at = expression.indexOf(found);
+  const over = at === -1 ? null : windowClauseAt(expression, at + found.length);
+  return over ? `${found}${over}` : found;
+}
+
+// The `OVER (…)` clause starting at `from` (after blanks), or null.
+function windowClauseAt(s, from) {
+  const m = /^\s*OVER\s*\(/i.exec(s.slice(from));
+  if (!m) return null;
+  let depth = 1;
+  let j = from + m[0].length;
+  let inStr = false;
+  while (j < s.length && depth > 0) {
+    const ch = s[j];
+    if (inStr) { if (ch === "'") inStr = false; }
+    else if (ch === "'") inStr = true;
+    else if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    j++;
+  }
+  return depth === 0 ? s.slice(from, j) : null;
+}
+
+// The expression without its window clauses: a PARTITION BY on a month NAME
+// (TO_CHAR) says nothing about what the measure returns.
+function withoutWindows(s) {
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    const m = /\bOVER\s*\(/i.exec(s.slice(i));
+    if (!m) return out + s.slice(i);
+    const start = i + m.index;
+    const clause = windowClauseAt(s, start);
+    if (!clause) return out + s.slice(i);
+    out += s.slice(i, start);
+    i = start + clause.length;
+  }
+  return out;
 }
 
 /**
@@ -39,7 +80,7 @@ function firstAggregate(expression) {
  */
 const TEXTUAL = /(\|\|)|\b(CONCAT|LPAD|RPAD|TO_CHAR|FORMAT|SUBSTRING|TRIM)\s*\(|\bAS\s+(VARCHAR|VARCHAR2|TEXT|CHAR|STRING|NVARCHAR|NCHAR)\b/i;
 function looksTextual(expression) {
-  return typeof expression === 'string' && TEXTUAL.test(expression);
+  return typeof expression === 'string' && TEXTUAL.test(withoutWindows(expression));
 }
 
 /** The alias the companion is emitted under, for a measure's display label. */

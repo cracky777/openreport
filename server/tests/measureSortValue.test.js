@@ -14,6 +14,12 @@ describe('firstAggregate', () => {
       .toBe("SUM(CASE WHEN x IN ('a', 'b') THEN y END)");
   });
 
+  test('a windowed aggregate keeps its OVER — alone, SUM(COUNT(…)) nests', () => {
+    const expr = "SUM(COUNT(CASE WHEN s = 'Perdu' THEN id END)) OVER (PARTITION BY TO_CHAR(d, 'Month')) || ' calls'";
+    expect(firstAggregate(expr))
+      .toBe("SUM(COUNT(CASE WHEN s = 'Perdu' THEN id END)) OVER (PARTITION BY TO_CHAR(d, 'Month'))");
+  });
+
   test('an expression with no aggregate has no companion', () => {
     expect(firstAggregate("'constant'")).toBeNull();
     expect(firstAggregate('')).toBeNull();
@@ -33,6 +39,13 @@ describe('looksTextual', () => {
     expect(looksTextual('SUM(a) / NULLIF(COUNT(b), 0)')).toBe(false);
     expect(looksTextual('ROUND(AVG(x), 2)')).toBe(false);
     expect(looksTextual('CAST(SUM(a) AS NUMERIC)')).toBe(false);
+  });
+
+  test('a month NAME in a window partition does not make a ratio textual', () => {
+    const ratio = "(SUM(COUNT(CASE WHEN s = 'Perdu' THEN id END)) OVER (PARTITION BY TO_CHAR(d, 'Month')))"
+      + " / NULLIF(SUM(COUNT(id)) OVER (PARTITION BY TO_CHAR(d, 'Month')), 0) * 100";
+    expect(looksTextual(ratio)).toBe(false);
+    expect(looksTextual("SUM(a) OVER (PARTITION BY TO_CHAR(d, 'Month')) || ' j'")).toBe(true);
   });
 });
 
