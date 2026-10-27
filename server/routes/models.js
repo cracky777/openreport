@@ -9,7 +9,7 @@ const {
 } = require('../utils/columnTypeResolver');
 const { canAccessReport, canAccessModel, canWriteModel, canReadModel, canBuildOnModel } = require('./reports');
 const { cleanDomains, catalogueForClient } = require('../utils/ai/domains');
-const { sanitizeFields, applyGlossaryPatch } = require('../utils/glossary');
+const { sanitizeFields, applyGlossaryPatch, stampGlossary } = require('../utils/glossary');
 const { getQueryTimeoutMs } = require('../utils/settingsHelper');
 const queryCache = require('../utils/queryCache');
 const rollupBuilder = require('../utils/rollupBuilder');
@@ -220,9 +220,11 @@ router.put('/:id', authFor('write'), (req, res) => {
   if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
 
   const { name, description, selected_tables, table_positions, joins, rls, column_types, dateColumn, datasourceId, incrementalMonths, domains } = req.body;
-  // Glossary attributes ride on the fields: kept only when they fit the catalogue.
-  const dimensions = sanitizeFields(req.body.dimensions, 'dimension');
-  const measures = sanitizeFields(req.body.measures, 'measure');
+  // Glossary attributes ride on the fields: kept only when they fit the
+  // catalogue, and dated when their description or synonyms change.
+  const before = parseModel(model);
+  const dimensions = stampGlossary(before.dimensions, sanitizeFields(req.body.dimensions, 'dimension'));
+  const measures = stampGlossary(before.measures, sanitizeFields(req.body.measures, 'measure'));
   if (rejectIfNameTaken('model', name, req, res, req.params.id)) return;
   // Row-level security decides who sees what: a workspace admin's call, not an editor's.
   if (rls !== undefined && denyUnless(wsAccess.canManageModel(model, wsAccess.actorOf(req)), res, 'Only a workspace admin can change row-level security')) return;
@@ -413,7 +415,7 @@ router.post('/import', authFor('write'), (req, res) => {
   `).run(
     id, req.user.id, dsId, fields.name, fields.description,
     JSON.stringify(fields.selected_tables), JSON.stringify(fields.table_positions),
-    JSON.stringify(sanitizeFields(fields.dimensions, 'dimension')), JSON.stringify(sanitizeFields(fields.measures, 'measure')),
+    JSON.stringify(stampGlossary([], sanitizeFields(fields.dimensions, 'dimension'))), JSON.stringify(stampGlossary([], sanitizeFields(fields.measures, 'measure'))),
     JSON.stringify(fields.joins), JSON.stringify(fields.rls), JSON.stringify(fields.column_types),
     fields.date_column || '',
     // Same coherence rule as PUT: a window without a date column is inert.

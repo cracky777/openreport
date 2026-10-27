@@ -344,6 +344,32 @@ safeMigrate("ALTER TABLE datasources ADD COLUMN rollup_storage TEXT NOT NULL DEF
 // once any datasource carries a secret; migrates plaintext rows in place.
 require('../utils/secretCrypto').migrateDatasourceSecrets(db);
 
+// Fields documented before glossary dates existed (2026-10-27): dated by their
+// model's last change, so a catalog syncing both ways does not take them for
+// never documented and overwrite them. Idempotent — a dated field is left alone.
+{
+  const iso = (t) => (t ? `${String(t).replace(' ', 'T')}${/Z|[+-]\d\d:?\d\d$/.test(String(t)) ? '' : 'Z'}` : new Date().toISOString());
+  const date = (fields, at) => {
+    let n = 0;
+    const out = (Array.isArray(fields) ? fields : []).map((f) => {
+      if (!f || f.glossaryUpdatedAt || !(f.description || (Array.isArray(f.synonyms) && f.synonyms.length))) return f;
+      n += 1;
+      return { ...f, glossaryUpdatedAt: at };
+    });
+    return { out, n };
+  };
+  const rows = db.prepare("SELECT id, dimensions, measures, updated_at FROM models WHERE dimensions LIKE '%\"description\"%' OR dimensions LIKE '%\"synonyms\"%' OR measures LIKE '%\"description\"%' OR measures LIKE '%\"synonyms\"%'").all();
+  const write = db.prepare('UPDATE models SET dimensions = ?, measures = ? WHERE id = ?');
+  for (const r of rows) {
+    try {
+      const at = iso(r.updated_at);
+      const d = date(JSON.parse(r.dimensions || '[]'), at);
+      const m = date(JSON.parse(r.measures || '[]'), at);
+      if (d.n || m.n) write.run(JSON.stringify(d.out), JSON.stringify(m.out), r.id);
+    } catch { /* a malformed row: left for parseModel's fallbacks */ }
+  }
+}
+
 // Promote first user to admin if no admin exists.
 //
 // SELF-HOSTED ONLY. In a multi-tenant deployment `admin` is the PLATFORM

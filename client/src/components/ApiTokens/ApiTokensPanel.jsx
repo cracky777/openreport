@@ -17,8 +17,17 @@ import Paged from '../Pager/Paged';
 const SCOPE_HELP = {
   read: 'List models and reports',
   refresh: 'Rebuild a model’s cache',
-  metadata: 'Describe reports and models for a data catalog (no data)',
+  metadata: 'Read reports and models for a data catalog (no data)',
+  glossary: 'Write the descriptions and synonyms of a model’s fields',
 };
+
+// The two catalog scopes read as one pair: their ids alone did not say that
+// `glossary` is the write side of `metadata`. The ids stay what the API checks.
+const SCOPE_LABEL = {
+  metadata: 'metadata - OpenMetadata read',
+  glossary: 'metadata - OpenMetadata write',
+};
+const scopeLabel = (s) => SCOPE_LABEL[s] || s;
 
 export default function ApiTokensPanel({ embedded = false }) {
   const [tokens, setTokens] = useState([]);
@@ -154,9 +163,9 @@ export default function ApiTokensPanel({ embedded = false }) {
           </div>
           <div style={scopeRow}>
             {Object.keys(SCOPE_HELP).map((s) => (
-              <label key={s} style={scopeLabel}>
+              <label key={s} style={scopeLabelStyle}>
                 <input type="checkbox" checked={scopes.includes(s)} onChange={() => toggleScope(s)} />
-                <code style={{ fontSize: 12, color: 'var(--text-primary)' }}>{s}</code>
+                <code style={{ fontSize: 12, color: 'var(--text-primary)' }}>{scopeLabel(s)}</code>
                 <span>{SCOPE_HELP[s]}</span>
               </label>
             ))}
@@ -180,7 +189,7 @@ export default function ApiTokensPanel({ embedded = false }) {
                     {!t.revoked_at && isExpired(t) && <span style={deadTag}>expired</span>}
                   </div>
                   <div style={rowMeta}>
-                    {t.scopes.split(',').join(' · ')}
+                    {t.scopes.split(',').map(scopeLabel).join(' · ')}
                     {t.expires_at ? ` · expires ${t.expires_at}` : ''}
                     {t.last_used_at ? ` · last used ${t.last_used_at}` : ' · never used'}
                   </div>
@@ -208,7 +217,7 @@ const input = { padding: '8px 10px', border: '1px solid var(--border-default)', 
 const createBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 500, borderRadius: 6, cursor: 'pointer', border: 'none', background: 'var(--accent-primary)', color: '#fff' };
 const formRow = { display: 'flex', gap: 10, marginBottom: 14 };
 const scopeRow = { display: 'flex', gap: 16, marginBottom: 18, flexWrap: 'wrap' };
-const scopeLabel = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' };
+const scopeLabelStyle = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' };
 const empty = { fontSize: 11, color: 'var(--text-disabled)' };
 const list = { display: 'flex', flexDirection: 'column', gap: 8 };
 const row = { display: 'flex', alignItems: 'center', gap: 10, border: '1px solid var(--border-default)', borderRadius: 6, padding: '8px 12px' };

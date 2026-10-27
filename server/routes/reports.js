@@ -12,6 +12,7 @@ const embedToken = require('../utils/embedToken');
 const usage = require('../utils/usage');
 const { parseModel } = require('../db/modelRow');
 const { moveReportFieldsToModel, hasOwnFields } = require('../utils/reportMigration');
+const { stampGlossary } = require('../utils/glossary');
 const { appendWidgets } = require('../utils/reportAppend');
 const { buildEffectiveModel } = require('../utils/ai/effectiveModel');
 const { formatOverrides } = require('../utils/ai/dress');
@@ -593,10 +594,11 @@ function moveFieldsIntoModel(reportId, modelRow, req) {
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(reportId);
   const settings = JSON.parse((report && report.settings) || '{}');
   if (!hasOwnFields(settings) || !canWriteModel(modelRow, req.user, req)) return null;
-  const out = moveReportFieldsToModel(settings, parseModel(modelRow));
+  const model = parseModel(modelRow);
+  const out = moveReportFieldsToModel(settings, model);
   db.transaction(() => {
     db.prepare("UPDATE models SET measures = ?, dimensions = ?, date_column = ?, updated_at = datetime('now') WHERE id = ?")
-      .run(JSON.stringify(out.measures), JSON.stringify(out.dimensions), out.dateColumn || '', modelRow.id);
+      .run(JSON.stringify(stampGlossary(model.measures, out.measures)), JSON.stringify(stampGlossary(model.dimensions, out.dimensions)), out.dateColumn || '', modelRow.id);
     db.prepare("UPDATE reports SET settings = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(out.settings), reportId);
   })();
   // The model's shape changed: as after a save in the model editor.

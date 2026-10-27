@@ -40,10 +40,12 @@ membership apply exactly as they do in the browser.
 | `read` | List models and reports |
 | `refresh` | Rebuild a model's cache |
 | `metadata` | Describe reports and their semantic models for a data catalog: read-only, no data (see [Metadata](#metadata)) |
+| `glossary` | Write the descriptions and synonyms of a model's fields, nothing else (see [Glossary](#glossary)) |
 
 There is no `write` scope. Editing a model means feeding SQL to the compiler,
 which is the most sensitive surface in the app; opening that to tokens is a
-decision to take on its own rather than a default.
+decision to take on its own rather than a default. `glossary` writes words
+only — descriptions and synonyms — never SQL, a role or a structure.
 
 ## Authentication
 
@@ -190,7 +192,7 @@ The semantic model, resolved.
   overrides), typed by the model's own column types: listing every column of a
   table would mean asking the source, which this API never does.
 - `joins`: `from_table`, `from_column`, `to_table`, `to_column`, `join_type`, `cardinality`.
-- `dimensions`: `name`, `label`, `description`, `synonyms`, `role`, `table`,
+- `dimensions`: `name`, `label`, `description`, `synonyms`, `glossary_updated_at`, `role`, `table`,
   `column`, `expression` (raw SQL of a calculated dimension), `type`, and for a
   part of a date `date_part` and `date_part_of`.
 - `measures`: see below.
@@ -202,6 +204,7 @@ A measure:
 | Field | |
 |---|---|
 | `name`, `label`, `description`, `synonyms`, `role`, `format` | As defined in the model |
+| `glossary_updated_at` | When its description or synonyms last changed (see [Glossary](#glossary)); `null` if never documented |
 | `aggregation`, `table`, `column` | `custom` for a SQL measure |
 | `filters` | The measure's own filter rules: `{ field, op, values }` |
 | `expression` | The **raw** SQL of a `custom` measure, with its `${ref}` references; `null` otherwise |
@@ -300,6 +303,76 @@ depends on who reads it. The rules themselves are not exposed.
 
 The same, for a measure as a report reads it: the report's own measures as well
 as its model's, with the report's renamings applied.
+
+## Glossary
+
+For a catalog that keeps a model's vocabulary in sync **both ways**: the
+description and synonyms of each dimension and measure, read through
+[Metadata](#metadata), are written back here. Open Report never calls the
+catalog: the catalog reads, compares, and writes.
+
+### `PUT /api/v1/metadata/models/:id/glossary` — scope `glossary`
+
+Writes the **description** and **synonyms** of a model's fields, nothing else:
+roles and business domains stay managed in Open Report, and a `role` sent here
+is ignored (and said so). The token's owner needs the right to document the
+model in the browser — the same as Let's Talk's « Remember » card: anyone who
+may build reports on it. The model's `updated_at` moves, like any change made to
+the model by that user.
+
+```json
+{
+  "synonyms_mode": "replace",
+  "fields": {
+    "_calc.nbr_appel_fin_perdu": {
+      "description": "Appels entrants terminés au statut « Perdu ».",
+      "synonyms": ["appels perdus", "appels manqués"]
+    }
+  }
+}
+```
+
+- `synonyms_mode`: `"add"` (default) adds the synonyms given to those the field
+  has, as the browser does; `"replace"` sets the list to exactly those given, so
+  a synonym removed in the catalog is removed here too. A field without a
+  `synonyms` key keeps its own in both modes.
+- A field without a `description` key keeps its description; `""` or `null`
+  clears it.
+- A field set to `null` loses its description and synonyms (never its role).
+- Bounds: a description is cut to 200 characters, a synonym to 40, a field
+  holds at most 10 synonyms (case-insensitive duplicates merged). What is cut is
+  reported in `errors`.
+
+Response:
+
+```json
+{
+  "metadata_format": 1,
+  "model_id": "…",
+  "changed": [
+    { "name": "_calc.nbr_appel_fin_perdu", "kind": "measure",
+      "description": "Appels entrants terminés au statut « Perdu ».",
+      "synonyms": ["appels perdus", "appels manqués"],
+      "glossary_updated_at": "2026-10-27T10:14:30.031Z" }
+  ],
+  "errors": ["ghost: not a field of the model"]
+}
+```
+
+`changed` lists only the fields whose description or synonyms really changed;
+a field sent with what it already had is not in it. An unknown field, a value
+of the wrong type or anything cut is in `errors` — read them rather than assume
+the whole patch landed.
+
+### `glossary_updated_at`
+
+Every dimension and measure of [`/api/v1/metadata/models`](#metadata) carries
+`glossary_updated_at`: when its description or synonyms last changed, ISO 8601
+in UTC, whatever wrote them — the model editor, Let's Talk or the assistant, a
+YAML import, a report migrated onto the model, or this API. `null` for a field
+never documented. It is computed by the server from what the field was, never
+taken from a request. For a change made on both sides, compare it with the
+catalog's own date: the most recent wins.
 
 ## Errors
 

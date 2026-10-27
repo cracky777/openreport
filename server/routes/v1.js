@@ -7,6 +7,7 @@
  *   POST /api/v1/models/:id/refresh      rebuild that model's cache
  *   POST /api/v1/reports/:id/refresh     same, addressed by report
  *   GET  /api/v1/metadata/...            reports and semantic models for a catalog (scope `metadata`)
+ *   PUT  /api/v1/metadata/models/:id/glossary   descriptions and synonyms of a model's fields (scope `glossary`)
  *
  * Two rules make this router different from the rest of /api:
  *
@@ -28,6 +29,9 @@ const { requireAuth } = require('../middleware/auth');
 const rollupBuilder = require('../utils/rollupBuilder');
 const { canAccessModel, canAccessReport, canBuildOnModel, canWriteModel } = require('./reports');
 const catalog = require('../utils/metadata/catalog');
+const { parseModel } = require('../db/modelRow');
+const wsAccess = require('../utils/workspaceAccess');
+const { applyGlossaryPatch, glossaryWarnings } = require('../utils/glossary');
 const cloudHooks = require('../cloudHooks');
 
 const router = express.Router();
@@ -213,5 +217,63 @@ router.get('/metadata/reports/:id/measures/:name/explain', ...metadata, wrap(asy
   if (!out) return res.status(404).json({ error: 'Measure not found' });
   res.json(out);
 }));
+
+// ---------------------------------------------------------------- glossary
+//
+// A catalog keeping a model's vocabulary in sync both ways writes it back
+// here: the description and synonyms of each field, nothing else (roles and
+// domains stay Open Report's). Same rights as the browser's glossary patch
+// (canBuildOnModel); `synonyms_mode: "replace"` sets the list rather than
+// adding to it, so a synonym removed in the catalog goes here too. Each field
+// changed gets its `glossary_updated_at` (utils/glossary.stampGlossary).
+const MODES = new Set(['add', 'replace']);
+router.put('/metadata/models/:id/glossary', requireAuth, apiToken.requireScope('glossary'), (req, res) => {
+  const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
+  if (!row || !wsAccess.inScope('models', row, wsAccess.actorOf(req)) || !canAccessModel(row, req.user, req)) {
+    return res.status(404).json({ error: 'Model not found' });
+  }
+  if (!canBuildOnModel(row, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const mode = body.synonyms_mode === undefined ? 'add' : body.synonyms_mode;
+  if (!MODES.has(mode)) return res.status(400).json({ error: 'synonyms_mode is "add" or "replace"' });
+  const given = body.fields && typeof body.fields === 'object' && !Array.isArray(body.fields) ? body.fields : null;
+  if (!given) return res.status(400).json({ error: 'fields: { "<field name>": { "description", "synonyms" } }' });
+
+  // Description and synonyms only; null clears both, the role stays.
+  const warnings = [];
+  const fields = {};
+  for (const [name, meta] of Object.entries(given)) {
+    if (meta === null) { fields[name] = { description: '', synonyms: [] }; continue; }
+    if (!meta || typeof meta !== 'object' || Array.isArray(meta)) { warnings.push(`${String(name).slice(0, 80)}: expected { description, synonyms } or null`); continue; }
+    const ignored = Object.keys(meta).filter((k) => k !== 'description' && k !== 'synonyms');
+    if (ignored.length) warnings.push(`${String(name).slice(0, 80)}: ${ignored.join(', ')} ignored — only description and synonyms are written here`);
+    if (meta.description !== undefined && meta.description !== null && typeof meta.description !== 'string') { warnings.push(`${String(name).slice(0, 80)}: description is text`); continue; }
+    if (meta.synonyms !== undefined && !Array.isArray(meta.synonyms)) { warnings.push(`${String(name).slice(0, 80)}: synonyms is a list`); continue; }
+    warnings.push(...glossaryWarnings(name, meta));
+    fields[name] = {
+      ...(meta.description !== undefined ? { description: meta.description === null ? '' : meta.description } : {}),
+      ...(meta.synonyms !== undefined ? { synonyms: meta.synonyms.filter((x) => typeof x === 'string') } : {}),
+    };
+  }
+  // A cleared field forgets its synonyms whatever the mode.
+  const cleared = Object.keys(fields).filter((n) => given[n] === null);
+  const model = parseModel(row);
+  const out = applyGlossaryPatch(model, { fields }, { synonymsMode: mode });
+  if (cleared.length && mode === 'add') {
+    const again = applyGlossaryPatch({ ...model, dimensions: out.dimensions, measures: out.measures }, { fields: Object.fromEntries(cleared.map((n) => [n, { synonyms: [] }])) }, { synonymsMode: 'replace' });
+    out.dimensions = again.dimensions;
+    out.measures = again.measures;
+  }
+
+  const was = new Map([...model.dimensions, ...model.measures].map((f) => [f.name, f]));
+  const changedFields = [...out.dimensions.map((f) => ['dimension', f]), ...out.measures.map((f) => ['measure', f])]
+    .filter(([, f]) => fields[f.name] && f.glossaryUpdatedAt && f.glossaryUpdatedAt !== (was.get(f.name) || {}).glossaryUpdatedAt)
+    .map(([kind, f]) => ({ name: f.name, kind, description: f.description || '', synonyms: f.synonyms || [], glossary_updated_at: f.glossaryUpdatedAt }));
+  if (changedFields.length) {
+    db.prepare("UPDATE models SET dimensions = ?, measures = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(JSON.stringify(out.dimensions), JSON.stringify(out.measures), row.id);
+  }
+  res.json({ metadata_format: catalog.METADATA_FORMAT, model_id: row.id, changed: changedFields, errors: [...warnings, ...out.errors] });
+});
 
 module.exports = router;

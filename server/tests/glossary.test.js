@@ -75,11 +75,12 @@ describe('what a field may carry', () => {
       fields: { d: { role: 'ecommerce.country', synonyms: ['country', 'Pays'] }, m: { description: 'new' }, ghost: { role: 'x' } },
     });
     expect(out.domains).toEqual(['ecommerce']);
-    expect(out.dimensions[0]).toEqual({ name: 'd', table: 't', column: 'c', role: 'ecommerce.country', synonyms: ['pays', 'country'] });
+    expect(out.dimensions[0]).toEqual({ name: 'd', table: 't', column: 'c', role: 'ecommerce.country', synonyms: ['pays', 'country'], glossaryUpdatedAt: expect.any(String) });
     expect(out.measures[0]).toMatchObject({ role: 'sales.revenue', description: 'new' });
     expect(out.errors).toEqual(['ghost: not a field of the model']);
     const cleared = applyGlossaryPatch(model, { fields: { m: null } });
-    expect(cleared.measures[0]).toEqual({ name: 'm', table: 't', column: 'a', aggregation: 'sum' });
+    // Cleared is a change too: dated.
+    expect(cleared.measures[0]).toEqual({ name: 'm', table: 't', column: 'a', aggregation: 'sum', glossaryUpdatedAt: expect.any(String) });
     const wrong = applyGlossaryPatch(model, { fields: { m: { role: 'ecommerce.country' } } });
     expect(wrong.errors[0]).toMatch(/not a measure role/);
     expect(wrong.measures[0].role).toBe('sales.revenue');
@@ -129,7 +130,7 @@ describe('PUT /models/:id/glossary', () => {
     });
     expect(res.status).toBe(200);
     expect(res.body.model.domains).toEqual(['sales']);
-    expect(res.body.model.measures[0]).toEqual({ name: 'items.amt_sum', table: 'items', column: 'amt', aggregation: 'sum', label: 'amt', synonyms: ['CA'] });
+    expect(res.body.model.measures[0]).toEqual({ name: 'items.amt_sum', table: 'items', column: 'amt', aggregation: 'sum', label: 'amt', synonyms: ['CA'], glossaryUpdatedAt: expect.any(String) });
   });
 
   test('the catalogue is served to signed-in users', async () => {
