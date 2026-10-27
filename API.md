@@ -252,7 +252,7 @@ Published reports only: drafts are left out. Lists come 20 per page by default
   "id": "…", "title": "Appels entrants", "workspace_id": "…", "shared_in": [], "model_id": "…",
   "url": "https://reports.example.com/view/…", "owner": "analyst@nyukom.fr", "updated_at": "…", "hash": "…",
   "pages": [{ "id": "page-1", "name": "Vue mensuelle", "widgets": [
-    { "id": "…", "title": "Appels par mois", "type": "combo",
+    { "id": "<report id>:510904bf-…", "widget_id": "510904bf-…", "title": "Appels par mois", "type": "combo",
       "measures": ["_calc.nbr_appel_fin", "_calc.ratio_traite_perdu"], "dimensions": ["_date.month_name"],
       "filters": [{ "field": "nyukom_dimension.d_client.lib_client", "op": "in", "values": ["nyukom.lmc"] }] }
   ] }],
@@ -260,6 +260,11 @@ Published reports only: drafts are left out. Lists come 20 per page by default
   "measures": [{ "name": "_calc.ratio_traite_perdu", "expression": "…", "depends_on": [], "source_columns": [], "compiled_sql": "…" }]
 }
 ```
+
+A widget's `id` is unique across the instance: the report's id and the
+widget's own, `widget_id`, which is unique within its report only (an imported
+or duplicated report keeps its source's widget ids). Name a catalog's charts by
+`id`.
 
 A widget lists the fields it reads by name: a model's (see its model) or the
 report's own (the report's `measures` and `dimensions`, shaped like a model's).

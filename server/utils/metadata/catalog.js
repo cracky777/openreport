@@ -260,14 +260,18 @@ const DIMENSION_KEYS = ['selectedDimensions', 'groupBy', 'columnDimensions'];
 const fieldOf = (name) => String(name).split('@@')[0];
 const uniq = (list) => [...new Set(list.filter(Boolean))];
 
-function widgetOut(id, w, dimensionNames) {
+// A widget's id is unique within its report only: an imported or duplicated
+// report keeps its source's widget ids. A catalog names charts across reports,
+// so `id` is the report's id and the widget's; `widget_id` is the report's own.
+function widgetOut(reportId, id, w, dimensionNames) {
   const b = w.dataBinding || {};
   const scatter = b.scatterMeasures || {};
   const measures = [...MEASURE_KEYS.flatMap((k) => b[k] || []), scatter.x, scatter.y, scatter.size, b.colorMeasure];
   const dims = [...DIMENSION_KEYS.flatMap((k) => b[k] || []), b.compareDateDim];
   // A dimension read as a measure ("x@@agg:max") is still the dimension x.
   return {
-    id,
+    id: `${reportId}:${id}`,
+    widget_id: id,
     title: (w.config && w.config.title) || '',
     type: w.type,
     measures: uniq(measures.filter((n) => n && !dimensionNames.has(fieldOf(n))).map(fieldOf)),
@@ -318,7 +322,7 @@ function reportDefinition(r, baseUrl) {
     pages: reportPages(settings, r).map((p) => ({
       id: p.id,
       name: p.name || '',
-      widgets: Object.entries(p.widgets || {}).filter(([, w]) => w && !DECOR.has(w.type)).map(([id, w]) => widgetOut(id, w, dimensionNames)),
+      widgets: Object.entries(p.widgets || {}).filter(([, w]) => w && !DECOR.has(w.type)).map(([id, w]) => widgetOut(r.id, id, w, dimensionNames)),
     })),
     dimensions: extras.extraDimensions.filter((d) => d && d.name).map(dimensionOut),
     measures: ctx ? extras.extraMeasures.filter((m) => m && m.name).map((m) => measureDefinition({ ...m, _source: 'report' }, ctx)) : [],

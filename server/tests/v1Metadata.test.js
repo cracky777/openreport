@@ -224,9 +224,9 @@ describe('reports', () => {
     expect(r).toMatchObject({ workspace_id: wsA, model_id: model, owner: 'owner@corp.io' });
     expect(r.url).toMatch(new RegExp(`/view/${report}$`));
     const widgets = r.pages[0].widgets;
-    expect(widgets.map((w) => w.id)).toEqual(['w1', 'w2']);
+    expect(widgets.map((w) => w.widget_id)).toEqual(['w1', 'w2']);
     expect(widgets[0]).toEqual({
-      id: 'w1', title: 'Revenue by country', type: 'bar',
+      id: `${report}:w1`, widget_id: 'w1', title: 'Revenue by country', type: 'bar',
       measures: ['orders_amount', '_calc.margin'], dimensions: ['sales.customers.country'],
       filters: [{ field: 'sales.orders.status', op: 'in', values: ['paid'] }],
     });
@@ -236,6 +236,14 @@ describe('reports', () => {
     expect(margin.depends_on).toEqual(['orders_amount']);
     expect(margin.compiled_sql_scope).toBe('standalone');
     expect(margin.compiled_sql).toMatch(/SUM\(.*"amount".*\* 0\.3/);
+  });
+
+  test('a copy of a report keeps its widget ids, its charts are its own in a catalog', async () => {
+    const src = db.prepare('SELECT * FROM reports WHERE id = ?').get(report);
+    const copy = seedReport({ userId: owner, modelId: model, workspaceId: wsA, settings: JSON.parse(src.settings) });
+    const ids = (id) => get(`/reports/${id}`).then((r) => r.body.report.pages[0].widgets.map((w) => w.id));
+    const [a, b] = [await ids(report), await ids(copy)];
+    expect(a.filter((id) => b.includes(id))).toEqual([]);
   });
 
   test('a reader who cannot write the model: the report\'s SQL measures are not compiled for them', async () => {
