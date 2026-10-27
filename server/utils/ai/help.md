@@ -252,7 +252,7 @@
 - A data model can be exported as YAML from its card (Export as YAML).
 
 ## import — Importing reports, models and Power BI files
-- Report: Reports stage → Import → Open Report → choose a .openreport.json file → Bind to data model (its fields must match) → Import.
+- Report: Reports stage → Import → Open Report → choose a .openreport.json file → Bind to data model (its fields must match) → Import. Everything the report defined for itself moves into that data model with it — its own calculations, its Date table and its own fields — so the report reads nothing but the model it is bound to (if you cannot edit that model, they stay in the report and a message says so).
 - Model: Data Models stage → Import model → choose a .model.yaml file.
 - Power BI: Reports stage → Import → Power BI (the report lands in the open workspace; the Import menu also lists Looker Studio, not available yet) → drop a .pbit file (Power BI Desktop → Save as → Template) → use an existing connection or create one → Next → review Tables, Joins, Measures translated, Measures kept as drafts, Pages, Visuals → set Model name and Report title → Import → Open the model / Open the report.
 - A .pbit holds no data and no password. Not every DAX measure or visual can be converted; unconverted measures are kept as drafts and the review lists what was not supported.

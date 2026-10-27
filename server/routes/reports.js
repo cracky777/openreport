@@ -11,6 +11,7 @@ const cloudHooks = require('../cloudHooks');
 const embedToken = require('../utils/embedToken');
 const usage = require('../utils/usage');
 const { parseModel } = require('../db/modelRow');
+const { moveReportFieldsToModel, hasOwnFields } = require('../utils/reportMigration');
 const { appendWidgets } = require('../utils/reportAppend');
 const { buildEffectiveModel } = require('../utils/ai/effectiveModel');
 const { formatOverrides } = require('../utils/ai/dress');
@@ -566,6 +567,8 @@ router.post('/import', authFor('read'), (req, res) => {
     JSON.stringify(layout), JSON.stringify(widgets), JSON.stringify(settings),
   );
   stampNewReport(req, id);
+  // Migrated onto this model: its own fields too, not only its pages.
+  const fieldsMoved = moveFieldsIntoModel(id, model, req);
 
   const created = db.prepare('SELECT * FROM reports WHERE id = ?').get(id);
   res.status(201).json({
@@ -576,8 +579,32 @@ router.post('/import', authFor('read'), (req, res) => {
       settings: JSON.parse(created.settings),
     },
     sourceModelHint: src.model_name || null,
+    fieldsMoved,
+    // Fields that could not join the model (it is not the caller's to write).
+    fieldsKept: !fieldsMoved && hasOwnFields(JSON.parse(created.settings || '{}')),
   });
 });
+
+// A report on a model takes everything with it (utils/reportMigration.js): its
+// own calculations, Date table and dimensions become the model's. Only for
+// someone who may write the model; otherwise they stay in the report, said so.
+// Returns what moved, or null when nothing did.
+function moveFieldsIntoModel(reportId, modelRow, req) {
+  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(reportId);
+  const settings = JSON.parse((report && report.settings) || '{}');
+  if (!hasOwnFields(settings) || !canWriteModel(modelRow, req.user, req)) return null;
+  const out = moveReportFieldsToModel(settings, parseModel(modelRow));
+  db.transaction(() => {
+    db.prepare("UPDATE models SET measures = ?, dimensions = ?, date_column = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(JSON.stringify(out.measures), JSON.stringify(out.dimensions), out.dateColumn || '', modelRow.id);
+    db.prepare("UPDATE reports SET settings = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(out.settings), reportId);
+  })();
+  // The model's shape changed: as after a save in the model editor.
+  queryCache.invalidateModel(modelRow.id);
+  require('../utils/rollupBuilder').dropAllRollups({ modelId: modelRow.id, orgId: req.organizationId || null })
+    .catch((err) => console.warn('[rollup] invalidate on report fields moved failed:', err.message));
+  return { moved: out.moved, renamed: out.renamed };
+}
 
 // Create report
 router.post('/', authFor('read'), (req, res) => {
@@ -887,6 +914,18 @@ router.post('/:id/widgets', authFor('read'), (req, res) => {
 });
 
 // Duplicate report — creates a copy owned by the caller.
+// A report already migrated, whose own fields stayed behind: they join its
+// model now (the same move an import makes).
+router.post('/:id/move-fields-to-model', authFor('read'), (req, res) => {
+  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  if (!report || !canAccessReport(report, req.user, req)) return res.status(404).json({ error: 'Report not found' });
+  if (!canEditReport(report, req.user, req)) return res.status(403).json({ error: 'Access denied' });
+  const model = report.model_id ? db.prepare('SELECT * FROM models WHERE id = ?').get(report.model_id) : null;
+  if (!model) return res.status(400).json({ error: 'Report has no model' });
+  if (!canWriteModel(model, req.user, req)) return res.status(403).json({ error: 'You cannot change the data model of this report' });
+  res.json({ fieldsMoved: moveFieldsIntoModel(report.id, model, req) || { moved: { measures: [], dimensions: [] }, renamed: {} } });
+});
+
 router.post('/:id/duplicate', authFor('read'), (req, res) => {
   const src = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
   if (!src || !canAccessReport(src, req.user, req)) return res.status(404).json({ error: 'Report not found' });

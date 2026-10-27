@@ -584,6 +584,8 @@ export default function Dashboard() {
         workspaceId: selectedWs || undefined,
       });
       const newId = res.data.report?.id;
+      // Its own calculations could not join a model the user may not change.
+      if (res.data.fieldsKept) toast('The report kept its own calculations: only an editor of the data model can move them into it.', 'info');
       setImportBundle(null);
       setImportModelId('');
       // The Editor auto-detects empty slicers on first mount and fires
