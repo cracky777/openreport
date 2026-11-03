@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TbSparkles, TbArrowUp, TbPlayerStopFilled, TbPlus, TbArrowLeft, TbChevronDown } from 'react-icons/tb';
+import { TbArrowUp, TbPlayerStopFilled, TbPlus, TbArrowLeft, TbChevronDown } from 'react-icons/tb';
+import { LuBot } from 'react-icons/lu';
 import api from '../../utils/api';
 import { toast } from '../Toast/toast';
 import { useAiChat } from '../../hooks/useAiChat';
@@ -161,7 +162,7 @@ export default function TalkConversation({ modelId, onModelChange, onBack, first
     <section style={shellStyle} aria-label="Let's talk">
       <header style={headerStyle}>
         <button type="button" style={backBtn} onClick={onBack} title="Back to the first question"><TbArrowLeft size={14} /> Back</button>
-        <span style={badgeStyle(24)}><TbSparkles size={13} /></span>
+        <span style={badgeStyle(24)}><LuBot size={13} /></span>
         <span style={headerTitleStyle}>Let's talk</span>
         <label style={modelPickStyle}>
           <select style={modelSelectStyle} value={modelId} onChange={(e) => onModelChange(e.target.value)} aria-label="Data model" disabled={loading}>
@@ -177,7 +178,7 @@ export default function TalkConversation({ modelId, onModelChange, onBack, first
         <div style={columnStyle}>
           {messages.length === 0 && (
             <div style={emptyStyle}>
-              <span style={badgeStyle(44)}><TbSparkles size={24} /></span>
+              <span style={badgeStyle(44)}><LuBot size={24} /></span>
               <div style={emptyTitleStyle}>What would you like to know?</div>
               {model?.name ? <div style={emptySubStyle}>{model.name}</div> : null}
               <Suggestions groups={SUGGESTIONS} onPick={submit} disabled={loading} />
@@ -187,7 +188,7 @@ export default function TalkConversation({ modelId, onModelChange, onBack, first
             <div key={i} style={userBubble}>{m.text}</div>
           ) : (
             <div key={i} style={assistantRow}>
-              <span style={badgeStyle(26)}><TbSparkles size={14} /></span>
+              <span style={badgeStyle(26)}><LuBot size={14} /></span>
               <div style={assistantBody}>
                 {m.text ? <AssistantText style={assistantText} text={m.text} /> : null}
                 {visualsOf(m.proposals?.[0]).length > 0 && model && (
@@ -227,7 +228,7 @@ export default function TalkConversation({ modelId, onModelChange, onBack, first
           )))}
           {loading && (
             <div style={assistantRow}>
-              <span style={badgeStyle(26)}><TbSparkles size={14} /></span>
+              <span style={badgeStyle(26)}><LuBot size={14} /></span>
               <span style={dotsStyle} aria-label="Thinking"><i style={dot(0)} /><i style={dot(1)} /><i style={dot(2)} /></span>
             </div>
           )}

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { layoutPositions } from '../utils/diagramLayout';
 import { useBugReport } from '../components/BugReport/BugReportProvider';
-import { TbBug, TbSparkles, TbHelp } from 'react-icons/tb';
+import { TbBug, TbHelp } from 'react-icons/tb';
+import { LuBot } from 'react-icons/lu';
 import ModelAssistant from '../components/ModelAssistant/ModelAssistant';
 import { applyModelProposal } from '../utils/modelProposal';
 import { takeHandOver, peekHandOver, handOver } from '../utils/assistantHandoff';
@@ -936,7 +937,7 @@ export default function ModelEditor() {
             onClick={() => setAssistantOpen((v) => !v)}
             style={{ ...bugBtnStyle, ...(assistantOpen ? { color: 'var(--accent-primary)', background: 'var(--accent-primary-soft)' } : null) }}
           >
-            <TbSparkles size={17} />
+            <LuBot size={17} />
           </button>
         )}
         <button

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { TbSparkles, TbArrowUp, TbPlayerStopFilled, TbChevronsRight, TbPlus, TbSettings } from 'react-icons/tb';
+import { TbArrowUp, TbPlayerStopFilled, TbChevronsRight, TbPlus, TbSettings } from 'react-icons/tb';
+import { LuBot } from 'react-icons/lu';
 import { useAiChat } from '../../hooks/useAiChat';
 import AssistantText from '../AiPanel/AssistantText';
 import PersonalProvider from '../AiPanel/PersonalProvider';
@@ -80,7 +81,7 @@ export default function ModelAssistant({ open, onClose, top, modelId, getDraft, 
   return (
     <aside style={{ ...shellStyle, top, transform: open ? 'none' : 'translateX(100%)' }} aria-label="Model assistant" aria-hidden={!open} inert={!open}>
       <header style={headerStyle}>
-        <span style={badgeStyle}><TbSparkles size={14} /></span>
+        <span style={badgeStyle}><LuBot size={14} /></span>
         <div style={titleStyle}>Model assistant</div>
         {status?.source === 'personal' && (
           <button style={iconBtn} onClick={() => setEditingProvider((v) => !v)} title="Your AI provider" aria-label="Your AI provider"><TbSettings size={16} /></button>
@@ -103,7 +104,7 @@ export default function ModelAssistant({ open, onClose, top, modelId, getDraft, 
           <div ref={threadRef} style={threadStyle}>
             {messages.length === 0 && (
               <div style={emptyStyle}>
-                <span style={{ ...badgeStyle, width: 40, height: 40, borderRadius: 13 }}><TbSparkles size={22} /></span>
+                <span style={{ ...badgeStyle, width: 40, height: 40, borderRadius: 13 }}><LuBot size={22} /></span>
                 <div style={emptyTitleStyle}>What should the model look like?</div>
                 <Suggestions groups={SUGGESTIONS} onPick={submit} disabled={loading} />
               </div>

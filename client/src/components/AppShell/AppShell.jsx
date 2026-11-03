@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { TbSparkles, TbEye, TbHelp, TbX } from 'react-icons/tb';
+import { TbEye, TbHelp, TbX } from 'react-icons/tb';
+import { LuBot } from 'react-icons/lu';
 import api from '../../utils/api';
 import Tour from '../Tour/Tour';
 import { useFirstVisitTour } from '../../hooks/useFirstVisitTour';
@@ -336,7 +337,7 @@ export default function AppShell({ step }) {
               a narrow one has no room for that bar. */}
           {askAvailable && compact && (
             <button onClick={() => slideTo('chat')} style={askBtnStyle(false, compact)} title="Open the chat" aria-label="Assistant">
-              <TbSparkles size={15} />
+              <LuBot size={15} />
             </button>
           )}
           {/* CLOUD-HOOK: the org switcher sits with the account controls, left

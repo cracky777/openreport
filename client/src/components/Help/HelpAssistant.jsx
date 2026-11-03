@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { TbSparkles, TbArrowUp, TbPlayerStopFilled, TbX, TbPlus, TbSettings } from 'react-icons/tb';
+import { TbArrowUp, TbPlayerStopFilled, TbX, TbPlus, TbSettings } from 'react-icons/tb';
+import { LuBot } from 'react-icons/lu';
 import api from '../../utils/api';
 import { useAiChat } from '../../hooks/useAiChat';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
@@ -67,7 +68,7 @@ export default function HelpAssistant({ compact, open = true, onClose, status, o
       aria-label="Help assistant" aria-hidden={!open} inert={!open}>
       {!compact && <div {...handleProps} title="Drag to resize" />}
       <header style={headerStyle}>
-        <span style={badgeStyle(26)}><TbSparkles size={15} /></span>
+        <span style={badgeStyle(26)}><LuBot size={15} /></span>
         <div style={headerTextStyle}>
           <div style={headerTitleStyle}>Assistant</div>
           <div style={headerSubStyle}>Ask how to do anything in OpenReport</div>
@@ -93,7 +94,7 @@ export default function HelpAssistant({ compact, open = true, onClose, status, o
           <div ref={threadRef} style={threadStyle}>
             {messages.length === 0 && (
               <div style={emptyStyle}>
-                <span style={badgeStyle(44)}><TbSparkles size={24} /></span>
+                <span style={badgeStyle(44)}><LuBot size={24} /></span>
                 <div style={emptyTitleStyle}>{unavailable ? 'The assistant is not available for this account' : 'How can I help you with OpenReport?'}</div>
                 {status?.enabled && <Suggestions groups={SUGGESTIONS[builder ? 'builder' : 'viewer']} onPick={submit} disabled={loading} />}
               </div>
@@ -102,7 +103,7 @@ export default function HelpAssistant({ compact, open = true, onClose, status, o
               <div key={i} style={userBubble}>{m.text}</div>
             ) : (
               <div key={i} style={assistantRow}>
-                <span style={badgeStyle(22)}><TbSparkles size={12} /></span>
+                <span style={badgeStyle(22)}><LuBot size={12} /></span>
                 <div style={assistantBody}>
                   {m.text ? <AssistantText style={assistantText} text={m.text} /> : null}
                   {m.proposals?.[0]?.kind === 'action' && (
@@ -113,7 +114,7 @@ export default function HelpAssistant({ compact, open = true, onClose, status, o
             )))}
             {loading && (
               <div style={assistantRow}>
-                <span style={badgeStyle(22)}><TbSparkles size={12} /></span>
+                <span style={badgeStyle(22)}><LuBot size={12} /></span>
                 <span style={dotsStyle} aria-label="Thinking"><i style={dot(0)} /><i style={dot(1)} /><i style={dot(2)} /></span>
               </div>
             )}

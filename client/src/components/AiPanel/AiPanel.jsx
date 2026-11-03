@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { TbSparkles, TbChevronsRight, TbSend, TbPlayerStop, TbRefresh, TbSchema, TbSettings, TbArrowBackUp, TbX, TbLoader2, TbEye } from 'react-icons/tb';
+import { LuBot } from 'react-icons/lu';
 import api from '../../utils/api';
 import { imageColors } from '../../utils/imageColors';
 import { toast } from '../Toast/toast';
@@ -120,7 +121,7 @@ function HandOverCard({ proposal, onOutcome, onHandOver }) {
   return (
     <div style={cardStyle}>
       <div style={rowStyle}>
-        <TbSparkles size={18} style={iconStyle} />
+        <LuBot size={18} style={iconStyle} />
         <div style={{ minWidth: 0 }}>
           <div style={titleStyle}>For the report assistant</div>
           <div style={subStyle}>{proposal.summary || 'This belongs to the report: its assistant can do it.'}</div>
@@ -466,7 +467,7 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
     <div style={style}>
       {!compact && <div {...handleProps} />}
       <div style={headerStyle}>
-        <span style={headerTitleStyle} title={SHARING[dataSharing] || SHARING.schema}><span style={badgeStyle}><TbSparkles size={15} /></span> Assistant</span>
+        <span style={headerTitleStyle} title={SHARING[dataSharing] || SHARING.schema}><span style={badgeStyle}><LuBot size={15} /></span> Assistant</span>
         <span style={headerActionsStyle}>
           {(status.source === 'personal' || (!reportId && !!status.personal)) && (
             <button style={iconBtn} onClick={() => setEditingProvider((v) => !v)} title="Your AI provider" aria-label="Your AI provider"><TbSettings size={13} /></button>
