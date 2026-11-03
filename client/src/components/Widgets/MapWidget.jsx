@@ -3,6 +3,7 @@ import formatNumber, { abbreviateNumber } from '../../utils/formatNumber';
 import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import { paletteOf, CHART_COLORS_BASIC as COLORS, tintOf, hexToRgba } from '../../utils/chartPalette';
 import { useChartFonts } from '../../hooks/useChartFonts';
+import { useChartTheme } from '../../hooks/useChartTheme';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
 import { resolveArea, mapNameOf, normalizePlace, MAP_AREAS } from '../../utils/geo';
 import WidgetEmptyState from './WidgetEmptyState';
@@ -36,6 +37,9 @@ export default memo(function MapWidget({ data, config, onDataClick, highlightVal
   const showScale = config?.showScale ?? true;
   const roam = config?.mapRoam ?? false;
   const { dataLabel: dataLabelFontFamily } = useChartFonts(config, ['dataLabel']);
+  // Land without a value and borders on the card's own surface: pale on a
+  // light report, dark on a dark one.
+  const [chartTheme, themeRootRef] = useChartTheme();
 
   const built = useMemo(() => {
     if (!hasData || !loaded?.index) return null;
@@ -47,8 +51,8 @@ export default memo(function MapWidget({ data, config, onDataClick, highlightVal
     const writeLabel = (v) => abbreviateNumber(v, config?.dataLabelAbbr || 'none', fmt) ?? write(v);
     const high = config?.scaleColor || paletteOf(config, COLORS)[0];
     const low = config?.scaleLowColor || tintOf(high);
-    const empty = config?.mapEmptyColor || '#eef1f5';
-    const border = config?.mapBorderColor || '#ffffff';
+    const empty = config?.mapEmptyColor || chartTheme.track;
+    const border = config?.mapBorderColor || chartTheme.panel;
     const dim = (name) => (highlightValue && name !== highlightValue ? 0.35 : 1);
 
     const placed = [];
@@ -92,7 +96,7 @@ export default memo(function MapWidget({ data, config, onDataClick, highlightVal
             data: placed.map(({ it, hit }) => ({
               name: hit.name, place: it.name, raw: it.value,
               value: [...hit.coord, Number(it.value) || 0],
-              itemStyle: { color: hexToRgba(high, 75), opacity: dim(it.name), borderColor: '#fff', borderWidth: 1 },
+              itemStyle: { color: hexToRgba(high, 75), opacity: dim(it.name), borderColor: border, borderWidth: 1 },
             })),
             symbolSize: (v) => size(v[2]),
             label: { ...label, position: 'right', formatter: (p) => `${p.data.place} ${writeLabel(p.data.raw)}` },
@@ -116,7 +120,7 @@ export default memo(function MapWidget({ data, config, onDataClick, highlightVal
         }],
       },
     };
-  }, [hasData, loaded, items, data, config, showLabels, showScale, roam, dataLabelFontFamily, highlightValue]);
+  }, [hasData, loaded, items, data, config, showLabels, showScale, roam, dataLabelFontFamily, highlightValue, chartTheme]);
 
   const onDataClickRef = useRef(onDataClick);
   onDataClickRef.current = onDataClick;
@@ -134,11 +138,12 @@ export default memo(function MapWidget({ data, config, onDataClick, highlightVal
   });
 
   if (!hasData) return <WidgetEmptyState data={data} config={config} unboundHint="Put a place (country, region, département or town) in Location and a measure in Value" />;
-  if (loaded?.error) return <div style={_wait}>{loaded.error}</div>;
-  if (!built) return <div style={_wait}>Loading the map…</div>;
+  // The theme is read while the map loads, so it is drawn in the right colors at once.
+  if (loaded?.error) return <div ref={themeRootRef} style={_wait}>{loaded.error}</div>;
+  if (!built) return <div ref={themeRootRef} style={_wait}>Loading the map…</div>;
   const { missing } = built;
   return (
-    <div style={_box}>
+    <div ref={themeRootRef} style={_box}>
       <div ref={chartRef} style={_chart} />
       {missing.length > 0 && (
         <div style={_note} title={missing.join(', ')}>

@@ -38,7 +38,8 @@ export default memo(function GaugeWidget({ data, config, chartWidth, chartHeight
     ? data.maxValue
     : (config?.gaugeMax ?? 100);
   const baseColor = config?.gaugeColor || '#7c3aed';
-  const trackColor = config?.gaugeTrackColor || '#e2e8f0';
+  // Unset: each gauge takes the track of the report's theme (useChartTheme).
+  const trackColor = config?.gaugeTrackColor;
   const thresholdColor = config?.gaugeThresholdColor || '#dc2626';
   const showValue = config?.gaugeShowValue ?? true;
   const showLabel = config?.gaugeShowLabel ?? true;
@@ -151,7 +152,7 @@ const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, label, 
       radius: '95%',
       center: ['50%', '65%'],
       progress: { show: true, width: arcWidth, itemStyle: { color } },
-      axisLine: { lineStyle: { width: arcWidth, color: [[1, trackColor]] } },
+      axisLine: { lineStyle: { width: arcWidth, color: [[1, trackColor || chartTheme.track]] } },
       pointer: { show: false },
       axisTick: { show: false },
       splitLine: { show: false },
@@ -208,7 +209,7 @@ const ArcGauge = memo(function ArcGauge({ value, displayValue, min, max, label, 
       });
     }
     return { series };
-  }, [value, min, max, label, color, trackColor, threshold, thresholdColor, showValue, showLabel, showMinMax, displayValue, valueSize, labelSize, labelFits, config?.gaugeValueSize, config?.gaugeValueColor, config?.gaugeLabelSize, config?.gaugeLabelColor, config?.gaugeAxisSize, config?.gaugeAxisColor, arcWidth, startAngle, endAngle, chartTheme.text]);
+  }, [value, min, max, label, color, trackColor, threshold, thresholdColor, showValue, showLabel, showMinMax, displayValue, valueSize, labelSize, labelFits, config?.gaugeValueSize, config?.gaugeValueColor, config?.gaugeLabelSize, config?.gaugeLabelColor, config?.gaugeAxisSize, config?.gaugeAxisColor, arcWidth, startAngle, endAngle, chartTheme.text, chartTheme.track]);
 
   useEffect(() => {
     const el = chartRef.current;
@@ -296,6 +297,7 @@ const ColumnGauge = memo(function ColumnGauge({ progress, thresholdProgress, thr
   const labelStyle = { fontSize: config?.gaugeLabelSize || 12, color: config?.gaugeLabelColor || '#64748b', fontWeight: 500 };
   const valueStyle = { fontSize: config?.gaugeValueSize || 20, fontWeight: 700, color: config?.gaugeValueColor || 'var(--text-primary)' };
   const axisStyle = { fontSize: config?.gaugeAxisSize || 10, color: config?.gaugeAxisColor || '#94a3b8' };
+  const [chartTheme, themeRootRef] = useChartTheme();
   const isVertical = direction === 'up' || direction === 'down';
   const pct = `${progress * 100}%`;
   const thPct = thresholdProgress !== null && thresholdProgress !== undefined ? `${thresholdProgress * 100}%` : null;
@@ -321,7 +323,7 @@ const ColumnGauge = memo(function ColumnGauge({ progress, thresholdProgress, thr
   const barThickness = config?.gaugeArcWidth ?? 40;
   const radius = (config?.gaugeArcRounded ?? false) ? Math.round(barThickness / 2) : 4;
   const trackStyle = {
-    position: 'relative', backgroundColor: trackColor, borderRadius: radius, overflow: 'visible',
+    position: 'relative', backgroundColor: trackColor || chartTheme.track, borderRadius: radius, overflow: 'visible',
     ...(isVertical ? { width: barThickness, height: '100%' } : { width: '100%', height: barThickness }),
   };
 
@@ -330,7 +332,7 @@ const ColumnGauge = memo(function ColumnGauge({ progress, thresholdProgress, thr
   };
 
   return (
-    <div style={_hs2}>
+    <div ref={themeRootRef} style={_hs2}>
       {showLabel && label && (
         <div style={labelStyle}>{label}</div>
       )}

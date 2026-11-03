@@ -4,6 +4,7 @@ import { formatDuration, isDurationCol } from '../../utils/formatHuman';
 import { paletteOf, CHART_COLORS_BASIC as COLORS, tintOf } from '../../utils/chartPalette';
 import { compareAxisValues } from '../../utils/axisSort';
 import { useChartFonts } from '../../hooks/useChartFonts';
+import { useChartTheme } from '../../hooks/useChartTheme';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
 import WidgetEmptyState from './WidgetEmptyState';
 
@@ -33,6 +34,8 @@ export default memo(function HeatmapWidget({ data, config, onDataClick, highligh
   const showScale = config?.showScale ?? false;
   const gap = config?.cellGap ?? 2;
   const { dataLabel: dataLabelFontFamily, xAxisLabel: xFont, yAxisLabel: yFont } = useChartFonts(config, ['dataLabel', 'xAxisLabel', 'yAxisLabel']);
+  // Cells parted by the card's own surface, dark in a dark report.
+  const [chartTheme, themeRootRef] = useChartTheme();
 
   const option = useMemo(() => {
     if (!hasData) return null;
@@ -75,7 +78,7 @@ export default memo(function HeatmapWidget({ data, config, onDataClick, highligh
           const ink = config?.dataLabelColor ? undefined : { color: inkOn(low, high, max === min ? 1 : (v - min) / (max - min)) };
           return { value: [xPos.get(x), yPos.get(y), v], itemStyle: dim ? { opacity: 0.3 } : undefined, label: ink };
         }),
-        itemStyle: { borderColor: config?.cellBorderColor || '#ffffff', borderWidth: gap, borderRadius: config?.cellRadius ?? 0 },
+        itemStyle: { borderColor: config?.cellBorderColor || chartTheme.panel, borderWidth: gap, borderRadius: config?.cellRadius ?? 0 },
         label: {
           show: showLabels,
           fontSize: config?.dataLabelFontSize ?? 10,
@@ -86,7 +89,7 @@ export default memo(function HeatmapWidget({ data, config, onDataClick, highligh
         emphasis: { itemStyle: { borderColor: '#0f172a', borderWidth: 1 } },
       }],
     };
-  }, [hasData, data, config, showLabels, showScale, gap, dataLabelFontFamily, xFont, yFont, highlightValue]);
+  }, [hasData, data, config, showLabels, showScale, gap, dataLabelFontFamily, xFont, yFont, highlightValue, chartTheme.panel]);
 
   // Click → cross-filter on the column's value.
   const onDataClickRef = useRef(onDataClick);
@@ -105,5 +108,5 @@ export default memo(function HeatmapWidget({ data, config, onDataClick, highligh
   });
 
   if (!hasData) return <WidgetEmptyState data={data} config={config} unboundHint="Put a dimension in Columns, another in Rows and a measure in Value" />;
-  return <div ref={chartRef} style={_chart} />;
+  return <div ref={(el) => { chartRef.current = el; themeRootRef(el); }} style={_chart} />;
 });
