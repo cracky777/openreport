@@ -5,6 +5,7 @@ import { toast } from '../../components/Toast/toast';
 import { PRESETS, presetKeyFor } from '../../utils/aiProviderPresets';
 import AiAccessList from './AiAccessList';
 import AiFeedbackSection from './AiFeedbackSection';
+import OpenMetadataSettings from './OpenMetadataSettings';
 
 const card = { backgroundColor: 'var(--bg-panel)', padding: 20, borderRadius: 8, border: '1px solid var(--border-default)', marginBottom: 20 };
 const cardTitle = { fontSize: 14, fontWeight: 600, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 };
@@ -33,6 +34,7 @@ const INSTANCE_AI_ENDPOINTS = {
   users: '/admin/users',
   access: (userId) => `/admin/users/${userId}/ai-access`,
   feedback: '/admin/ai/feedback',
+  openMetadata: { settings: '/admin/settings', save: '/admin/settings/openmetadata', test: '/admin/settings/openmetadata/test' },
 };
 
 /**
@@ -218,6 +220,12 @@ export default function AiSettingsSection({ endpoints = INSTANCE_AI_ENDPOINTS, o
         <button style={primaryBtn} onClick={() => save()} disabled={busy}>Save</button>
       </div>
 
+      {endpoints.openMetadata && (
+        <>
+          <div style={divider} />
+          <OpenMetadataSettings endpoints={endpoints.openMetadata} />
+        </>
+      )}
       <div style={divider} />
       <AiAccessList endpoints={endpoints} />
       <div style={divider} />

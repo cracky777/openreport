@@ -21,6 +21,7 @@ const domains = require('./domains');
 const { MAX_DESCRIPTION } = require('../glossary');
 const { validateShape, describeShape, outputsOf } = require('../fileShape');
 const { calendarTableOf } = require('../relationships');
+const { openMetadataKit } = require('./openMetadataTools');
 
 const MAX_TABLES = 80;
 // The source's tables not in the model yet: named in the prompt, read on demand.
@@ -385,7 +386,7 @@ async function readTableSample(args, draft, fileTables, getSample) {
  * rows of one of them, when the instance shares data values.
  * @returns {Promise<{reply: string, proposals: object[]}>}
  */
-async function runModelChat({ config, modelName, draft, messages, getColumns, fileTables = {}, getSample = null, report = false }, deps = {}) {
+async function runModelChat({ config, modelName, draft, messages, getColumns, fileTables = {}, getSample = null, report = false, catalogScope = null }, deps = {}) {
   const tools = require('./tools');
   const chat = deps.chat || providers.chat;
   const topics = helpTopics();
@@ -400,7 +401,10 @@ async function runModelChat({ config, modelName, draft, messages, getColumns, fi
     ...(report ? [tools.HAND_TO_REPORT] : []),
     ...(topics.length ? [tools.helpToolFor(topics)] : []),
   ];
-  const system = buildModelPrompt({ modelName, draft, topics, canReadColumns, fileTables, canSample, report });
+  // The data catalog, when linked: where the SAVED model's fields come from.
+  const catalog = await openMetadataKit(catalogScope || {}, deps);
+  toolset.push(...catalog.tools);
+  const system = buildModelPrompt({ modelName, draft, topics, canReadColumns, fileTables, canSample, report }).concat(catalog.lines.map((l) => `\n${l}`).join(''));
   let repaired = false;
   let proposal = null;
   // One repair round, whichever card it was: the errors go back once.
@@ -416,6 +420,7 @@ async function runModelChat({ config, modelName, draft, messages, getColumns, fi
     let result;
     if (call.argsError) result = { error: call.argsError };
     else if (call.name === 'read_help' && topics.length) result = readHelp(call.args && call.args.topics);
+    else if (catalog.handles(call.name)) result = await catalog.execute(call);
     else if (call.name === 'read_table_columns' && canReadColumns) result = await readTableColumns(call.args && call.args.tables, draft, getColumns);
     else if (call.name === 'read_table_sample' && canSample) result = await readTableSample(call.args, draft, fileTables, getSample);
     else if (call.name === 'propose_model_changes') result = settle(validateModelProposal(call.args, draft), 'propose_model_changes');

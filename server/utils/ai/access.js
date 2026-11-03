@@ -27,6 +27,7 @@
 const db = require('../../db');
 const { AI_PROVIDERS, storedAiConfig, effectiveAiConfig, publicAiConfigOf, applyAiProviderPatch, clearAiKey } = require('../settingsHelper');
 const { PROVIDER: SUBSCRIPTION } = require('./providers/claudeSubscription');
+const { effectiveOpenMetadata } = require('../openMetadata/settings');
 
 const PERSONAL_DEFAULTS = { provider: 'openai-compat', baseUrl: '', model: '', apiKey: '' };
 const PERSONAL_PROVIDERS = [...AI_PROVIDERS, SUBSCRIPTION];
@@ -61,13 +62,17 @@ function instanceScope(user) {
  *   config: object|null,                        what the chat route hands the provider layer; null = no assistant
  *   source: 'instance'|'personal'|null,
  *   reason: 'off'|'denied'|'setup'|null,        why there is none; 'setup' = the user may bring their own
+ *   openMetadata?: {url, token, service}|null,  the data catalog the assistant may read, when switched on
  * }}
  */
 function resolveForUser(user, scope = instanceScope(user)) {
   const instance = effectiveAiConfig(scope.stored);
   if (!publicAiConfigOf(scope.stored).enabled) return { config: null, source: null, reason: 'off' };
   if (scope.denied) return { config: null, source: null, reason: 'denied' };
-  if (instance.enabled) return { config: instance, source: 'instance', reason: null };
+  // The data catalog is the scope's, whoever's provider answers: a personal
+  // provider decides where the prompt goes, never what the assistant may read.
+  const openMetadata = effectiveOpenMetadata(scope.stored);
+  if (instance.enabled) return { config: instance, source: 'instance', reason: null, openMetadata };
 
   const personal = storedPersonal(user.id);
   const { apiKey, keyError } = clearAiKey(personal);
@@ -76,6 +81,7 @@ function resolveForUser(user, scope = instanceScope(user)) {
     config: { ...personal, apiKey, keyError: null, enabled: true, dataSharing: instance.dataSharing },
     source: 'personal',
     reason: null,
+    openMetadata,
   };
 }
 

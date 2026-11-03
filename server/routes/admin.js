@@ -30,8 +30,12 @@ const {
   getAiConfig,
   setAiConfig,
   publicAiConfig,
+  storedAiConfig,
+  setSetting,
 } = require('../utils/settingsHelper');
 const { testProvider } = require('../utils/ai/providerTest');
+const openMetadataSettings = require('../utils/openMetadata/settings');
+const { testConnection: testOpenMetadata } = require('../utils/openMetadata/client');
 const cloudHooks = require('../cloudHooks');
 const aiAccess = require('../utils/ai/access');
 const queryCache = require('../utils/queryCache');
@@ -365,6 +369,7 @@ router.get('/settings', requireAdmin, (req, res) => {
     apiEnabled: isApiEnabled(),
     apiMinRole: getApiMinRole(),
     ai: aiPerOrganization() ? null : publicAiConfig(),
+    openMetadata: aiPerOrganization() ? null : openMetadataSettings.publicOpenMetadata(storedAiConfig()),
     aiPerOrganization: aiPerOrganization(),
   });
 });
@@ -391,6 +396,26 @@ router.put('/users/:id/ai-access', requireAdmin, instanceAiOnly, (req, res) => {
 // Tries the SAVED config (utils/ai/providerTest.js).
 router.post('/settings/ai/test', requireAdmin, instanceAiOnly, async (req, res) => {
   res.json(await testProvider(getAiConfig()));
+});
+
+// The data catalog the assistant may read (OpenMetadata): its URL, the token
+// of its read-only bot (in, never out), the Open Report service's name there.
+// Switched on, its metadata — table names, SQL, ETL rules — reaches the AI provider.
+router.put('/settings/openmetadata', requireAdmin, instanceAiOnly, (req, res) => {
+  try {
+    const next = openMetadataSettings.patchOpenMetadata(storedAiConfig(), req.body, req.user);
+    setSetting('ai_config', next);
+    res.json({ openMetadata: openMetadataSettings.publicOpenMetadata(next) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Tries the SAVED link, on or off: who the token is, and a warning when it is an admin's.
+router.post('/settings/openmetadata/test', requireAdmin, instanceAiOnly, async (req, res) => {
+  const om = openMetadataSettings.savedConnection(storedAiConfig());
+  if (!om) return res.json({ ok: false, error: 'Save the URL and the token first' });
+  res.json(await testOpenMetadata(om));
 });
 
 // Every API token on the instance. The admin who decides whether the API is

@@ -23,6 +23,7 @@ const { validateMeasures } = require('./reportMeasures');
 const { validateRemember } = require('./remember');
 const { layoutIssues } = require('./layoutIssues');
 const { checkSync, reportDecisions, syncConfirmed, syncQuestionError, filterDim } = require('./filterSync');
+const { openMetadataKit } = require('./openMetadataTools');
 
 const MAX_ITERATIONS = 6;
 // Rows of each cache read handed back to the client, which replays them in the
@@ -330,7 +331,7 @@ function withRealIds(payload, realId) {
 // when the user's theme or the app's (dark / light) changes.
 const colorsTag = (ctx) => (ctx.colors ? { colors: { ...ctx.colors, theme: ctx.pageContext.theme === 'dark' ? 'dark' : 'light' } } : {});
 
-async function runChat({ config, user, orgId, report, effective, messages: given, pageContext: realPage, mode = 'report', canWriteVisuals = false, canEditModel = false, fileModel = false, sourceLabel = 'its data source', library = [], allowReport = false, requireReport = false, review = false, sheet = false, assets = [], talk = false, colors = null }, deps = {}) {
+async function runChat({ config, user, orgId, report, effective, messages: given, pageContext: realPage, mode = 'report', canWriteVisuals = false, canEditModel = false, fileModel = false, sourceLabel = 'its data source', library = [], allowReport = false, requireReport = false, review = false, sheet = false, assets = [], talk = false, colors = null, openMetadata = null }, deps = {}) {
   // A review turn: the last message carries the page before and after an
   // applied change; its words are ours, so the question is always the same.
   // One picture: the page the change created, with no before to compare.
@@ -376,10 +377,19 @@ async function runChat({ config, user, orgId, report, effective, messages: given
   // "How do I…?" is asked in every mode: the user guide is one tool away.
   const topics = helpTopics();
   const helpTool = topics.length ? tools.helpToolFor(topics) : null;
+  // The data catalog, when the admin linked one: where a field comes from.
+  const catalog = review ? await openMetadataKit({}) : await openMetadataKit({
+    om: openMetadata,
+    modelId: report.model_id,
+    reportId: report.id,
+    reportOwn: new Set([...((report.settings || {}).extraMeasures || []), ...((report.settings || {}).extraDimensions || [])].map((f) => f && f.name)),
+    fields: [...effective.dimensions, ...effective.measures],
+  }, deps);
   const toolset = [
     ...(readsLive ? [tools.QUERY_DATA] : canQueryData ? [tools.QUERY_CACHED_DATA] : []),
     ...proposalTools,
     ...(helpTool ? [helpTool] : []),
+    ...catalog.tools,
   ];
   const otherMode = new Set(ask ? ['propose_design_changes', 'propose_report_changes'] : (wholeReport ? [] : ['propose_report', 'propose_report_changes']));
   const coverage = (deps.getCoverage || getCoverage)({ modelId: report.model_id, orgId });
@@ -414,7 +424,7 @@ async function runChat({ config, user, orgId, report, effective, messages: given
     studio,
     assets,
     talk: talk && mode === 'ask',
-  });
+  }).concat(catalog.lines.map((l) => `\n${l}`).join(''));
   const page = { width: pageContext.pageWidth, height: pageContext.pageHeight };
 
   // The turn's state, shared with the tool handler below: one repair round; a
@@ -440,6 +450,8 @@ async function runChat({ config, user, orgId, report, effective, messages: given
       result = { error: call.name === 'propose_report' ? `${call.argsError}. Call propose_report again with fewer pages or fewer widgets per page — not propose_widgets.` : call.argsError };
     } else if (call.name === 'read_help' && helpTool) {
       result = readHelp(call.args && call.args.topics);
+    } else if (catalog.handles(call.name)) {
+      result = await catalog.execute(call);
     } else if ((call.name === 'query_cached_data' && canQueryData && !readsLive) || (call.name === 'query_data' && readsLive)) {
       // The figures an answer defines are read before they are drawn:
       // compiled here like those of propose_widgets, never the model's SQL.

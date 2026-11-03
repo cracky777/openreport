@@ -297,7 +297,7 @@ router.post('/reports/:reportId/chat', requireAuth, chatLimiter, async (req, res
     return res.status(409).json({ error: 'This report has no data model the assistant can use' });
   }
 
-  const { config, reason } = resolveAccess(req);
+  const { config, reason, openMetadata } = resolveAccess(req);
   if (!config) return refuseWithoutConfig(res, reason);
 
   const messages = cleanMessages(req.body && req.body.messages);
@@ -340,6 +340,7 @@ router.post('/reports/:reportId/chat', requireAuth, chatLimiter, async (req, res
     canEditModel: canWriteModel(modelRow, req.user, req),
     ...sourceOf(modelRow),
     library: libraryOf(row.workspace_id),
+    openMetadata,
   }));
 });
 
@@ -368,7 +369,7 @@ router.post('/models/:modelId/chat', requireAuth, chatLimiter, async (req, res) 
   if (!modelRow) return res.status(404).json({ error: 'Model not found' });
   if (!canBuildOnModel(modelRow, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
 
-  const { config, reason } = resolveAccess(req);
+  const { config, reason, openMetadata } = resolveAccess(req);
   if (!config) return refuseWithoutConfig(res, reason);
 
   const messages = cleanMessages(req.body && req.body.messages);
@@ -399,6 +400,7 @@ router.post('/models/:modelId/chat', requireAuth, chatLimiter, async (req, res) 
     canEditModel: canWriteModel(modelRow, req.user, req),
     ...sourceOf(modelRow),
     library: libraryOf(wsId),
+    openMetadata,
   }));
 });
 
@@ -432,7 +434,7 @@ router.post('/models/:modelId/model-chat', requireAuth, chatLimiter, async (req,
   if (!modelRow) return res.status(404).json({ error: 'Model not found' });
   if (!canWriteModel(modelRow, req.user, req)) return res.status(403).json({ error: 'Forbidden' });
 
-  const { config, reason } = resolveAccess(req);
+  const { config, reason, openMetadata } = resolveAccess(req);
   if (!config) return refuseWithoutConfig(res, reason);
 
   const messages = cleanMessages(req.body && req.body.messages);
@@ -483,7 +485,9 @@ router.post('/models/:modelId/model-chat', requireAuth, chatLimiter, async (req,
   }
   // `report: true`: a report sits beside the model (the studio's Model tab), so
   // what belongs to a report is handed to its assistant instead of the editor.
-  return answer(res, runModelChat({ config, modelName: modelRow.name, draft, messages, getColumns, fileTables, getSample, report: req.body.report === true }));
+  const saved = parseModel(modelRow);
+  const catalogScope = openMetadata ? { om: openMetadata, modelId: modelRow.id, fields: [...(saved.dimensions || []), ...(saved.measures || [])] } : null;
+  return answer(res, runModelChat({ config, modelName: modelRow.name, draft, messages, getColumns, fileTables, getSample, report: req.body.report === true, catalogScope }));
 });
 
 // Help with the tool itself, for anyone who has the assistant — a viewer, or a

@@ -374,6 +374,42 @@ never documented. It is computed by the server from what the field was, never
 taken from a request. For a change made on both sides, compare it with the
 catalog's own date: the most recent wins.
 
+## OpenMetadata (read by the AI assistant)
+
+The other direction: Open Report's assistant **reads** OpenMetadata to answer
+"where does this number come from?". Nothing here is an endpoint of Open
+Report; it is what Open Report calls, and what leaves for the AI provider.
+
+- **Setting** — Admin › AI › Data catalog — OpenMetadata: the URL (e.g.
+  `http://localhost:8585`), the token of a **read-only bot** (OpenMetadata ›
+  Settings › Bots, e.g. `openreport-mcp`; stored encrypted, never shown again),
+  and the Open Report service's name there (`openreport` by default). Off by
+  default. Save & test calls `initialize` then `get_user_context`, shows the
+  account, and warns when it is an OpenMetadata admin. Who switched it on or
+  off, and when, is shown with the switch.
+- **What Open Report calls** — the MCP server (`POST <OM>/mcp`, JSON-RPC,
+  Bearer token, JSON or SSE answers) and the REST API (`<OM>/api/v1`: data
+  model, lineage — whose edges carry the SQL —, tables, containers). Reads
+  only: of the MCP tools, only `search_metadata`, `get_entity_details` and
+  `get_entity_lineage` are relayed to the assistant, `get_user_context` serves
+  the test; any other name is refused before anything is sent. 30 s timeout,
+  answers capped. A redirect is refused (it would carry the token).
+- **`explain_field`** — the assistant names a field of the model it is
+  talking about; Open Report builds the data model's FQN
+  (`<service>.model.<model id>`, `<service>.model.report-<report id>` for a
+  report's own fields), reads its column, then walks the lineage upstream 3
+  levels per call, 6 at most, column by column through `columnsLineage`
+  (`function` = the rule), at the level of tables where an edge has none. The
+  answer: the field, the steps with their rule, pipeline, edge description and
+  SQL (cut at 1,500 characters), the sources, the gaps, and links to
+  OpenMetadata's pages. Kept 5 minutes per field.
+- **What reaches the AI provider** — that answer and what the three relayed
+  tools return: names of tables and columns, descriptions, calculation rules,
+  SQL, pipelines. Never a row of data, never the token.
+- **Who** — whoever has the assistant on a report or a model they may use:
+  the question is asked in the assistant's conversation, in their own words —
+  report editor, AI studio, Let's Talk, model assistant. No button.
+
 ## Errors
 
 | Status | Meaning |
