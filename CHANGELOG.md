@@ -4,6 +4,51 @@ All notable changes to OpenReport are listed here. Versions follow
 [Semantic Versioning](https://semver.org/); each one is a git tag and a
 `ghcr.io/cracky777/openreport` image.
 
+## 0.6.0 — 2026-11-03
+
+- **Let's Talk.** Ask your data anything, in any language, without building a
+  report: the answer comes in words with the key figures in bold, and a chart
+  under them when it says more. Add any answer to a report (the page makes room
+  for it), or turn the conversation into a whole report. Export a chart as PNG,
+  CSV or Excel, see it as a table, ask for a measure the model lacks (a ratio, a
+  year-on-year change), and teach the assistant what your fields mean: it
+  remembers for everyone.
+- **Chat mode and the AI studio.** Describe the report you want, drop your files
+  or pick a data model, and the assistant builds it page by page next to you:
+  visuals, measures, the data model itself (joins, fields, a file reshaped into
+  facts and dimensions), and the look. Every change is a card you apply, with
+  undo and redo; nothing is saved until you press Save. You can still move and
+  resize the visuals by hand. Build and Chat sit side by side.
+- **A designer in the assistant.** It designs the whole report (fonts, colors,
+  frames, page menu, logo colors, highlights) in one of several styles, then
+  looks at a screenshot of its own work and corrects what it would not sign.
+- **Business-aware.** Models declare their business domains (finance, sales,
+  logistics, retail, health… 22 of them) and a glossary on their fields; asked
+  for "a dashboard", the assistant asks what it is for, then builds the pages of
+  that objective.
+- **Maps on demand.** A world map, French regions, départements and towns ship
+  with Open Report; asked for the states or provinces of another country, the
+  assistant offers to create that map (from Natural Earth) and draws it.
+- **Accounting books.** A French FEC, a SAF-T (Norway, Portugal, Romania,
+  Luxembourg, Denmark, Austria), DATEV, SIE, XAF, JPK or a CSV/Excel ledger
+  becomes one entries table and a ready-made Finance package (income statement,
+  waterfall, balances); several fiscal years merge, and accounts can be mapped
+  by hand.
+- **Files.** Several files at once, joined by their column names; a file added
+  to an existing model from the conversation.
+- **Visuals.** Waterfall, map, heatmap; donut, rose and funnel; previous year on
+  line, bar and combo charts; conditional formatting per bar, cell or visual;
+  bar labels placed where they fit; slicers synced across pages; copy and paste a
+  visual between reports.
+- **Measures.** Several fact tables in one visual (actual vs budget), last value
+  of a period (stocks, balances), values per period, days between two dates,
+  quantity × price row by row.
+- **Data catalogs.** A metadata API describes models, measures (with their
+  compiled SQL) and reports for OpenMetadata, and can write the glossary back;
+  the assistant can read OpenMetadata to tell where a figure comes from.
+- **Your own Claude subscription** (Pro or Max) as a personal AI provider.
+- Maps, gauges and heatmaps follow a dark report's theme.
+
 ## 0.5.0 — 2026-10-04
 
 - **The assistant as a way in.** On the Data Sources / Data Models / Reports

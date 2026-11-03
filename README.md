@@ -13,7 +13,7 @@ An open source, self-hosted reporting and data visualization platform, easy to r
 
 **Think Power BI / Looker Studio, but open source and self-hosted.**
 
-**With an AI assistant that never touches your live data.** Ask a question in any language and get a chart, or ask it to lay out a page, join the tables of a new model or explain a feature. It reads only Open Report's pre-aggregated cache, never your database, and works with Anthropic, your own Claude subscription or any OpenAI-compatible server, a local one included. It proposes, you apply.
+**With an AI assistant you can just talk to.** Ask a question in any language and get the answer with a chart, or describe a report and watch it being built: pages, measures, joins, design. By default it reads only Open Report's pre-aggregated cache, never your database, and it works with Anthropic, your own Claude subscription or any OpenAI-compatible server, a local one included. It proposes, you apply.
 
 🧪 **Still in development: we are looking for testers.** [Read more](#what-it-doesnt-do-yet).
 
@@ -112,13 +112,15 @@ If something in this table is wrong or out of date, please open an issue.
 
 - **Data**: PostgreSQL, Amazon Redshift, Snowflake, Databricks, ClickHouse, MySQL, Oracle, SQL Server, Azure SQL,
   BigQuery, DuckDB. Files: CSV, Excel (.xlsx), Parquet, JSON, TSV, SQLite, DuckDB, several of them in one model.
+  Accounting books (FEC, SAF-T, DATEV, SIE, XAF…) become a ready-made Finance package.
 - **Modeling**: joins with cardinality, dimensions, measures, calculated columns, filtered measures with
   CALCULATE semantics, same period last year, row-level security.
-- **Reports**: 10+ visual types (bar, line, pie, pivot, table, waterfall, gauge, treemap, slicers…), plus your
+- **Reports**: 15+ visual types (bar, line, pie, pivot, table, waterfall, gauge, treemap, map, heatmap, slicers…), plus your
   own custom visuals. Free positioning, snap-to-grid, shapes, multi-page reports, themes, cross-filtering and
   cross-highlighting.
-- **AI assistant** (optional, bring your own provider): charts from questions, page layout, model building and
-  in-app help.
+- **AI assistant** (optional, bring your own provider): Let's Talk (answers in words and charts, added to a
+  report in one click), whole reports built and designed from a conversation, model building, file reshaping
+  and in-app help.
 - **Performance**: pre-aggregation cache with scheduled refreshes, with a fallback to live queries.
 - **Collaboration**: workspaces with viewer, editor and admin roles, sharing between workspaces, public links.
 - **Output**: export to PDF, PNG and Excel, plus a [REST API](API.md) for scripted refreshes with scoped tokens.
