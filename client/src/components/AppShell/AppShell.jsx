@@ -236,9 +236,10 @@ export default function AppShell({ step }) {
   }, [sliding, step]);
 
   // Following a join focuses the relation's parent and moves to the stage the
-  // click points at. Both directions focus the same node — walking back up a
-  // join is the same branch seen from the other end, not a different one.
-  const follow = ({ dir, noun, id }) => {
+  // click points at. Walking back up from a model focuses the model itself: one
+  // reading several files hangs from all of them, and focusing the source whose
+  // name was clicked lit only that one of its arrows.
+  const follow = ({ dir, noun, id, childId }) => {
     const target = dir === 'down'
       ? (noun === 'model' ? 'models' : 'reports')
       : (noun === 'model' ? 'sources' : 'models');
@@ -246,7 +247,8 @@ export default function AppShell({ step }) {
     const stage = noun === 'model' ? 'sources' : 'models';
     const down = noun === 'model' ? '/models' : '/';
     const up = noun === 'model' ? '/datasources' : '/models';
-    navigate(`${dir === 'down' ? down : up}?focus=${stage}:${id}`);
+    if (dir === 'up' && noun === 'model' && childId) navigate(`${up}?focus=models:${childId}`);
+    else navigate(`${dir === 'down' ? down : up}?focus=${stage}:${id}`);
   };
 
   // The focus spans the journey, so it survives the stage switcher — otherwise

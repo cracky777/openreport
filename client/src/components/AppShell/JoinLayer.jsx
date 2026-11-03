@@ -127,7 +127,7 @@ export default function JoinLayer({ onFollow, overview = false }) {
           key: `origin:${edge.to}`,
           label: edge.parentName,
           x: b.left - 34, y: b.mid, align: 'right',
-          follow: { dir: 'up', noun: edge.noun, id: edge.parentId },
+          follow: { dir: 'up', noun: edge.noun, id: edge.parentId, childId: edge.to.slice(edge.to.indexOf(':') + 1) },
           dim: edge.dim,
         });
       }
