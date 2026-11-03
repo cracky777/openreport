@@ -15,6 +15,10 @@ An open source, self-hosted reporting and data visualization platform, easy to r
 
 **With an AI assistant you can just talk to.** Ask a question in any language and get the answer with a chart, or describe a report and watch it being built: pages, measures, joins, design. By default it reads only Open Report's pre-aggregated cache, never your database, and it works with Anthropic, your own Claude subscription or any OpenAI-compatible server, a local one included. It proposes, you apply.
 
+https://github.com/user-attachments/assets/7074fac7-db46-478f-943e-2f70c38044c3
+
+<sub>Let's Talk on three CSV files: real answers from Claude, the waits fast-forwarded. When a drill-down needs a map Open Report doesn't have, the assistant offers to create it.</sub>
+
 🧪 **Still in development: we are looking for testers.** [Read more](#what-it-doesnt-do-yet).
 
 [Website](https://openreport.io) · [Quick start](#quick-start) · [Screenshots](#screenshots) · [How it compares](#how-it-compares) · [Changelog](CHANGELOG.md)
