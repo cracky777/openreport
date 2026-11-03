@@ -1,13 +1,14 @@
 // Section 4 — the section named after the visual. Its geometry and its
 // behaviour, and nothing else: no colour, no text, no frame. Open by
 // default, since it is the one people look for first.
+import { useEffect, useState } from 'react';
 import { Section, SubSection, Field, RangeInput, ColorInput, DecimalInput, AlignButtonGroup } from '../controls';
 import { TbAlignLeft, TbAlignCenter, TbAlignRight, TbLayoutAlignTop, TbLayoutAlignMiddle, TbLayoutAlignBottom } from 'react-icons/tb';
 import { toast } from '../../Toast/toast';
 import api from '../../../utils/api';
 import { parseIntOrNull } from '../../../utils/input';
 import { DirectionButtons } from './shared';
-import { MAP_AREAS } from '../../../utils/geo';
+import { MAP_AREAS, installedAreas } from '../../../utils/geo';
 import { BAR_DIRECTIONS, GAUGE_DIRECTIONS } from './visualTypes';
 import { WaterfallVisualPart } from './waterfallParts';
 import { TableGridPart, TableRowsPart, TableTotalsPart, TablePaginationPart, TableColumnSizingPart, TableFreezePart } from './tableParts';
@@ -101,6 +102,14 @@ function ShowZeros({ cfg, updateConfig }) {
 export default function VisualSection({ ctx }) {
   const { widget, binding, updateConfig, inputStyle, sections, title, table, pivot, otherPages } = ctx;
   const type = widget.type;
+  // The base maps this instance added, after the shipped ones.
+  const [addedAreas, setAddedAreas] = useState([]);
+  useEffect(() => {
+    if (type !== 'map') return undefined;
+    let live = true;
+    installedAreas().then((areas) => { if (live) setAddedAreas(areas); });
+    return () => { live = false; };
+  }, [type]);
   const cfg = widget.config || {};
   let body = null;
 
@@ -157,7 +166,7 @@ export default function VisualSection({ ctx }) {
         <Field label="Map">
           <select value={cfg.mapArea || 'auto'} onChange={(e) => updateConfig('mapArea', e.target.value === 'auto' ? undefined : e.target.value)} style={inputStyle}>
             <option value="auto">From the places</option>
-            {MAP_AREAS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
+            {[...MAP_AREAS, ...addedAreas].map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
           </select>
         </Field>
         <Field label="Zoom and pan">

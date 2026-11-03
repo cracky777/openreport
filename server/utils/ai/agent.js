@@ -24,6 +24,7 @@ const { validateRemember } = require('./remember');
 const { layoutIssues } = require('./layoutIssues');
 const { checkSync, reportDecisions, syncConfirmed, syncQuestionError, filterDim } = require('./filterSync');
 const { openMetadataKit } = require('./openMetadataTools');
+const { listBaseMaps } = require('../geo/baseMaps');
 
 const MAX_ITERATIONS = 6;
 // Rows of each cache read handed back to the client, which replays them in the
@@ -210,7 +211,7 @@ const PROPOSERS = {
       const summary = typeof args.summary === 'string' ? args.summary.slice(0, 200) : '';
       return { payload: { kind: 'action', action: 'remember_fields', summary, remember: items, modelId: ctx.modelId }, errors };
     }
-    const { action, errors } = validateActionProposal(args, { canEditModel: ctx.canEditModel, fileModel: ctx.fileModel, sourceLabel: ctx.sourceLabel, allowed });
+    const { action, errors } = validateActionProposal(args, { canEditModel: ctx.canEditModel, fileModel: ctx.fileModel, sourceLabel: ctx.sourceLabel, allowed, baseMaps: ctx.baseMaps });
     if (!action) return { payload: null, errors };
     // The model to open, or to build the report on, is the one of the
     // conversation, never a name the model chose.
@@ -404,6 +405,9 @@ async function runChat({ config, user, orgId, report, effective, messages: given
       if (c) d.values = c.more ? `${c.n}+` : c.n;
     }
   }
+  // The base maps this instance added (utils/geo/baseMaps.js): drawn by the
+  // map visual; a country missing from them is an add_map card.
+  const baseMaps = listBaseMaps();
   const system = buildSystemPrompt({
     reportTitle: report.title,
     schema,
@@ -424,6 +428,7 @@ async function runChat({ config, user, orgId, report, effective, messages: given
     studio,
     assets,
     talk: talk && mode === 'ask',
+    baseMaps,
   }).concat(catalog.lines.map((l) => `\n${l}`).join(''));
   const page = { width: pageContext.pageWidth, height: pageContext.pageHeight };
 
@@ -500,7 +505,7 @@ async function runChat({ config, user, orgId, report, effective, messages: given
       if (call.name === 'propose_report' && wholeReport) reportTried = true;
       const confirmed = syncConfirmed(messages, call.args);
       const checked = PROPOSERS[call.name](call.args, {
-        effective, page, pageContext, canWriteVisuals, canEditModel, fileModel, sourceLabel, mode, library, cardinality, allowReport, review: studio && review, assets, reportId: report.id, modelId: report.model_id, colors,
+        effective, page, pageContext, canWriteVisuals, canEditModel, fileModel, sourceLabel, mode, library, cardinality, allowReport, review: studio && review, assets, reportId: report.id, modelId: report.model_id, colors, baseMaps,
         requireReport, filterSyncConfirmed: confirmed,
         ...(call.name === 'propose_design_changes' ? designReading(call.args) : widgetReading(call.args, effective, messages)),
       });

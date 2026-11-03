@@ -26,6 +26,7 @@ const { canEditReport, canReadModel, canBuildOnModel, canWriteModel } = require(
 const { canManageVisuals, canSeeVisuals } = require('./customVisuals');
 const { libraryOf } = require('../utils/ai/visualLibrary');
 const aiAccess = require('../utils/ai/access');
+const baseMaps = require('../utils/geo/baseMaps');
 const aiProviders = require('../utils/ai/providers');
 const aiTools = require('../utils/ai/tools');
 const { buildEffectiveModel } = require('../utils/ai/effectiveModel');
@@ -505,6 +506,18 @@ router.post('/help/chat', requireAuth, chatLimiter, async (req, res) => {
 
 // 👍 / 👎 on an answer. Same gate as the conversation it rates: the model named
 // here is one the caller could have asked about.
+// The assistant's add_map card, validated by the user: the subdivisions of a
+// country become a base map of the instance (utils/geo/baseMaps.js). Anyone the
+// assistant answers may add one — it holds shapes and names, no data.
+router.post('/maps', requireAuth, chatLimiter, async (req, res) => {
+  if (!resolveAccess(req).config) return res.status(403).json({ error: 'The assistant is not available for this account' });
+  try {
+    res.json({ map: await baseMaps.installBaseMap(req.body && req.body.country) });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.status ? err.message : 'The map could not be downloaded. Try again later.' });
+  }
+});
+
 router.post('/feedback', requireAuth, (req, res) => {
   const modelRow = db.prepare('SELECT * FROM models WHERE id = ?').get(String((req.body && req.body.modelId) || ''));
   if (!modelRow) return res.status(404).json({ error: 'Model not found' });

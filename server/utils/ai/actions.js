@@ -25,17 +25,23 @@
 
 const { validateCron } = require('../cacheSchedules');
 const { cleanTalkTheme } = require('./talkTheme');
+const { refusalOf, normalizeCountry } = require('../geo/baseMaps');
 
-const ACTIONS = ['schedule_cache_refresh', 'open_model_assistant', 'add_file_to_model', 'add_image', 'connect_database', 'import_file', 'build_model', 'create_report', 'talk_colors', 'remember_fields'];
+const ACTIONS = ['schedule_cache_refresh', 'open_model_assistant', 'add_file_to_model', 'add_image', 'connect_database', 'import_file', 'build_model', 'create_report', 'talk_colors', 'remember_fields', 'add_map'];
 // What each assistant may hand over.
 const ACTIONS_FOR = {
-  editor: ['schedule_cache_refresh', 'open_model_assistant', 'add_file_to_model', 'add_image'],
-  ask: ['schedule_cache_refresh', 'open_model_assistant', 'add_file_to_model', 'create_report', 'connect_database', 'import_file', 'talk_colors', 'remember_fields'],
+  editor: ['schedule_cache_refresh', 'open_model_assistant', 'add_file_to_model', 'add_image', 'add_map'],
+  ask: ['schedule_cache_refresh', 'open_model_assistant', 'add_file_to_model', 'create_report', 'connect_database', 'import_file', 'talk_colors', 'remember_fields', 'add_map'],
   help: ['connect_database', 'import_file', 'build_model'],
 };
 // add_image: a card where the user drops the picture (a logo) the request
 // needs and the conversation lacks; the assistant then goes on with it.
 const OPENS_A_FORM = new Set(['connect_database', 'import_file', 'add_file_to_model', 'add_image']);
+// add_map: a map was asked of places no base map draws (the states of the
+// United States, the provinces of Canada): the card makes that country's map
+// for the instance (utils/geo/baseMaps.js), then the assistant draws it. Like
+// a form, it does nothing until the user clicks — offered without being asked to.
+const OFFERED_UNASKED = new Set([...OPENS_A_FORM, 'add_map']);
 const FREQUENCIES = ['hourly', 'daily', 'weekly', 'monthly'];
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const TIME = /^([01]?\d|2[0-3]):([0-5]\d)$/;
@@ -67,19 +73,19 @@ function scheduleOf(args) {
 const noFileOn = (sourceLabel) => `no card: this report reads ${sourceLabel}, and a file cannot be joined to a database. Tell the user so in plain words, naming that source, then the two ways: (1) whoever manages that database adds the data as a table in it, and the model's owner adds that table in the model editor; (2) start a new report from files — in Chat, Create a report, then drop an export of this data and the new file together, and OpenReport joins them. Nothing else.`;
 
 /**
- * @param {{canEditModel?: boolean, fileModel?: boolean, sourceLabel?: string, allowed?: string[]}} ctx whether the user may change the data model;
+ * @param {{canEditModel?: boolean, fileModel?: boolean, sourceLabel?: string, allowed?: string[], baseMaps?: object[]}} ctx whether the user may change the data model;
  *        whether the model is built on imported files (the only ones a file can join), else what it reads, in words;
- *        the actions this assistant may hand over
+ *        the actions this assistant may hand over; the base maps already added (add_map)
  * @returns {{ action: object|null, errors: string[] }} `action` is what the card applies
  */
-function validateActionProposal(args, { canEditModel = false, fileModel = false, sourceLabel = 'a database', allowed = ACTIONS_FOR.editor } = {}) {
+function validateActionProposal(args, { canEditModel = false, fileModel = false, sourceLabel = 'a database', allowed = ACTIONS_FOR.editor, baseMaps = [] } = {}) {
   const a = args && typeof args === 'object' ? args : {};
   if (!allowed.includes(a.action)) return { action: null, errors: [`action must be one of ${allowed.join(', ')}`] };
   // Asked "how do I schedule a report?", a real model scheduled one: the user
   // wanted to learn how. The model says which it read — being asked to do it,
   // or asked how — and only the first gets a card. A card that only opens a
   // form goes with the explanation either way: it does nothing by itself.
-  if (a.userAsked !== 'do' && !OPENS_A_FORM.has(a.action)) {
+  if (a.userAsked !== 'do' && !OFFERED_UNASKED.has(a.action)) {
     return { action: null, errors: ['the user asked HOW, not to do it: answer with the steps from read_help, then offer in one sentence to do it for them'] };
   }
   const summary = typeof a.summary === 'string' ? a.summary.slice(0, MAX_SUMMARY) : '';
@@ -89,6 +95,14 @@ function validateActionProposal(args, { canEditModel = false, fileModel = false,
     if (!fileModel) return { action: null, errors: [noFileOn(sourceLabel)] };
   }
   if (OPENS_A_FORM.has(a.action)) return { action: { action: a.action, summary, request }, errors: [] };
+  if (a.action === 'add_map') {
+    const country = normalizeCountry(a.country);
+    const refusal = refusalOf(country);
+    if (refusal) return { action: null, errors: [`add_map: ${refusal}`] };
+    const added = baseMaps.find((m) => m.country === country);
+    if (added) return { action: null, errors: [`no card: the map "${added.label}" is already there — draw the map visual, it is picked from the place names`] };
+    return { action: { action: a.action, summary, request, country }, errors: [] };
+  }
   // The colors of Let's Talk for this user (talkTheme.js): a base and a rule,
   // or back to Open Report's. Applied by the user's click on the card.
   if (a.action === 'talk_colors') {

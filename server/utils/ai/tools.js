@@ -647,6 +647,7 @@ const ACTION_HELP = {
   import_file: 'import_file: import a file (CSV, Excel, Parquet, JSON): the card takes the file from the user — say "send me the file" and hand over this card; never ask them to paste its content. Offered to "how do I import…?" too, after the steps.',
   remember_fields: 'remember_fields: the user confirmed, corrected or explained what fields of the schema mean, and no visual is needed to answer: `remember` lists them (with a visual, put `remember` on propose_widgets instead).',
   talk_colors: 'talk_colors: the user wants other colors for the charts of this conversation (a brand color, "in green", warmer, softer): base = the color the charts are built on, as #rrggbb, and harmony = how the other series follow it; reset: true goes back to the colors of Open Report. The card applies it to all their Let\'s Talk answers, now and later — never answer such a request with a visual of its own.',
+  add_map: 'add_map: a map is asked (or the user drills into a map) of places none of the base maps draws — the states of the United States, the provinces of Canada, the Länder of Germany: no map visual and no other chart in its place; say in one sentence that Open Report has no map of them yet and hand over this card with `country`. The user clicks, the map is made for everyone on this instance, and the request comes back to you: then draw the map. Not for a ranking nobody asked to see on a map: that is a bar chart.',
   build_model: 'build_model: build a data model on a data source the user already has: the card lets them pick the source, then opens the model editor, whose assistant is asked `request`.',
 };
 
@@ -667,12 +668,13 @@ function actionToolFor(actions) {
           time: { type: 'string', description: 'HH:MM, 24-hour clock, in the user\'s time zone (08:00 when they do not say)' },
         } : {}),
         ...(actions.includes('remember_fields') ? { remember: REMEMBER_PARAM } : {}),
+        ...(actions.includes('add_map') ? { country: { type: 'string', description: 'add_map only: the country whose states / provinces / regions to map, as an ISO 3166-1 alpha-2 code (US, CA, DE)' } } : {}),
         ...(actions.includes('talk_colors') ? {
           base: { type: 'string', description: 'talk_colors only: #rrggbb' },
           harmony: { type: 'string', enum: Object.keys(HARMONIES), description: `talk_colors only: ${Object.entries(HARMONY_NOTES).map(([k, v]) => `${k} = ${v}`).join(' · ')}` },
           reset: { type: 'boolean', description: 'talk_colors only: back to the colors of Open Report' },
         } : {}),
-        request: { type: 'string', description: 'The user\'s request, in their language, as they would type it: what the model or the report should show (open_model_assistant, build_model, create_report, add_file_to_model: what to do once the data is in), or what they want once their data is in (connect_database, import_file — empty when they did not say)' },
+        request: { type: 'string', description: 'The user\'s request, in their language, as they would type it: what the model or the report should show (open_model_assistant, build_model, create_report, add_file_to_model: what to do once the data is in; add_map: what to draw once the map is there), or what they want once their data is in (connect_database, import_file — empty when they did not say)' },
         summary: { type: 'string', description: 'One short sentence in the user\'s language: what will happen' },
       },
       required: ['userAsked', 'action', 'summary'],

@@ -28,3 +28,22 @@ describe('places matched by name', () => {
     expect(indexes.world.get(normalizePlace('DEU'))).toBe('Germany');
   });
 });
+
+describe("a base map the instance added (the assistant's add_map card)", () => {
+  // Shaped as the server builds it (server/utils/geo/subdivisions.js).
+  const states = { type: 'FeatureCollection', features: [
+    { properties: { name: 'California', names: ['California', 'Californie', 'CA', 'US-CA'] } },
+    { properties: { name: 'Georgia', names: ['Georgia', 'Géorgie', 'GA', 'US-GA'] } },
+    { properties: { name: 'Texas', names: ['Texas', 'TX', 'US-TX'] } },
+  ] };
+  const added = { value: 'admin1-us', label: 'United States of America — states', kind: 'areas' };
+  const all = { ...indexes, 'admin1-us': indexArea('admin1-us', states) };
+
+  test('states are drawn on it rather than on the world, codes included', () => {
+    expect(bestArea(['California', 'Georgia', 'Texas'], all, [...MAP_AREAS, added])).toBe('admin1-us');
+    // CA is Canada on the world map: among state codes it is California.
+    expect(bestArea(['CA', 'TX', 'GA'], all, [...MAP_AREAS, added])).toBe('admin1-us');
+    // Countries stay on the world.
+    expect(bestArea(['Germany', 'Georgia', 'Canada'], all, [...MAP_AREAS, added])).toBe('world');
+  });
+});

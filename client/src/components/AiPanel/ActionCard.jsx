@@ -7,6 +7,7 @@ import { toast } from '../Toast/toast';
 import { handOver } from '../../utils/assistantHandoff';
 import StartCard from './StartCards';
 import AddFileCard from './AddFileCard';
+import AddMapCard from './AddMapCard';
 import { cardStyle, rowStyle, iconStyle, titleStyle, subStyle, selectStyle, actionsStyle, quietBtn, applyBtn, doneStyle } from './actionCardStyles';
 
 const WEEKDAY_LABELS = { sunday: 'Sunday', monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday', thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday' };
@@ -76,6 +77,7 @@ export default function ActionCard(props) {
   if (props.proposal.action === 'add_file_to_model') {
     return <AddFileCard proposal={props.proposal} onOutcome={props.onOutcome} onAnswer={props.onAnswer} onModelChanged={props.onModelChanged} onAskModel={props.onAskModel} />;
   }
+  if (props.proposal.action === 'add_map') return <AddMapCard proposal={props.proposal} onOutcome={props.onOutcome} onAnswer={props.onAnswer} />;
   if (props.proposal.action === 'open_model_assistant') {
     return <ModelAssistantCard proposal={props.proposal} inEditor={!!props.reportId} onOutcome={props.onOutcome} onAskModel={props.onAskModel} />;
   }

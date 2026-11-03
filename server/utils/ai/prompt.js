@@ -208,7 +208,7 @@ const DESIGNER_GUIDE = [
 // no legend.
 const GLOSSARY_LEGEND = 'Glossary, on some fields of the schema: `role` is the field\'s business meaning in the catalogue (domain.role, e.g. ecommerce.revenue — a measure role ends in a quantity, a date role is a date dimension), `synonyms` the words the users of this model call it by, `description` what the author says it holds. A request naming a synonym or a role means THAT field, whatever the language: prefer it to a field whose name merely looks alike.';
 
-function buildSystemPrompt({ reportTitle, schema, coverage, pageContext, mode, canQueryData, readsLive = false, canWriteVisuals, canEditModel = false, fileModel = false, sourceLabel = 'its data source', library = [], hasDate = true, helpTopics = [], businessLines = [], guidedLines = [], studio = false, assets = [], talk = false }) {
+function buildSystemPrompt({ reportTitle, schema, coverage, pageContext, mode, canQueryData, readsLive = false, canWriteVisuals, canEditModel = false, fileModel = false, sourceLabel = 'its data source', library = [], hasDate = true, helpTopics = [], businessLines = [], guidedLines = [], studio = false, assets = [], talk = false, baseMaps = [] }) {
   const ask = mode === 'ask';
   const rules = ask ? (talk ? [...TALK_RULES, ...ASK_RULES.slice(1)] : ASK_RULES) : [...(studio ? STUDIO_RULES : []), ...VISUALS_RULES, ...DESIGN_RULES];
   const lines = [
@@ -277,6 +277,9 @@ function buildSystemPrompt({ reportTitle, schema, coverage, pageContext, mode, c
   }
   {
     lines.push('', ...CHART_GUIDE);
+    // The map visual draws only places a base map holds; the others are a card that makes theirs.
+    const added = baseMaps.map((m) => m.label).join('; ');
+    lines.push(`- Base maps the map visual draws: world — countries; France — regions, départements, towns${added ? `; ${added}` : ''}. Asked to see on a map (or to drill into a map of) places none of them holds — the states of the United States, the provinces of Canada: no map and no other chart in its place; say so in one sentence and hand over propose_action add_map with that country.`);
     if (!hasDate) lines.push('- This model has NO date dimension: nothing can be shown over time. No trend, no evolution, no comparison with a previous period — not even as one visual among several.');
     lines.push(...guidedLines);
     if (library.length) {

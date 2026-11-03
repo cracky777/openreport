@@ -11,8 +11,24 @@ export const MAP_AREAS = [
   { value: 'fr-communes', label: 'France — towns', file: 'fr-communes.json', kind: 'points', base: 'fr-departements' },
 ];
 const AREA = Object.fromEntries(MAP_AREAS.map((a) => [a.value, a]));
-export const isMapArea = (v) => !!AREA[v];
 export const mapNameOf = (area) => `openreport-${area}`;
+
+// The base maps this instance added (server utils/geo/baseMaps.js: a country's
+// states or provinces, made from the assistant's add_map card), drawn as areas
+// like the shipped ones. Listed once per page; forgotten when one is added.
+let installed = null;
+export function installedAreas() {
+  if (!installed) {
+    installed = fetch('/api/geo/maps')
+      .then((res) => (res.ok ? res.json() : { maps: [] }))
+      .then(({ maps = [] }) => maps.map((m) => ({ value: m.value, label: m.label, kind: 'areas', url: `/api/geo/maps/${m.value}` })));
+    installed.catch(() => { installed = null; });
+  }
+  return installed.catch(() => []);
+}
+export function forgetInstalledAreas() { installed = null; }
+
+const infoOf = async (area) => AREA[area] || (await installedAreas()).find((a) => a.value === area) || null;
 
 export function normalizePlace(value) {
   return String(value ?? '')
@@ -46,10 +62,10 @@ export function indexArea(area, json) {
 }
 
 // The area that knows the most of these values; first listed on a tie.
-export function bestArea(values, indexes) {
+export function bestArea(values, indexes, areas = MAP_AREAS) {
   let best = null;
   let bestCount = 0;
-  for (const { value } of MAP_AREAS) {
+  for (const { value } of areas) {
     const index = indexes[value];
     if (!index) continue;
     const count = values.filter((v) => index.has(normalizePlace(v))).length;
@@ -61,13 +77,17 @@ export function bestArea(values, indexes) {
 // One fetch per file for the page's life; areas registered with ECharts.
 const loading = new Map();
 export function loadArea(area) {
-  if (!AREA[area]) return Promise.reject(new Error(`Unknown map: ${area}`));
   if (!loading.has(area)) {
-    const { file, kind, base } = AREA[area];
-    const promise = fetch(`/geo/${file}`)
-      .then((res) => { if (!res.ok) throw new Error(`Map ${area} unavailable`); return res.json(); })
-      .then(async (json) => {
-        if (kind === 'areas') echarts.registerMap(mapNameOf(area), json);
+    const promise = infoOf(area)
+      .then(async (info) => {
+        if (!info) throw new Error(`Unknown map: ${area}`);
+        const res = await fetch(info.url || `/geo/${info.file}`);
+        if (!res.ok) throw new Error(`Map ${area} unavailable`);
+        return { info, json: await res.json() };
+      })
+      .then(async ({ info: { kind, base }, json }) => {
+        // specialAreas: pieces moved beside the mainland (Alaska, Hawaii).
+        if (kind === 'areas') echarts.registerMap(mapNameOf(area), json, json.specialAreas);
         if (base) await loadArea(base);
         return { area, index: indexArea(area, json) };
       });
@@ -77,12 +97,13 @@ export function loadArea(area) {
   return loading.get(area);
 }
 
-// `area` 'auto' (or unset) loads them all and keeps the one that knows the
-// values best.
+// `area` 'auto' (or unset) loads them all — the shipped ones and the
+// instance's — and keeps the one that knows the values best.
 export async function resolveArea(area, values) {
-  if (isMapArea(area)) return loadArea(area);
-  const loaded = await Promise.all(MAP_AREAS.map((a) => loadArea(a.value).catch(() => null)));
+  if (area && area !== 'auto') return loadArea(area);
+  const areas = [...MAP_AREAS, ...await installedAreas()];
+  const loaded = await Promise.all(areas.map((a) => loadArea(a.value).catch(() => null)));
   const indexes = Object.fromEntries(loaded.filter(Boolean).map((l) => [l.area, l.index]));
-  const best = bestArea(values, indexes) || 'world';
+  const best = bestArea(values, indexes, areas) || 'world';
   return loaded.find((l) => l?.area === best) || loadArea(best);
 }

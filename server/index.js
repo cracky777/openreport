@@ -26,6 +26,7 @@ const bookmarkRoutes = require('./routes/bookmarks');
 const rollupRoutes = require('./routes/rollups');
 const aiRoutes = require('./routes/ai');
 const helpRoutes = require('./routes/help');
+const geoRoutes = require('./routes/geo');
 const apiTokenRoutes = require('./routes/apiTokens');
 const v1Routes = require('./routes/v1');
 const internalToken = require('./utils/internalToken');
@@ -195,6 +196,7 @@ app.use('/api/reports', bookmarkRoutes);
 app.use('/api/rollups', rollupRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/help', helpRoutes);
+app.use('/api/geo', geoRoutes);
 app.use('/api/api-tokens', apiTokenRoutes);
 // Public API. Mounted last among the /api routers because it carries its own
 // bearer-token middleware — everything above stays session-only.

@@ -100,7 +100,7 @@ describe('bringing data in and starting a report, as cards', () => {
     expect(validateActionProposal(report, { allowed: ACTIONS_FOR.ask }).action).toMatchObject({ action: 'create_report', request: 'Sales by region' });
     expect(validateActionProposal(report, { allowed: ACTIONS_FOR.help }).action).toBeNull();
     // The report editor keeps the two it had.
-    expect(validateActionProposal(report).errors.join(' ')).toMatch(/action must be one of schedule_cache_refresh, open_model_assistant, add_file_to_model, add_image$/);
+    expect(validateActionProposal(report).errors.join(' ')).toMatch(/action must be one of schedule_cache_refresh, open_model_assistant, add_file_to_model, add_image, add_map$/);
     expect(validateActionProposal({ userAsked: 'do', action: 'schedule_cache_refresh', frequency: 'daily', summary: 's' }, { allowed: ACTIONS_FOR.help }).action).toBeNull();
   });
 });
