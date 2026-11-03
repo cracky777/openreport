@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { TbChartBar, TbTable, TbPlus, TbCheck, TbExternalLink, TbThumbUp, TbThumbDown, TbFilter, TbMathFunction } from 'react-icons/tb';
 import { WIDGET_TYPES } from '../Widgets';
-import WidgetPreview from '../AiPanel/WidgetPreview';
+import ExportableVisual from './ExportableVisual';
 import RememberCard from './RememberCard';
 import { VisualPreview } from '../AiPanel/ProposalCard';
 import { describeShaping, proposedVisuals, withMeasureFormats } from '../../utils/aiProposal';
@@ -97,13 +97,13 @@ export default function TalkAnswer({ proposal, model: baseModel, rating, added, 
           be added to. What the chart cannot show goes UNDER it. */}
       {generated ? <VisualPreview proposal={proposal} model={model} /> : null}
       {!generated && single ? (
-        <WidgetPreview widget={single} asTable={canToggle && view === 'table'} model={model} settings={settings} height={SMALL_TYPES.has(single.type) ? SMALL_HEIGHT : SINGLE_HEIGHT} />
+        <ExportableVisual widget={single} asTable={canToggle && view === 'table'} model={model} settings={settings} height={SMALL_TYPES.has(single.type) ? SMALL_HEIGHT : SINGLE_HEIGHT} />
       ) : null}
       {!generated && !single ? (
         <div style={tilesStyle}>
           {visuals.map((w, i) => (
             <div key={i} style={spansRow(visuals, i) ? wideTile : undefined}>
-              <WidgetPreview widget={w} model={model} settings={settings} height={SMALL_TYPES.has(w.type) ? SMALL_HEIGHT : TILE_HEIGHT} />
+              <ExportableVisual widget={w} model={model} settings={settings} height={SMALL_TYPES.has(w.type) ? SMALL_HEIGHT : TILE_HEIGHT} />
             </div>
           ))}
         </div>

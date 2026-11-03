@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { WIDGET_TYPES } from '../Widgets';
 import { useWidgetPreview } from '../../hooks/useWidgetPreview';
 import { chartTable } from '../../utils/chartTable';
@@ -35,12 +35,15 @@ function DataTable({ table }) {
   );
 }
 
-export default function WidgetPreview({ widget, model, reportId, settings, height, asTable = false }) {
+export default function WidgetPreview({ widget, model, reportId, settings, height, asTable = false, onData }) {
   const boxRef = useRef(null);
   const [width, setWidth] = useState(0);
   const decor = DECOR.has(widget.type);
   const fetched = useWidgetPreview(widget, { model, reportId, settings, enabled: !decor });
-  const { data, loading, error } = decor ? { data: { ...(widget.data || {}), _rowCount: 1 }, loading: false, error: null } : fetched;
+  const decorData = useMemo(() => (decor ? { ...(widget.data || {}), _rowCount: 1 } : null), [decor, widget.data]);
+  const { data, loading, error } = decor ? { data: decorData, loading: false, error: null } : fetched;
+  // The rows it draws, to whoever exports them (Let's Talk's menu).
+  useEffect(() => { if (onData) onData(data?._rowCount ? data : null); }, [onData, data]);
   const h = height || (decor ? DECOR_HEIGHT : PREVIEW_HEIGHTS[widget.type] || DEFAULT_HEIGHT);
 
   useEffect(() => {
