@@ -18,7 +18,7 @@ const script = (body) => {
       reading: { scope: 'precise' },
       summary: 'The table becomes a bar chart, a total joins it, and the detail gets its own page.',
       title: 'Rapport e2e renamed',
-      measures: [{ label: 'Ecart (e2e)', kind: 'arithmetic', op: 'subtract', left: F.MEASURE, right: F.MEASURE, description: 'A measure made from the schema' }],
+      measures: [{ label: 'Ecart e2e', kind: 'arithmetic', op: 'subtract', left: F.MEASURE, right: F.MEASURE, description: 'A measure made from the schema' }],
       pages: [
         {
           page: 'p1',
@@ -99,7 +99,7 @@ test('the studio applies a change of the whole report: replaced, added, a new pa
     // The measure the proposal defined is saved with the model, the report renamed.
     expect(after.title).toBe('Rapport e2e renamed');
     const model = await modelOf(after.model_id);
-    expect(model.measures.find((m) => m.name === '_calc.ecart_e2e')).toMatchObject({ label: 'Ecart (e2e)', aggregation: 'custom', expression: `COALESCE((\${${F.MEASURE}}), 0) - COALESCE((\${${F.MEASURE}}), 0)` });
+    expect(model.measures.find((m) => m.name === '_calc.ecart_e2e')).toMatchObject({ label: 'Ecart e2e', aggregation: 'custom', expression: `COALESCE((\${${F.MEASURE}}), 0) - COALESCE((\${${F.MEASURE}}), 0)` });
   } finally {
     await page.request.put(`/api/reports/${tableReportId}`, { data: { title: before.title, layout: before.layout, widgets: before.widgets, settings: before.settings } });
     await page.request.put(`/api/models/${modelBefore.id}`, { data: { measures: modelBefore.measures } });
