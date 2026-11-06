@@ -7,27 +7,69 @@
 
 > Free and open source under [AGPL-3.0](LICENSE). Self-host it, fork it, use it at work.
 
-Superset too complicated? Metabase too limited? Power BI not open source? That's why I built Open Report.
+**The open source reporting tool, powered by AI.** Ask questions, generate reports or build them by hand, on data
+that stays on your servers.
 
-An open source, self-hosted reporting and data visualization platform, easy to run and easy to configure. Point it at your database, describe your tables once (joins, dimensions, measures), then build interactive dashboards on a drag-and-drop canvas. It compiles the SQL for you, in your dialect, against your data. Nothing leaves your infrastructure.
+Superset too complicated? Metabase too limited? Power BI not open source? That's why I built Open Report: **think
+Power BI / Looker Studio, but open source and self-hosted.** Point it at your database, describe your tables once
+(joins, dimensions, measures), and it compiles the SQL for you, in your dialect, against your data. Nothing leaves
+your infrastructure.
 
-**Think Power BI / Looker Studio, but open source and self-hosted.**
-
-**With an AI assistant you can just talk to.** Ask a question in any language and get the answer with a chart, or describe a report and watch it being built: pages, measures, joins, design. By default it reads only Open Report's pre-aggregated cache, never your database, and it works with Anthropic, your own Claude subscription or any OpenAI-compatible server, a local one included. It proposes, you apply.
-
-https://github.com/user-attachments/assets/7074fac7-db46-478f-943e-2f70c38044c3
-
-<sub>Let's Talk on three CSV files: real answers from Claude, the waits fast-forwarded. When a drill-down needs a map Open Report doesn't have, the assistant offers to create it.</sub>
+[Website](https://openreport.io) · [Try the editor](https://demo.openreport.io) · [Quick start](#quick-start) · [Features](#features) · [How it compares](#how-it-compares) · [Changelog](CHANGELOG.md)
 
 🧪 **Still in development: we are looking for testers.** [Read more](#what-it-doesnt-do-yet).
 
-[Website](https://openreport.io) · [Quick start](#quick-start) · [Screenshots](#screenshots) · [How it compares](#how-it-compares) · [Changelog](CHANGELOG.md)
+### AI Ad-hoc analysis
+
+Ask your data in plain words, in any language, and get the answer with its chart.
+
+![Asking Open Report questions about sales: the answers come with charts](docs/gifs/ask.gif)
+
+By default the assistant reads only Open Report's pre-aggregated cache, never your database. Bring a local model,
+any OpenAI-compatible server, Anthropic or your own Claude subscription. It proposes, you apply.
+
+### AI generating report
+
+Describe the report you need and the AI builds it, page by page: visuals, measures, the data model and the look.
+
+![Describing a sales report: the assistant builds its pages](docs/gifs/generate-report.gif)
+
+### Build it yourself
+
+Build or fine-tune any report by hand, the way an analyst works. **[Try the editor online](https://demo.openreport.io)**,
+no account needed: nothing you change there is saved.
+
+![Building a report by hand in the editor](docs/gifs/build.gif)
+
+### Govern your data
+
+Ask where a number comes from: the lineage is read from [OpenMetadata](https://open-metadata.org).
+
+![Asking where the revenue figure comes from: the assistant answers from the OpenMetadata lineage](docs/gifs/govern.gif)
+
+## Screenshots
+
+A sales report built on the public `thelook_ecommerce` BigQuery dataset. Every report has its own theme, and
+reports can have several pages.
 
 ![A two-page sales report in Open Report](docs/screenshots/viewer-light.png)
 
+| Dark theme | Page two: combo chart, gauge, top-N table |
+|---|---|
+| ![Report viewer, dark theme](docs/screenshots/viewer-dark.png) | ![Report viewer, second page](docs/screenshots/viewer-light-page2.png) |
+
+In the editor, drag fields from the model onto the page and tune each visual in the property panel, with
+undo/redo, snap-to-grid and cross-filtering. In the model editor, pick tables, draw joins with their
+cardinality, and flag dimensions and measures once for every report.
+
+| Report editor | Model editor |
+|---|---|
+| ![Report editor](docs/screenshots/editor.png) | ![Model editor](docs/screenshots/model-editor.png) |
+
 ## Quick start
 
-One container, plain HTTP on port 3001, built for amd64 and arm64:
+Just looking? [The editor runs online](https://demo.openreport.io), nothing to install. To run your own, one
+container, plain HTTP on port 3001, built for amd64 and arm64:
 
 ```bash
 mkdir openreport && cd openreport
@@ -37,8 +79,8 @@ printf 'SESSION_SECRET=%s\nINTERNAL_TOKEN_SECRET=%s\nDATASOURCE_ENC_KEY=%s\n' \
 docker compose up -d
 ```
 
-Open http://localhost:3001 and sign up: **the first account becomes the admin**. A guided tour and the
-assistant's Help tab take it from there.
+Open http://localhost:3001 and sign up: **the first account becomes the admin**. A guided tour and the Help
+page take it from there.
 
 <details>
 <summary>Data, secrets, upgrades and reverse proxies</summary>
@@ -81,22 +123,25 @@ then serves the built frontend itself on port 3001, with the same environment va
 
 </details>
 
-## Screenshots
+## Features
 
-A sales report built on the public `thelook_ecommerce` BigQuery dataset. Every report has its own theme, and
-reports can have several pages.
-
-| Dark theme | Page two: combo chart, gauge, top-N table |
-|---|---|
-| ![Report viewer, dark theme](docs/screenshots/viewer-dark.png) | ![Report viewer, second page](docs/screenshots/viewer-light-page2.png) |
-
-| Report editor | Model editor |
-|---|---|
-| ![Report editor](docs/screenshots/editor.png) | ![Model editor](docs/screenshots/model-editor.png) |
-
-In the editor, drag fields from the model onto the page and tune each visual in the property panel, with
-undo/redo, snap-to-grid and cross-filtering. In the model editor, pick tables, draw joins with their
-cardinality, and flag dimensions and measures once for every report.
+- **Your databases and files**: PostgreSQL, Amazon Redshift, Snowflake, Databricks, ClickHouse, MySQL, Oracle,
+  SQL Server, Azure SQL, BigQuery, DuckDB. Files: CSV, Excel (.xlsx), Parquet, JSON, TSV, SQLite, DuckDB,
+  several of them in one model, reshaped by the assistant into facts and dimensions when they need it.
+  Accounting books (FEC, SAF-T, DATEV, SIE, XAF…) become a ready-made Finance package.
+- **A semantic model**: joins with cardinality, dimensions, measures, calculated columns, filtered measures with
+  CALCULATE semantics, same period last year, row-level security.
+- **A free canvas and the charts you expect**: 15+ visual types (bar, line, combo, pie, scatter, pivot, table,
+  waterfall, gauge, treemap, map, heatmap, slicers…), plus your own custom visuals. Free positioning,
+  snap-to-grid, shapes, multi-page reports, themes, cross-filtering and cross-highlighting.
+- **An assistant you control** (optional): bring a local model such as Ollama or LM Studio, any OpenAI-compatible
+  API, Anthropic or your Claude subscription, and choose how much of the data it may read. Let's Talk, whole
+  reports built and designed from a conversation, model building, file reshaping, maps created on demand and
+  in-app help.
+- **Sharing and governance**: workspaces with viewer, editor and admin roles, sharing between workspaces, public
+  links, a metadata API for data catalogs, and lineage from OpenMetadata.
+- **Performance**: pre-aggregation cache with scheduled refreshes, with a fallback to live queries.
+- **Output**: export to PDF, PNG and Excel, plus a [REST API](API.md) for scripted refreshes with scoped tokens.
 
 ## How it compares
 
@@ -107,27 +152,10 @@ cardinality, and flag dimensions and measures once for every report.
 | Free-form, multi-page report canvas | ✅ | Grid dashboards | Grid dashboards | ✅ |
 | Semantic model (joins, measures) | ✅ | Partial | Datasets and metrics | ✅ |
 | Row-level security in the free edition | ✅ | Paid plans | ✅ | Licensed |
-| Built-in data preparation (ETL, like Power Query) | ❌ | ❌ | ❌ | ✅ |
+| Built-in data preparation (ETL, like Power Query) | Files only | ❌ | ❌ | ✅ |
 
 Metabase and Superset are mature, widely used projects with many more connectors and years of production use.
 If something in this table is wrong or out of date, please open an issue.
-
-## Features
-
-- **Data**: PostgreSQL, Amazon Redshift, Snowflake, Databricks, ClickHouse, MySQL, Oracle, SQL Server, Azure SQL,
-  BigQuery, DuckDB. Files: CSV, Excel (.xlsx), Parquet, JSON, TSV, SQLite, DuckDB, several of them in one model.
-  Accounting books (FEC, SAF-T, DATEV, SIE, XAF…) become a ready-made Finance package.
-- **Modeling**: joins with cardinality, dimensions, measures, calculated columns, filtered measures with
-  CALCULATE semantics, same period last year, row-level security.
-- **Reports**: 15+ visual types (bar, line, pie, pivot, table, waterfall, gauge, treemap, map, heatmap, slicers…), plus your
-  own custom visuals. Free positioning, snap-to-grid, shapes, multi-page reports, themes, cross-filtering and
-  cross-highlighting.
-- **AI assistant** (optional, bring your own provider): Let's Talk (answers in words and charts, added to a
-  report in one click), whole reports built and designed from a conversation, model building, file reshaping
-  and in-app help.
-- **Performance**: pre-aggregation cache with scheduled refreshes, with a fallback to live queries.
-- **Collaboration**: workspaces with viewer, editor and admin roles, sharing between workspaces, public links.
-- **Output**: export to PDF, PNG and Excel, plus a [REST API](API.md) for scripted refreshes with scoped tokens.
 
 ## What it doesn't do (yet)
 
@@ -137,8 +165,10 @@ or [Issues](https://github.com/cracky777/openreport/issues/new/choose). Every re
 
 Known limits today:
 
-- No ETL. There is no data preparation step like Power BI's Power Query (Edit queries): Open Report reads your
-  tables as they are, so cleaning, reshaping and merging happen upstream, in your database or your files.
+- No ETL for databases. There is no data preparation step like Power BI's Power Query (Edit queries) for tables
+  in a database: Open Report reads them as they are, so cleaning and merging happen upstream. Imported files are
+  the exception: the assistant can reshape them (headers, unpivot, types, dimensions), and the recipe replays on
+  every refresh.
 - The pre-aggregation cache doesn't cover every measure. Non-additive ones and exotic SQL functions fall back to
   a live query against the source.
 - Pivot tables are computed client-side, so very large result sets will hurt.
