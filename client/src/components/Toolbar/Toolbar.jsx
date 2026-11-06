@@ -10,6 +10,7 @@ import { useIsCompact } from '../../hooks/useMediaQuery';
 import { ICON_SIZE } from '../actionIcons';
 import ConfirmDeleteButton from '../ConfirmDeleteButton/ConfirmDeleteButton';
 import { useCustomVisuals } from '../../hooks/useCustomVisuals';
+import { useDemo } from '../../utils/demo';
 import { toast } from '../Toast/toast';
 
 const _hs0 = {
@@ -185,6 +186,7 @@ function paletteKeyOf(visual) {
 
 export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSave, saving, onUndo, onRedo, canUndo, canRedo, onOpenSettings, reportId, onRefresh, refreshing, onRebuildCache, cacheWarming = false, cacheWarmPct = 0, isReportDirty, exportMenu, workspaceId, editInteractions, onToggleEditInteractions, canEditInteractions, onOpenReportFilters, reportFilterCount = 0, reportFilterBarVisible = false, aiEnabled = false, aiOpen = false, onToggleAi, visualsNonce = 0, onShowTour, selectedVisual }) {
   const navigate = useNavigate();
+  const demo = useDemo();
   // Opened from the studio, Back returns to it, the report and its conversation there.
   const backTo = useLocation().state?.back;
   // Wrapped, this toolbar was taking 233px of an 844px screen — more than a
@@ -328,7 +330,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
     <div
       style={_hs1}
     >
-      <div style={utilityGroupStyle}>
+      {!demo && <div style={utilityGroupStyle}>
         <div style={_hs2}
           onMouseEnter={() => scheduleHover('back')}
           onMouseLeave={clearHover}>
@@ -353,7 +355,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           </button>
           <WidgetTooltip text="Back" show={hoverKey === 'back'} />
         </div>
-      </div>
+      </div>}
 
       {/* Undo / Redo pill group */}
       <div style={utilityGroupStyle}>
@@ -815,7 +817,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             <WidgetTooltip text={aiOpen ? 'Close the assistant' : 'AI assistant'} show={hoverKey === 'ai'} />
           </div>
         )}
-        <div style={_hs49}
+        {!demo && <div style={_hs49}
           onMouseEnter={() => scheduleHover('settings')}
           onMouseLeave={clearHover}>
           <button
@@ -829,7 +831,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
             <TbSettings size={18} color="var(--text-secondary)" />
           </button>
           <WidgetTooltip text="Report settings" show={hoverKey === 'settings'} />
-        </div>
+        </div>}
         {onShowTour && (
           <div style={_hs49}
             onMouseEnter={() => scheduleHover('tour')}
@@ -853,8 +855,13 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         )}
       </div>
 
+      {demo && (
+        <a href="https://openreport.io" style={demoBadgeStyle} title="This demo keeps your changes in the browser only">
+          Demo · nothing is saved
+        </a>
+      )}
       {/* Preview — icon only with tooltip, sits next to Save */}
-      <div style={_hs52}
+      {!demo && <div style={_hs52}
         onMouseEnter={() => scheduleHover('preview')}
         onMouseLeave={clearHover}>
         <button
@@ -878,9 +885,9 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
           <TbEye size={18} />
         </button>
         <WidgetTooltip text="Preview report" show={hoverKey === 'preview'} />
-      </div>
+      </div>}
 
-      <button
+      {!demo && <button
         data-tour="save"
         onClick={onSave}
         disabled={saving}
@@ -901,7 +908,7 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
         }}
       >
         <span>{saving ? 'Saving...' : 'Save'}</span>
-      </button>
+      </button>}
 
       {/* Unsaved-changes prompt before previewing */}
       {previewPrompt && (
@@ -979,6 +986,12 @@ export default function Toolbar({ reportTitle, onTitleChange, onAddWidget, onSav
     </div>
   );
 }
+
+const demoBadgeStyle = {
+  padding: '7px 14px', fontSize: 13, fontWeight: 600, borderRadius: 8, whiteSpace: 'nowrap',
+  background: 'var(--accent-primary-soft)', color: 'var(--accent-primary)',
+  border: '1px solid var(--accent-primary)', textDecoration: 'none',
+};
 
 const utilityGroupStyle = {
   display: 'flex', alignItems: 'center', gap: 2,

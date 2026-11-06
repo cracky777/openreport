@@ -23,6 +23,7 @@ import { prepareGlobalRulesForWidget } from '../../utils/reportFilterRules';
 import { computeBindingKey } from '../../utils/bindingKey';
 import { buildWidgetQueryPayload } from '../../utils/widgetQueryPayload';
 import { buildWidgetData } from '../../utils/widgetDataBuilder';
+import { useDemo } from '../../utils/demo';
 
 const _hs0 = { marginBottom: 16 };
 const _hs1 = { fontSize: 12, color: 'var(--text-disabled)' };
@@ -78,6 +79,9 @@ const dimensionsFor = (model, aggregation) => {
 };
 
 export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, reportId, cacheBuiltAt }) {
+  // The demo's visitors are anonymous: the query route only runs the fields
+  // the model and the saved report define, so a new field would stay empty.
+  const demo = useDemo();
   // Patches the report's in-memory `settings` JSON (persisted on the next
   // Save). Returns false when `onSettingsChange` is missing — callers must
   // treat that as a hard failure and never fall back to mutating the model,
@@ -650,9 +654,9 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
         count={visibleMeasures.length}
         collapsed={measuresCollapsed}
         onToggle={() => setSectionCollapsed((s) => ({ ...s, measures: !s.measures }))}
-        actions={
+        actions={demo ? null : (
           <button onClick={(e) => { e.stopPropagation(); setShowCalcForm(!showCalcForm); }} style={addCalcBtnSmall} data-tour="new-measure">+ Measure</button>
-        }
+        )}
         style={measuresCollapsed || compact ? { flex: '0 0 auto' } : { flex: `${effSplit * 100} 1 0%`, maxHeight: 'max-content' }}>
         {/* Unified measure wizard:
               - Aggregation (SUM/AVG/COUNT/MIN/MAX/Custom)
@@ -1308,11 +1312,11 @@ export default function DataPanel({ widgetId, widget, onUpdate, onUpdateSilent, 
           count={visibleDimCount}
           collapsed={dimsCollapsed}
           onToggle={() => setSectionCollapsed((s) => ({ ...s, dimensions: !s.dimensions }))}
-          actions={
+          actions={demo ? null : (
             <button
               onClick={(e) => { e.stopPropagation(); setDimForm(dimForm ? null : { label: '', table: modelTables[0] || '', type: 'string', expression: '' }); }}
               style={addCalcBtnSmall} data-tour="new-dimension">+ Dimension</button>
-          }
+          )}
           style={dimsCollapsed || compact ? { flex: '0 0 auto' } : { flex: `${(1 - effSplit) * 100} 1 0%`, maxHeight: 'max-content' }}>
           {/* Calculated dimension: a row-level SQL expression (the counterpart
               of a custom measure). Persists to settings.extraDimensions under

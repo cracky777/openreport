@@ -41,6 +41,7 @@ import { useAutoRefreshOnImport } from '../hooks/useAutoRefreshOnImport';
 import { useSaveAndDirtyTracking } from '../hooks/useSaveAndDirtyTracking';
 import { useDiscardDraftOnExit } from '../hooks/useDiscardDraftOnExit';
 import { useWidgetFetch } from '../hooks/useWidgetFetch';
+import { useDemo } from '../utils/demo';
 
 const _hs0 = { padding: 40, color: 'var(--text-disabled)' };
 const _hs1 = { height: '100vh', display: 'flex', flexDirection: 'column' };
@@ -132,11 +133,15 @@ const EDITOR_TOUR = [
   { target: 'save', title: 'Save', text: 'Save your report. Until its first save, a new report is a draft: leaving without saving drops it.' },
 ];
 
-export default function Editor() {
-  const { id } = useParams();
+// `reportId` comes from the public demo (pages/Demo.jsx), which also turns on
+// the demo context: every change stays in the browser, nothing is saved.
+export default function Editor({ reportId } = {}) {
+  const params = useParams();
+  const id = reportId || params.id;
+  const demo = useDemo();
   const navigate = useNavigate();
   // A report never saved is not kept: leaving the editor drops it.
-  const draft = useDiscardDraftOnExit(id);
+  const draft = useDiscardDraftOnExit(demo ? null : id);
   const { user } = useAuth();
   const { getThemeVars, themes: availableThemes } = useTheme();
 
@@ -985,7 +990,7 @@ export default function Editor() {
   // report out of its building set, teardown + trigger a refetch so the
   // widgets pick up the just-built rollups.
   useEffect(() => {
-    if (!id) return;
+    if (!id || demo) return;
     let cancelled = false;
     let localTimer = null;
 
@@ -1063,7 +1068,7 @@ export default function Editor() {
       cancelled = true;
       if (localTimer) clearTimeout(localTimer);
     };
-  }, [id]);
+  }, [id, demo]);
 
   // NOTE: slicer re-narrowing on global-filter / cross-filter / refresh is
   // now done INSIDE the main fetch effect (search for "Slicers are skipped
@@ -1341,7 +1346,7 @@ export default function Editor() {
   const refreshAiStatus = useCallback(() => (
     api.get('/ai/status').then((res) => setAiStatus(res.data)).catch(() => { /* assistant stays hidden */ })
   ), []);
-  useEffect(() => { refreshAiStatus(); }, [refreshAiStatus]);
+  useEffect(() => { if (!demo) refreshAiStatus(); }, [refreshAiStatus, demo]);
 
   // The assistant takes the Data panel's place: three columns beside the
   // canvas leave too little of it. Opening folds Data, closing brings it back;
@@ -1654,7 +1659,7 @@ export default function Editor() {
             : [{ id: 'page-1', name: 'Page 1', layout: r.layout || [], widgets: r.widgets || {} }],
         );
       } catch {
-        navigate('/');
+        if (!demo) navigate('/');
       } finally {
         setLoading(false);
       }
@@ -1964,7 +1969,7 @@ export default function Editor() {
     confirmSaveAndLeave, confirmDiscardAndLeave, cancelLeave,
   } = useSaveAndDirtyTracking({
     id, pages, currentPageIdx, pagesDataRef, layout, widgets, title, settings,
-    savedSnapshotRef, setSaveMsg, setTitle, onSaved: draft.markSaved,
+    savedSnapshotRef, setSaveMsg, setTitle, onSaved: draft.markSaved, guard: !demo,
   });
 
   useAutoRefreshOnImport({ id, model, history, refreshing, handleRefresh, handleSave });
@@ -1976,7 +1981,7 @@ export default function Editor() {
   return (
     <div style={_hs1}>
       <Toolbar
-        workspaceId={report?.workspace_id}
+        workspaceId={demo ? null : report?.workspace_id}
         reportTitle={title}
         onTitleChange={setTitle}
         onAddWidget={handleAddWidget}
@@ -1995,7 +2000,7 @@ export default function Editor() {
         aiEnabled={compact && aiAvailable && !!report?.model_id}
         aiOpen={aiOpen}
         onToggleAi={() => setAssistantOpen(!aiOpen)}
-        onShowTour={compact ? undefined : tour.start}
+        onShowTour={compact || demo ? undefined : tour.start}
         visualsNonce={visualsNonce}
         selectedVisual={selectedWidget && widgets[selectedWidget] ? {
           type: widgets[selectedWidget].type,
@@ -2010,7 +2015,7 @@ export default function Editor() {
         reportId={id}
         onRefresh={handleRefresh}
         refreshing={refreshing}
-        onRebuildCache={handleRebuildCache}
+        onRebuildCache={demo ? undefined : handleRebuildCache}
         cacheWarming={cacheWarming}
         cacheWarmPct={cacheWarmPct}
         exportMenu={(() => {

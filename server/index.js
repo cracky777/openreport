@@ -91,6 +91,9 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
+// The public demo instance closes everything but the demo report before any
+// session or route is reached (utils/demoMode.js); a no-op elsewhere.
+require('./utils/demoMode').install(app, require('./db'));
 const sessionsDir = path.join(__dirname, 'data');
 if (!fs.existsSync(sessionsDir)) fs.mkdirSync(sessionsDir, { recursive: true });
 const sessionsDb = new Database(path.join(sessionsDir, 'sessions.db'));

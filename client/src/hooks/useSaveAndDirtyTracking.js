@@ -23,10 +23,14 @@ export function useSaveAndDirtyTracking({
   setSaveMsg,
   setTitle,
   onSaved,
+  // false on the public demo: nothing is ever saved there, so nothing to
+  // save is never lost either — no prompt on leaving.
+  guard = true,
 }) {
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
+    if (!guard) return;
     setSaving(true);
     try {
       // Save current page state first
@@ -126,13 +130,13 @@ export function useSaveAndDirtyTracking({
   // when the page is about to unload, so a stale handler isn't an issue.
   useEffect(() => {
     const handler = (e) => {
-      if (!isReportDirty()) return;
+      if (!guard || !isReportDirty()) return;
       e.preventDefault();
       e.returnValue = '';
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
-  }, [isReportDirty]);
+  }, [isReportDirty, guard]);
 
   // In-app navigation (clicking the workspace logo, a Dashboard link,
   // another report card from the toolbar's report picker, …). React
@@ -142,7 +146,7 @@ export function useSaveAndDirtyTracking({
   // editor (filter pane toggles, page swaps via search params, …)
   // shouldn't trigger the prompt.
   const navBlocker = useBlocker(({ currentLocation, nextLocation }) => {
-    const dirty = isReportDirty();
+    const dirty = guard && isReportDirty();
     const pathChanged = currentLocation.pathname !== nextLocation.pathname;
     return dirty && pathChanged;
   });

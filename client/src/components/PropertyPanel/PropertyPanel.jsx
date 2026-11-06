@@ -23,6 +23,7 @@ import AxesSection from './sections/AxesSection';
 import LegendSection from './sections/LegendSection';
 import FrameSection from './sections/FrameSection';
 import { hasData } from './sections/visualTypes';
+import { useDemo } from '../../utils/demo';
 
 const _hs2 = { display: 'flex', flexDirection: 'column', gap: 2 };
 const _hs3 = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' };
@@ -465,6 +466,8 @@ export function WidgetConfigPanel({ widgetId: selectedId, widget: selectedWidget
 // when the panel folds (it makes room for the assistant), and the chevrons
 // here still work — they just report to it. Left out, the panel keeps its own.
 export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onSetWidgetLoading, model, onModelUpdate, settings, onSettingsChange, reportFilters, refreshNonce, onResizeStart, onResizeEnd, reportId, cacheBuiltAt, collapsed: controlled, onCollapsedChange }) {
+  // The demo has no model editor to open.
+  const demo = useDemo();
   const [own, setOwn] = useState(false);
   const collapsed = controlled ?? own;
   const setCollapsed = onCollapsedChange || setOwn;
@@ -522,7 +525,7 @@ export function DataModelPanel({ widgetId, widget, onUpdate, onUpdateSilent, onS
         <span style={{ ...panelHeaderTitle, minWidth: 0, flex: 1 }}>
           <TbDatabase size={14} color="var(--accent-cyan)" style={_hs35} />
           <span style={_hs36}>Data</span>
-          {model?.id ? (
+          {model?.id && !demo ? (
             <a
               // Opens in its own tab, so the editor has no history to walk
               // back through. `from` tells its Back button where this report
