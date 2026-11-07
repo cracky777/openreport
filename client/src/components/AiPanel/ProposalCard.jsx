@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { TbCheck, TbPlus, TbPalette, TbArrowsMove, TbStack2, TbBrush, TbArrowBackUp, TbPuzzle, TbBulb, TbEye } from 'react-icons/tb';
 import { WIDGET_TYPES, CustomVisualWidget } from '../Widgets';
 import { samplePreviewData, describeShaping, describeUnderstood, MAX_LISTED_MOVES, designChoice, keepChoices } from '../../utils/aiProposal';
 import WidgetPreview from './WidgetPreview';
+import { useWidgetPreview } from '../../hooks/useWidgetPreview';
 
 const cardStyle = {
   border: '1px solid var(--border-default)', borderRadius: 8, background: 'var(--bg-panel)',
@@ -116,7 +117,9 @@ function DesignOp({ op, titleOf, choice }) {
   );
 }
 
-const previewStyle = { height: 180, border: '1px solid var(--border-default)', borderRadius: 6, background: '#fff', overflow: 'hidden' };
+const PREVIEW_HEIGHT = 240;
+const loadingStyle = { height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#6b7280' };
+const previewStyle = { height: PREVIEW_HEIGHT, border: '1px solid var(--border-default)', borderRadius: 6, background: '#fff', overflow: 'hidden' };
 const codeStyle = {
   maxHeight: 220, overflow: 'auto', margin: 0, padding: 8, fontSize: 10.5, lineHeight: 1.45,
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', whiteSpace: 'pre',
@@ -131,12 +134,29 @@ function configDefaults(manifest) {
 }
 
 // Code the assistant wrote, shown to the one person who may install it: what
-// it looks like (running in the no-network sandbox, on made-up rows — it has
-// not earned real data yet) and what it says, so adding it is a decision.
-export function VisualPreview({ proposal, model }) {
+// it looks like and what it says, so adding it is a decision. It draws the
+// rows the author's own session reads for its fields, in the no-network
+// sandbox it will run in once added: on made-up rows (« Antenne A ») a visual
+// that places cities by their name found none and showed an empty frame.
+// Made-up rows only when the query fails.
+export function VisualPreview({ proposal, model, reportId, settings }) {
   const [showCode, setShowCode] = useState(false);
-  const data = useMemo(() => samplePreviewData(proposal.dataBinding, model), [proposal.dataBinding, model]);
+  const widget = useMemo(() => ({ type: 'customVisual', config: {}, dataBinding: proposal.dataBinding }), [proposal.dataBinding]);
+  const fetched = useWidgetPreview(widget, { model, reportId, settings });
+  const sample = useMemo(() => samplePreviewData(proposal.dataBinding, model), [proposal.dataBinding, model]);
+  const real = fetched.data?.rows?.length ? fetched.data : null;
+  const data = real || sample;
   const config = useMemo(() => configDefaults(proposal.manifest), [proposal.manifest]);
+  // Drawn at the width of the card: at a fixed 260 px a map read as a stamp.
+  const boxRef = useRef(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(([entry]) => setWidth(Math.floor(entry.contentRect.width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   return (
     <>
       <div style={rowStyle}>
@@ -147,10 +167,12 @@ export function VisualPreview({ proposal, model }) {
           {proposal.rationale ? <div style={rationaleStyle}>{proposal.rationale}</div> : null}
         </div>
       </div>
-      <div style={previewStyle}>
-        <CustomVisualWidget inlineBundle={proposal.visualJs} data={data} config={config} chartWidth={260} chartHeight={180} />
+      <div ref={boxRef} style={previewStyle}>
+        {fetched.loading ? <div style={loadingStyle}>Loading preview…</div> : width > 0 ? (
+          <CustomVisualWidget inlineBundle={proposal.visualJs} data={data} config={config} chartWidth={width} chartHeight={PREVIEW_HEIGHT} />
+        ) : null}
       </div>
-      <div style={metaStyle}>Preview on sample data. The visual runs sandboxed, with no network access.</div>
+      <div style={metaStyle}>{real || fetched.loading ? 'Preview on your data.' : 'Preview on sample data.'} The visual runs sandboxed, with no network access.</div>
       <button style={linkBtn} onClick={() => setShowCode((v) => !v)}>{showCode ? 'Hide the code' : 'Review the code'}</button>
       {showCode && <pre style={codeStyle}>{proposal.visualJs}</pre>}
     </>
@@ -231,7 +253,7 @@ export default function ProposalCard({ proposal, model, widgets, reportId, setti
           {proposal.advice.map((a, i) => <div key={i}>{a}</div>)}
         </div>
       ) : null}
-      {isVisual && state === 'open' ? <VisualPreview proposal={proposal} model={model} /> : null}
+      {isVisual && state === 'open' ? <VisualPreview proposal={proposal} model={model} reportId={reportId} settings={settings} /> : null}
       {isVisual && state !== 'open' ? <div style={titleStyle}>{proposal.manifest.name}</div> : null}
       {isDesign && moves.length > MAX_LISTED_MOVES ? (
         <div style={{ ...rowStyle, ...faded('layout') }}>

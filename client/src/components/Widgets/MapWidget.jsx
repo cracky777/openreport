@@ -5,7 +5,7 @@ import { paletteOf, CHART_COLORS_BASIC as COLORS, tintOf, hexToRgba } from '../.
 import { useChartFonts } from '../../hooks/useChartFonts';
 import { useChartTheme } from '../../hooks/useChartTheme';
 import { useEchartsInstance } from '../../hooks/useEchartsInstance';
-import { resolveArea, mapNameOf, normalizePlace, MAP_AREAS } from '../../utils/geo';
+import { resolveArea, mapNameOf, findPlace } from '../../utils/geo';
 import WidgetEmptyState from './WidgetEmptyState';
 
 const _box = { display: 'flex', flexDirection: 'column', width: '100%', height: '100%' };
@@ -14,7 +14,8 @@ const _note = { fontSize: 11, color: 'var(--text-secondary)', padding: '2px 8px 
 const _wait = { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: 12, color: 'var(--text-secondary)' };
 
 // A measure by place: regions, départements or countries coloured by value,
-// or towns drawn as bubbles. The place column is matched by name against the
+// or towns drawn as bubbles over their country (France's départements, or the
+// subdivisions of a country the instance added). The place column is matched by name against the
 // map the author chose (`mapArea`), or the one that knows its values best.
 export default memo(function MapWidget({ data, config, onDataClick, highlightValue }) {
   const items = useMemo(() => data?.items || [], [data?.items]);
@@ -43,8 +44,7 @@ export default memo(function MapWidget({ data, config, onDataClick, highlightVal
 
   const built = useMemo(() => {
     if (!hasData || !loaded?.index) return null;
-    const { area, index } = loaded;
-    const kind = MAP_AREAS.find((a) => a.value === area)?.kind;
+    const { area, index, kind, base } = loaded;
     const fmt = Object.values(data._measureFormats || {})[0];
     const isDur = isDurationCol(data._measureLabel, data._durationColumns);
     const write = (v) => (isDur && typeof v === 'number' ? formatDuration(v) : formatNumber(v, fmt));
@@ -58,7 +58,7 @@ export default memo(function MapWidget({ data, config, onDataClick, highlightVal
     const placed = [];
     const missing = [];
     for (const it of items) {
-      const hit = index.get(normalizePlace(it.name));
+      const hit = findPlace(index, it.name);
       if (hit) placed.push({ it, hit });
       else missing.push(it.name);
     }
@@ -90,7 +90,7 @@ export default memo(function MapWidget({ data, config, onDataClick, highlightVal
         missing,
         option: {
           tooltip,
-          geo: { map: mapNameOf('fr-departements'), roam, silent: true, layoutCenter: ['50%', '50%'], layoutSize: '95%', itemStyle: { areaColor: empty, borderColor: border, borderWidth: 0.6 } },
+          geo: { map: mapNameOf(base), roam, silent: true, layoutCenter: ['50%', '50%'], layoutSize: '95%', itemStyle: { areaColor: empty, borderColor: border, borderWidth: 0.6 } },
           series: [{
             type: 'scatter', coordinateSystem: 'geo',
             data: placed.map(({ it, hit }) => ({

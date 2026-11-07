@@ -100,7 +100,8 @@ function validateActionProposal(args, { canEditModel = false, fileModel = false,
     const refusal = refusalOf(country);
     if (refusal) return { action: null, errors: [`add_map: ${refusal}`] };
     const added = baseMaps.find((m) => m.country === country);
-    if (added) return { action: null, errors: [`no card: the map "${added.label}" is already there — draw the map visual, it is picked from the place names`] };
+    // Added before its towns existed: the card adds them.
+    if (added && added.towns) return { action: null, errors: [`no card: the map "${added.label}" and its towns are already there — draw the map visual, it is picked from the place names`] };
     return { action: { action: a.action, summary, request, country }, errors: [] };
   }
   // The colors of Let's Talk for this user (talkTheme.js): a base and a rule,

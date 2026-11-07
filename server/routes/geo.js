@@ -3,12 +3,12 @@
 // assistant's card: POST /api/ai/maps.
 const express = require('express');
 const { requireAuth } = require('../middleware/auth');
-const { listBaseMaps, readBaseMap } = require('../utils/geo/baseMaps');
+const { listMapLayers, readBaseMap } = require('../utils/geo/baseMaps');
 
 const router = express.Router();
 
 router.get('/maps', requireAuth, (req, res) => {
-  res.json({ maps: listBaseMaps() });
+  res.json({ maps: listMapLayers() });
 });
 
 router.get('/maps/:id', requireAuth, (req, res) => {

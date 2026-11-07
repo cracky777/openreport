@@ -15,13 +15,14 @@ export const mapNameOf = (area) => `openreport-${area}`;
 
 // The base maps this instance added (server utils/geo/baseMaps.js: a country's
 // states or provinces, made from the assistant's add_map card), drawn as areas
-// like the shipped ones. Listed once per page; forgotten when one is added.
+// like the shipped ones, and the country's towns drawn as bubbles over them.
+// Listed once per page; forgotten when one is added.
 let installed = null;
 export function installedAreas() {
   if (!installed) {
     installed = fetch('/api/geo/maps')
       .then((res) => (res.ok ? res.json() : { maps: [] }))
-      .then(({ maps = [] }) => maps.map((m) => ({ value: m.value, label: m.label, kind: 'areas', url: `/api/geo/maps/${m.value}` })));
+      .then(({ maps = [] }) => maps.map((m) => ({ value: m.value, label: m.label, kind: m.kind || 'areas', base: m.base, url: `/api/geo/maps/${m.value}` })));
     installed.catch(() => { installed = null; });
   }
   return installed.catch(() => []);
@@ -41,14 +42,18 @@ export function normalizePlace(value) {
 }
 
 // normalized name → what the map knows it as: the feature's name for areas,
-// { name, coord } for towns (the most populated of namesakes).
-export function indexArea(area, json) {
+// { name, coord } for towns (the most populated of namesakes). Towns are
+// [name, area, lon, lat, population, other names?]: France's file is the list
+// itself, an added country's holds it under `towns`.
+export function indexArea(area, json, kind = AREA[area]?.kind) {
   const index = new Map();
-  if (AREA[area]?.kind === 'points') {
-    const sorted = [...json].sort((a, b) => b[4] - a[4]);
-    for (const [name, , lon, lat] of sorted) {
-      const key = normalizePlace(name);
-      if (!index.has(key)) index.set(key, { name, coord: [lon, lat] });
+  if (kind === 'points') {
+    const sorted = [...(Array.isArray(json) ? json : json.towns || [])].sort((a, b) => b[4] - a[4]);
+    for (const [name, , lon, lat, , others] of sorted) {
+      for (const n of [name, ...(others || [])]) {
+        const key = normalizePlace(n);
+        if (key && !index.has(key)) index.set(key, { name, coord: [lon, lat] });
+      }
     }
     return index;
   }
@@ -61,6 +66,21 @@ export function indexArea(area, json) {
   return index;
 }
 
+// A town written with what says it is the town ("Luxembourg-Ville", "Ville de
+// Luxembourg", "Luxembourg City") when the map knows it by its name alone.
+const TOWN_WORDS = new Set(['ville', 'city', 'stadt', 'stad', 'centre', 'center', 'de', 'du', 'of']);
+export function findPlace(index, value) {
+  const key = normalizePlace(value);
+  if (index.has(key)) return index.get(key);
+  const words = key.split(' ');
+  let start = 0;
+  let end = words.length;
+  while (start < end - 1 && TOWN_WORDS.has(words[start])) start += 1;
+  while (end > start + 1 && TOWN_WORDS.has(words[end - 1])) end -= 1;
+  if (start === 0 && end === words.length) return undefined;
+  return index.get(words.slice(start, end).join(' '));
+}
+
 // The area that knows the most of these values; first listed on a tie.
 export function bestArea(values, indexes, areas = MAP_AREAS) {
   let best = null;
@@ -68,7 +88,7 @@ export function bestArea(values, indexes, areas = MAP_AREAS) {
   for (const { value } of areas) {
     const index = indexes[value];
     if (!index) continue;
-    const count = values.filter((v) => index.has(normalizePlace(v))).length;
+    const count = values.filter((v) => findPlace(index, v) !== undefined).length;
     if (count > bestCount) { best = value; bestCount = count; }
   }
   return best;
@@ -89,7 +109,7 @@ export function loadArea(area) {
         // specialAreas: pieces moved beside the mainland (Alaska, Hawaii).
         if (kind === 'areas') echarts.registerMap(mapNameOf(area), json, json.specialAreas);
         if (base) await loadArea(base);
-        return { area, index: indexArea(area, json) };
+        return { area, kind, base, index: indexArea(area, json, kind) };
       });
     promise.catch(() => loading.delete(area));
     loading.set(area, promise);
