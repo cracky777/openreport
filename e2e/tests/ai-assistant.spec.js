@@ -195,9 +195,10 @@ test('a generated visual is previewed with the network shut, then joins the libr
     await page.getByPlaceholder('Ask for a visual, a change, or the look of the page…').fill('Draw something no chart can');
     await page.getByRole('button', { name: 'Send' }).click();
 
-    // The preview runs the code on invented rows, under the no-network policy.
+    // The preview runs the code on the rows the author's session reads (the two
+    // routed above), under the no-network policy.
     const preview = page.frameLocator('iframe[title="Custom visual"]').first();
-    await expect(preview.getByText('AI-VISUAL-OK rows=6')).toBeVisible({ timeout: 20000 });
+    await expect(preview.getByText('AI-VISUAL-OK rows=2')).toBeVisible({ timeout: 20000 });
     await expect(preview.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveCount(1);
     await page.getByRole('button', { name: 'Review the code' }).click();
     await expect(page.locator('pre', { hasText: 'OpenReportRegisterVisual' })).toBeVisible();
