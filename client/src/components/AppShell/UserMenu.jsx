@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TbShield, TbBell, TbUser, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug, TbPlugConnected, TbHelp } from 'react-icons/tb';
+import { UserIcon } from './StageIcons';
+import { TbShield, TbBell, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug, TbPlugConnected, TbHelp } from 'react-icons/tb';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
 import { UserMenuExtras } from '../../cloud';
@@ -55,7 +56,7 @@ export default function UserMenu({ compact = false, where = '', onShowAround = n
         onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-primary-border)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent-primary-soft)'; }}
       >
-        <TbUser size={14} color="var(--accent-primary)" />
+        <UserIcon size={16} />
         {!compact && <span>{user?.display_name || user?.email}</span>}
         <TbChevronDown size={12} style={{ transition: 'transform 0.12s', transform: open ? 'rotate(180deg)' : 'none' }} />
       </button>

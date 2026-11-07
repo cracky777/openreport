@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { TbArrowUp, TbPlayerStopFilled, TbChevronsRight, TbPlus, TbSettings } from 'react-icons/tb';
-import { LuBot } from 'react-icons/lu';
+import RobotHead from '../RobotHead';
 import { useAiChat } from '../../hooks/useAiChat';
 import AssistantText from '../AiPanel/AssistantText';
+import LineageCard from '../AiPanel/LineageCard';
 import PersonalProvider from '../AiPanel/PersonalProvider';
 import ModelProposalCard from './ModelProposalCard';
 import Suggestions from '../AiPanel/Suggestions';
@@ -81,7 +82,7 @@ export default function ModelAssistant({ open, onClose, top, modelId, getDraft, 
   return (
     <aside style={{ ...shellStyle, top, transform: open ? 'none' : 'translateX(100%)' }} aria-label="Model assistant" aria-hidden={!open} inert={!open}>
       <header style={headerStyle}>
-        <span style={badgeStyle}><LuBot size={14} /></span>
+        <RobotHead size={26} />
         <div style={titleStyle}>Model assistant</div>
         {status?.source === 'personal' && (
           <button style={iconBtn} onClick={() => setEditingProvider((v) => !v)} title="Your AI provider" aria-label="Your AI provider"><TbSettings size={16} /></button>
@@ -104,7 +105,7 @@ export default function ModelAssistant({ open, onClose, top, modelId, getDraft, 
           <div ref={threadRef} style={threadStyle}>
             {messages.length === 0 && (
               <div style={emptyStyle}>
-                <span style={{ ...badgeStyle, width: 40, height: 40, borderRadius: 13 }}><LuBot size={22} /></span>
+                <RobotHead size={40} />
                 <div style={emptyTitleStyle}>What should the model look like?</div>
                 <Suggestions groups={SUGGESTIONS} onPick={submit} disabled={loading} />
               </div>
@@ -113,6 +114,7 @@ export default function ModelAssistant({ open, onClose, top, modelId, getDraft, 
               <div key={i} style={userBubble}>{m.text}</div>
             ) : (
               <div key={i} style={assistantBody}>
+                {(m.lineage || []).map((l) => <LineageCard key={l.field} lineage={l} />)}
                 {m.text ? <AssistantText style={assistantText} text={m.text} /> : null}
                 {(m.proposals || []).map((p, j) => (
                   <ModelProposalCard key={j} proposal={p} onApply={applyProposal} onOutcome={(outcome) => setOutcome(i, j, outcome)} />
@@ -152,10 +154,6 @@ const shellStyle = {
   transition: 'transform 240ms cubic-bezier(0.4, 0, 0.2, 1)',
 };
 const headerStyle = { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 12px 12px 16px', borderBottom: '1px solid var(--border-default)', flexShrink: 0 };
-const badgeStyle = {
-  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, width: 26, height: 26, borderRadius: 8, color: '#fff',
-  background: 'linear-gradient(135deg, var(--accent-primary) 0%, #c026d3 100%)', boxShadow: '0 2px 6px rgba(124, 58, 237, 0.30)',
-};
 const titleStyle = { flex: 1, fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' };
 const iconBtn = {
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, padding: 0, flexShrink: 0,

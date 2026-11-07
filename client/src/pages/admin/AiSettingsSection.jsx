@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { LuBot } from 'react-icons/lu';
+import RobotHead from '../../components/RobotHead';
 import api from '../../utils/api';
 import { toast } from '../../components/Toast/toast';
 import { PRESETS, presetKeyFor } from '../../utils/aiProviderPresets';
@@ -121,7 +121,7 @@ export default function AiSettingsSection({ endpoints = INSTANCE_AI_ENDPOINTS, o
   if (perOrganization) {
     return (
       <div style={card}>
-        <h3 style={cardTitle}><LuBot size={16} color="var(--accent-primary)" /> AI assistant</h3>
+        <h3 style={cardTitle}><RobotHead size={18} /> AI assistant</h3>
         <p style={note}>The AI assistant is set up by each organization: its admins choose the provider and who has it.</p>
       </div>
     );
@@ -129,7 +129,7 @@ export default function AiSettingsSection({ endpoints = INSTANCE_AI_ENDPOINTS, o
 
   return (
     <div style={card}>
-      <h3 style={cardTitle}><LuBot size={16} color="var(--accent-primary)" /> AI assistant</h3>
+      <h3 style={cardTitle}><RobotHead size={18} /> AI assistant</h3>
 
       <div style={row}>
         <div style={rowText}>

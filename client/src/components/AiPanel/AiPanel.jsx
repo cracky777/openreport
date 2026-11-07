@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { TbSparkles, TbChevronsRight, TbSend, TbPlayerStop, TbRefresh, TbSchema, TbSettings, TbArrowBackUp, TbX, TbLoader2, TbEye } from 'react-icons/tb';
-import { LuBot } from 'react-icons/lu';
+import RobotHead from '../RobotHead';
 import api from '../../utils/api';
 import { imageColors } from '../../utils/imageColors';
 import { toast } from '../Toast/toast';
@@ -20,6 +20,7 @@ import QuestionCard from './QuestionCard';
 import ReportPagesCard from './ReportPagesCard';
 import ReportChangesCard from './ReportChangesCard';
 import AssistantText from './AssistantText';
+import LineageCard from './LineageCard';
 import PersonalProvider from './PersonalProvider';
 import Suggestions from './Suggestions';
 import ModelProposalCard from '../ModelAssistant/ModelProposalCard';
@@ -50,12 +51,6 @@ const headerStyle = {
 const headerTitleStyle = {
   display: 'inline-flex', alignItems: 'center', gap: 10,
   fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em',
-};
-const badgeStyle = {
-  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-  width: 26, height: 26, borderRadius: 8, color: '#fff',
-  background: 'linear-gradient(135deg, var(--accent-primary) 0%, #c026d3 100%)',
-  boxShadow: '0 2px 6px rgba(124, 58, 237, 0.30)',
 };
 const headerActionsStyle = { display: 'flex', gap: 4 };
 const iconBtn = {
@@ -121,7 +116,7 @@ function HandOverCard({ proposal, onOutcome, onHandOver }) {
   return (
     <div style={cardStyle}>
       <div style={rowStyle}>
-        <LuBot size={18} style={iconStyle} />
+        <RobotHead size={20} style={iconStyle} />
         <div style={{ minWidth: 0 }}>
           <div style={titleStyle}>For the report assistant</div>
           <div style={subStyle}>{proposal.summary || 'This belongs to the report: its assistant can do it.'}</div>
@@ -467,7 +462,7 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
     <div style={style}>
       {!compact && <div {...handleProps} />}
       <div style={headerStyle}>
-        <span style={headerTitleStyle} title={SHARING[dataSharing] || SHARING.schema}><span style={badgeStyle}><LuBot size={15} /></span> Assistant</span>
+        <span style={headerTitleStyle} title={SHARING[dataSharing] || SHARING.schema}><RobotHead size={26} /> Assistant</span>
         <span style={headerActionsStyle}>
           {(status.source === 'personal' || (!reportId && !!status.personal)) && (
             <button style={iconBtn} onClick={() => setEditingProvider((v) => !v)} title="Your AI provider" aria-label="Your AI provider"><TbSettings size={13} /></button>
@@ -518,6 +513,7 @@ export default function AiPanel({ reportId, model, widgets, settings, status, on
         ) : (
           <div key={`${m.engine}-${m.idx}`} style={assistantBlock}>
             {m.engine === 'model' && <span style={engineTag}><TbSchema size={11} /> Data model</span>}
+            {(m.lineage || []).map((l) => <LineageCard key={l.field} lineage={l} />)}
             {m.text ? <AssistantText style={assistantText} text={m.text} /> : null}
             {(m.proposals || []).map((p, j) => (m.engine === 'model' ? modelCard(m, p, j) : reportCard(m, p, j)))}
           </div>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { TbArrowLeft, TbBook, TbSearch } from 'react-icons/tb';
-import { LuBot } from 'react-icons/lu';
+import RobotHead from '../components/RobotHead';
 import api from '../utils/api';
 import AssistantText from '../components/AiPanel/AssistantText';
 import { useIsCompact } from '../hooks/useMediaQuery';
@@ -76,7 +76,7 @@ export default function Help() {
             placeholder="Search the guide" aria-label="Search the guide" />
         </label>
         {compact && help.available && (
-          <button className="btn-hover" onClick={() => setAskOpen(true)} style={backBtn} aria-label="Ask the assistant"><LuBot size={16} /></button>
+          <button className="btn-hover" onClick={() => setAskOpen(true)} style={backBtn} aria-label="Ask the assistant"><RobotHead size={18} /></button>
         )}
       </header>
 

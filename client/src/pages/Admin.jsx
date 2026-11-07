@@ -4,7 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import { TbShield, TbEdit, TbEye, TbUserPlus, TbKey, TbExternalLink, TbClock, TbUsersGroup, TbChevronDown, TbChevronRight, TbBell, TbPlayerPause, TbPlayerPlay, TbActivity, TbUsers, TbSettings, TbPlugConnected, TbStack2 } from 'react-icons/tb';
-import { LuBot } from 'react-icons/lu';
+import RobotHead from '../components/RobotHead';
 import AiSettingsSection from './admin/AiSettingsSection';
 import InventorySection from './admin/InventorySection';
 import { ICON_SIZE } from '../components/actionIcons';
@@ -67,7 +67,7 @@ const ADMIN_TABS = [
   { key: 'alerts', label: 'Alerts', icon: TbBell },
   { key: 'usage', label: 'Usage', icon: TbActivity },
   { key: 'api', label: 'API tokens', icon: TbPlugConnected },
-  { key: 'ai', label: 'AI', icon: LuBot },
+  { key: 'ai', label: 'AI', icon: RobotHead },
 ];
 const tabBar = {
   display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 20, padding: 4,

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { TbCalendarTime, TbCheck, TbSparkles } from 'react-icons/tb';
-import { LuBot } from 'react-icons/lu';
+import RobotHead from '../RobotHead';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
 import { toast } from '../Toast/toast';
@@ -48,7 +48,7 @@ function ModelAssistantCard({ proposal, inEditor, onOutcome, onAskModel }) {
   return (
     <div style={cardStyle}>
       <div style={rowStyle}>
-        <LuBot size={18} style={iconStyle} />
+        <RobotHead size={20} style={iconStyle} />
         <div style={{ minWidth: 0 }}>
           <div style={titleStyle}>Change the data model</div>
           <div style={subStyle}>{proposal.summary || (onAskModel ? 'The model assistant can do this here.' : 'The model assistant, in the model editor, can do this.')}</div>

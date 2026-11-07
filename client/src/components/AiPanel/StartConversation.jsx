@@ -1,12 +1,14 @@
 import api from '../../utils/api';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TbSend, TbFileText, TbSparkles, TbMessageCircle, TbChevronRight, TbUpload, TbDatabase } from 'react-icons/tb';
+import { TbSend, TbChevronRight, TbUpload, TbDatabase } from 'react-icons/tb';
 import { useAuth } from '../../hooks/useAuth';
 import { useGraph } from '../../hooks/graphContext';
 import { useTheme } from '../../hooks/useTheme';
 import { usePermissions } from '../../hooks/usePermissions';
 import Modal from '../Modal/Modal';
+import RobotHead from '../RobotHead';
+import { CreateReportIcon, ContinueReportIcon } from './WayIcons';
 import ImportFileList from '../FileImportDialog/ImportFileList';
 import DatasourceForm from '../DatasourceForm/DatasourceForm';
 import FecPackOffer from '../AccountingPack/FecPackOffer';
@@ -53,6 +55,7 @@ export default function StartConversation({ files, onFiles, aiStatus = null, onT
 
   const [request, setRequest] = useState('');
   const [choice, setChoice] = useState(null); // 'report' | 'create' | 'talk': the card open
+  const [hovered, setHovered] = useState(null); // the card under the pointer
   const [status, setStatus] = useState({});
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState(null); // { text, error }
@@ -169,17 +172,17 @@ export default function StartConversation({ files, onFiles, aiStatus = null, onT
   const startOn = (m) => run(() => openStudio(m.id, m.name));
   const noSheet = missingSheets(files, fileOptions.optionsFor);
 
-  // The first question, as three cards: continue a report of the workspace,
-  // create one — from dropped files or from a data model of the workspace,
-  // one intent whatever the source — or a conversation about a model (Let's
-  // Talk). The card picked opens on its second step; a single card is open
-  // from the start.
+  // The first question, as three cards: create a report (first: the way in
+  // for a newcomer; from dropped files or a data model of the workspace, one
+  // intent whatever the source), continue one of the workspace's reports, or
+  // a conversation about a model (Let's Talk). The card picked opens on its
+  // second step; a single card is open from the start.
   const canTalk = !!onTalk && !!aiStatus?.enabled && canEdit && scopedModels.length > 0;
   const ways = [
-    ...(scopedReports.length ? [{ key: 'report', icon: TbFileText, label: 'Continue a report', sub: 'Pick up where you left off' }] : []),
-    ...(canEdit ? [{ key: 'create', icon: TbSparkles, label: 'Create a report', sub: currentWsRole === 'admin' ? (scopedModels.length ? 'From your files, a database or a data model' : 'From your files or a database') : (scopedModels.length ? 'From your files or a data model' : 'From your files') }] : []),
+    ...(canEdit ? [{ key: 'create', icon: CreateReportIcon, label: 'Create a report', sub: currentWsRole === 'admin' ? (scopedModels.length ? 'From your files, a database or a data model' : 'From your files or a database') : (scopedModels.length ? 'From your files or a data model' : 'From your files') }] : []),
+    ...(scopedReports.length ? [{ key: 'report', icon: ContinueReportIcon, label: 'Continue a report', sub: 'Pick up where you left off' }] : []),
     // A conversation needs the assistant itself: no provider, no talk.
-    ...(canTalk ? [{ key: 'talk', icon: TbMessageCircle, label: "Let's Talk", sub: 'Ask your data anything, no report needed' }] : []),
+    ...(canTalk ? [{ key: 'talk', icon: RobotHead, label: "Let's Talk", sub: 'Ask your data anything, no report needed' }] : []),
   ];
   const way = ways.some((w) => w.key === choice) ? choice : (ways.length === 1 ? ways[0].key : null);
   const ready = !busy && !noSheet && (files.length > 0 || !!request.trim());
@@ -245,9 +248,10 @@ export default function StartConversation({ files, onFiles, aiStatus = null, onT
               const open = way === w.key;
               const Icon = w.icon;
               return (
-                <div key={w.key} style={wayCard(open)}>
+                <div key={w.key} style={wayCard(open, TONES[w.key], themeResolved === 'dark', hovered === w.key)}
+                  onMouseEnter={() => setHovered(w.key)} onMouseLeave={() => setHovered(null)}>
                   <button type="button" style={wayHead} onClick={() => { setNote(null); setChoice(open && ways.length > 1 ? null : w.key); }} disabled={busy} aria-expanded={open}>
-                    <span style={wayIcon(open)}><Icon size={18} /></span>
+                    <span style={wayIcon(hovered === w.key)}><Icon size={30} /></span>
                     <span style={wayText}>
                       <span style={wayTitle}>{w.label}</span>
                       <span style={waySub}>{w.sub}</span>
@@ -341,22 +345,32 @@ function Picks({ label, items, busy, onPick }) {
 }
 
 // The panel's thread and the lists scroll: nothing in them may shrink to fit.
-const waysStyle = { display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0 };
-const wayCard = (open) => ({
+// Room above the first card: it lifts on hover inside a scrolling thread.
+const waysStyle = { display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0, paddingTop: 4 };
+// Each card in its own pastel, as the people of the first-visit choice stand on
+// (Welcome/RoleChoice).
+const TONES = {
+  create: { light: 'linear-gradient(135deg, #F3ECFC 0%, #FDEBE1 100%)', dark: 'linear-gradient(135deg, #2B2342 0%, #3A2633 100%)' },
+  report: { light: 'linear-gradient(135deg, #FDEBE1 0%, #FCE3EC 100%)', dark: 'linear-gradient(135deg, #3A2633 0%, #3A2430 100%)' },
+  talk: { light: 'linear-gradient(135deg, #ECE6FE 0%, #F3ECFC 100%)', dark: 'linear-gradient(135deg, #262043 0%, #2B2342 100%)' },
+};
+// On hover the card lifts and its border lights up, its icon grows and tilts.
+const wayCard = (open, tone, dark, hover) => ({
   flexShrink: 0,
-  borderRadius: 14, background: 'var(--bg-panel)', overflow: 'hidden',
-  border: `1px solid ${open ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-  boxShadow: open ? '0 4px 16px -8px rgba(124, 58, 237, 0.35)' : '0 1px 2px rgba(15,23,42,0.05)',
-  transition: 'border-color 0.15s, box-shadow 0.15s',
+  borderRadius: 14, background: dark ? tone.dark : tone.light, overflow: 'hidden',
+  border: `1px solid ${open || hover ? 'var(--accent-primary)' : 'var(--border-default)'}`,
+  boxShadow: open || hover ? '0 6px 18px -8px rgba(124, 58, 237, 0.45)' : '0 1px 2px rgba(15,23,42,0.05)',
+  transform: hover ? 'translateY(-2px)' : 'none',
+  transition: 'border-color 0.15s, box-shadow 0.15s, transform 0.15s',
 });
 const wayHead = {
   display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: 14, textAlign: 'left',
   border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', color: 'inherit',
 };
-const wayIcon = (open) => ({
-  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, width: 36, height: 36, borderRadius: 10,
-  color: open ? '#fff' : 'var(--accent-primary)',
-  background: open ? 'linear-gradient(135deg, var(--accent-primary) 0%, #c026d3 100%)' : 'var(--accent-primary-soft)',
+// Drawn icons, like the robot's head: no tile behind them.
+const wayIcon = (hover) => ({
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, width: 36, height: 36,
+  transform: hover ? 'scale(1.15) rotate(-8deg)' : 'none', transition: 'transform 0.2s ease',
 });
 const wayText = { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 };
 const wayTitle = { fontSize: 14, fontWeight: 650, color: 'var(--text-primary)', letterSpacing: '-0.01em' };

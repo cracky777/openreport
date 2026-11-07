@@ -1,5 +1,5 @@
 import { TbChevronsLeft, TbChevronsRight } from 'react-icons/tb';
-import { LuBot } from 'react-icons/lu';
+import RobotHead from '../RobotHead';
 
 // The closed assistant: a narrow bar docked on the right edge, the same on
 // every screen that has an assistant (the journey, the report editor, the model
@@ -11,7 +11,7 @@ export default function AssistantStrip({ onOpen, style, tour, label = 'Assistant
     <button type="button" onClick={onOpen} style={{ ...stripStyle, ...(left ? leftEdge : null), ...style }} aria-label={label}
       aria-expanded={false} title={title} data-tour={tour}>
       <span style={stripChevronStyle}>{left ? <TbChevronsRight size={14} /> : <TbChevronsLeft size={14} />}</span>
-      {icon || <LuBot size={14} color="var(--accent-primary)" />}
+      {icon || <RobotHead size={16} />}
       <span style={stripLabelStyle}>{label}</span>
     </button>
   );

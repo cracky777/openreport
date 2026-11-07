@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LuBot } from 'react-icons/lu';
+import RobotHead from '../RobotHead';
 
 // The empty Reports stage's first choice: say what you need, and the Assistant
 // panel takes it from there — a report, a file to import, a database to
@@ -19,7 +19,7 @@ export default function DescribeReport({ onSubmit }) {
 
   return (
     <div style={wrapStyle} data-tour="home-ask" data-describe-report="">
-      <h2 style={titleStyle}><LuBot size={20} color="var(--accent-primary)" /> What do you need?</h2>
+      <h2 style={titleStyle}><RobotHead size={22} /> What do you need?</h2>
       <div style={composerStyle(focused)}>
         <textarea
           aria-label="Describe the report you want"

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { TbEye, TbHelp, TbX } from 'react-icons/tb';
-import { LuBot } from 'react-icons/lu';
+import RobotHead from '../RobotHead';
 import api from '../../utils/api';
 import Tour from '../Tour/Tour';
 import { useFirstVisitTour } from '../../hooks/useFirstVisitTour';
@@ -19,6 +19,8 @@ import JoinLayer from './JoinLayer';
 import WorkspacePicker from './WorkspacePicker';
 import UserMenu from './UserMenu';
 import { useModeSlide } from '../../hooks/useModeSlide';
+import { saveUiMode } from '../../utils/uiMode';
+import RoleChoice from '../Welcome/RoleChoice';
 import { STEPS } from './steps';
 import AssistantStrip from '../Ask/AssistantStrip';
 
@@ -33,7 +35,7 @@ import AssistantStrip from '../Ask/AssistantStrip';
 export default function AppShell({ step }) {
   const navigate = useNavigate();
   const { search, state: navState } = useLocation();
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const { resolved: themeResolved } = useTheme();
   const logoSrc = themeResolved === 'dark' ? '/logo-dark.png' : '/logo.png';
 
@@ -53,13 +55,18 @@ export default function AppShell({ step }) {
 
   // Whether this account has the assistant, or may set one up for itself.
   const [askAvailable, setAskAvailable] = useState(false);
+  // Whether the assistant answers this account right now (null: not known yet).
+  const [aiEnabled, setAiEnabled] = useState(null);
   // The Assistant bar slides Chat in: questions about data are asked there
   // (Jonathan: Chat replaces the panel's Your data tab). Help is its own page.
   const slideTo = useModeSlide();
   useEffect(() => {
     api.get('/ai/status')
-      .then((res) => setAskAvailable(!!res.data.enabled || res.data.reason === 'setup'))
-      .catch(() => { /* the button stays hidden */ });
+      .then((res) => {
+        setAskAvailable(!!res.data.enabled || res.data.reason === 'setup');
+        setAiEnabled(!!res.data.enabled);
+      })
+      .catch(() => setAiEnabled(false));
   }, []);
   // Sources and Models are org-editor territory, same rule the old nav used.
   const stepAllowed = (key) => (key === 'reports' ? true : canEditOrg);
@@ -76,7 +83,17 @@ export default function AppShell({ step }) {
   // The tour of the app on arrival (Reports, wide screens): where the data
   // comes in, where reports are made, where to ask. Account menu → Show me
   // around replays it.
-  const homeTour = useFirstVisitTour('home', user?.id, step === 'reports' && !compact && !graphLoading);
+  // First arrival, never picked a side: Build or Chat is asked before anything
+  // else (components/Welcome/RoleChoice) — only when the assistant answers,
+  // Chat is nothing without it. The tour waits for the answer.
+  const choosing = step === 'reports' && !!user && !user.ui_mode && aiEnabled === true && navState?.mode !== 'build';
+  const chooseMode = (mode) => {
+    if (mode === 'chat') return slideTo('chat');
+    saveUiMode('build');
+    updateUser({ ui_mode: 'build' });
+    return undefined;
+  };
+  const homeTour = useFirstVisitTour('home', user?.id, step === 'reports' && !compact && !graphLoading && aiEnabled !== null && !choosing);
   const tourSteps = canEditOrg ? HOME_TOUR : HOME_TOUR.filter((t) => VIEWER_TOUR.has(t.target));
 
   const viewportRef = useRef(null);
@@ -337,7 +354,7 @@ export default function AppShell({ step }) {
               a narrow one has no room for that bar. */}
           {askAvailable && compact && (
             <button onClick={() => slideTo('chat')} style={askBtnStyle(false, compact)} title="Open the chat" aria-label="Assistant">
-              <LuBot size={15} />
+              <RobotHead size={17} />
             </button>
           )}
           {/* CLOUD-HOOK: the org switcher sits with the account controls, left
@@ -444,6 +461,7 @@ export default function AppShell({ step }) {
         </div>
       </div>
       {homeTour.open && <Tour steps={tourSteps} onClose={homeTour.close} />}
+      {choosing && <RoleChoice onChoose={chooseMode} />}
       </div>
 
     </div>

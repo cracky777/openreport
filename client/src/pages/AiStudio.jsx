@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useBlocker, useSearchParams, useLocation } from 'react-router-dom';
-import { TbArrowLeft, TbPencil, TbExternalLink, TbHelp, TbArrowBackUp, TbArrowForwardUp, TbDeviceFloppy, TbLayoutGrid } from 'react-icons/tb';
+import { TbArrowLeft, TbPencil, TbExternalLink, TbHelp, TbArrowBackUp, TbArrowForwardUp, TbDeviceFloppy } from 'react-icons/tb';
 import api from '../utils/api';
 import { toast } from '../components/Toast/toast';
 import Viewer from './Viewer';
@@ -24,6 +24,7 @@ import { takeHandOver } from '../utils/assistantHandoff';
 import { acceptFiles } from '../utils/importFiles';
 import { homeOf } from '../utils/uiMode';
 import AssistantStrip from '../components/Ask/AssistantStrip';
+import { BuildIcon } from '../components/AppShell/StageIcons';
 import { useModeSlide } from '../hooks/useModeSlide';
 import { dropStudioThread } from '../utils/studioThread';
 import WorkspacePicker from '../components/AppShell/WorkspacePicker';
@@ -475,7 +476,7 @@ function Studio({ id }) {
   return (
     <main style={shellStyle(fileOver)} {...dropZone}>
       {/* Build sits to the left of Chat: this bar slides it back. */}
-      {!compact && <AssistantStrip side="left" label="Build" title="Back to Build: data sources, models and the report editor" icon={<TbLayoutGrid size={14} color="var(--accent-primary)" />} onOpen={() => slideTo('build')} />}
+      {!compact && <AssistantStrip side="left" label="Build" title="Back to Build: data sources, models and the report editor" icon={<BuildIcon size={16} />} onOpen={() => slideTo('build')} />}
       {talkId ? null : starting ? (
         <AiPanel reportId={null} model={NO_MODEL} widgets={{}} settings={{}} status={aiStatus} onStatusChange={refreshAiStatus}
           getPageContext={noPage} onApplyProposal={noProposal} studio>
@@ -508,7 +509,7 @@ function Studio({ id }) {
             <button type="button" style={btn} onClick={() => navigate(home)} title="Back"><TbArrowLeft size={14} /> {fromTalk ? "Let's Talk" : home === '/chat' ? 'Chat' : 'Reports'}</button>
           )}
           {compact && (
-            <button type="button" style={quietBtn} onClick={() => slideTo('build')} title="Back to Build" aria-label="Build"><TbLayoutGrid size={15} /></button>
+            <button type="button" style={quietBtn} onClick={() => slideTo('build')} title="Back to Build" aria-label="Build"><BuildIcon size={16} /></button>
           )}
           {starting ? (
             <>

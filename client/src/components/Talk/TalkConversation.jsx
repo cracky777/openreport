@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TbArrowUp, TbPlayerStopFilled, TbPlus, TbArrowLeft, TbChevronDown } from 'react-icons/tb';
-import { LuBot } from 'react-icons/lu';
+import RobotHead from '../RobotHead';
 import api from '../../utils/api';
 import { toast } from '../Toast/toast';
 import { useAiChat } from '../../hooks/useAiChat';
@@ -11,6 +11,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { talkColorsFor, sameColors, answerWidgets, withConfigs } from '../../utils/talkColors';
 import { proposedVisuals as visualsOf } from '../../utils/aiProposal';
 import AssistantText from '../AiPanel/AssistantText';
+import LineageCard from '../AiPanel/LineageCard';
 import ActionCard from '../AiPanel/ActionCard';
 import QuestionCard from '../AiPanel/QuestionCard';
 import Suggestions from '../AiPanel/Suggestions';
@@ -48,7 +49,8 @@ export default function TalkConversation({ modelId, onModelChange, onBack, first
   const [model, setModel] = useState(null);
   const [draft, setDraft] = useState('');
   const [ratings, setRatings] = useState({});
-  const [adding, setAdding] = useState(null); // index of the answer being added
+  // The answer being added, and which of its visuals (null: all of them).
+  const [adding, setAdding] = useState(null); // { msg, visuals }
   const threadRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -150,7 +152,8 @@ export default function TalkConversation({ modelId, onModelChange, onBack, first
     }
   };
 
-  const addingProposal = adding !== null ? messages[adding]?.proposals?.[0] : null;
+  const addingProposal = adding !== null ? messages[adding.msg]?.proposals?.[0] : null;
+  const addingWidgets = addingProposal ? visualsOf(addingProposal).filter((_, i) => !adding.visuals || adding.visuals.includes(i)) : [];
   // To a report and back (Jonathan): the studio's Back returns to this
   // conversation, where the reader was in it.
   const openStudio = (id) => {
@@ -162,7 +165,7 @@ export default function TalkConversation({ modelId, onModelChange, onBack, first
     <section style={shellStyle} aria-label="Let's talk">
       <header style={headerStyle}>
         <button type="button" style={backBtn} onClick={onBack} title="Back to the first question"><TbArrowLeft size={14} /> Back</button>
-        <span style={badgeStyle(24)}><LuBot size={13} /></span>
+        <RobotHead size={24} />
         <span style={headerTitleStyle}>Let's talk</span>
         <label style={modelPickStyle}>
           <select style={modelSelectStyle} value={modelId} onChange={(e) => onModelChange(e.target.value)} aria-label="Data model" disabled={loading}>
@@ -178,7 +181,7 @@ export default function TalkConversation({ modelId, onModelChange, onBack, first
         <div style={columnStyle}>
           {messages.length === 0 && (
             <div style={emptyStyle}>
-              <span style={badgeStyle(44)}><LuBot size={24} /></span>
+              <RobotHead size={44} />
               <div style={emptyTitleStyle}>What would you like to know?</div>
               {model?.name ? <div style={emptySubStyle}>{model.name}</div> : null}
               <Suggestions groups={SUGGESTIONS} onPick={submit} disabled={loading} />
@@ -188,17 +191,21 @@ export default function TalkConversation({ modelId, onModelChange, onBack, first
             <div key={i} style={userBubble}>{m.text}</div>
           ) : (
             <div key={i} style={assistantRow}>
-              <span style={badgeStyle(26)}><LuBot size={14} /></span>
+              <RobotHead size={26} />
               <div style={assistantBody}>
-                {m.text ? <AssistantText style={assistantText} text={m.text} /> : null}
+                {(m.lineage || []).map((l) => <LineageCard key={l.field} lineage={l} />)}
+                {/* An answer in parts draws its own text, between its visuals. */}
+                {m.text && !m.proposals?.[0]?.answer?.length ? <AssistantText style={assistantText} text={m.text} /> : null}
                 {visualsOf(m.proposals?.[0]).length > 0 && model && (
                   <TalkAnswer
                     proposal={m.proposals[0]}
                     model={model}
+                    textStyle={assistantText}
                     rating={ratings[m.answerId]}
                     added={m.added}
+                    addedVisuals={m.addedVisuals}
                     onRate={(rating) => rate(m, rating)}
-                    onAdd={() => setAdding(i)}
+                    onAdd={(visuals) => setAdding({ msg: i, visuals })}
                     modelId={modelId}
                     remembered={m.outcomes?.remember}
                     onRemember={(outcome) => setOutcome(i, 'remember', outcome)}
@@ -228,7 +235,7 @@ export default function TalkConversation({ modelId, onModelChange, onBack, first
           )))}
           {loading && (
             <div style={assistantRow}>
-              <span style={badgeStyle(26)}><LuBot size={14} /></span>
+              <RobotHead size={26} />
               <span style={dotsStyle} aria-label="Thinking"><i style={dot(0)} /><i style={dot(1)} /><i style={dot(2)} /></span>
             </div>
           )}
@@ -258,16 +265,20 @@ export default function TalkConversation({ modelId, onModelChange, onBack, first
 
       {addingProposal && (
         <AddToReport
-          widgets={visualsOf(addingProposal)}
+          widgets={addingWidgets}
           generated={addingProposal.kind === 'customVisual' ? addingProposal : null}
           measures={addingProposal.measureArgs || null}
           workspaceId={workspaceId}
           modelId={modelId}
-          defaultTitle={visualsOf(addingProposal).length > 1 ? (model?.name || '') : (visualsOf(addingProposal)[0].config?.title || '')}
+          defaultTitle={addingWidgets.length > 1 ? (model?.name || '') : (addingWidgets[0]?.config?.title || '')}
           onClose={() => setAdding(null)}
           onAdded={(where) => {
             // `applied` is what the next turn tells the assistant about its proposal.
-            setOutcome(adding, 0, 'applied', { added: where });
+            // One visual added keeps its own mark; the others can still go elsewhere.
+            const m = messages[adding.msg];
+            setOutcome(adding.msg, 0, 'applied', adding.visuals
+              ? { addedVisuals: { ...(m?.addedVisuals || {}), ...Object.fromEntries(adding.visuals.map((v) => [v, where])) } }
+              : { added: where });
             setAdding(null);
             refresh?.();
             toast(`Added to ${where.title}`, 'success');
@@ -294,12 +305,6 @@ const iconBtn = {
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, padding: 0, flexShrink: 0,
   border: 'none', borderRadius: 8, background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer',
 };
-const badgeStyle = (size) => ({
-  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-  width: size, height: size, borderRadius: Math.round(size * 0.32), color: '#fff',
-  background: 'linear-gradient(135deg, var(--accent-primary) 0%, #c026d3 100%)',
-  boxShadow: '0 2px 6px rgba(124, 58, 237, 0.30)',
-});
 const scrollStyle = { flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px 16px 8px' };
 const columnStyle = { maxWidth: COLUMN, margin: '0 auto', minHeight: '100%', display: 'flex', flexDirection: 'column', gap: 22 };
 const emptyStyle = { margin: 'auto', maxWidth: 520, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, textAlign: 'center', padding: 24 };

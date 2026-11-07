@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { TbFolder, TbFolderPlus, TbChevronDown, TbX, TbSettings } from 'react-icons/tb';
+import { WorkspaceIcon } from './StageIcons';
+import { TbChevronDown, TbX, TbSettings } from 'react-icons/tb';
 import api from '../../utils/api';
 import { toast } from '../Toast/toast';
 import { useGraph } from '../../hooks/graphContext';
@@ -59,7 +60,7 @@ export default function WorkspacePicker({ canCreate }) {
         onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; }}
       >
-        <TbFolder size={14} />
+        <WorkspaceIcon size={17} />
         <span style={nameStyle}>{currentName}</span>
         <TbChevronDown size={12} style={{ transition: 'transform 0.12s', transform: open ? 'rotate(180deg)' : 'none' }} />
       </button>
@@ -68,7 +69,7 @@ export default function WorkspacePicker({ canCreate }) {
         <div style={dropdown}>
           <div style={sectionLabel}>Workspace</div>
           <button onClick={() => pick(null)} className="btn-hover" style={rowStyle(!selectedWs)}>
-            <TbFolder size={15} />
+            <WorkspaceIcon size={17} />
             <span style={rowName}>My Reports</span>
           </button>
           {workspaces.map((ws) => (
@@ -109,7 +110,7 @@ export default function WorkspacePicker({ canCreate }) {
                 </div>
               ) : (
                 <button onClick={() => setCreating(true)} className="btn-hover" style={{ ...rowStyle(false), color: 'var(--text-muted)' }}>
-                  <TbFolderPlus size={15} />
+                  <WorkspaceIcon size={17} plus />
                   <span style={rowName}>New workspace</span>
                 </button>
               )}
@@ -131,7 +132,7 @@ function WorkspaceRow({ ws, active, onPick, onSettings, title }) {
   return (
     <div className="btn-hover" style={rowStyle(active)}>
       <button onClick={() => onPick(ws.id)} style={pickBtn} title={title}>
-        <TbFolder size={15} />
+        <WorkspaceIcon size={17} />
         <span style={rowName}>{ws.name}</span>
         <span style={countStyle}>{ws.report_count}</span>
       </button>

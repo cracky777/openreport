@@ -1,11 +1,11 @@
-import { TbDatabase, TbStack3, TbLayoutDashboard } from 'react-icons/tb';
+import { SourcesIcon, ModelsIcon, ReportsIcon } from './StageIcons';
 
 // The three stages of the data journey, left to right. Order matters: it is
 // what gives the carousel its direction and what `stepIndexOf` reads.
 export const STEPS = [
-  { key: 'sources', label: 'Data Sources', path: '/datasources', icon: TbDatabase },
-  { key: 'models', label: 'Data Models', path: '/models', icon: TbStack3 },
-  { key: 'reports', label: 'Reports', path: '/', icon: TbLayoutDashboard },
+  { key: 'sources', label: 'Data Sources', path: '/datasources', icon: SourcesIcon },
+  { key: 'models', label: 'Data Models', path: '/models', icon: ModelsIcon },
+  { key: 'reports', label: 'Reports', path: '/', icon: ReportsIcon },
 ];
 
 export function stepIndexOf(key) {

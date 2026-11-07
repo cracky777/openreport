@@ -81,7 +81,7 @@ export default function StepNav({ current, onGo, allowed, compact = false }) {
               onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--bg-hover)'; }}
               onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
             >
-              <Icon size={15} />
+              <Icon size={19} />
               <span style={labelStyle}>{s.label}</span>
             </button>
           </Fragment>

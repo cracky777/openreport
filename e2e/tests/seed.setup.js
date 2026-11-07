@@ -129,6 +129,9 @@ setup('seed the fixture', async ({ request }) => {
   // First account on a virgin database becomes admin, and register logs it in.
   const reg = await request.post('/api/auth/register', { data: { ...F.USER, displayName: 'E2E' } });
   expect(reg.ok(), await reg.text()).toBeTruthy();
+  // The first-visit choice between Build and Chat (components/Welcome/RoleChoice)
+  // covers the screen: every spec starts on Build, but the one about it.
+  expect((await request.put('/api/auth/me/ui-mode', { data: { mode: 'build' } })).ok()).toBeTruthy();
 
   const ds = await request.post('/api/datasources', {
     data: { name: 'e2e-ds', dbType: 'postgres', host: 'unreachable.invalid', port: 5432, dbName: 'e2e', dbUser: 'u', dbPassword: 'p' },

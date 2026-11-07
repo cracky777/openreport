@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { layoutPositions } from '../utils/diagramLayout';
 import { useBugReport } from '../components/BugReport/BugReportProvider';
 import { TbBug, TbHelp } from 'react-icons/tb';
-import { LuBot } from 'react-icons/lu';
+import RobotHead from '../components/RobotHead';
 import ModelAssistant from '../components/ModelAssistant/ModelAssistant';
 import { applyModelProposal } from '../utils/modelProposal';
 import { takeHandOver, peekHandOver, handOver } from '../utils/assistantHandoff';
@@ -937,7 +937,7 @@ export default function ModelEditor() {
             onClick={() => setAssistantOpen((v) => !v)}
             style={{ ...bugBtnStyle, ...(assistantOpen ? { color: 'var(--accent-primary)', background: 'var(--accent-primary-soft)' } : null) }}
           >
-            <LuBot size={17} />
+            <RobotHead size={19} />
           </button>
         )}
         <button
