@@ -430,13 +430,15 @@ async function runModelChat({ config, modelName, draft, messages, getColumns, fi
     return { result, end: !!proposal };
   };
   const turn = await providers.runTurn({ config, system, messages, tools: toolset, maxSteps: MAX_ITERATIONS, execute }, { ...deps, chat });
+  // The catalog paths walked this turn, drawn under the answer.
+  const done = (answer) => (catalog.lineage.length ? { ...answer, lineage: catalog.lineage } : answer);
   if (proposal) {
     const notes = proposal.errors.length ? `\n\nLeft out: ${proposal.errors.join('; ')}` : '';
-    return { reply: `${turn.text || ''}${notes}`.trim(), proposals: proposal.payload ? [proposal.payload] : [] };
+    return done({ reply: `${turn.text || ''}${notes}`.trim(), proposals: proposal.payload ? [proposal.payload] : [] });
   }
-  if (turn.ended === 'empty') return { reply: 'The AI provider returned an empty answer. Try again, or rephrase the request.', proposals: [] };
-  if (turn.ended === 'limit') return { reply: turn.text || 'I could not finish within the allowed number of steps. Try a narrower request.', proposals: [] };
-  return { reply: turn.text || '', proposals: [] };
+  if (turn.ended === 'empty') return done({ reply: 'The AI provider returned an empty answer. Try again, or rephrase the request.', proposals: [] });
+  if (turn.ended === 'limit') return done({ reply: turn.text || 'I could not finish within the allowed number of steps. Try a narrower request.', proposals: [] });
+  return done({ reply: turn.text || '', proposals: [] });
 }
 
 module.exports = { cleanDraft, validateModelProposal, validateShapeProposal, validateHandOver, arrangeTables, buildModelPrompt, runModelChat, readTableColumns, readTableSample, AGGREGATIONS, CARDINALITIES };

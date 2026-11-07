@@ -22,11 +22,15 @@ const primaryBtn = { padding: '8px 16px', fontSize: 13, fontWeight: 600, border:
 const secondaryBtn = { padding: '8px 16px', fontSize: 13, background: 'var(--bg-panel)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer' };
 const linkBtn = { background: 'none', border: 'none', padding: 0, fontSize: 11, color: 'var(--accent-primary)', cursor: 'pointer' };
 const warning = { margin: '6px 0 0', fontSize: 11, color: 'var(--state-warning, #b45309)' };
+const rulesBox = { display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 };
+const ruleRow = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' };
+const select = { ...input, width: 110 };
+const LAYERS = [['bronze', 'Bronze'], ['silver', 'Silver'], ['gold', 'Gold']];
 const result = (ok) => ({ fontSize: 12, color: ok ? 'var(--state-success)' : 'var(--state-danger)', flex: 1 });
 
 /** @param {{ endpoints: { settings: string, save: string, test: string } }} props */
 export default function OpenMetadataSettings({ endpoints }) {
-  const [form, setForm] = useState({ enabled: false, url: '', service: 'openreport' });
+  const [form, setForm] = useState({ enabled: false, url: '', service: 'openreport', layers: [] });
   const [hasToken, setHasToken] = useState(false);
   const [tokenError, setTokenError] = useState(null);
   const [changed, setChanged] = useState(null);
@@ -36,7 +40,7 @@ export default function OpenMetadataSettings({ endpoints }) {
 
   const load = (om) => {
     if (!om) return;
-    setForm({ enabled: om.enabled, url: om.url, service: om.service });
+    setForm({ enabled: om.enabled, url: om.url, service: om.service, layers: om.layers || [] });
     setHasToken(om.hasToken);
     setTokenError(om.tokenError);
     setChanged(om.changedAt ? { at: om.changedAt, by: om.changedBy } : null);
@@ -77,6 +81,10 @@ export default function OpenMetadataSettings({ endpoints }) {
       setBusy(false);
     }
   };
+
+  const setRule = (i, patch) => set({ layers: form.layers.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
+  const addRule = () => set({ layers: [...form.layers, { prefix: '', layer: 'bronze' }] });
+  const removeRule = (i) => set({ layers: form.layers.filter((_, j) => j !== i) });
 
   const testMessage = test && (test.ok ? `Connected as ${test.account || 'an unnamed account'}.` : test.error);
 
@@ -131,6 +139,29 @@ export default function OpenMetadataSettings({ endpoints }) {
           <p style={rowHint}>The name of the Open Report dashboard service in OpenMetadata, as its connector created it.</p>
         </div>
         <input value={form.service} onChange={(e) => set({ service: e.target.value })} placeholder="openreport" style={input} spellCheck={false} />
+      </div>
+
+      <div style={divider} />
+      <div>
+        <div style={rowLabel}>Data layers</div>
+        <p style={rowHint}>
+          Colors the tables of a lineage bronze, silver or gold. A table certified, or tagged Bronze, Silver or Gold in
+          OpenMetadata keeps that layer; otherwise the first rule below whose start matches its fully qualified name gives it
+          (the longest wins), for example garage_s3.rawdata → Bronze, postgres_dwh → Gold.
+        </p>
+        <div style={rulesBox}>
+          {form.layers.map((r, i) => (
+            <div key={i} style={ruleRow}>
+              <input value={r.prefix} onChange={(e) => setRule(i, { prefix: e.target.value })} placeholder="service.database.schema"
+                style={input} spellCheck={false} aria-label={`Rule ${i + 1}: start of the name`} />
+              <select value={r.layer} onChange={(e) => setRule(i, { layer: e.target.value })} style={select} aria-label={`Rule ${i + 1}: layer`}>
+                {LAYERS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+              </select>
+              <button style={linkBtn} onClick={() => removeRule(i)}>Remove</button>
+            </div>
+          ))}
+          <div><button style={linkBtn} onClick={addRule}>+ Add a rule</button></div>
+        </div>
       </div>
 
       <div style={divider} />

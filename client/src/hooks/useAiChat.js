@@ -75,7 +75,7 @@ export function useAiChat(url, getExtraBody, keepKey) {
         ...body,
         ...(review ? { images, review: true } : {}),
       }, { signal: controller.signal });
-      const reply = { role: 'assistant', answerId: uuidv4(), question, text: res.data.reply || '', proposals: res.data.proposals || [], reads: res.data.reads || [], at: Date.now(), ...(review ? { review: true } : {}) };
+      const reply = { role: 'assistant', answerId: uuidv4(), question, text: res.data.reply || '', proposals: res.data.proposals || [], reads: res.data.reads || [], lineage: res.data.lineage || [], at: Date.now(), ...(review ? { review: true } : {}) };
       setMessages((prev) => [...prev, reply]);
       return reply;
     } catch (err) {

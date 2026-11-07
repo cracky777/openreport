@@ -54,6 +54,14 @@
   --state-warning-soft: #fef3c7;
   --state-warning-border: #fde68a;
 
+  /* Data layers of the catalog (lineage card): bronze, silver, gold */
+  --layer-bronze: #9a5a24;
+  --layer-bronze-soft: #f7ebdf;
+  --layer-silver: #5f6b7a;
+  --layer-silver-soft: #edf0f4;
+  --layer-gold: #946c00;
+  --layer-gold-soft: #fbf2d2;
+
   /* Shadows (kept opaque-ish so they still register on dark bg) */
   --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05);
   --shadow-md: 0 2px 8px rgba(15, 23, 42, 0.08);
@@ -137,6 +145,13 @@
   --state-warning: #fbbf24;
   --state-warning-soft: #3b2f11;
   --state-warning-border: #92400e;
+
+  --layer-bronze: #e2a06a;
+  --layer-bronze-soft: #33241a;
+  --layer-silver: #c0c9d4;
+  --layer-silver-soft: #262d37;
+  --layer-gold: #f0c544;
+  --layer-gold-soft: #33290f;
 
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.5);

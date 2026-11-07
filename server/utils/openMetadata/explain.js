@@ -9,8 +9,13 @@
 // the data model `<service>.model.<model id>`, a report's own fields
 // `<service>.model.report-<report id>`, each field a column of the same name,
 // quoted (`"_date.year"`) since names hold dots.
+//
+// Beside the answer for the assistant, `graph` is the same path for the user's
+// eyes (AiPanel/LineageCard): the entities it went through, each with its
+// layer, and the edges it followed — never more than the path of the field.
 
 const { restGet } = require('./client');
+const { layerOf, tierOf } = require('./layers');
 
 const DEPTH = 3; // OpenMetadata refuses more per call
 const MAX_DEPTH = 6;
@@ -88,23 +93,33 @@ function entityOfColumn(nodes, col) {
   return best;
 }
 
-// Column descriptions of the entities on the path, read once each.
-async function columnsOf(om, node, deps) {
-  if (!node || !node.fullyQualifiedName) return new Map();
+// An entity on the path, read once: its column descriptions, and the tags and
+// certification its layer is read from.
+async function readEntity(om, node, deps) {
+  const none = { columns: new Map(), entity: null };
+  if (!node || !node.fullyQualifiedName) return none;
   const path = node.type === 'container'
-    ? `/containers/name/${enc(node.fullyQualifiedName)}?fields=dataModel`
-    : node.type === 'table' ? `/tables/name/${enc(node.fullyQualifiedName)}?fields=columns` : null;
-  if (!path) return new Map();
+    ? `/containers/name/${enc(node.fullyQualifiedName)}?fields=dataModel,tags,certification`
+    : node.type === 'table' ? `/tables/name/${enc(node.fullyQualifiedName)}?fields=columns,tags,certification` : null;
+  if (!path) return none;
   const entity = await restGet(om, path, deps).catch(() => null);
   const list = entity ? (node.type === 'container' ? (entity.dataModel && entity.dataModel.columns) : entity.columns) : null;
-  const out = new Map();
+  const columns = new Map();
   const walk = (cols) => (Array.isArray(cols) ? cols : []).forEach((c) => {
-    if (c && c.fullyQualifiedName) out.set(c.fullyQualifiedName, c);
+    if (c && c.fullyQualifiedName) columns.set(c.fullyQualifiedName, c);
     if (c && c.children) walk(c.children);
   });
   walk(list);
-  return out;
+  return { columns, entity };
 }
+
+// The catalog writes Markdown and HTML entities; the card shows plain text.
+const plain = (s) => String(s || '')
+  .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+  .replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+  .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+  .replace(/\*\*|__|`/g, '')
+  .trim();
 
 const pipelineOf = (details) => {
   const p = details.pipeline;
@@ -152,14 +167,15 @@ async function explainField(om, { modelId, reportId = null, field }, deps = {}) 
     linked.add(node.id);
     answer.links.push({ title: node.displayName || node.name || node.fullyQualifiedName, url: linkOf(om, node.type, node.fullyQualifiedName) });
   };
-  const described = new Map(); // entity id → its columns
+  const described = new Map(); // entity id → { columns, entity }
   const describe = async (node) => {
-    if (!described.has(node.id)) described.set(node.id, await columnsOf(om, node, deps));
+    if (!described.has(node.id)) described.set(node.id, await readEntity(om, node, deps));
     return described.get(node.id);
   };
 
   // Breadth first from the field's column; where an edge has no column
   // lineage, the walk goes on at the level of entities and says so.
+  const onPath = new Map(); // fqn → lineage node, for the graph
   let columns = column ? [column.fullyQualifiedName || wanted] : [];
   let entities = new Set([graph.rootId]);
   const seenEdges = new Set();
@@ -179,14 +195,15 @@ async function explainField(om, { modelId, reportId = null, field }, deps = {}) 
       const step = {
         level,
         entity: from.fullyQualifiedName,
+        into: target ? target.fullyQualifiedName : null,
         type: from.type,
         ...(from.description ? { about: cut(from.description, MAX_TEXT) } : {}),
         ...(pipelineOf(e.details) ? { pipeline: pipelineOf(e.details) } : {}),
         ...(e.details.description ? { edge: cut(e.details.description, MAX_TEXT) } : {}),
         ...(e.details.sqlQuery ? { sql: cut(e.details.sqlQuery, MAX_SQL) } : {}),
       };
+      const { columns: cols } = await describe(from);
       if (own.length) {
-        const cols = await describe(from);
         step.columns = own.map((l) => ({
           to: l.toColumn,
           from: (l.fromColumns || []).filter((c) => typeof c === 'string'),
@@ -205,6 +222,7 @@ async function explainField(om, { modelId, reportId = null, field }, deps = {}) 
       if (step.pipeline && step.pipeline.fqn) answer.links.push({ title: step.pipeline.name || step.pipeline.fqn, url: linkOf(om, 'pipeline', step.pipeline.fqn) });
       cite(from);
       answer.steps.push(step);
+      onPath.set(from.fullyQualifiedName, from);
       nextEntities.add(from.id);
     }
     columns = [...nextColumns];
@@ -216,15 +234,76 @@ async function explainField(om, { modelId, reportId = null, field }, deps = {}) 
     if (!reached.has(n.fullyQualifiedName)) continue;
     if (!edges.some((e) => e.to === n.id)) answer.sources.push({ entity: n.fullyQualifiedName, type: n.type, ...(n.description ? { about: cut(n.description, MAX_TEXT) } : {}), url: linkOf(om, n.type, n.fullyQualifiedName) });
   }
+  if (answer.steps.length) answer.graph = graphOf(om, answer, model.fullyQualifiedName || dataModel, model, onPath, (n) => (described.get(n.id) || {}).entity || null);
   return finish(answer);
 }
 
+/**
+ * The path drawn for the user: the field on the right, every entity a step
+ * went through with the columns of it the path used and its layer; each edge
+ * with its job, its rules and its SQL. Built before `finish` trims the steps
+ * for the prompt: the card shows the whole path.
+ */
+function graphOf(om, answer, modelFqnOf, model, onPath, entityOf) {
+  const fieldId = `field:${answer.field.name}`;
+  const nodes = new Map([[fieldId, {
+    id: fieldId,
+    kind: 'field',
+    name: answer.field.label,
+    type: 'field',
+    container: model.displayName || model.name || modelFqnOf,
+    ...(answer.field.glossary ? { about: cut(plain(answer.field.glossary), MAX_TEXT) } : {}),
+    url: linkOf(om, 'dashboardDataModel', modelFqnOf),
+  }]]);
+  const rules = Array.isArray(om.layers) ? om.layers : [];
+  const used = new Map(); // fqn → Map(column → its description)
+  for (const step of answer.steps) {
+    for (const c of step.columns || []) {
+      for (const f of c.from) {
+        if (!f.startsWith(`${step.entity}.`)) continue;
+        if (!used.has(step.entity)) used.set(step.entity, new Map());
+        used.get(step.entity).set(f.slice(step.entity.length + 1), (c.descriptions && c.descriptions[f]) || null);
+      }
+    }
+  }
+  for (const step of answer.steps) {
+    if (nodes.has(step.entity)) continue;
+    const n = onPath.get(step.entity) || {};
+    const entity = entityOf(n);
+    const parts = step.entity.split('.');
+    nodes.set(step.entity, {
+      id: step.entity,
+      kind: 'entity',
+      name: n.displayName || n.name || parts[parts.length - 1],
+      type: step.type,
+      container: parts.slice(0, -1).join('.'),
+      layer: layerOf(step.entity, entity, rules),
+      tier: tierOf(entity),
+      ...(step.about ? { about: cut(plain(step.about), MAX_TEXT) } : {}),
+      columns: [...(used.get(step.entity) || new Map())].map(([name, description]) => ({ name, ...(description ? { description: plain(description) } : {}) })),
+      url: linkOf(om, step.type, step.entity),
+    });
+  }
+  const idOf = (fqn) => (fqn === modelFqnOf ? fieldId : fqn);
+  const graphEdges = answer.steps.filter((s) => s.into && nodes.has(idOf(s.into))).map((s) => ({
+    from: s.entity,
+    to: idOf(s.into),
+    columnLevel: !!s.columns,
+    ...(s.pipeline ? { pipeline: s.pipeline.name || s.pipeline.fqn } : {}),
+    rules: [...new Set((s.columns || []).map((c) => c.rule).filter(Boolean))],
+    ...(s.edge ? { about: plain(s.edge) } : {}),
+    ...(s.sql ? { sql: s.sql } : {}),
+  }));
+  return { nodes: [...nodes.values()], edges: graphEdges };
+}
+
 // Bounded for the prompt: the deepest steps go first when it is too long.
+// The graph is not counted: it goes to the user's screen, never to the prompt.
 function finish(answer) {
   answer.gaps = [...new Set(answer.gaps)].slice(0, 30);
   const seen = new Set();
   answer.links = answer.links.filter((l) => !seen.has(l.url) && seen.add(l.url));
-  while (JSON.stringify(answer).length > MAX_ANSWER && answer.steps.length > 1) {
+  while (JSON.stringify({ ...answer, graph: undefined }).length > MAX_ANSWER && answer.steps.length > 1) {
     answer.steps.pop();
     answer.truncated = true;
   }
@@ -235,7 +314,7 @@ function finish(answer) {
 // in a conversation does not walk the catalog twice.
 const cache = new Map();
 async function explainFieldCached(om, target, deps = {}) {
-  const key = JSON.stringify([om.url, om.service, target.modelId, target.reportId || null, target.field.name]);
+  const key = JSON.stringify([om.url, om.service, om.layers || [], target.modelId, target.reportId || null, target.field.name]);
   const hit = cache.get(key);
   if (hit && hit.at > Date.now() - CACHE_TTL_MS) return hit.answer;
   const answer = await explainField(om, target, deps);

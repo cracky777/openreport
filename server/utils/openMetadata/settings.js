@@ -9,8 +9,9 @@
 // provider's key.
 
 const { encrypt, decrypt } = require('../secretCrypto');
+const { cleanLayerRules } = require('./layers');
 
-const OM_DEFAULTS = { enabled: false, url: '', token: '', service: 'openreport', changedAt: null, changedBy: null };
+const OM_DEFAULTS = { enabled: false, url: '', token: '', service: 'openreport', layers: [], changedAt: null, changedBy: null };
 // A service name is one FQN part: no dot, no quote.
 const SERVICE = /^[A-Za-z0-9_-]{1,128}$/;
 
@@ -29,7 +30,7 @@ function clearToken(om) {
 function savedConnection(stored) {
   const om = omOf(stored);
   const { token } = clearToken(om);
-  return om.url && token ? { url: om.url, token, service: om.service } : null;
+  return om.url && token ? { url: om.url, token, service: om.service, layers: om.layers || [] } : null;
 }
 
 /** What the assistant may use; null when the link is off or incomplete. */
@@ -45,6 +46,7 @@ function publicOpenMetadata(stored) {
     enabled: !!om.enabled,
     url: om.url,
     service: om.service,
+    layers: om.layers || [],
     hasToken: !!om.token,
     tokenError,
     changedAt: om.changedAt,
@@ -81,6 +83,7 @@ function patchOpenMetadata(stored, patch, actor = {}, now = new Date().toISOStri
     if (!SERVICE.test(s)) throw new Error('The service name holds letters, digits, - and _ only');
     om.service = s;
   }
+  if (p.layers !== undefined) om.layers = cleanLayerRules(p.layers);
   if (p.clearToken === true) om.token = '';
   if (typeof p.token === 'string' && p.token.trim()) {
     try {

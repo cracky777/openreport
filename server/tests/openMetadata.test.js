@@ -19,6 +19,7 @@ const { buildApp, seedUser, seedDatasource, seedModel, seedReport } = require('.
 const { explainField, modelFqn, columnFqn, _cache } = require('../utils/openMetadata/explain');
 const { callTool, rpcAnswer } = require('../utils/openMetadata/client');
 const { openMetadataKit } = require('../utils/ai/openMetadataTools');
+const { layerOf, tierOf, cleanLayerRules } = require('../utils/openMetadata/layers');
 
 const TOKEN = 'eyJ.secret-bot-token.sig';
 const OM = { url: 'http://om.test', token: TOKEN, service: 'openreport' };
@@ -48,7 +49,8 @@ const EDGES = [
 ];
 const lineageOf = (rootKey, keys, edges) => ({ entity: NODES[rootKey], nodes: keys.map((k) => NODES[k]), upstreamEdges: edges, downstreamEdges: [] });
 
-function fakeOm({ mcp = 'json', calls = [] } = {}) {
+// `alias`: another data model FQN served as the one of m1 (a model seeded by the route tests).
+function fakeOm({ mcp = 'json', calls = [], alias = null } = {}) {
   return async (url, init) => {
     calls.push({ url, init });
     if (init.headers.Authorization !== `Bearer ${TOKEN}`) return new Response('{}', { status: 401 });
@@ -67,13 +69,13 @@ function fakeOm({ mcp = 'json', calls = [] } = {}) {
         : new Response(msg, { status: 200, headers: { 'content-type': 'application/json' } });
     }
     const json = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
-    if (path === `/api/v1/dashboard/datamodels/name/${FQN.dm}`) return json({ ...NODES.dm, columns: [{ name: '_calc.lost', fullyQualifiedName: `${FQN.dm}.${COL}`, description: 'count(id) filtered on statut = Perdu' }] });
+    if (path === `/api/v1/dashboard/datamodels/name/${FQN.dm}` || (alias && path === `/api/v1/dashboard/datamodels/name/${alias}`)) return json({ ...NODES.dm, columns: [{ name: '_calc.lost', fullyQualifiedName: `${FQN.dm}.${COL}`, description: 'count(id) filtered on statut = Perdu' }] });
     if (path === `/api/v1/lineage/dashboardDataModel/name/${FQN.dm}`) {
       expect(u.searchParams.get('upstreamDepth')).toBe('3');
       return json(lineageOf('dm', ['fact', 'stg', 'raw'], EDGES.slice(0, 3)));
     }
     if (path === `/api/v1/lineage/container/name/${FQN.raw}`) return json(lineageOf('raw', ['api'], EDGES.slice(3)));
-    if (path === `/api/v1/tables/name/${FQN.fact}`) return json({ columns: [{ name: 'statut', fullyQualifiedName: `${FQN.fact}.statut`, description: 'Final status of the call' }] });
+    if (path === `/api/v1/tables/name/${FQN.fact}`) return json({ tags: [{ tagFQN: 'Tier.Tier1' }, { tagFQN: 'Medallion.Gold' }], columns: [{ name: 'statut', fullyQualifiedName: `${FQN.fact}.statut`, description: 'Final status of the call' }] });
     if (path === `/api/v1/tables/name/${FQN.stg}`) return json({ columns: [{ name: 'status', fullyQualifiedName: `${FQN.stg}.status` }] });
     return new Response('{}', { status: 404 });
   };
@@ -110,6 +112,49 @@ describe('explain_field', () => {
   test('a model the connector has not seen: said, nothing invented', async () => {
     const out = await explainField(OM, { modelId: 'unknown', field: { name: 'x' } }, { fetch: fakeOm() });
     expect(out.error).toMatch(/no data model openreport\.model\.unknown/);
+  });
+});
+
+describe('data layers', () => {
+  const rules = [{ prefix: 's3.raw', layer: 'bronze' }, { prefix: 's3', layer: 'silver' }, { prefix: 'dwh', layer: 'gold' }];
+  test('certification, then a Bronze / Silver / Gold tag, then the longest rule', () => {
+    expect(layerOf('dwh.x', { certification: { tagLabel: { tagFQN: 'Certification.Silver' } }, tags: [{ tagFQN: 'Medallion.Bronze' }] }, rules)).toBe('silver');
+    expect(layerOf('dwh.x', { tags: [{ tagFQN: 'Layers.Bronze' }] }, rules)).toBe('bronze');
+    expect(layerOf('s3.raw.calls', null, rules)).toBe('bronze');
+    expect(layerOf('s3.staging.calls', null, rules)).toBe('silver');
+    // A prefix ends at a dot: s3.rawdata is not under s3.raw.
+    expect(layerOf('s3.rawdata.calls', null, rules)).toBe('silver');
+    expect(layerOf('threecx.api', null, rules)).toBeNull();
+    expect(tierOf({ tags: [{ tagFQN: 'Tier.Tier2' }] })).toBe('Tier2');
+  });
+
+  test('rules are checked when saved', () => {
+    expect(cleanLayerRules([{ prefix: ' garage_s3.rawdata ', layer: 'Bronze' }])).toEqual([{ prefix: 'garage_s3.rawdata', layer: 'bronze' }]);
+    expect(() => cleanLayerRules([{ prefix: 'x', layer: 'platinum' }])).toThrow(/bronze, silver or gold/);
+    expect(() => cleanLayerRules([{ prefix: '', layer: 'gold' }])).toThrow(/Layer rule 1/);
+  });
+
+  test('the path drawn for the user: the field on the right, each table with its layer, each edge with its job', async () => {
+    const out = await explainField({ ...OM, layers: [{ prefix: 's3.raw', layer: 'bronze' }] }, { modelId: 'm1', field: { name: '_calc.lost', label: 'Lost calls', description: 'Calls **lost**' } }, { fetch: fakeOm() });
+    const byId = new Map(out.graph.nodes.map((n) => [n.id, n]));
+    expect(byId.get('field:_calc.lost')).toMatchObject({ kind: 'field', name: 'Lost calls', about: 'Calls lost' });
+    expect(byId.get(FQN.fact)).toMatchObject({ layer: 'gold', tier: 'Tier1', columns: [{ name: 'statut', description: 'Final status of the call' }] });
+    expect(byId.get(FQN.raw).layer).toBe('bronze');
+    expect(byId.get(FQN.api).layer).toBeNull();
+    expect(out.graph.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: FQN.fact, to: 'field:_calc.lost', columnLevel: true, rules: ['count where statut = Perdu'] }),
+      expect.objectContaining({ from: FQN.raw, to: FQN.stg, columnLevel: false, pipeline: '3cx_source_to_raw' }),
+    ]));
+    // Only the path: one node per step, plus the field.
+    expect(out.graph.nodes).toHaveLength(out.steps.length + 1);
+  });
+
+  test('the kit gives the assistant the steps and keeps the drawing for the screen', async () => {
+    const kit = await openMetadataKit({ om: OM, modelId: 'm1', fields: [{ name: '_calc.lost' }] }, { fetch: fakeOm() });
+    const answer = await kit.execute({ name: 'explain_field', args: { field: '_calc.lost' } });
+    expect(answer.graph).toBeUndefined();
+    expect(answer.steps.length).toBeGreaterThan(0);
+    expect(kit.lineage).toEqual([expect.objectContaining({ field: '_calc.lost', nodes: expect.any(Array), edges: expect.any(Array) })]);
   });
 });
 
@@ -154,7 +199,7 @@ describe('the assistant', () => {
   beforeEach(() => {
     providers.chat.mockReset();
     _cache.clear();
-    fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(fakeOm());
+    fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(fakeOm({ alias: `openreport.model.${model}` }));
   });
   afterEach(() => fetchSpy.mockRestore());
   afterAll(() => jest.restoreAllMocks());
@@ -186,6 +231,8 @@ describe('the assistant', () => {
       .mockResolvedValueOnce(say('It comes from the items table.'));
     const res = await chat();
     expect(res.body.reply).toBe('It comes from the items table.');
+    // Drawn under the answer; the provider never saw the drawing.
+    expect(res.body.lineage).toEqual([expect.objectContaining({ field: 'items.amt_sum' })]);
     const [first, second] = providers.chat.mock.calls.map((c) => c[0]);
     expect(first.tools.map((t) => t.name)).toEqual(expect.arrayContaining(['explain_field', 'search_metadata']));
     expect(first.tools.map((t) => t.name)).not.toContain('patch_entity');
@@ -193,9 +240,12 @@ describe('the assistant', () => {
     // The data model of the report's model, named by the server.
     expect(fetchSpy.mock.calls.some(([url]) => decodeURIComponent(url).includes(`/dashboard/datamodels/name/openreport.model.${model}`))).toBe(true);
     for (const sent of [first, second]) expect(JSON.stringify(sent)).not.toContain(TOKEN);
+    expect(JSON.stringify(second)).not.toContain('"edges"');
     expect(JSON.stringify(res.body)).not.toContain(TOKEN);
     expect(JSON.stringify(console.error.mock.calls)).not.toContain(TOKEN);
 
+    expect((await settings({ layers: [{ prefix: 'dwh', layer: 'silverish' }] })).status).toBe(400);
+    expect((await settings({ layers: [{ prefix: 'dwh', layer: 'gold' }] })).body.openMetadata.layers).toEqual([{ prefix: 'dwh', layer: 'gold' }]);
     expect((await settings({ enabled: false })).body.openMetadata.enabled).toBe(false);
   });
 });
