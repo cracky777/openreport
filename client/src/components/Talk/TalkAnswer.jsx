@@ -3,6 +3,7 @@ import { TbChartBar, TbTable, TbPlus, TbCheck, TbExternalLink, TbThumbUp, TbThum
 import { WIDGET_TYPES } from '../Widgets';
 import ExportableVisual from './ExportableVisual';
 import RememberCard from './RememberCard';
+import AssistantText from '../AiPanel/AssistantText';
 import { VisualPreview } from '../AiPanel/ProposalCard';
 import { describeShaping, proposedVisuals, withMeasureFormats } from '../../utils/aiProposal';
 
@@ -26,6 +27,9 @@ function spansRow(visuals, i) {
   while (end < visuals.length - 1 && !WIDE_TYPES.has(visuals[end + 1].type)) end += 1;
   return (end - start + 1) % 2 === 1 && i === end;
 }
+
+// An answer in parts: each paragraph, then the visuals that show it.
+const partsStyle = { display: 'flex', flexDirection: 'column', gap: 12 };
 
 const cardStyle = {
   display: 'flex', flexDirection: 'column', gap: 10, padding: 12, borderRadius: 12,
@@ -68,7 +72,7 @@ const openBtn = {
  * user's data (or, for code nobody has installed yet, in the no-network
  * sandbox on sample rows), and what can be done with it.
  */
-export default function TalkAnswer({ proposal, model: baseModel, rating, added, onRate, onAdd, onOpen, modelId, remembered, onRemember }) {
+export default function TalkAnswer({ proposal, model: baseModel, rating, added, addedVisuals, onRate, onAdd, onOpen, modelId, remembered, onRemember, textStyle }) {
   // The measures the assistant defined with this answer (a measure of the year
   // before, a variance): drawn with it, sent as the preview's extras.
   const made = proposal.measures;
@@ -81,42 +85,89 @@ export default function TalkAnswer({ proposal, model: baseModel, rating, added, 
     const measures = [...(baseModel.measures || []).filter((m) => !made?.some((x) => x.name === m.name)), ...(made || [])];
     return { ...baseModel, measures: measures.map((m) => (over[m.name] ? { ...m, ...over[m.name] } : m)) };
   }, [baseModel, made, settings]);
-  const [view, setView] = useState('chart');
   const visuals = useMemo(() => proposedVisuals(proposal), [proposal]);
-  const single = visuals.length === 1 ? visuals[0] : null;
   const generated = proposal.kind === 'customVisual';
-  const canToggle = !!single && !TABLE_TYPES.has(single.type);
-  const shaping = single ? describeShaping(single.dataBinding, model) : '';
+  // The answer written in parts (server agent.answerParts): its text is drawn
+  // here, each visual after the paragraph it shows — not one chart at the end.
+  const parts = !generated && Array.isArray(proposal.answer) && proposal.answer.length ? proposal.answer : null;
+  // Each visual is its own card: its view, its filters, its way into a report
+  // (Jonathan: one "Add to report" under the whole text added everything).
+  // An answer added whole before visuals had their own button stays added.
+  const card = (i, height) => (
+    <VisualCard widget={visuals[i]} model={model} settings={settings} made={made} height={height}
+      added={addedVisuals?.[i] || added} onAdd={() => onAdd([i])} onOpen={onOpen} />
+  );
+  const grid = (indexes) => (indexes.length === 1 ? card(indexes[0], SMALL_TYPES.has(visuals[indexes[0]].type) ? SMALL_HEIGHT : SINGLE_HEIGHT) : (
+    <div style={tilesStyle}>
+      {indexes.map((i, k) => (
+        <div key={i} style={spansRow(indexes.map((j) => visuals[j]), k) ? wideTile : undefined}>
+          {card(i, SMALL_TYPES.has(visuals[i].type) ? SMALL_HEIGHT : TILE_HEIGHT)}
+        </div>
+      ))}
+    </div>
+  ));
+  const rateButtons = (
+    <>
+      <button style={rateBtn(rating === 'up')} onClick={() => onRate('up')} title="Good answer" aria-label="Good answer" aria-pressed={rating === 'up'}><TbThumbUp size={15} /></button>
+      <button style={rateBtn(rating === 'down')} onClick={() => onRate('down')} title="Bad answer" aria-label="Bad answer" aria-pressed={rating === 'down'}><TbThumbDown size={15} /></button>
+    </>
+  );
+
+  // A written visual brings its own heading, fields, reason and code, and goes
+  // to the library and a report as one.
+  if (generated) {
+    return (
+      <div style={cardStyle}>
+        <VisualPreview proposal={proposal} model={model} settings={settings} />
+        <div style={footerStyle}>
+          {rateButtons}
+          <span style={spacerStyle} />
+          <AddButton added={added} label="Add to library & report" onAdd={() => onAdd(null)} onOpen={onOpen} />
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={cardStyle}>
-      {/* A written visual brings its own heading, fields, reason and code.
-          The others carry nothing above them (Jonathan: a title is "inutile",
-          and a grey line over the chart read as one): the answer already says
-          what is drawn — the title stays on the widget for the report it may
-          be added to. What the chart cannot show goes UNDER it. */}
-      {generated ? <VisualPreview proposal={proposal} model={model} /> : null}
-      {!generated && single ? (
-        <ExportableVisual widget={single} asTable={canToggle && view === 'table'} model={model} settings={settings} height={SMALL_TYPES.has(single.type) ? SMALL_HEIGHT : SINGLE_HEIGHT} />
-      ) : null}
-      {!generated && !single ? (
-        <div style={tilesStyle}>
-          {visuals.map((w, i) => (
-            <div key={i} style={spansRow(visuals, i) ? wideTile : undefined}>
-              <ExportableVisual widget={w} model={model} settings={settings} height={SMALL_TYPES.has(w.type) ? SMALL_HEIGHT : TILE_HEIGHT} />
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {!generated && (shaping || made?.length) ? (
-        <div>
-          {shaping ? <div style={noteStyle}><TbFilter size={12} style={noteIcon} aria-label="Filters" /><span>{shaping}</span></div> : null}
-          {made?.length ? <div style={noteStyle}><TbMathFunction size={12} style={noteIcon} aria-label="New measures" /><span>New measure{made.length > 1 ? 's' : ''}: {made.map((m) => m.label).join(', ')} (saved with the report it is added to)</span></div> : null}
-        </div>
-      ) : null}
+    <div style={partsStyle}>
+      {parts ? parts.map((p, k) => {
+        const indexes = (p.visuals || []).filter((i) => visuals[i]);
+        return (
+          <div key={k} style={partsStyle}>
+            <AssistantText style={textStyle} text={p.text} />
+            {indexes.length ? grid(indexes) : null}
+          </div>
+        );
+      }) : grid(visuals.map((_, i) => i))}
       {/* What the user taught about the fields, to keep for every later question. */}
       {proposal.remember?.length ? <RememberCard compact items={proposal.remember} modelId={modelId} outcome={remembered} onOutcome={onRemember} /> : null}
+      <div style={footerStyle}>{rateButtons}</div>
+    </div>
+  );
+}
+
+/**
+ * One visual of an answer: drawn on the user's data, as a chart or as its
+ * table, with what the chart cannot show under it (its filters, the measures
+ * made for it) and its own way into a report. No title above it (Jonathan: a
+ * title is "inutile", the answer already says what is drawn — it stays on the
+ * widget for the report it may be added to).
+ */
+function VisualCard({ widget, model, settings, made, height, added, onAdd, onOpen }) {
+  const [view, setView] = useState('chart');
+  const canToggle = !TABLE_TYPES.has(widget.type);
+  const shaping = describeShaping(widget.dataBinding, model);
+  const shown = new Set(widget.dataBinding?.selectedMeasures || []);
+  const own = (made || []).filter((m) => shown.has(m.name));
+  return (
+    <div style={cardStyle}>
+      <ExportableVisual widget={widget} asTable={canToggle && view === 'table'} model={model} settings={settings} height={height} />
+      {shaping || own.length ? (
+        <div>
+          {shaping ? <div style={noteStyle}><TbFilter size={12} style={noteIcon} aria-label="Filters" /><span>{shaping}</span></div> : null}
+          {own.length ? <div style={noteStyle}><TbMathFunction size={12} style={noteIcon} aria-label="New measures" /><span>New measure{own.length > 1 ? 's' : ''}: {own.map((m) => m.label).join(', ')} (saved with the report it is added to)</span></div> : null}
+        </div>
+      ) : null}
       <div style={footerStyle}>
         {canToggle && (
           <span style={segmentStyle} role="tablist" aria-label="View">
@@ -124,20 +175,20 @@ export default function TalkAnswer({ proposal, model: baseModel, rating, added, 
             <button role="tab" aria-selected={view === 'table'} style={segmentBtn(view === 'table')} onClick={() => setView('table')}><TbTable size={13} /> Table</button>
           </span>
         )}
-        <button style={rateBtn(rating === 'up')} onClick={() => onRate('up')} title="Good answer" aria-label="Good answer" aria-pressed={rating === 'up'}><TbThumbUp size={15} /></button>
-        <button style={rateBtn(rating === 'down')} onClick={() => onRate('down')} title="Bad answer" aria-label="Bad answer" aria-pressed={rating === 'down'}><TbThumbDown size={15} /></button>
         <span style={spacerStyle} />
-        {added ? (
-          <>
-            <span style={addedStyle}><TbCheck size={14} /> {added.title}</span>
-            <button style={openBtn} onClick={() => onOpen(added.reportId)}><TbExternalLink size={13} /> Open the report</button>
-          </>
-        ) : (
-          <button style={addBtn} onClick={onAdd}>
-            <TbPlus size={14} /> {generated ? 'Add to library & report' : 'Add to report'}
-          </button>
-        )}
+        <AddButton added={added} label="Add to report" onAdd={onAdd} onOpen={onOpen} />
       </div>
     </div>
+  );
+}
+
+function AddButton({ added, label, onAdd, onOpen }) {
+  return added ? (
+    <>
+      <span style={addedStyle}><TbCheck size={14} /> {added.title}</span>
+      <button style={openBtn} onClick={() => onOpen(added.reportId)}><TbExternalLink size={13} /> Open the report</button>
+    </>
+  ) : (
+    <button style={addBtn} onClick={onAdd}><TbPlus size={14} /> {label}</button>
   );
 }

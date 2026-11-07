@@ -188,6 +188,7 @@ function cleanPageContext(raw) {
     themes: slugs(src.themes),
     theme: slugs([src.theme])[0] || null,
     pageBackground: HEX.test(src.pageBackground) ? src.pageBackground : null,
+    pageImage: src.pageImage === true,
     palette: Array.isArray(src.palette) ? src.palette.filter((c) => HEX.test(c)).slice(0, 20) : [],
     widgets,
     otherPages: cleanOtherPages(src.otherPages),

@@ -13,7 +13,11 @@ import { useGraph } from './graphContext';
 // One focus, resolved here, marks the same branch in every column: the
 // datasource, the models it feeds, and the reports built on those.
 export function useJourneyFocus() {
-  const { datasources, models, reports } = useGraph();
+  // Sources and models scoped to the active workspace: a branch, and the
+  // branches the crumb offers to switch to, are what the columns show — never
+  // another workspace's. Reports only grey cards by id, and the Reports stage
+  // lists rows of its own (a teammate's, one shared in) that no scope here holds.
+  const { scopedDatasources: datasources, scopedModels: models, reports } = useGraph();
   const [searchParams, setSearchParams] = useSearchParams();
   const focus = searchParams.get('focus');
 

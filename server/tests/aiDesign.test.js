@@ -98,6 +98,21 @@ test('report settings: a known theme and a hex background only', () => {
   expect(check([{ op: 'report_settings', set: { backgroundImage: 'data:…', pageWidth: 9 } }]).ops).toEqual([]);
 });
 
+// An image behind the cards of every page: one the user added, by name — never a URL of the model's.
+test('report settings: a background image is an image the user added, by name', () => {
+  const withAssets = { ...ctx, assets: [{ name: 'fond.jpg', url: '/uploads/images/abc123.jpg' }] };
+  const run = (set, c = withAssets) => validateDesignProposal({ summary: 's', ops: [{ op: 'report_settings', set }] }, c);
+  expect(run({ backgroundImage: 'fond.jpg', backgroundSize: 'contain' }).ops)
+    .toEqual([{ op: 'report_settings', set: { backgroundImage: '/uploads/images/abc123.jpg', backgroundSize: 'contain' } }]);
+  expect(run({ backgroundImage: '/uploads/images/abc123.jpg' }).errors[0]).toMatch(/an image the user added, by name: fond.jpg/);
+  expect(run({ backgroundImage: 'fond.jpg' }, ctx).errors[0]).toMatch(/none was added .*add_image/);
+  expect(run({ backgroundSize: 'stretch' }).errors[0]).toMatch(/cover, contain or repeat/);
+  // "none" takes off the image there is, and is no change where there is none.
+  expect(run({ backgroundImage: 'none' }, { ...ctx, pageContext: { ...ctx.pageContext, pageImage: true } }).ops)
+    .toEqual([{ op: 'report_settings', set: { backgroundImage: null } }]);
+  expect(run({ backgroundImage: 'none' }).ops).toEqual([]);
+});
+
 test('unknown operations and an empty proposal are reported', () => {
   expect(check([{ op: 'delete_widget', widgetId: 'w1' }]).errors[0]).toMatch(/unknown operation/);
   expect(check([]).errors).toEqual(['No change was proposed']);

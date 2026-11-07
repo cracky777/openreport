@@ -295,7 +295,7 @@ const PROPOSE_DESIGN_CHANGES = {
             side: { type: 'string', enum: ['right', 'left', 'below', 'above'], description: 'place: which side of `near`' },
             set: {
               type: 'object',
-              description: `update_config: any of ${Object.keys(DESIGN_CONFIG).join(', ')} — colors are #rrggbb, legendColors maps a series name to a color, tableConfig (table, pivotTable) is an object of ${tableLookShape} merged into the current one. Objects: gradientBg {enabled, angle 0–360, color1, color2} (the card's background as a gradient), shadow {enabled, type outer|inner, angle, blur 0–40, spread 0–20, color}, valueGradient {enabled, minColor, maxColor} (bars colored by value), heatmap {enabled, color} (a pivotTable whose cells are tinted by their value: two dimensions crossed read as a heatmap), n1ValueStyle / n1DifferenceStyle / n1PercentStyle {position bottom|left|right, fontSize, iconEnabled, positiveIcon, negativeIcon, iconPositiveColor, iconNegativeColor, textColorEnabled, positiveColor, negativeColor} (a scorecard's comparison lines). Every *FontFamily is one of: ${Object.entries(FONTS).map(([k, list]) => `${k} — ${list.join(', ')}`).join('; ')}; null = the system font. report_settings: theme (a key from "Themes"), pageBackground (#rrggbb), and the page's ${Object.keys(PAGE_LOOK).join(', ')} (gradientBg as above, under the cards; surroundColor the color around the page, null to follow the theme). page_nav: the report's page menu — ${Object.keys(navLook(() => undefined)).join(', ')}: position left | top | right (a column beside the pages, or a bar above them), colors #rrggbb (hoverBgColor under the pointer, activeBgColor / activeTextColor the page open, borderColor its edge), fontFamily from the lists above, fontSize 10–18, fontWeight 400 | 500 | 600 | 700, buttonSize 24–56 (an item's height), width 120–320 (a column's), itemRadius 0–20, title (at the head of the menu), headerAlign, logoSize 16–120 (the logo's height), logoBgColor (a plate behind the logo, for a logo that does not read on the menu's color), headerLayout horizontal | vertical, headerLogoPosition before | after; an icon per page goes in "icons", the logo in "logo".`,
+              description: `update_config: any of ${Object.keys(DESIGN_CONFIG).join(', ')} — colors are #rrggbb, legendColors maps a series name to a color, tableConfig (table, pivotTable) is an object of ${tableLookShape} merged into the current one. Objects: gradientBg {enabled, angle 0–360, color1, color2} (the card's background as a gradient), shadow {enabled, type outer|inner, angle, blur 0–40, spread 0–20, color}, valueGradient {enabled, minColor, maxColor} (bars colored by value), heatmap {enabled, color} (a pivotTable whose cells are tinted by their value: two dimensions crossed read as a heatmap), n1ValueStyle / n1DifferenceStyle / n1PercentStyle {position bottom|left|right, fontSize, iconEnabled, positiveIcon, negativeIcon, iconPositiveColor, iconNegativeColor, textColorEnabled, positiveColor, negativeColor} (a scorecard's comparison lines). Every *FontFamily is one of: ${Object.entries(FONTS).map(([k, list]) => `${k} — ${list.join(', ')}`).join('; ')}; null = the system font. report_settings (the WHOLE report: every page): theme (a key from "Themes"), pageBackground (#rrggbb), backgroundImage (an image behind the cards of every page: the name of an image the user added, "none" to take it off) with backgroundSize cover | contain | repeat, and the page's ${Object.keys(PAGE_LOOK).join(', ')} (gradientBg as above, under the cards; surroundColor the color around the page, null to follow the theme). page_nav: the report's page menu — ${Object.keys(navLook(() => undefined)).join(', ')}: position left | top | right (a column beside the pages, or a bar above them), colors #rrggbb (hoverBgColor under the pointer, activeBgColor / activeTextColor the page open, borderColor its edge), fontFamily from the lists above, fontSize 10–18, fontWeight 400 | 500 | 600 | 700, buttonSize 24–56 (an item's height), width 120–320 (a column's), itemRadius 0–20, title (at the head of the menu), headerAlign, logoSize 16–120 (the logo's height), logoBgColor (a plate behind the logo, for a logo that does not read on the menu's color), headerLayout horizontal | vertical, headerLogoPosition before | after; an icon per page goes in "icons", the logo in "logo".`,
             },
             x: { type: 'number' },
             y: { type: 'number' },
@@ -337,7 +337,7 @@ const UNDO_CHANGE = {
  */
 const DECOR_PROPS = ['text', 'style', 'shape', 'fill', 'stroke', 'opacity', 'thickness', 'image', 'fit'];
 
-function widgetsToolFor({ library = [], withLayout = true, hasDate = true, assets = [], decor = true, measures = false } = {}) {
+function widgetsToolFor({ library = [], withLayout = true, hasDate = true, assets = [], decor = true, measures = false, talk = false } = {}) {
   const base = PROPOSE_WIDGETS.parameters.properties.widgets.items;
   const { layout, ...rest } = base.properties;
   const properties = withLayout ? { ...rest, layout } : { ...rest };
@@ -368,7 +368,7 @@ function widgetsToolFor({ library = [], withLayout = true, hasDate = true, asset
   const items = { ...base, properties };
   // A conversation with no report (Ask, Let's Talk) defines its measures here:
   // it has no report tool to carry them.
-  const top = { ...PROPOSE_WIDGETS.parameters.properties, widgets: { ...PROPOSE_WIDGETS.parameters.properties.widgets, items }, ...(measures ? { measures: MEASURES_PARAM, remember: REMEMBER_PARAM } : {}) };
+  const top = { ...PROPOSE_WIDGETS.parameters.properties, widgets: { ...PROPOSE_WIDGETS.parameters.properties.widgets, items }, ...(measures ? { measures: MEASURES_PARAM, remember: REMEMBER_PARAM } : {}), ...(talk ? { answer: ANSWER_PARAM } : {}) };
   return { ...PROPOSE_WIDGETS, parameters: { ...PROPOSE_WIDGETS.parameters, properties: top } };
 }
 
@@ -411,6 +411,22 @@ const REMEMBER_PARAM = {
       description: { type: 'string', description: 'One line: what the field holds, as the user explained it' },
     },
     required: ['field'],
+  },
+};
+
+// Let's Talk's answer itself, cut where a visual shows what was just said:
+// the text and the visuals in reading order (Jonathan 2026-11-04: a long
+// analysis ended on one chart, the visuals must sit where they explain).
+const ANSWER_PARAM = {
+  type: 'array', minItems: 1, maxItems: 8,
+  description: 'Your WHOLE answer, in reading order: each part is a short paragraph, followed by the visuals that show what it says (their 0-based index in widgets). Put each visual right after the sentence it illustrates, not all at the end; a part may have no visual. This is what the user reads: words written outside this call are not shown.',
+  items: {
+    type: 'object',
+    properties: {
+      text: { type: 'string', description: "A paragraph of the answer, in the user's language (**bold** allowed, as in your text)" },
+      visuals: { type: 'array', maxItems: 4, items: { type: 'integer', minimum: 0 }, description: 'Indexes in widgets of the visuals shown right after this paragraph' },
+    },
+    required: ['text'],
   },
 };
 
@@ -647,7 +663,7 @@ const ACTION_HELP = {
   import_file: 'import_file: import a file (CSV, Excel, Parquet, JSON): the card takes the file from the user — say "send me the file" and hand over this card; never ask them to paste its content. Offered to "how do I import…?" too, after the steps.',
   remember_fields: 'remember_fields: the user confirmed, corrected or explained what fields of the schema mean, and no visual is needed to answer: `remember` lists them (with a visual, put `remember` on propose_widgets instead).',
   talk_colors: 'talk_colors: the user wants other colors for the charts of this conversation (a brand color, "in green", warmer, softer): base = the color the charts are built on, as #rrggbb, and harmony = how the other series follow it; reset: true goes back to the colors of Open Report. The card applies it to all their Let\'s Talk answers, now and later — never answer such a request with a visual of its own.',
-  add_map: 'add_map: a map is asked (or the user drills into a map) of places none of the base maps draws — the states of the United States, the provinces of Canada, the Länder of Germany: no map visual and no other chart in its place; say in one sentence that Open Report has no map of them yet and hand over this card with `country`. The user clicks, the map is made for everyone on this instance, and the request comes back to you: then draw the map. Not for a ranking nobody asked to see on a map: that is a bar chart.',
+  add_map: 'add_map: a map is asked (or the user drills into a map) of places none of the base maps draws — the states of the United States, the provinces of Canada, the Länder of Germany, the towns of a country whose base map has no towns yet: no map visual, no custom visual drawing its own outline, and no other chart in its place; say in one sentence that Open Report has no map of them yet and hand over this card with `country`. The user clicks, the map is made for everyone on this instance, and the request comes back to you: then draw the map. Not for a ranking nobody asked to see on a map: that is a bar chart.',
   build_model: 'build_model: build a data model on a data source the user already has: the card lets them pick the source, then opens the model editor, whose assistant is asked `request`.',
 };
 

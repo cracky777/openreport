@@ -400,6 +400,8 @@ const TEXT_RUN_KEYS = { color: 'color', fontSize: 'fontSize', fontFamily: 'fontF
 export const PAGE_LOOK_KEYS = ['gradientBg', 'surroundColor', 'showBorder', 'borderRadius', 'showShadow', 'transparentBg'];
 const MERGED_OBJECTS = new Set(['gradientBg', 'shadow', 'valueGradient', 'n1ValueStyle', 'n1DifferenceStyle', 'n1PercentStyle']);
 const HEX = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
+const ASSET_URL = /^\/uploads\/images\/[A-Za-z0-9._-]+$/;
+const BACKGROUND_SIZES = new Set(['cover', 'contain', 'repeat']);
 const COLOR_KEYS_BY_NAME = new Set(['color', 'slicerSelectedBg', 'shapeFill', 'shapeStroke']);
 // `gaugeConditionalColor` is the one "…Color" that is a switch, not a color.
 const isColorKey = (k) => k !== 'gaugeConditionalColor'
@@ -488,6 +490,13 @@ export function applyDesignProposal(proposal, { layout, widgets, settings, pageW
       if (HEX.test(background) && background.toLowerCase() !== String(current.backgroundColor || '').toLowerCase()) {
         patch.backgroundColor = background;
       }
+      // An image behind the cards: an upload the user added (the server only
+      // passes those), or null to take it off.
+      if (op.set && 'backgroundImage' in op.set) {
+        const image = op.set.backgroundImage;
+        if (image === null ? current.backgroundImage : (typeof image === 'string' && ASSET_URL.test(image) && image !== current.backgroundImage)) patch.backgroundImage = image;
+      }
+      if (BACKGROUND_SIZES.has(op.set?.backgroundSize) && op.set.backgroundSize !== (current.backgroundSize || 'cover')) patch.backgroundSize = op.set.backgroundSize;
       // The rest of the page's look (server PAGE_LOOK, typed there).
       for (const k of PAGE_LOOK_KEYS) {
         const v = op.set?.[k];
@@ -635,6 +644,8 @@ export function buildPageContext({ layout, widgets, pageWidth, pageHeight, setti
     themes: Object.keys(themes || {}),
     theme: settings?.theme?.key || null,
     pageBackground: settings?.backgroundColor || null,
+    // Whether the page has an image behind its cards, never the image itself.
+    pageImage: !!settings?.backgroundImage,
     // The page menu's look and icons, never an image.
     pageNav: describePageNav(settings?.pageNav),
     palette: palette || [],

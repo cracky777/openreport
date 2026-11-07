@@ -118,7 +118,7 @@ describe('POST /api/ai/models/:id/chat', () => {
     await chat(owner);
     const [talked, asked] = providers.chat.mock.calls.map((c) => c[0].system);
     expect(talked).toMatch(/This is a conversation/);
-    expect(talked).toMatch(/Four short sentences at most/);
+    expect(talked).toMatch(/four short sentences/);
     // What matters to read stands out (AssistantText draws **bold**); the panel stays plain.
     expect(talked).toMatch(/put in \*\*bold\*\* what the reader must take away/);
     expect(asked).not.toMatch(/\*\*bold\*\*/);
@@ -179,6 +179,46 @@ describe('POST /api/ai/models/:id/chat', () => {
     const [proposal] = res.body.proposals;
     expect(proposal.widgets.map((w) => w.type)).toEqual(['bar', 'scorecard']);
     expect(proposal.widgets[0].layout).not.toEqual({ x: 900, y: 700, w: 100, h: 50 });
+  });
+
+  // Let's Talk writes its answer in parts, each visual after the paragraph it
+  // shows (Jonathan 2026-11-04: a long analysis ended on one chart, and read
+  // twice — the words beside a read, then again with the proposal).
+  test("talk: the answer in parts, each visual after its paragraph, the loose words dropped", async () => {
+    const parted = { ...call('propose_widgets', {
+      widgets: [
+        widget('scorecard', 'Total', { selectedMeasures: ['items.amt_sum'] }),
+        widget('bar', 'Amount by label'),
+        widget('bar', 'Bad', { selectedDimensions: ['items.nope'], selectedMeasures: ['items.amt_sum'] }),
+        widget('bar', 'Amount by region', { selectedDimensions: ['items.region'], selectedMeasures: ['items.amt_sum'] }),
+      ],
+      answer: [
+        { text: 'The total is **100**.', visuals: [0] },
+        { text: 'France leads.', visuals: [1, 2] },
+        { text: 'By region, the North.' },
+        { text: '   ' },
+      ],
+    }), text: 'France leads. The total is 100.' };
+    // The refused visual costs one repair round, answered the same way.
+    providers.chat.mockResolvedValueOnce(parted).mockResolvedValueOnce(parted);
+    const res = await chat(owner, { ...ask('Who sells most?'), talk: true });
+    const [proposal] = res.body.proposals;
+    expect(proposal.widgets.map((w) => w.config.title || w.title)).toEqual(['Total', 'Amount by label', 'Amount by region']);
+    // The refused visual takes no place; the one no part names follows the last part.
+    expect(proposal.answer).toEqual([
+      { text: 'The total is **100**.', visuals: [0] },
+      { text: 'France leads.', visuals: [1] },
+      { text: 'By region, the North.', visuals: [2] },
+    ]);
+    expect(proposal.widgets.some((w) => '__answerPart' in w)).toBe(false);
+    expect(res.body.reply).toBe('The total is **100**.\n\nFrance leads.\n\nBy region, the North.');
+    expect(providers.chat.mock.calls[0][0].tools.find((t) => t.name === 'propose_widgets').parameters.properties.answer).toBeDefined();
+  });
+
+  test('the answer in parts is offered to Let\'s Talk only', async () => {
+    providers.chat.mockResolvedValueOnce(say('ok'));
+    await chat(owner);
+    expect(providers.chat.mock.calls[0][0].tools.find((t) => t.name === 'propose_widgets').parameters.properties.answer).toBeUndefined();
   });
 
   // Let's Talk creates the measures its answer needs: compiled, with their

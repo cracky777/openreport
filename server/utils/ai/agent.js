@@ -103,6 +103,33 @@ function sameEverywhere(raw, pages) {
   return out;
 }
 
+// Let's Talk's answer cut in parts (tools ANSWER_PARAM): each visual is drawn
+// after the paragraph that names it. A visual no part names follows the last
+// part; one named twice, the first. Null when there is no usable text.
+const PART = '__answerPart';
+function answerParts(given) {
+  const list = (Array.isArray(given) ? given : [])
+    .filter((p) => p && typeof p.text === 'string' && p.text.trim())
+    .slice(0, 8)
+    .map((p) => ({ text: withoutDigests(p.text).slice(0, 3000), visuals: Array.isArray(p.visuals) ? p.visuals.filter(Number.isInteger) : [] }));
+  if (!list.length) return null;
+  return {
+    partOf(proposedIndex) {
+      const k = list.findIndex((p) => p.visuals.includes(proposedIndex));
+      return k === -1 ? list.length - 1 : k;
+    },
+    place(widgets) {
+      const out = list.map((p) => ({ text: p.text, visuals: [] }));
+      widgets.forEach((w, i) => {
+        const k = Number.isInteger(w[PART]) ? w[PART] : out.length - 1;
+        delete w[PART];
+        out[k].visuals.push(i);
+      });
+      return out;
+    },
+  };
+}
+
 // Each proposal tool → its validator, returning what goes to the client
 // (`payload`, null when nothing survived) and what was refused (`errors`).
 const PROPOSERS = {
@@ -113,6 +140,10 @@ const PROPOSERS = {
     const measured = givenCtx.mode === 'ask' && Array.isArray(args && args.measures) ? validateMeasures(args.measures, givenCtx) : { measures: [], errors: [] };
     const ctx = measured.measures.length ? { ...givenCtx, effective: { ...givenCtx.effective, measures: [...givenCtx.effective.measures, ...measured.measures] } } : givenCtx;
     const checked = validateWidgetsProposal(args, ctx);
+    // Let's Talk: which part of the answer each visual follows, carried on the
+    // widget through layout and colors (layoutNew rebuilds the list in its own order).
+    const parts = givenCtx.talk ? answerParts(args && args.answer) : null;
+    if (parts) checked.widgets.forEach((w, k) => { w[PART] = parts.partOf(checked.accepted[k]); });
     const errors = [...measured.errors, ...checked.errors];
     // What it understood travels on the card for the user to read and
     // correct; a wrong id there is dropped, never a reason to withhold visuals.
@@ -131,7 +162,8 @@ const PROPOSERS = {
     // What the user taught about the fields (remember.js): a strip on the card, applied by their click.
     const learned = givenCtx.mode === 'ask' && Array.isArray(args && args.remember) ? validateRemember(args.remember, givenCtx.effective) : { items: [], errors: [] };
     warnings.push(...learned.errors);
-    return { payload: widgets.length ? { kind: 'widgets', widgets, measureOverrides, pageHeight: pageHeightOf(widgets, ctx.page), ...measures, ...(read.understood ? { understood: read.understood } : {}), ...(learned.items.length ? { remember: learned.items } : {}), ...colorsTag(ctx) } : null, errors, warnings };
+    const answer = parts ? parts.place(widgets) : null;
+    return { payload: widgets.length ? { kind: 'widgets', widgets, ...(answer ? { answer } : {}), measureOverrides, pageHeight: pageHeightOf(widgets, ctx.page), ...measures, ...(read.understood ? { understood: read.understood } : {}), ...(learned.items.length ? { remember: learned.items } : {}), ...colorsTag(ctx) } : null, errors, warnings };
   },
   ask_user(args, ctx) {
     const { payload, errors } = validateQuestion(args, ctx);
@@ -361,7 +393,7 @@ async function runChat({ config, user, orgId, report, effective, messages: given
   // for its visuals AND its look: the request says which tool answers it,
   // the author no longer picks a mode first (asked by Jonathan).
   const ask = mode === 'ask';
-  const proposalTools = [tools.widgetsToolFor({ library, withLayout: !ask, hasDate, assets, decor: !ask, measures: ask })];
+  const proposalTools = [tools.widgetsToolFor({ library, withLayout: !ask, hasDate, assets, decor: !ask, measures: ask, talk: talk && ask })];
   if (!ask) proposalTools.push(tools.PROPOSE_DESIGN_CHANGES);
   if (canWriteVisuals) proposalTools.push(tools.PROPOSE_CUSTOM_VISUAL);
   // A whole report is made where there is none yet (the Assistant panel), or
@@ -444,7 +476,7 @@ async function runChat({ config, user, orgId, report, effective, messages: given
   const reads = [];
   const done = (answer) => {
     const reply = typeof answer.reply === 'string' ? withoutDigests(answer.reply) : answer.reply;
-    return reads.length ? { ...answer, reply, reads } : { ...answer, reply };
+    return { ...answer, reply, ...(reads.length ? { reads } : {}), ...(catalog.lineage.length ? { lineage: catalog.lineage } : {}) };
   };
 
   // One tool call of the model, whichever engine takes the steps (providers.runTurn).
@@ -506,7 +538,7 @@ async function runChat({ config, user, orgId, report, effective, messages: given
       const confirmed = syncConfirmed(messages, call.args);
       const checked = PROPOSERS[call.name](call.args, {
         effective, page, pageContext, canWriteVisuals, canEditModel, fileModel, sourceLabel, mode, library, cardinality, allowReport, review: studio && review, assets, reportId: report.id, modelId: report.model_id, colors, baseMaps,
-        requireReport, filterSyncConfirmed: confirmed,
+        requireReport, filterSyncConfirmed: confirmed, talk: talk && ask,
         ...(call.name === 'propose_design_changes' ? designReading(call.args) : widgetReading(call.args, effective, messages)),
       });
       // Filters on one field on several pages without the user's word on
@@ -550,7 +582,11 @@ async function runChat({ config, user, orgId, report, effective, messages: given
       toCheck.length ? `\n\nCheck before applying: ${toCheck.join('; ')}` : '',
     ].join('');
     return done({
-      reply: [turn.text, proposal.text].filter(Boolean).join('\n\n').concat(notes).trim(),
+      // An answer in parts is the whole answer: the loose words of the turn
+      // repeated it (the analysis written beside a read, then again).
+      reply: (proposal.payload && proposal.payload.answer
+        ? proposal.payload.answer.map((p) => p.text).join('\n\n')
+        : [turn.text, proposal.text].filter(Boolean).join('\n\n')).concat(notes).trim(),
       proposals: proposal.payload ? [withRealIds(proposal.payload, realId)] : [],
     });
   }

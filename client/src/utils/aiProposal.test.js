@@ -161,6 +161,7 @@ describe('buildPageContext', () => {
       themes: ['light', 'dark'],
       theme: 'dark',
       pageBackground: '#000000',
+      pageImage: false,
       pageNav: {},
       palette: ['#5470c6'],
       widgets: [{
@@ -359,6 +360,16 @@ describe('design: report settings that change nothing', () => {
     const { settings } = run({ theme: { key: 'dark' }, backgroundColor: '#000000' }, { theme: 'dark', pageBackground: '#0f172a' });
     expect(settings.backgroundColor).toBe('#0f172a');
     expect(settings.theme).toEqual({ key: 'dark' });
+  });
+});
+describe('design: an image behind the pages', () => {
+  const base = { layout: [], widgets: {}, pageWidth: 1140, pageHeight: 800, themes: {} };
+  const run = (settings, set) => applyDesignProposal({ ops: [{ op: 'report_settings', set }] }, { ...base, settings });
+  it('an uploaded image goes on, null takes it off, anything else is ignored', () => {
+    expect(run({}, { backgroundImage: '/uploads/images/abc.jpg', backgroundSize: 'contain' }).settings).toMatchObject({ backgroundImage: '/uploads/images/abc.jpg', backgroundSize: 'contain' });
+    expect(run({ backgroundImage: '/uploads/images/abc.jpg' }, { backgroundImage: null }).settings.backgroundImage).toBeNull();
+    expect(run({}, { backgroundImage: 'https://evil/x.png' }).settings).toBeNull();
+    expect(run({}, { backgroundImage: null }).settings).toBeNull();
   });
 });
 describe('design: a palette per widget', () => {

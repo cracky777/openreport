@@ -59,6 +59,7 @@ const DECOR_TYPES = ['text', 'shape', 'image'];
 const DECOR = new Set(DECOR_TYPES);
 const DECOR_MIN = { w: 20, h: 20 };
 const ASSET_URL = /^\/uploads\/images\/[A-Za-z0-9._-]+$/;
+const BACKGROUND_SIZES = new Set(['cover', 'contain', 'repeat']);
 
 // A text, a shape or an image as the proposal describes it, checked field by
 // field: an image only by the name of one the user added (never a URL of the
@@ -996,6 +997,20 @@ function validateDesignProposal(args, ctx) {
         if (color(src.pageBackground) === undefined) { errors.push(`${label}: pageBackground must be a hex color`); return; }
         if (src.pageBackground.toLowerCase() !== String(ctx.pageContext.pageBackground || '').toLowerCase()) set.pageBackground = src.pageBackground;
       }
+      // An image behind the cards of every page: one the user added, by name
+      // (never a URL of the model's), or "none" to take it off.
+      if (src.backgroundImage !== undefined) {
+        if (src.backgroundImage === 'none') { if (ctx.pageContext.pageImage) set.backgroundImage = null; }
+        else {
+          const asset = (ctx.assets || []).find((a) => a && a.name === src.backgroundImage);
+          if (!asset || !ASSET_URL.test(asset.url)) { errors.push(`${label}: backgroundImage is an image the user added, by name${(ctx.assets || []).length ? `: ${ctx.assets.map((a) => a.name).join(', ')}` : ' — none was added to this conversation: call propose_action add_image instead'}`); return; }
+          set.backgroundImage = asset.url;
+        }
+      }
+      if (src.backgroundSize !== undefined) {
+        if (!BACKGROUND_SIZES.has(src.backgroundSize)) { errors.push(`${label}: backgroundSize is cover, contain or repeat`); return; }
+        set.backgroundSize = src.backgroundSize;
+      }
       // The rest of the page's look, as the report settings panel offers it.
       for (const [key, check] of Object.entries(PAGE_LOOK)) {
         if (src[key] === undefined) continue;
@@ -1003,7 +1018,7 @@ function validateDesignProposal(args, ctx) {
         if (v === undefined) { errors.push(`${label}: ${key} is not a valid value`); return; }
         set[key] = v;
       }
-      if (src.theme === undefined && src.pageBackground === undefined && !Object.keys(PAGE_LOOK).some((k) => src[k] !== undefined)) { errors.push(`${label}: nothing to set`); return; }
+      if (src.theme === undefined && src.pageBackground === undefined && src.backgroundImage === undefined && src.backgroundSize === undefined && !Object.keys(PAGE_LOOK).some((k) => src[k] !== undefined)) { errors.push(`${label}: nothing to set`); return; }
       if (!Object.keys(set).length) return;
       ops.push({ op: 'report_settings', set });
       return;
@@ -1135,11 +1150,14 @@ function noDirection(ops, colorScheme, ctx) {
   return whole && !STYLES.has(ctx.style) ? ['a look for the whole report declares its direction in reading.style (editorial, corporate, control-room, minimal, bold, soft) and follows it in every font, frame, the page and the menu'] : [];
 }
 
+const BACKGROUND_KEYS = new Set(['pageBackground', 'gradientBg', 'backgroundImage', 'backgroundSize', 'transparentBg']);
 const NAV_STYLE = ['bgColor', 'textColor', 'activeBgColor', 'activeTextColor', 'fontFamily'];
 function menuLeftOut(ops, colorScheme, pageContext) {
   if (!(pageContext.otherPages || []).length || ops.some((op) => op.op === 'page_nav')) return [];
   if (NAV_STYLE.some((k) => (pageContext.pageNav || {})[k])) return [];
-  const restyled = colorScheme || ops.some((op) => op.op === 'report_settings' || (op.pageId && op.pageId !== pageContext.pageId));
+  // A background alone (color, gradient, image) is not a restyle: asked for one,
+  // the model came back with a whole page menu nobody asked for.
+  const restyled = colorScheme || ops.some((op) => (op.op === 'report_settings' && Object.keys(op.set).some((k) => !BACKGROUND_KEYS.has(k))) || (op.pageId && op.pageId !== pageContext.pageId));
   return restyled ? ['the report has several pages and its page menu has no look yet: add a page_nav op to this proposal, in the same look (its place, colors, font, the page open standing out, an icon per page)'] : [];
 }
 

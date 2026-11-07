@@ -67,6 +67,12 @@ describe('the look of the report and its menu go together', () => {
     expect(validateDesignProposal({ summary: 's', ops: [restyle] }, ctx({ otherPages: [] })).warnings).toEqual([]);
   });
 
+  // Asked for a background, the model came back with a whole page menu too.
+  test('a background alone (color, gradient, image) does not call for the menu', () => {
+    const background = { op: 'report_settings', set: { pageBackground: '#eaf2f6', gradientBg: { enabled: true, angle: 160, color1: '#eaf2f6', color2: '#dde7ee' } } };
+    expect(validateDesignProposal({ summary: 's', ops: [background] }, ctx()).warnings).toEqual([]);
+  });
+
   test('asked about the menu, a reading of colors alone keeps the op', () => {
     const r = validateDesignProposal({ summary: 's', reading: { colors: true }, ops: [{ op: 'page_nav', set: { position: 'right' } }] }, ctx());
     expect(r.ops.map((op) => op.op)).toEqual(['page_nav']);
