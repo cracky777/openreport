@@ -174,6 +174,21 @@ Known limits today:
 - Pivot tables are computed client-side, so very large result sets will hurt.
 - No schema migration tool. Upgrades run idempotent ALTERs at boot.
 
+## Telemetry
+
+Once a day, a self-hosted instance sends an anonymous ping to openreport.io and gets back the latest version
+number, so Admin › Settings can tell you when an update is out. It tells us how many installations exist and
+which databases to support first. This is the whole payload, also shown in Admin before you decide:
+
+```json
+{ "instanceId": "random id made by your instance", "version": "0.6.0", "install": "docker",
+  "databases": ["duckdb", "postgres"], "ai": true }
+```
+
+No names, emails, hostnames, tables, queries or data, and your IP address is not stored. Turn it off in
+**Admin › Settings**, or for good with `OPENREPORT_TELEMETRY=0` in the environment (the switch then disappears).
+The code is in [`server/utils/telemetry.js`](server/utils/telemetry.js).
+
 ## Contributing
 
 Contributions are welcome.

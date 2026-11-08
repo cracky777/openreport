@@ -70,6 +70,9 @@ services:
       # Set to 1 on a multi-user instance to forbid datasources, webhooks and AI
       # providers on localhost or the private network. See .env.example.
       - "OPENREPORT_BLOCK_INTERNAL_HOSTS=${OPENREPORT_BLOCK_INTERNAL_HOSTS:-}"
+      # Set to 0 to stop the anonymous daily ping (version, install type, kinds of
+      # databases, AI on/off) and its update check. See README § Telemetry.
+      - "OPENREPORT_TELEMETRY=${OPENREPORT_TELEMETRY:-}"
     volumes:
       # SQLite metadata, uploaded files, rollup caches. Everything to back up.
       - openreport-data:/app/server/data

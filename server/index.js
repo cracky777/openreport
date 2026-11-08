@@ -212,6 +212,11 @@ app.use('/api/workspaces', workspaceRoutes);
 app.use('/api/upload', fileUploadRoutes);
 app.use('/api/images', imageUploadRoutes);
 app.use('/api/import', pbitImportRoutes);
+// Our hosted server receives the daily ping of self-hosted instances; no other
+// instance mounts the route (utils/telemetry.js says what is sent).
+if (process.env.OPENREPORT_TELEMETRY_COLLECTOR === '1') {
+  app.use('/api/telemetry', require('./routes/telemetry').createRouter());
+}
 // Serve uploaded images to the browser. The path on disk maps 1:1 with
 // the URL returned by /api/images upload responses (`/uploads/images/…`).
 // An uploaded SVG is a script the browser will happily run on our own origin —
@@ -320,4 +325,5 @@ app.listen(PORT, '0.0.0.0', () => {
   catch (err) { console.warn('[cacheScheduler] boot failed:', err.message); }
   try { alertRunner.bootRegisterAll(); }
   catch (err) { console.warn('[alertRunner] boot failed:', err.message); }
+  require('./utils/telemetry').start();
 });

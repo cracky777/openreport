@@ -43,6 +43,7 @@ const apiToken = require('../utils/apiToken');
 const { validatePassword } = require('./auth');
 const { destroySessionsForUser } = require('../utils/sessionRegistry');
 const usage = require('../utils/usage');
+const telemetry = require('../utils/telemetry');
 
 const router = express.Router();
 
@@ -454,6 +455,20 @@ router.put('/settings/public-sharing', requireAdmin, (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// The anonymous daily ping and the update check it brings back. The page shows
+// the exact payload, so the admin decides on what is really sent.
+router.get('/telemetry', requireAdmin, (req, res) => {
+  res.json(telemetry.status());
+});
+
+router.put('/telemetry', requireAdmin, async (req, res) => {
+  if (telemetry.forcedOff()) return res.status(409).json({ error: 'Telemetry is turned off for this instance by its configuration' });
+  telemetry.setEnabled(!!req.body?.enabled);
+  // Switched on: check now rather than in a day, so the update notice shows.
+  if (telemetry.isEnabled()) await telemetry.ping();
+  res.json(telemetry.status());
 });
 
 // Où partent les signalements de bug de cette installation. Vide = le bouton

@@ -7,6 +7,7 @@ import { TbShield, TbEdit, TbEye, TbUserPlus, TbKey, TbExternalLink, TbClock, Tb
 import RobotHead from '../components/RobotHead';
 import AiSettingsSection from './admin/AiSettingsSection';
 import InventorySection from './admin/InventorySection';
+import TelemetrySection from './admin/TelemetrySection';
 import { ICON_SIZE } from '../components/actionIcons';
 import ConfirmDeleteButton from '../components/ConfirmDeleteButton/ConfirmDeleteButton';
 import ConfirmDialog from '../components/ConfirmDialog/ConfirmDialog';
@@ -312,6 +313,7 @@ export default function Admin() {
             />
           </div>
         )}
+        {tab === 'settings' && <TelemetrySection />}
 
         {tab === 'users' && (<>
         {/* Role legend */}
