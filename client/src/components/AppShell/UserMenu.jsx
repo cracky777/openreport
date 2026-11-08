@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UserIcon } from './StageIcons';
-import { TbShield, TbBell, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug, TbPlugConnected, TbHelp } from 'react-icons/tb';
+import { TbShield, TbBell, TbChevronDown, TbLogout, TbSun, TbMoon, TbDeviceLaptop, TbBug, TbPlugConnected, TbHelp, TbStar } from 'react-icons/tb';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
 import { UserMenuExtras } from '../../cloud';
@@ -113,6 +113,9 @@ export default function UserMenu({ compact = false, where = '', onShowAround = n
               matters starts from the error itself, where it carries its
               context (see Canvas/WidgetItem). */}
           {item('Report a bug', TbBug, () => openBugReport({ Step: where }))}
+          {/* An open source project is found through its stars: the people who
+              run it are the ones most likely to give one. */}
+          {item('Star on GitHub', TbStar, () => window.open(GITHUB_URL, '_blank', 'noopener'))}
           <div style={userMenuDivider} />
           {item('Logout', TbLogout, logout)}
         </div>
@@ -121,6 +124,7 @@ export default function UserMenu({ compact = false, where = '', onShowAround = n
   );
 }
 
+const GITHUB_URL = 'https://github.com/cracky777/openreport';
 const relStyle = { position: 'relative' };
 const accentStyle = { color: 'var(--accent-primary)' };
 const userPillCompact = { padding: 0, width: 40, height: 40, justifyContent: 'center', gap: 2, flexShrink: 0 };
