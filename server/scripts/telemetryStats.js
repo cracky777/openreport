@@ -1,6 +1,6 @@
 // What the collector has heard from self-hosted instances (routes/telemetry.js).
-// Run on the collector host: `node scripts/telemetryStats.js` (in Docker:
-// `docker compose exec app node scripts/telemetryStats.js`).
+// Run on the collector host: `cd server && node scripts/telemetryStats.js` (in Docker,
+// where the working directory is /app: `docker compose exec app node server/scripts/telemetryStats.js`).
 const db = require('../db');
 
 const since = (days) => new Date(Date.now() - days * 864e5).toISOString();
