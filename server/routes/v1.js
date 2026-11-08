@@ -128,12 +128,35 @@ router.post('/reports/:id/refresh', requireAuth, apiToken.requireScope('refresh'
 // A semantic query: name measures and dimensions of the model, Open Report
 // compiles the SQL in the source's dialect and serves it from the rollups or
 // the query cache when it can, exactly as for a report widget (same handler,
-// same RLS, same access check). Only the documented fields of the body are
-// forwarded, so the browser-only switches of the widget route (sqlOnly,
-// bypassCache, sample, queryId…) stay out of the frozen contract.
+// same RLS, same access check).
+//
+// The widget route forgives what a browser sends: a filter on a field it does
+// not know is skipped. A script or an assistant would then read an unfiltered
+// figure as the filtered one, so here every name is resolved first — by name,
+// else by label — and an unknown or ambiguous one is a 400. Only the
+// documented fields reach the handler (sqlOnly, bypassCache, extraMeasures…
+// stay out), and only rows come back, keyed by the names the caller asked for:
+// the SQL, the cache and RLS diagnostics of the widget payload are not part of
+// the contract.
 
-const QUERY_FIELDS = ['dimensionNames', 'measureNames', 'filters', 'limit', 'offset'];
 const QUERY_MAX_ROWS = 5000;
+const FILTER_HINT = 'filters must be an object: { "<dimension>": [values] } or { "<dimension>": { "op": "between", "value": [from, to] } }';
+
+// A field asked by name, else by a label that only one field carries.
+function resolveField(list, asked) {
+  const byName = list.find((f) => f.name === asked);
+  if (byName) return { field: byName };
+  const key = asked.trim().toLowerCase();
+  const byLabel = list.filter((f) => String(f.label || '').trim().toLowerCase() === key);
+  if (byLabel.length === 1) return { field: byLabel[0] };
+  if (byLabel.length > 1) return { error: `"${asked}" is the label of ${byLabel.map((f) => `"${f.name}"`).join(', ')}: ask for one of these names` };
+  return { error: `"${asked}" is not a field of this model` };
+}
+
+const isScalar = (v) => v === null || ['string', 'number', 'boolean'].includes(typeof v);
+const validFilter = (raw) => (Array.isArray(raw)
+  ? raw.length > 0 && raw.every(isScalar)
+  : !!raw && typeof raw === 'object' && raw.op === 'between' && Array.isArray(raw.value) && raw.value.length === 2 && raw.value.every(isScalar));
 
 router.post('/models/:id/query', requireAuth, apiToken.requireScope('query'), (req, res, next) => {
   const body = req.body || {};
@@ -145,16 +168,70 @@ router.post('/models/:id/query', requireAuth, apiToken.requireScope('query'), (r
   if (!dims.length && !measures.length) {
     return res.status(400).json({ error: 'Name at least one dimension or measure' });
   }
-  if (body.filters !== undefined && (body.filters === null || typeof body.filters !== 'object' || Array.isArray(body.filters))) {
-    return res.status(400).json({ error: 'filters must be an object: { "<dimension>": [values] } or { "<dimension>": { "op": "between", "value": [from, to] } }' });
+  const filters = body.filters ?? {};
+  if (filters === null || typeof filters !== 'object' || Array.isArray(filters)) {
+    return res.status(400).json({ error: FILTER_HINT });
   }
-  const forwarded = {};
-  for (const k of QUERY_FIELDS) if (body[k] !== undefined) forwarded[k] = body[k];
-  forwarded.dimensionNames = dims;
-  forwarded.measureNames = measures;
-  const limit = Number.parseInt(forwarded.limit, 10);
-  forwarded.limit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, QUERY_MAX_ROWS) : QUERY_MAX_ROWS;
-  req.body = forwarded;
+
+  // Same answer as the handler for a model the caller cannot see, before any
+  // field name is looked at: an error naming fields must not reveal them.
+  const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id);
+  if (!row || !canAccessModel(row, req.user, req)) return res.status(404).json({ error: 'Model not found' });
+  const model = parseModel(row);
+
+  const errors = [];
+  const pick = (list, asked) => {
+    const r = resolveField(list || [], asked);
+    if (r.error) errors.push(r.error);
+    return r.field;
+  };
+  const dimFields = dims.map((d) => pick(model.dimensions, d));
+  const measureFields = measures.map((m) => pick(model.measures, m));
+  const resolvedFilters = {};
+  for (const [asked, raw] of Object.entries(filters)) {
+    const field = pick(model.dimensions, asked);
+    if (!validFilter(raw)) errors.push(`filter "${asked}": give a non-empty list of values or { "op": "between", "value": [from, to] }`);
+    else if (field) resolvedFilters[field.name] = raw;
+  }
+  if (errors.length) {
+    return res.status(400).json({ error: errors.join('; '), hint: `GET /api/v1/metadata/models/${req.params.id} lists the fields` });
+  }
+
+  // The handler keys each row by the field's label: two asked fields sharing
+  // one would overwrite each other in the same row.
+  const asked = [...dims.map((a, i) => [a, dimFields[i]]), ...measures.map((a, i) => [a, measureFields[i]])];
+  const keyOf = (f) => f.label || f.name;
+  const seen = new Map();
+  for (const [, f] of asked) {
+    const k = keyOf(f);
+    if (seen.has(k) && seen.get(k) !== f.name) {
+      return res.status(400).json({ error: `"${seen.get(k)}" and "${f.name}" share the label "${k}": ask for them in separate queries` });
+    }
+    seen.set(k, f.name);
+  }
+
+  const requestedLimit = Number.parseInt(body.limit, 10);
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, QUERY_MAX_ROWS) : QUERY_MAX_ROWS;
+  const offset = Number.parseInt(body.offset, 10);
+  req.body = {
+    dimensionNames: dimFields.map((f) => f.name),
+    measureNames: measureFields.map((f) => f.name),
+    filters: resolvedFilters,
+    limit,
+    ...(Number.isFinite(offset) && offset > 0 ? { offset } : {}),
+  };
+
+  // Rows only, under the asked names; an error keeps its message, never its SQL.
+  const send = res.json.bind(res);
+  res.json = (payload) => {
+    if (res.statusCode >= 400 || !payload || !Array.isArray(payload.rows)) {
+      return send({ error: (payload && payload.error) || 'Query failed' });
+    }
+    const rows = payload.rows.map((r) => Object.fromEntries(asked.map(([a, f]) => [a, r[keyOf(f)] ?? null])));
+    // The widget payload's maxReached is the engine's own cap; here it says the
+    // limit cut the answer, so the caller knows to page with offset.
+    return send({ rows, rowCount: rows.length, maxReached: rows.length >= limit || !!payload.maxReached });
+  };
   // Lazy: routes/models.js pulls in the whole query stack.
   return require('./models').queryHandler(req, res, next);
 });
