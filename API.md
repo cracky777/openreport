@@ -115,8 +115,11 @@ Ask the semantic model for measures by dimensions, by name. Open Report
 compiles the SQL in the source's dialect and answers from the rollups or the
 query cache when it can, exactly as it does for a report widget: same access
 check, same row-level security. This is the endpoint an assistant or a script
-uses to read figures without writing SQL. Field names are the ones
-`GET /api/v1/metadata/models/:id` lists.
+uses to read figures without writing SQL.
+
+Each field is named by its `name` (`orders.amount_sum`, `_calc.margin`) or by
+its `label` (`Revenue`, case does not matter) when no other field carries that
+label; `GET /api/v1/metadata/models/:id` lists both.
 
 ```json
 {
@@ -130,13 +133,27 @@ uses to read figures without writing SQL. Field names are the ones
 }
 ```
 
-- `measureNames`, `dimensionNames`: arrays of field names; at least one of the two.
-- `filters` (optional): per dimension, a list of values (`IN`) or a range
-  `{ "op": "between", "value": [from, to] }`.
+- `measureNames`, `dimensionNames`: arrays of field names or labels; at least one of the two.
+- `filters` (optional): per dimension, a non-empty list of values (`IN`) or a
+  range `{ "op": "between", "value": [from, to] }`.
 - `limit` (optional, default and maximum 5000), `offset` (optional).
 
-The answer is the widget payload: `rows` (one object per row, keyed by field
-name), plus cache information. Any other field of the body is ignored.
+Any other field of the body is ignored. A name that matches no field — in a
+filter too — or a label two fields share is a `400` that says which one, never
+skipped: a filter dropped in silence would answer the unfiltered figure.
+
+```json
+{
+  "rows": [
+    { "Month": "2026-01", "Revenue": 257035.44, "Orders": 2726 }
+  ],
+  "rowCount": 1,
+  "maxReached": false
+}
+```
+
+Each row is keyed by the names exactly as you asked for them. `maxReached` is
+`true` when `limit` cut the answer. An error answers `{ "error": "…" }`.
 
 ## Metadata
 
