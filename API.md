@@ -41,6 +41,7 @@ membership apply exactly as they do in the browser.
 | `refresh` | Rebuild a model's cache |
 | `metadata` | Describe reports and their semantic models for a data catalog: read-only, no data (see [Metadata](#metadata)) |
 | `glossary` | Write the descriptions and synonyms of a model's fields, nothing else (see [Glossary](#glossary)) |
+| `query` | Run a semantic query on a model: measures by dimensions. **Returns data** (see [Query](#post-apiv1modelsidquery--scope-query)) |
 
 There is no `write` scope. Editing a model means feeding SQL to the compiler,
 which is the most sensitive surface in the app; opening that to tokens is a
@@ -107,6 +108,52 @@ The same rebuild, addressed by report instead of by model. The UI has two
 buttons — "rebuild rollups" on a model and "warm now" on a report — but both
 already run the same rebuild; the split is only about which id you happen to
 hold. Use whichever your job knows about.
+
+### `POST /api/v1/models/:id/query` — scope `query`
+
+Ask the semantic model for measures by dimensions, by name. Open Report
+compiles the SQL in the source's dialect and answers from the rollups or the
+query cache when it can, exactly as it does for a report widget: same access
+check, same row-level security. This is the endpoint an assistant or a script
+uses to read figures without writing SQL.
+
+Each field is named by its `name` (`orders.amount_sum`, `_calc.margin`) or by
+its `label` (`Revenue`, case does not matter) when no other field carries that
+label; `GET /api/v1/metadata/models/:id` lists both.
+
+```json
+{
+  "measureNames": ["Revenue", "Orders"],
+  "dimensionNames": ["Month"],
+  "filters": {
+    "Country": ["France", "Belgium"],
+    "Order date": { "op": "between", "value": ["2026-01-01", "2026-10-31"] }
+  },
+  "limit": 100
+}
+```
+
+- `measureNames`, `dimensionNames`: arrays of field names or labels; at least one of the two.
+- `filters` (optional): per dimension, a non-empty list of values (`IN`) or a
+  range `{ "op": "between", "value": [from, to] }`.
+- `limit` (optional, default and maximum 5000), `offset` (optional).
+
+Any other field of the body is ignored. A name that matches no field — in a
+filter too — or a label two fields share is a `400` that says which one, never
+skipped: a filter dropped in silence would answer the unfiltered figure.
+
+```json
+{
+  "rows": [
+    { "Month": "2026-01", "Revenue": 257035.44, "Orders": 2726 }
+  ],
+  "rowCount": 1,
+  "maxReached": false
+}
+```
+
+Each row is keyed by the names exactly as you asked for them. `maxReached` is
+`true` when `limit` cut the answer. An error answers `{ "error": "…" }`.
 
 ## Metadata
 
