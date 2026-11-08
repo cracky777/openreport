@@ -1003,7 +1003,7 @@ router.post('/cancel-query', (req, res) => {
 const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 const usage = require('../utils/usage');
 
-router.post('/:id/query', asyncRoute(async (req, res) => {
+const queryHandler = asyncRoute(async (req, res) => {
   // Temporary diagnostic — surfaces server-side timing breakdown so we
   // can localise where the 5s perceived latency on cross-filter clicks
   // is actually being spent. The id ties log lines from the same
@@ -2828,7 +2828,10 @@ router.post('/:id/query', asyncRoute(async (req, res) => {
   } finally {
     conn?.close();
   }
-}));
+});
+router.post('/:id/query', queryHandler);
 
 module.exports = router;
 module.exports.cloudHooks = cloudHooks;
+// The same compiler, reused by the public API (routes/v1.js POST /models/:id/query).
+module.exports.queryHandler = queryHandler;
