@@ -27,7 +27,9 @@ const PREFIX = 'orp_';
 // Deliberately no `write` scope — editing a model means feeding SQL to the
 // compiler, which is the most sensitive surface in the app. Adding one is a
 // decision to take on its own, not a default.
-const SCOPES = ['read', 'refresh', 'metadata', 'glossary'];
+// query: run a semantic query (dimensions × measures) on a model the owner can
+// see, through the same compiler, RLS and caches as a report widget.
+const SCOPES = ['read', 'refresh', 'metadata', 'glossary', 'query'];
 
 // A token is 32 random bytes; the stored digest is what a lookup matches on.
 function hash(token) {

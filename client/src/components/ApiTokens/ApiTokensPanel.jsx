@@ -19,6 +19,7 @@ const SCOPE_HELP = {
   refresh: 'Rebuild a model’s cache',
   metadata: 'Read reports and models for a data catalog (no data)',
   glossary: 'Write the descriptions and synonyms of a model’s fields',
+  query: 'Query a model’s measures and dimensions (returns data)',
 };
 
 // The two catalog scopes read as one pair: their ids alone did not say that

@@ -8,6 +8,7 @@
  *   POST /api/v1/reports/:id/refresh     same, addressed by report
  *   GET  /api/v1/metadata/...            reports and semantic models for a catalog (scope `metadata`)
  *   PUT  /api/v1/metadata/models/:id/glossary   descriptions and synonyms of a model's fields (scope `glossary`)
+ *   POST /api/v1/models/:id/query        semantic query: measures by dimensions (scope `query`)
  *
  * Two rules make this router different from the rest of /api:
  *
@@ -120,6 +121,42 @@ router.post('/reports/:id/refresh', requireAuth, apiToken.requireScope('refresh'
   const model = db.prepare('SELECT * FROM models WHERE id = ?').get(report.model_id);
   if (!model) return res.status(404).json({ error: 'Model not found' });
   await refreshModel(model, req, res);
+});
+
+// ------------------------------------------------------------------- query
+//
+// A semantic query: name measures and dimensions of the model, Open Report
+// compiles the SQL in the source's dialect and serves it from the rollups or
+// the query cache when it can, exactly as for a report widget (same handler,
+// same RLS, same access check). Only the documented fields of the body are
+// forwarded, so the browser-only switches of the widget route (sqlOnly,
+// bypassCache, sample, queryId…) stay out of the frozen contract.
+
+const QUERY_FIELDS = ['dimensionNames', 'measureNames', 'filters', 'limit', 'offset'];
+const QUERY_MAX_ROWS = 5000;
+
+router.post('/models/:id/query', requireAuth, apiToken.requireScope('query'), (req, res, next) => {
+  const body = req.body || {};
+  const dims = body.dimensionNames ?? [];
+  const measures = body.measureNames ?? [];
+  if (!Array.isArray(dims) || !Array.isArray(measures) || !dims.every((d) => typeof d === 'string') || !measures.every((m) => typeof m === 'string')) {
+    return res.status(400).json({ error: 'dimensionNames and measureNames must be arrays of field names' });
+  }
+  if (!dims.length && !measures.length) {
+    return res.status(400).json({ error: 'Name at least one dimension or measure' });
+  }
+  if (body.filters !== undefined && (body.filters === null || typeof body.filters !== 'object' || Array.isArray(body.filters))) {
+    return res.status(400).json({ error: 'filters must be an object: { "<dimension>": [values] } or { "<dimension>": { "op": "between", "value": [from, to] } }' });
+  }
+  const forwarded = {};
+  for (const k of QUERY_FIELDS) if (body[k] !== undefined) forwarded[k] = body[k];
+  forwarded.dimensionNames = dims;
+  forwarded.measureNames = measures;
+  const limit = Number.parseInt(forwarded.limit, 10);
+  forwarded.limit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, QUERY_MAX_ROWS) : QUERY_MAX_ROWS;
+  req.body = forwarded;
+  // Lazy: routes/models.js pulls in the whole query stack.
+  return require('./models').queryHandler(req, res, next);
 });
 
 // ---------------------------------------------------------------- metadata
