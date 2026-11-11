@@ -38,6 +38,23 @@ function toWireMessages(messages) {
   return out;
 }
 
+// Prompt caching: a turn calls the model several times (a reading, then the
+// card), each time with the same tools, consignes and schema — tens of
+// thousands of tokens read again from scratch. Two markers: the end of the
+// system prompt (tools + system, the same for every step of a turn) and the
+// end of the conversation (each step reuses the previous one's prefix).
+const CACHE = { type: 'ephemeral' };
+
+function withCacheMark(wire) {
+  const last = wire[wire.length - 1];
+  if (!last) return wire;
+  const blocks = typeof last.content === 'string' ? [{ type: 'text', text: last.content }] : last.content;
+  // An empty text block cannot carry a marker (the API refuses it).
+  if (!blocks.length || (blocks[blocks.length - 1].type === 'text' && !blocks[blocks.length - 1].text)) return wire;
+  const marked = [...blocks.slice(0, -1), { ...blocks[blocks.length - 1], cache_control: CACHE }];
+  return [...wire.slice(0, -1), { ...last, content: marked }];
+}
+
 function buildRequest({ config, system, messages, tools }) {
   const headers = {
     'content-type': 'application/json',
@@ -47,8 +64,8 @@ function buildRequest({ config, system, messages, tools }) {
   const body = {
     model: config.model,
     max_tokens: MAX_TOKENS,
-    system,
-    messages: toWireMessages(messages),
+    system: system ? [{ type: 'text', text: system, cache_control: CACHE }] : undefined,
+    messages: withCacheMark(toWireMessages(messages)),
   };
   if (tools && tools.length) {
     body.tools = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters }));
@@ -66,7 +83,12 @@ function parseResponse(json) {
     text,
     toolCalls,
     usage: json.usage
-      ? { inputTokens: json.usage.input_tokens || 0, outputTokens: json.usage.output_tokens || 0 }
+      ? {
+        inputTokens: json.usage.input_tokens || 0,
+        outputTokens: json.usage.output_tokens || 0,
+        cacheReadTokens: json.usage.cache_read_input_tokens || 0,
+        cacheWriteTokens: json.usage.cache_creation_input_tokens || 0,
+      }
       : null,
   };
 }

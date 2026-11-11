@@ -77,12 +77,14 @@ describe('anthropic adapter', () => {
     expect(url).toBe('https://api.anthropic.test/v1/messages');
     expect(init.headers['x-api-key']).toBe(KEY);
     expect(init.headers['anthropic-version']).toBe('2023-06-01');
-    expect(body.system).toBe('SYS');
+    // Cached: tools + system at the end of the system prompt, the conversation at its last block.
+    expect(body.system).toEqual([{ type: 'text', text: 'SYS', cache_control: { type: 'ephemeral' } }]);
+    expect(body.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'yo', cache_control: { type: 'ephemeral' } }] }]);
     expect(body.max_tokens).toBeGreaterThan(0);
     expect(body.tools[0]).toEqual({ name: 'ping', description: 'd', input_schema: TOOLS[0].parameters });
     expect(out.text).toBe('ok');
     expect(out.toolCalls).toEqual([{ id: 't1', name: 'ping', args: { ok: true }, argsError: null }]);
-    expect(out.usage).toEqual({ inputTokens: 5, outputTokens: 6 });
+    expect(out.usage).toEqual({ inputTokens: 5, outputTokens: 6, cacheReadTokens: 0, cacheWriteTokens: 0 });
   });
 
   test('groups the results of one turn into a single user message', async () => {
@@ -104,7 +106,7 @@ describe('anthropic adapter', () => {
       role: 'user',
       content: [
         { type: 'tool_result', tool_use_id: 'a', content: '1' },
-        { type: 'tool_result', tool_use_id: 'b', content: '2', is_error: true },
+        { type: 'tool_result', tool_use_id: 'b', content: '2', is_error: true, cache_control: { type: 'ephemeral' } },
       ],
     });
   });

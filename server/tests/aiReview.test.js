@@ -124,7 +124,8 @@ describe('images on the wire', () => {
     expect(body.messages[2].content).toEqual([
       { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG } },
       { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: PNG } },
-      { type: 'text', text: 'look' },
+      // The end of the conversation: where the prompt cache is marked.
+      { type: 'text', text: 'look', cache_control: { type: 'ephemeral' } },
     ]);
   });
 
