@@ -60,13 +60,13 @@ function promptOf(messages) {
 
 // Where the CLI runs. Nothing is read from it (settingSources: []) and nothing
 // written (persistSession: false); it only has to exist, away from the server's code.
-let workDir = null;
+// Made again on every turn: Windows empties its temp folder under a running
+// server, and a spawn into a folder that is gone fails with ENOENT — which the
+// SDK reports as a binary that "failed to launch", on every turn until a restart.
 function cwd() {
-  if (!workDir) {
-    workDir = path.join(os.tmpdir(), 'openreport-claude');
-    fs.mkdirSync(workDir, { recursive: true });
-  }
-  return workDir;
+  const dir = path.join(os.tmpdir(), 'openreport-claude');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 // The subprocess environment. The user's token is the only credential: the

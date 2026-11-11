@@ -319,6 +319,18 @@ describe('the Claude subscription engine (Agent SDK)', () => {
     expect(Object.keys(options.mcpServers.openreport.instance.tools[0].inputSchema)).toEqual(['ok']);
   });
 
+  // Windows empties its temp folder under a running server: the folder the CLI
+  // runs in was made once, and every spawn after into the missing folder failed
+  // with ENOENT — reported by the SDK as a binary that "failed to launch".
+  test('the folder the CLI runs in exists on every turn, even once deleted', async () => {
+    const fs = require('fs');
+    const run = async () => { const sdk = fakeSdk([{ text: 'Up.' }]); await runTurn({ config, system: 's', messages: last, tools: [PING], maxSteps: 2, execute: () => ({ result: {} }) }, { sdk }); return sdk.seen.options.cwd; };
+    const dir = await run();
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(await run()).toBe(dir);
+    expect(fs.existsSync(dir)).toBe(true);
+  });
+
   test('a refusal is an error the model reads; words alone end in words; a named model is passed on', async () => {
     const sdk = fakeSdk([{ call: 'ping', args: { ok: false } }, { text: 'Sorry.' }], { subtype: 'success', result: 'Sorry.' });
     const turn = await runTurn({ config: { ...config, model: 'opus' }, system: 's', messages: last, tools: [PING], maxSteps: 2, execute: () => ({ result: { error: 'no' } }) }, { sdk });
