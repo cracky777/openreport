@@ -23,15 +23,20 @@ const _duckdbPromises = new Map();
 // imported files in the real server/data/duckdb instead.
 const DUCKDB_DIR = path.resolve(process.env.OPENREPORT_DATA_DIR || path.join(__dirname, '..', 'data'), 'duckdb');
 
+// Windows paths ignore case: a file written by a script started from "c:\…"
+// is the same file as the server's "C:\…", and was refused as outside.
+const sameCase = process.platform === 'win32' ? (p) => p.toLowerCase() : (p) => p;
+const MANAGED = sameCase(DUCKDB_DIR);
+
 function isManagedDuckDBPath(dbName) {
-  const resolved = path.resolve(dbName);
-  return resolved.startsWith(DUCKDB_DIR + path.sep);
+  return sameCase(path.resolve(dbName)).startsWith(MANAGED + path.sep);
 }
 
 function assertDuckDBPath(dbName) {
   if (!dbName) return ':memory:';
   const resolved = path.resolve(dbName);
-  const inside = resolved === DUCKDB_DIR || resolved.startsWith(DUCKDB_DIR + path.sep);
+  const folded = sameCase(resolved);
+  const inside = folded === MANAGED || folded.startsWith(MANAGED + path.sep);
   if (!inside) throw new Error('DuckDB datasource path is outside the managed directory');
   return resolved;
 }
