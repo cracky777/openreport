@@ -9,7 +9,7 @@
 // (client utils/aiProposal.applyReportChanges).
 
 const { validateWidgetsProposal } = require('./validateProposal');
-const { arrange, layoutNew, insertWidgets, pageHeightOf, floorOf, MARGIN, COMPOSITIONS } = require('./arrangeLayout');
+const { arrange, layoutNew, insertWidgets, pageHeightOf, fillPage, floorOf, MARGIN, COMPOSITIONS } = require('./arrangeLayout');
 const { colorWidgets, formatOverrides } = require('./dress');
 const { validateMeasures } = require('./reportMeasures');
 const { checkSync, filterDim } = require('./filterSync');
@@ -170,6 +170,8 @@ function validateReportChanges(args, givenCtx) {
   const newTokens = [];
   // Sync decisions as written, page refs resolved after the loop.
   const rawSyncs = [];
+  // Pages composed from nothing by the app: they fill the report's page height once it is known.
+  const composed = new Set();
 
   entries.forEach((e, i) => {
     const label = `Page ${i + 1}`;
@@ -265,6 +267,7 @@ function validateReportChanges(args, givenCtx) {
       out.laidOut = true;
     } else if (!kept.length) {
       added = layoutNew(added, ctx.page, ctx.effective, isNew && COMPOSITIONS.includes(entry.composition) ? entry.composition : 'standard');
+      composed.add(out);
     } else if (added.length) {
       // The page keeps its layout: the new visuals are set into it where the
       // proposal put them, and only what has to make room moves. A visual
@@ -341,6 +344,8 @@ function validateReportChanges(args, givenCtx) {
   const widgets = pages.flatMap((p) => [...p.add, ...p.replace.map((r) => r.widget)]);
   // The tallest page sets the report's page height, moves included.
   const pageHeight = Math.max(ctx.page.height, ...pages.map((p) => pageHeightOf([...p.add, ...p.moves.map((m) => ({ layout: m }))], ctx.page)));
+  // A page the app composed (new, or emptied and refilled) leaves no empty band under its visuals.
+  for (const p of composed) p.add = fillPage(p.add, pageHeight, ctx.page.width);
   if (!pages.length && !measured.measures.length && !title) return { payload: null, errors, warnings, notes: sync.notes, syncIssue: null };
   return {
     payload: { kind: 'reportChanges', summary: text(a.summary, 500), pages, measures: measured.measures, ...(title ? { title } : {}), ...(sync.filterSync.length ? { filterSync: sync.filterSync } : {}), measureOverrides: formatOverrides(widgets, ctx.effective), pageHeight },

@@ -13,7 +13,7 @@ const { sharesCachedData } = require('../settingsHelper');
 const { dimensionCardinality } = require('./cardinality');
 const { helpTopics, readHelp } = require('./help');
 const { validateWidgetsProposal, validateDesignProposal, validateVisualProposal } = require('./validateProposal');
-const { layoutNew, pageHeightOf, COMPOSITIONS } = require('./arrangeLayout');
+const { layoutNew, pageHeightOf, fillPage, COMPOSITIONS } = require('./arrangeLayout');
 const { validateActionProposal, ACTIONS_FOR } = require('./actions');
 const { guidedLines, validateQuestion, validateUnderstood } = require('./guidedPath');
 const { formatOverrides, colorWidgets } = require('./dress');
@@ -205,8 +205,9 @@ const PROPOSERS = {
     const read = validateUnderstood(a, ctx);
     warnings.push(...read.warnings);
     const measureOverrides = formatOverrides(pages.flatMap((p) => p.widgets), ctx.effective);
-    // The tallest page sets the report's page height.
+    // The tallest page sets the report's page height; the shorter ones fill it, no empty band under their visuals.
     const pageHeight = Math.max(ctx.page.height, ...pages.map((p) => pageHeightOf(p.widgets, ctx.page)));
+    pages.forEach((p) => { p.widgets = fillPage(p.widgets, pageHeight, ctx.page.width); });
     return {
       payload: pages.length ? { kind: 'report', title, pages, measures: measured.measures, measureOverrides, pageHeight, ...colorsTag(ctx), ...(sync.filterSync.length ? { filterSync: sync.filterSync } : {}), ...(read.understood ? { understood: read.understood } : {}) } : null,
       errors,

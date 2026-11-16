@@ -213,6 +213,9 @@ describe('propose_report through the Ask route', () => {
     expect(report.title).toBe('Shop report');
     expect(report.pages.map((p) => p.name)).toEqual(['Overview']);
     expect(report.pages[0].widgets[0].layout).toEqual(expect.objectContaining({ x: expect.any(Number), w: expect.any(Number) }));
+    // No empty band under the visuals: the page reaches its bottom margin, within
+    // what is not yet a band (layoutIssues) — the chart grows twice at most.
+    expect(Math.max(...report.pages[0].widgets.map((w) => w.layout.y + w.layout.h))).toBeGreaterThan(report.pageHeight - 20 - 60);
     expect(providers.chat.mock.calls[0][0].tools.map((t) => t.name)).toContain('propose_report');
   });
 

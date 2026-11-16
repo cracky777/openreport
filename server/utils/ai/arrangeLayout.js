@@ -633,6 +633,64 @@ function placeWidget(byId, widgetId, place, page, effective) {
   return { moves, error: null };
 }
 
+// Visuals that keep their height when a page is filled: a figure, a slicer, a
+// title or a logo stretched taller only adds air inside its card.
+const KEEPS_HEIGHT = new Set(['filter', 'scorecard', 'gauge', 'text', 'image']);
+// A chart drawn more than twice its composed height reads worse than the band left under it.
+const MAX_FILL = 2;
+
+/**
+ * A report's page height is one setting for all its pages, the tallest page's:
+ * a shorter page showed an empty band under its visuals (Jonathan: « ça ne fait
+ * pas propre d'avoir du vide »). The page is cut into bands at every visual's
+ * top and bottom; the bands a chart, a table or a shape under a chart runs
+ * through grow, so the gaps between rows and the figures' heights stay. The
+ * content then ends one margin above the page bottom — at most twice its
+ * composed height. Pure: widgets with `layout` in, new widgets out.
+ *
+ * @param {object[]} widgets  [{ type, layout: {x,y,w,h} }]
+ * @param {number}   height   the report's page height
+ */
+function fillPage(given, height, width = null) {
+  const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const chart = (w) => !KEEPS_HEIGHT.has(w.type) && w.type !== 'shape';
+  // A chart alone on its row spans the page: set at a lone visual's 560 px, a
+  // page of one trend left its right half empty and its chart tall and thin.
+  const inner = width ? width - 2 * MARGIN : null;
+  const alone = (w) => !given.some((o) => o !== w && o.layout && o.type !== 'shape' && o.layout.y < w.layout.y + w.layout.h && w.layout.y < o.layout.y + o.layout.h);
+  const widgets = inner ? given.map((w) => (w.layout && chart(w) && w.layout.w < inner && alone(w) ? { ...w, layout: { ...w.layout, x: MARGIN, w: inner } } : w)) : given;
+  const boxes = widgets.filter((w) => w.layout);
+  const grows = (w) => chart(w) || (w.type === 'shape' && boxes.some((o) => o !== w && chart(o) && overlaps(o.layout, w.layout)));
+  const growing = boxes.filter(grows);
+  const bottom = Math.max(0, ...boxes.map((w) => w.layout.y + w.layout.h));
+  const target = height - MARGIN;
+  if (!growing.length || bottom >= target) return widgets;
+  const edges = [...new Set(boxes.flatMap((w) => [w.layout.y, w.layout.y + w.layout.h]))].sort((a, b) => a - b);
+  const bands = edges.slice(1).map((end, i) => ({
+    start: edges[i], end, grows: growing.some((w) => w.layout.y <= edges[i] && w.layout.y + w.layout.h >= end),
+  }));
+  const stretchable = bands.filter((b) => b.grows).reduce((sum, b) => sum + b.end - b.start, 0);
+  if (!stretchable) return widgets;
+  const k = Math.min(MAX_FILL, (stretchable + target - bottom) / stretchable);
+  const map = (y) => {
+    let out = edges[0];
+    for (const b of bands) {
+      if (y <= b.start) break;
+      const part = Math.min(y, b.end) - b.start;
+      out += b.grows ? part * k : part;
+    }
+    return y <= edges[0] ? y : out;
+  };
+  // Snapped down — a box rounded up could run one grid step past the page
+  // bottom — but never above where it was: a figure off the grid stays put.
+  return widgets.map((w) => {
+    if (!w.layout) return w;
+    const y = Math.max(w.layout.y, snapDown(map(w.layout.y)));
+    const h = grows(w) ? Math.max(w.layout.h, snapDown(map(w.layout.y + w.layout.h)) - y) : w.layout.h;
+    return { ...w, layout: { ...w.layout, y, h } };
+  });
+}
+
 /** The page height a laid-out set needs: the page's own, or more when the rows run past it. */
 function pageHeightOf(widgets, page) {
   const bottom = widgets.reduce((max, w) => (w.layout ? Math.max(max, w.layout.y + w.layout.h) : max), 0);
@@ -655,4 +713,4 @@ function pageLoad(pageContext) {
 }
 
 module.exports = {
-  COMPOSITIONS, arrange, layoutNew, insertWidgets, placeWidget, pageHeightOf, pageLoad, floorOf, withFloors, minOf, readableMin, READABLE_MIN, GRID, MARGIN, GUTTER };
+  COMPOSITIONS, arrange, layoutNew, insertWidgets, placeWidget, pageHeightOf, fillPage, pageLoad, floorOf, withFloors, minOf, readableMin, READABLE_MIN, GRID, MARGIN, GUTTER };
