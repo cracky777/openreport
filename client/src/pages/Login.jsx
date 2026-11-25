@@ -93,6 +93,78 @@ export default function Login() {
     setError('');
   };
 
+  // Forgot password: null = sign-in form; { byEmail, supportEmail, status } otherwise.
+  const [forgot, setForgot] = useState(null);
+  const openForgot = async () => {
+    setError('');
+    setForgot({ status: 'loading' });
+    try {
+      const { data } = await api.get('/auth/password-reset');
+      setForgot({ ...data, status: 'idle' });
+    } catch {
+      setForgot({ byEmail: false, status: 'idle' });
+    }
+  };
+  const sendReset = async (e) => {
+    e.preventDefault();
+    setForgot((f) => ({ ...f, status: 'sending', error: '' }));
+    try {
+      await api.post('/auth/forgot-password', { email });
+      setForgot((f) => ({ ...f, status: 'sent' }));
+    } catch (err) {
+      setForgot((f) => ({ ...f, status: 'idle', error: err.response?.data?.error || 'Something went wrong' }));
+    }
+  };
+
+  if (forgot) {
+    return (
+      <div style={containerStyle}>
+        <div style={cardStyle}>
+          <div style={_hs0}>
+            <img src={logoSrc} alt="Open Report" style={_hs1} />
+          </div>
+          <p style={_hs2}>Reset your password</p>
+          {forgot.status === 'loading' ? null : !forgot.byEmail ? (
+            <p style={_hs3}>
+              Ask your administrator to set a new password for you
+              {forgot.supportEmail
+                ? <> (<a href={`mailto:${forgot.supportEmail}`} style={linkStyle}>{forgot.supportEmail}</a>).</>
+                : '.'}
+            </p>
+          ) : forgot.status === 'sent' ? (
+            <p style={_hs3}>
+              If an account exists for <strong style={_hs4}>{email.trim()}</strong>, we sent it a link to set a new password.
+              The link works once, for one hour. Check your spam folder if nothing arrives.
+            </p>
+          ) : (
+            <form onSubmit={sendReset}>
+              <p style={_hs3}>Enter the email of your account and we'll send you a link to set a new password.</p>
+              {forgot.error && <div style={_hs11}>{forgot.error}</div>}
+              <input
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoFocus
+                {...emailInputProps}
+                style={inputStyle}
+              />
+              <button type="submit" className="btn-hover btn-hover-primary" disabled={forgot.status === 'sending'} style={buttonStyle}>
+                {forgot.status === 'sending' ? 'Sending…' : 'Send the link'}
+              </button>
+            </form>
+          )}
+          <div style={_hs6}>
+            <button className="btn-hover btn-hover-accent" onClick={() => setForgot(null)} style={_hs7}>
+              ← Back to sign in
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Verification-pending screen — shown after register or after a login
   // attempt that hit EMAIL_UNVERIFIED.
   if (pendingEmail) {
@@ -158,6 +230,7 @@ export default function Login() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
+            {...emailInputProps}
             style={inputStyle}
           />
           <input
@@ -166,8 +239,16 @@ export default function Login() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
+            autoComplete={isRegister ? 'new-password' : 'current-password'}
             style={inputStyle}
           />
+          {!isRegister && (
+            <div style={forgotRowStyle}>
+              <button type="button" className="btn-hover btn-hover-accent" onClick={openForgot} style={_hs7}>
+                Forgot password?
+              </button>
+            </div>
+          )}
           <button type="submit" className="btn-hover btn-hover-primary" style={buttonStyle}>
             {isRegister ? 'Register' : 'Sign in'}
           </button>
@@ -206,7 +287,12 @@ export default function Login() {
   );
 }
 
-const ssoDividerStyle = { display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 12px' };
+// Phones capitalise the first letter of a field by default.
+const emailInputProps = { autoComplete: 'email', autoCapitalize: 'none', autoCorrect: 'off', spellCheck: false };
+const forgotRowStyle = { display: 'flex', justifyContent: 'flex-end', marginTop: -6, marginBottom: 10, fontSize: 12 };
+const linkStyle = { color: 'var(--accent-primary)' };
+
+const ssoDividerStyle ={ display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 12px' };
 const ssoDividerLine = { flex: 1, height: 1, background: 'var(--border-default)' };
 const ssoDividerText = { fontSize: 11, color: 'var(--text-disabled)', textTransform: 'uppercase', letterSpacing: '0.08em' };
 const ssoButtonStyle = {

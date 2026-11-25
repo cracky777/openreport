@@ -49,6 +49,12 @@ services:
       - "CORS_ORIGIN=${CORS_ORIGIN:-}"
       # Address users open the app at: links in the metadata API (API.md).
       - "PUBLIC_URL=${PUBLIC_URL:-}"
+      # Outgoing mail for "Forgot password?" links (needs PUBLIC_URL too).
+      - "SMTP_HOST=${SMTP_HOST:-}"
+      - "SMTP_PORT=${SMTP_PORT:-}"
+      - "SMTP_USER=${SMTP_USER:-}"
+      - "SMTP_PASS=${SMTP_PASS:-}"
+      - "SMTP_FROM=${SMTP_FROM:-}"
       # Sites allowed to frame an /embed page (CSP frame-ancestors).
       # Default * — narrow it to your customers' domains when you know them.
       - "EMBED_FRAME_ANCESTORS=${EMBED_FRAME_ANCESTORS:-}"

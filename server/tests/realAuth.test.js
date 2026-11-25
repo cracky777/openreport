@@ -55,6 +55,14 @@ describe('Login', () => {
     }
   });
 
+  test('the email is matched whatever its case, as /register stores it lowercased', async () => {
+    const { id, email } = seedRealUser('correct horse');
+    const agent = request.agent(app);
+    const login = await agent.post('/api/auth/login').send({ email: ` ${email.replace(/^u/, 'U').replace('test.local', 'Test.Local')} `, password: 'correct horse' });
+    expect(login.status).toBe(200);
+    expect((await agent.get('/whoami')).body.id).toBe(id);
+  });
+
   test('the right password on the wrong account is still refused', async () => {
     const { email } = seedRealUser('correct horse');
     seedRealUser('battery staple');

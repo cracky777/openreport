@@ -6,7 +6,11 @@ const db = require('../db');
 passport.use(new LocalStrategy(
   { usernameField: 'email' },
   (email, password, done) => {
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    // Case-insensitive: "Jonathan.Fritsch@DataKhi.com" typed at login (or a
+    // phone capitalising the first letter) matched no account and read as a
+    // wrong password. NOCASE also finds accounts stored before /register
+    // lowercased addresses.
+    const user = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(String(email).trim());
     if (!user) {
       return done(null, false, { message: 'Invalid email or password' });
     }

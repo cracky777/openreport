@@ -12,6 +12,7 @@ import Alerts from './pages/Alerts';
 import ApiTokens from './pages/ApiTokens';
 import Help from './pages/Help';
 import Verify from './pages/Verify';
+import ResetPassword from './pages/ResetPassword';
 import Demo from './pages/Demo';
 // Cloud-edition routes — empty in the OSS build, populated in the cloud build.
 // The same import path resolves to either the stub or the real implementation.
@@ -88,6 +89,7 @@ const router = createBrowserRouter([
       // the signed ?token= grants access, no session required.
       { path: '/embed/:id', element: <Viewer /> },
       { path: '/verify', element: <Verify /> },
+      { path: '/reset-password', element: <ResetPassword /> },
       // Cloud-edition routes — empty array in the OSS build.
       ...(cloudRoutes || []).map((r) => ({
         path: r.path,

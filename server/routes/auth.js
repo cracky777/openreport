@@ -5,7 +5,9 @@ const { v4: uuidv4 } = require('uuid');
 const { passport, requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const authHooks = require('../hooks/auth');
-const { loginWithFreshSession } = require('../utils/sessionRegistry');
+const { loginWithFreshSession, destroySessionsForUser } = require('../utils/sessionRegistry');
+const mailer = require('../utils/mailer');
+const passwordReset = require('../utils/passwordReset');
 
 const router = express.Router();
 
@@ -144,6 +146,56 @@ router.post('/logout', (req, res) => {
     }
     return res.json({ message: 'Logged out' });
   });
+});
+
+// "Forgot password". By mail only when the instance can send one AND knows its
+// public address; otherwise the login page says to ask an administrator
+// (Admin › Users › Reset password), with the support address when one is set.
+const forgotLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Try again in a few minutes.' },
+});
+const resetByMail = () => mailer.isConfigured() && Boolean(mailer.publicUrl());
+
+router.get('/password-reset', (req, res) => {
+  const { getSupportEmail } = require('../utils/settingsHelper');
+  res.json({ byEmail: resetByMail(), supportEmail: getSupportEmail() });
+});
+
+router.post('/forgot-password', forgotLimiter, (req, res) => {
+  if (!resetByMail()) return res.status(404).json({ error: 'Password reset by email is not set up on this server' });
+  const email = typeof req.body.email === 'string' ? req.body.email.trim() : '';
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+  // Same answer, same timing, whether the account exists or not: the mail
+  // goes out after the response, so this is no way to list who has an account.
+  res.json({ message: 'If an account exists for this address, a reset link is on its way.' });
+  const user = db.prepare('SELECT id, email FROM users WHERE email = ? COLLATE NOCASE').get(email);
+  if (!user) return;
+  const token = passwordReset.issue(user.id);
+  if (!token) return;
+  const link = `${mailer.publicUrl()}/reset-password?token=${encodeURIComponent(token)}`;
+  mailer.sendMail({
+    to: user.email,
+    subject: 'Reset your Open Report password',
+    text: `Someone asked to reset the password of your Open Report account.\n\nSet a new password: ${link}\n\nThe link works once, for ${passwordReset.TTL_MINUTES} minutes. If it wasn't you, ignore this email: your password stays as it is.`,
+    html: `<p>Someone asked to reset the password of your Open Report account.</p><p><a href="${link}">Set a new password</a></p><p style="color:#666">The link works once, for ${passwordReset.TTL_MINUTES} minutes. If it wasn't you, ignore this email: your password stays as it is.</p>`,
+  }).catch((err) => console.error(`[auth] reset mail failed: ${err.message}`));
+});
+
+router.post('/reset-password', forgotLimiter, (req, res) => {
+  const { token, password } = req.body || {};
+  const passwordError = validatePassword(password);
+  if (passwordError) return res.status(400).json({ error: passwordError });
+  const userId = passwordReset.consume(token);
+  if (!userId) return res.status(400).json({ error: 'This link is invalid or has expired. Ask for a new one.' });
+  // Opening the mailed link proves the address too (cloud signs-in only verified ones).
+  db.prepare('UPDATE users SET password_hash = ?, email_verified = 1 WHERE id = ?').run(bcrypt.hashSync(password, 10), userId);
+  // Whoever made the reset necessary may hold a live cookie; it goes with the old password.
+  destroySessionsForUser(userId);
+  res.json({ message: 'Password changed' });
 });
 
 // Build or Chat (client components/AppShell/ModeSwitch): the face of the app

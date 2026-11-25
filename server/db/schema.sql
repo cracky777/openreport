@@ -21,6 +21,16 @@ CREATE TABLE IF NOT EXISTS users (
 -- editor: create/edit reports, models, datasources
 -- viewer: view reports only
 
+-- "Forgot password" links (utils/passwordReset.js): only the token's SHA-256.
+CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL,
+  used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets (user_id);
+
 CREATE TABLE IF NOT EXISTS datasources (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
