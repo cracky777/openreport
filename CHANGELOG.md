@@ -4,6 +4,36 @@ All notable changes to OpenReport are listed here. Versions follow
 [Semantic Versioning](https://semver.org/); each one is a git tag and a
 `ghcr.io/cracky777/openreport` image.
 
+## 0.7.0 — 2026-11-25
+
+- **Forgot password.** A "Forgot password?" link on the sign-in page mails a
+  one-time link (valid one hour) when the instance has SMTP and `PUBLIC_URL`
+  set (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` — see
+  `.env.example`); without them it tells users to ask their administrator.
+  The email is matched whatever its case at sign-in.
+- **Build or Chat on first arrival.** A new account picks how it wants to work:
+  build reports by hand, or talk to its data. The assistant gets its own icon,
+  and the Build stages and Chat cards new drawings.
+- **Let's Talk answers in parts.** Long answers are split into paragraphs, each
+  chart under the one it illustrates, each with its own "Add to report".
+- **Public semantic query API.** `POST /api/v1/models/:id/query` (token scope
+  `query`) returns measures by dimensions, asked by their names, with the same
+  compiler, row-level security and caches as a report visual (see `API.md`).
+- **Where a figure comes from.** With OpenMetadata connected, the assistant
+  draws the path of a field under its answer, each table in its
+  bronze / silver / gold layer.
+- **Maps.** A country added on demand also gets its towns, drawn as bubbles.
+- **Pages the assistant composes have no empty band** under their visuals:
+  charts and tables grow to fill the page.
+- The designer can put an image added to the conversation behind every page.
+- **Anonymous telemetry**, once a day: a random instance id, the version,
+  Docker or source, the database types used and whether AI is on — nothing
+  else. It shows when a new version is out (Admin › Settings). Turn it off
+  there or with `OPENREPORT_TELEMETRY=0`.
+- Fixes: the Claude subscription provider no longer stops with "failed to
+  launch" after Windows empties its temp folder; Anthropic calls use prompt
+  caching; imported files on Windows are found whatever the case of their path.
+
 ## 0.6.0 — 2026-11-03
 
 - **Let's Talk.** Ask your data anything, in any language, without building a
